@@ -1,0 +1,38 @@
+:root {
+  --accent: #087f8c;
+  --bg: #eef2f5;
+  --border: #ccd6df;
+  --danger: #b42318;
+  --muted: #667085;
+  --row-active: #e7f3f5;
+  --surface: #ffffff;
+  --surface-muted: #f4f7f9;
+  --text: #334155;
+  --text-strong: #10202c;
+  --mono: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  --sans: Inter, "Segoe UI", Roboto, Arial, sans-serif;
+  color: var(--text);
+  font-family: var(--sans);
+  font-synthesis: none;
+  line-height: 1.45;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg);
+  margin: 0;
+  min-width: 320px;
+}
+
+button,
+textarea {
+  font-family: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
