@@ -126,3 +126,135 @@ let ``dissipation check flags positive energy deltas`` () =
     match Measurement.checkDissipation [ state "t1" 10.0; state "t2" 10.5 ] with
     | Violation(_, _, delta) -> Assert.Equal(0.5, delta, 3)
     | result -> failwithf "Expected violation result, got %A" result
+
+[<Fact>]
+let ``storage computation saves and loads turns through context`` () =
+    let context = InMemoryStorage.createContext (fun () -> DateTimeOffset.UnixEpoch)
+    let prompt = Domain.prompt "p1" "First prompt"
+    let response = Domain.response "r1" "First response"
+
+    let turn =
+        Domain.turn
+            "t1"
+            "s1"
+            0
+            prompt
+            response
+            DateTimeOffset.UnixEpoch
+            Natural
+            0
+
+    let operation =
+        storage {
+            do! StorageOps.saveTurn turn
+            return! StorageOps.getTurn turn.Id
+        }
+
+    let result =
+        Storage.run context operation
+        |> Async.RunSynchronously
+
+    match result with
+    | Ok(Some loaded) -> Assert.Equal(turn.Id, loaded.Id)
+    | other -> failwithf "Expected saved turn, got %A" other
+
+[<Fact>]
+let ``in memory turn store lists session turns by sequence index`` () =
+    let context = InMemoryStorage.createContext (fun () -> DateTimeOffset.UnixEpoch)
+    let prompt = Domain.prompt "p1" "Prompt"
+    let response = Domain.response "r1" "Response"
+
+    let turn sequenceIndex =
+        Domain.turn
+            $"t{sequenceIndex}"
+            "s1"
+            sequenceIndex
+            prompt
+            response
+            DateTimeOffset.UnixEpoch
+            Natural
+            0
+
+    let operation =
+        storage {
+            do! StorageOps.saveTurn (turn 2)
+            do! StorageOps.saveTurn (turn 0)
+            do! StorageOps.saveTurn (turn 1)
+            return! StorageOps.listTurnsForSession (SessionId "s1")
+        }
+
+    let result =
+        Storage.run context operation
+        |> Async.RunSynchronously
+
+    match result with
+    | Ok turns ->
+        let indexes = turns |> List.map _.SequenceIndex
+        Assert.Equal<int list>([ 0; 1; 2 ], indexes)
+    | Error error -> failwithf "Expected ordered turns, got %A" error
+
+[<Fact>]
+let ``latest calibration lookup returns newest record for context class`` () =
+    let context = InMemoryStorage.createContext (fun () -> DateTimeOffset.UnixEpoch)
+
+    let record id day =
+        { Id = CalibrationRecordId id
+          ContextClassId = ContextClassId "general"
+          EstimatedAt = DateTimeOffset.UnixEpoch.AddDays(day)
+          ValidFrom = DateTimeOffset.UnixEpoch.AddDays(day)
+          ValidUntil = None
+          NoiseFloorEpsilon = None
+          LambdaMinEpsilon = None
+          LocalValidityRadiusDelta = None
+          LambdaMaxDelta = None
+          TokenGranularityLambdaQuantum = None }
+
+    let operation =
+        storage {
+            do! StorageOps.saveCalibrationRecord (record "old" 1.0)
+            do! StorageOps.saveCalibrationRecord (record "new" 2.0)
+            return! StorageOps.latestCalibrationForContextClass (ContextClassId "general")
+        }
+
+    let result =
+        Storage.run context operation
+        |> Async.RunSynchronously
+
+    match result with
+    | Ok(Some latest) -> Assert.Equal(CalibrationRecordId "new", latest.Id)
+    | other -> failwithf "Expected latest calibration, got %A" other
+
+[<Fact>]
+let ``storage computation short circuits after error`` () =
+    let context = InMemoryStorage.createContext (fun () -> DateTimeOffset.UnixEpoch)
+    let prompt = Domain.prompt "p1" "Prompt"
+    let response = Domain.response "r1" "Response"
+
+    let turn =
+        Domain.turn
+            "t1"
+            "s1"
+            0
+            prompt
+            response
+            DateTimeOffset.UnixEpoch
+            Natural
+            0
+
+    let operation =
+        storage {
+            do! Storage.error (ValidationFailure "stop")
+            do! StorageOps.saveTurn turn
+            return! StorageOps.getTurn turn.Id
+        }
+
+    let result =
+        Storage.run context operation
+        |> Async.RunSynchronously
+
+    let loaded =
+        Storage.run context (StorageOps.getTurn turn.Id)
+        |> Async.RunSynchronously
+
+    Assert.Equal(Error(ValidationFailure "stop"), result)
+    Assert.Equal(Ok None, loaded)
