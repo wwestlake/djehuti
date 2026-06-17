@@ -377,3 +377,101 @@ let ``ingestion rejects out of order logical time`` () =
     match result with
     | Error(ValidationFailure message) -> Assert.Contains("earlier than existing sequence", message)
     | other -> failwithf "Expected ordering validation failure, got %A" other
+
+let private sampleJson =
+    """
+{
+  "source": {
+    "id": "json-source",
+    "kind": "replay-file",
+    "name": "lab replay",
+    "metadata": {
+      "instrument": "djehuti"
+    }
+  },
+  "constants": {
+    "distanceMetric": "cosine",
+    "epsilon": 0.01,
+    "strictWindowCheck": true,
+    "labels": ["calibration", "smoke"]
+  },
+  "interactions": [
+    {
+      "turnId": "json-turn-0",
+      "sessionId": "json-session",
+      "modelId": "model-json",
+      "sequenceIndex": 0,
+      "observedAt": "2026-06-17T12:00:00Z",
+      "promptId": "json-prompt-0",
+      "prompt": "Define entropy.",
+      "responseId": "json-response-0",
+      "response": "Entropy measures uncertainty.",
+      "strategy": "natural",
+      "metadata": {
+        "run": "A"
+      }
+    },
+    {
+      "turnId": "json-turn-1",
+      "sessionId": "json-session",
+      "modelId": "model-json",
+      "sequenceIndex": 1,
+      "prompt": "Give an example.",
+      "response": "A shuffled deck has high entropy."
+    }
+  ]
+}
+"""
+
+[<Fact>]
+let ``json reader parses source constants and interaction records`` () =
+    let dataSet = JsonInterop.readDataSetFromString sampleJson
+
+    Assert.Equal(DataSourceId "json-source", dataSet.Source.Id)
+    Assert.Equal(ReplayFile, dataSet.Source.Kind)
+    Assert.Equal(2, dataSet.Interactions.Length)
+
+    match dataSet.Constants["epsilon"] with
+    | JsonNumber value -> Assert.Equal(0.01, value, 3)
+    | other -> failwithf "Expected numeric epsilon, got %A" other
+
+    match dataSet.Constants["strictWindowCheck"] with
+    | JsonBoolean true -> ()
+    | other -> failwithf "Expected boolean strictWindowCheck, got %A" other
+
+    Assert.Equal(LogicalTime 0, dataSet.Interactions.Head.Clock.SequenceIndex)
+    Assert.Equal("Define entropy.", dataSet.Interactions.Head.Prompt.Text)
+
+[<Fact>]
+let ``json data source feeds ingestion pipeline`` () =
+    let context = InMemoryStorage.createContext (fun () -> DateTimeOffset.UnixEpoch)
+    let source = JsonDataSource(sampleJson) :> IDataSource
+
+    let result =
+        Storage.run context (Ingestion.ingestDataSource source Threading.CancellationToken.None)
+        |> Async.RunSynchronously
+
+    let turns =
+        Storage.run context (StorageOps.listTurnsForSession (SessionId "json-session"))
+        |> Async.RunSynchronously
+
+    match result, turns with
+    | Ok summary, Ok storedTurns ->
+        Assert.Equal(2, summary.InteractionsObserved)
+        Assert.Equal<int list>([ 0; 1 ], storedTurns |> List.map _.SequenceIndex)
+        Assert.Equal("json-source", storedTurns.Head.Metadata["data_source_id"])
+    | other -> failwithf "Expected JSON ingestion success, got %A" other
+
+[<Fact>]
+let ``json writer round trips compatible dataset`` () =
+    let dataSet = JsonInterop.readDataSetFromString sampleJson
+    let json = JsonInterop.writeDataSetToString dataSet
+    let roundTripped = JsonInterop.readDataSetFromString json
+
+    Assert.Equal(dataSet.Source.Id, roundTripped.Source.Id)
+    Assert.Equal(dataSet.Interactions.Length, roundTripped.Interactions.Length)
+    Assert.Equal(dataSet.Interactions[1].Response.Text, roundTripped.Interactions[1].Response.Text)
+
+    match roundTripped.Constants["labels"] with
+    | JsonArray [ JsonString "calibration"; JsonString "smoke" ] -> ()
+    | other -> failwithf "Expected labels array, got %A" other

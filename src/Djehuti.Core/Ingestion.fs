@@ -3,6 +3,7 @@ namespace Djehuti.Core
 open System
 open System.Collections.Generic
 open System.Threading
+open System.Threading.Tasks
 
 type LogicalTime =
     | LogicalTime of int
@@ -272,3 +273,38 @@ module Ingestion =
                     return combineSummaries summary eventSummary
                 })
             (Storage.result emptySummary)
+
+    let ingestAsyncEvents (events: IAsyncEnumerable<IngestionEvent>) (cancellationToken: CancellationToken) =
+        Storage(fun context ->
+            async {
+                let enumerator = events.GetAsyncEnumerator cancellationToken
+
+                let rec loop summary =
+                    async {
+                        let! hasNext =
+                            enumerator.MoveNextAsync().AsTask()
+                            |> Async.AwaitTask
+
+                        if hasNext then
+                            let! eventResult =
+                                ingestEvent enumerator.Current
+                                |> Storage.run context
+
+                            match eventResult with
+                            | Ok eventSummary ->
+                                return! loop (combineSummaries summary eventSummary)
+                            | Error error -> return Error error
+                        else
+                            return Ok summary
+                    }
+
+                let! result = loop emptySummary
+                do!
+                    enumerator.DisposeAsync().AsTask()
+                    |> Async.AwaitTask
+
+                return result
+            })
+
+    let ingestDataSource (source: IDataSource) cancellationToken =
+        ingestAsyncEvents (source.Read cancellationToken) cancellationToken

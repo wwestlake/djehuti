@@ -11,6 +11,7 @@
     <Compile Include="Measurement.fs" />
     <Compile Include="Storage.fs" />
     <Compile Include="Ingestion.fs" />
+    <Compile Include="JsonInterop.fs" />
   </ItemGroup>
 
 </Project>
