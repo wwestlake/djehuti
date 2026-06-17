@@ -10,6 +10,7 @@
     <Compile Include="TextAnalysis.fs" />
     <Compile Include="Measurement.fs" />
     <Compile Include="Storage.fs" />
+    <Compile Include="Ingestion.fs" />
   </ItemGroup>
 
 </Project>

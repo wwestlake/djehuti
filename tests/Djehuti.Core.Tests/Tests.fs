@@ -258,3 +258,122 @@ let ``storage computation short circuits after error`` () =
 
     Assert.Equal(Error(ValidationFailure "stop"), result)
     Assert.Equal(Ok None, loaded)
+
+let private testSource =
+    { Id = DataSourceId "source-1"
+      Kind = ReplayFile
+      Name = "test replay"
+      Metadata = Map.empty }
+
+let private interaction sessionId index =
+    { TurnId = TurnId $"turn-{index}"
+      SessionId = SessionId sessionId
+      ModelId = ModelId "model-1"
+      Clock =
+        { SequenceIndex = LogicalTime index
+          ObservedAt = None }
+      Prompt = Domain.prompt $"prompt-{index}" $"Prompt {index}"
+      Response = Domain.response $"response-{index}" $"Response {index}"
+      Strategy = Natural
+      PriorShockCount = 0
+      Source = testSource
+      Metadata = Map.empty }
+
+[<Fact>]
+let ``ingestion accepts ordered interaction records using integer logical time`` () =
+    let context = InMemoryStorage.createContext (fun () -> DateTimeOffset.UnixEpoch)
+
+    let operation =
+        Ingestion.ingestEvents
+            [ InteractionObserved(interaction "s-ingest" 0)
+              InteractionObserved(interaction "s-ingest" 1) ]
+
+    let result =
+        Storage.run context operation
+        |> Async.RunSynchronously
+
+    let storedTurns =
+        Storage.run context (StorageOps.listTurnsForSession (SessionId "s-ingest"))
+        |> Async.RunSynchronously
+
+    match result, storedTurns with
+    | Ok summary, Ok turns ->
+        Assert.Equal(2, summary.InteractionsObserved)
+        Assert.Empty(summary.Gaps)
+        Assert.Equal<int list>([ 0; 1 ], turns |> List.map _.SequenceIndex)
+    | other -> failwithf "Expected successful ingestion, got %A" other
+
+[<Fact>]
+let ``ingestion preserves source identity as turn metadata`` () =
+    let context = InMemoryStorage.createContext (fun () -> DateTimeOffset.UnixEpoch)
+    let record = interaction "s-source" 0
+
+    let result =
+        Storage.run context (Ingestion.ingestEvent (InteractionObserved record))
+        |> Async.RunSynchronously
+
+    let loaded =
+        Storage.run context (StorageOps.getTurn record.TurnId)
+        |> Async.RunSynchronously
+
+    match result, loaded with
+    | Ok _, Ok(Some turn) ->
+        Assert.Equal("source-1", turn.Metadata["data_source_id"])
+        Assert.Equal("replay-file", turn.Metadata["data_source_kind"])
+        Assert.Equal("0", turn.Metadata["logical_time"])
+    | other -> failwithf "Expected source metadata, got %A" other
+
+[<Fact>]
+let ``ingestion reports gaps without rejecting later logical time`` () =
+    let context = InMemoryStorage.createContext (fun () -> DateTimeOffset.UnixEpoch)
+
+    let operation =
+        Ingestion.ingestEvents
+            [ InteractionObserved(interaction "s-gap" 0)
+              InteractionObserved(interaction "s-gap" 3) ]
+
+    let result =
+        Storage.run context operation
+        |> Async.RunSynchronously
+
+    match result with
+    | Ok summary ->
+        Assert.Equal(2, summary.InteractionsObserved)
+        let gap = Assert.Single(summary.Gaps)
+        Assert.Equal(0, gap.PreviousSequenceIndex)
+        Assert.Equal(3, gap.CurrentSequenceIndex)
+    | Error error -> failwithf "Expected gap summary, got %A" error
+
+[<Fact>]
+let ``ingestion rejects duplicate logical time in a session`` () =
+    let context = InMemoryStorage.createContext (fun () -> DateTimeOffset.UnixEpoch)
+
+    let operation =
+        Ingestion.ingestEvents
+            [ InteractionObserved(interaction "s-duplicate" 0)
+              InteractionObserved({ interaction "s-duplicate" 0 with TurnId = TurnId "turn-duplicate" }) ]
+
+    let result =
+        Storage.run context operation
+        |> Async.RunSynchronously
+
+    match result with
+    | Error(Conflict("Turn", _, reason)) -> Assert.Contains("logical time", reason)
+    | other -> failwithf "Expected duplicate conflict, got %A" other
+
+[<Fact>]
+let ``ingestion rejects out of order logical time`` () =
+    let context = InMemoryStorage.createContext (fun () -> DateTimeOffset.UnixEpoch)
+
+    let operation =
+        Ingestion.ingestEvents
+            [ InteractionObserved(interaction "s-out-of-order" 2)
+              InteractionObserved(interaction "s-out-of-order" 1) ]
+
+    let result =
+        Storage.run context operation
+        |> Async.RunSynchronously
+
+    match result with
+    | Error(ValidationFailure message) -> Assert.Contains("earlier than existing sequence", message)
+    | other -> failwithf "Expected ordering validation failure, got %A" other
