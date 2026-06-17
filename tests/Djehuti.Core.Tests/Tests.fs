@@ -475,3 +475,144 @@ let ``json writer round trips compatible dataset`` () =
     match roundTripped.Constants["labels"] with
     | JsonArray [ JsonString "calibration"; JsonString "smoke" ] -> ()
     | other -> failwithf "Expected labels array, got %A" other
+
+let private promptResponseExampleDataJson =
+    """
+{
+  "source": {
+    "id": "prompt-response-example-data",
+    "kind": "manual-transcript",
+    "name": "Prompt response example data",
+    "metadata": {
+      "origin": "Google Doc: Prompt response example data"
+    }
+  },
+  "constants": {
+    "distanceMetric": "cosine",
+    "conversationType": "technical-troubleshooting",
+    "turnCount": 10
+  },
+  "interactions": [
+    {
+      "turnId": "example-turn-0",
+      "sessionId": "example-session",
+      "modelId": "simulated-llm",
+      "sequenceIndex": 0,
+      "prompt": "I need to design a resource routing pipeline for a distributed simulation. What is the most efficient way to handle continuous material flow between three distinct processing nodes?",
+      "response": "For a continuous material flow across three nodes, a directed acyclic graph (DAG) architecture using a message broker like Apache Kafka or RabbitMQ is highly efficient. You can treat each processing node as a consumer/producer, ensuring asynchronous data transfer and buffering against node downtime."
+    },
+    {
+      "turnId": "example-turn-1",
+      "sessionId": "example-session",
+      "modelId": "simulated-llm",
+      "sequenceIndex": 1,
+      "prompt": "Let's avoid heavy message brokers. I want to handle this at the application layer using direct memory access or shared state if possible. The nodes are running on the same local cluster.",
+      "response": "If the nodes are on the same local cluster and you want to avoid broker overhead, implementing a shared memory architecture using memory-mapped files or a distributed caching layer like Redis is ideal. You could also use direct gRPC streaming between the nodes for low-latency, point-to-point communication."
+    },
+    {
+      "turnId": "example-turn-2",
+      "sessionId": "example-session",
+      "modelId": "simulated-llm",
+      "sequenceIndex": 2,
+      "prompt": "Let's go with gRPC streaming. Node A generates raw input, Node B filters it, and Node C aggregates it. Can you outline the gRPC service definitions for this?",
+      "response": "Certainly. You will need two primary gRPC services. First, a FilterService hosted by Node B that accepts a stream of RawInput messages from Node A and returns a stream of FilteredData. Second, an AggregationService hosted by Node C that accepts a stream of FilteredData from Node B and returns periodic AggregateStatus updates."
+    },
+    {
+      "turnId": "example-turn-3",
+      "sessionId": "example-session",
+      "modelId": "simulated-llm",
+      "sequenceIndex": 3,
+      "prompt": "Wait, if Node B is returning a stream to Node A, how does the data get to Node C? Node A shouldn't be responsible for passing it along.",
+      "response": "You are completely right, my apologies for the confusion. Node A should only act as a client streaming to Node B. Node B will act as both a server receiving from A and a client streaming the filtered results forward to Node C. Node C is the final server terminating the pipeline."
+    },
+    {
+      "turnId": "example-turn-4",
+      "sessionId": "example-session",
+      "modelId": "simulated-llm",
+      "sequenceIndex": 4,
+      "prompt": "Okay, write the protobuf file for the connection between Node B and Node C only.",
+      "response": "syntax = proto3; package pipeline; service AggregationService { rpc StreamFilteredData (stream FilteredPayload) returns (AggregationAck); } message FilteredPayload { string item_id = 1; bytes processed_data = 2; int64 timestamp = 3; } message AggregationAck { bool success = 1; int32 items_processed = 2; }"
+    },
+    {
+      "turnId": "example-turn-5",
+      "sessionId": "example-session",
+      "modelId": "simulated-llm",
+      "sequenceIndex": 5,
+      "prompt": "Node C needs to return a continuous stream of the aggregate, not just a single acknowledgment. Change the return type to a stream.",
+      "response": "syntax = proto3; package pipeline; service AggregationService { rpc StreamFilteredData (stream FilteredPayload) returns (stream AggregateUpdate); } message FilteredPayload { string item_id = 1; bytes processed_data = 2; int64 timestamp = 3; } message AggregateUpdate { double current_moving_average = 1; int64 latest_timestamp = 2; }"
+    },
+    {
+      "turnId": "example-turn-6",
+      "sessionId": "example-session",
+      "modelId": "simulated-llm",
+      "sequenceIndex": 6,
+      "prompt": "Actually, moving average won't work for this data type. It's categorical data, not numerical. How do we aggregate categories over a stream?",
+      "response": "For categorical data, a moving average is indeed incorrect. Instead, you should aggregate by tracking the frequency distribution or counting occurrences over a sliding time window. The AggregateUpdate message should be updated to return a map of category strings to their respective integer counts."
+    },
+    {
+      "turnId": "example-turn-7",
+      "sessionId": "example-session",
+      "modelId": "simulated-llm",
+      "sequenceIndex": 7,
+      "prompt": "Update the protobuf to reflect a frequency map.",
+      "response": "syntax = proto3; package pipeline; service AggregationService { rpc StreamFilteredData (stream FilteredPayload) returns (stream AggregateUpdate); } message FilteredPayload { string item_id = 1; string category = 2; int64 timestamp = 3; } message AggregateUpdate { map<string, int32> category_frequencies = 1; int64 window_end_timestamp = 2; }"
+    },
+    {
+      "turnId": "example-turn-8",
+      "sessionId": "example-session",
+      "modelId": "simulated-llm",
+      "sequenceIndex": 8,
+      "prompt": "We need to ensure Node B doesn't overwhelm Node C. How do we implement backpressure in gRPC if the map gets too large?",
+      "response": "gRPC handles backpressure natively at the network level using HTTP/2 flow control. If Node C processes the frequency map too slowly, the HTTP/2 receive window fills up, which automatically signals Node B's TCP stack to pause sending until Node C catches up and opens the window again."
+    },
+    {
+      "turnId": "example-turn-9",
+      "sessionId": "example-session",
+      "modelId": "simulated-llm",
+      "sequenceIndex": 9,
+      "prompt": "So I don't need to write any custom application-level backpressure logic for the category map?",
+      "response": "In most standard use cases, no. The native HTTP/2 flow control handles the network-level backpressure for you. However, if your categorical map requires complex memory management on Node C before it can clear the buffer, you might eventually need application-level throttling, but gRPC's defaults are the best starting point."
+    }
+  ]
+}
+"""
+
+[<Fact>]
+let ``example prompt response data ingests and produces metrics`` () =
+    let context = InMemoryStorage.createContext (fun () -> DateTimeOffset.UnixEpoch)
+    let source = JsonDataSource(promptResponseExampleDataJson) :> IDataSource
+
+    let ingestionResult =
+        Storage.run context (Ingestion.ingestDataSource source Threading.CancellationToken.None)
+        |> Async.RunSynchronously
+
+    let turnsResult =
+        Storage.run context (StorageOps.listTurnsForSession (SessionId "example-session"))
+        |> Async.RunSynchronously
+
+    match ingestionResult, turnsResult with
+    | Ok summary, Ok turns ->
+        let comparisons =
+            turns
+            |> List.map (fun turn -> PromptToResponse(turn.Prompt, turn.Response))
+
+        let corpus = TextMetrics.corpusMetrics comparisons
+
+        let velocities =
+            turns
+            |> List.pairwise
+            |> List.map (fun (previousTurn, currentTurn) ->
+                Measurement.velocityFromTurnPair CosineDistance previousTurn currentTurn)
+
+        Assert.Equal(10, summary.InteractionsObserved)
+        Assert.Equal(10, turns.Length)
+        Assert.Equal<int list>([ 0..9 ], turns |> List.map _.SequenceIndex)
+        Assert.Equal(10, corpus.ComparisonCount)
+        Assert.Equal(10, corpus.PromptResponseCount)
+        Assert.Equal(9, velocities.Length)
+        Assert.All(velocities, fun velocity ->
+            Assert.Equal(DirectObservation, velocity.Basis)
+            Assert.InRange(velocity.Value, 0.0, 1.0))
+        Assert.True(corpus.AverageCosineSimilarity > 0.0)
+        Assert.True(corpus.AverageWordCountDelta > 0.0)
+    | other -> failwithf "Expected example data ingestion and metrics, got %A" other
