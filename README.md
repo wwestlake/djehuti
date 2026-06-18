@@ -4,9 +4,12 @@ Djehuti is an empirical measurement instrument for studying large language model
 
 It is not an agent framework, prompt library, benchmark leaderboard, or provider wrapper. Djehuti is a protocol-oriented toolkit for recording externally observable prompt-response trajectories, applying controlled perturbations, and computing carefully labeled observables from those records.
 
-This project implements the Information Space Dynamics (ISD) measurement framework described in Westlake (2026):
+This project implements the Information Space Dynamics (ISD) measurement framework described in Westlake (2026).
 
-[https://doi.org/10.5281/zenodo.20690590](https://doi.org/10.5281/zenodo.20690590)
+References:
+
+- ISD framework: [https://doi.org/10.5281/zenodo.20690590](https://doi.org/10.5281/zenodo.20690590)
+- Djehuti application: [https://doi.org/10.5281/zenodo.20739449](https://doi.org/10.5281/zenodo.20739449)
 
 ## Dashboard Preview
 
