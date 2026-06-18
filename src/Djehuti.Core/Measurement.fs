@@ -102,6 +102,33 @@ type MeasurementReport =
       Items: MeasurementReportItem list
       Warnings: string list }
 
+type TrajectoryPoint =
+    { TurnId: TurnId
+      SequenceIndex: int
+      Coordinates: Map<string, MeasuredValue> }
+
+type HermiteSegment =
+    { StartPoint: TrajectoryPoint
+      EndPoint: TrajectoryPoint
+      StartTangent: Map<string, MeasuredValue>
+      EndTangent: Map<string, MeasuredValue>
+      Assumptions: AssumptionFlag list }
+
+type FormalIdentityKind =
+    | StabilityCriterion
+    | CumulativeLeakageFunctional
+    | TorsionalAccumulation
+
+type FormalIdentityDiagnostic =
+    { Kind: FormalIdentityKind
+      Value: MeasuredValue
+      Inputs: string list
+      Description: string }
+
+type AttractorDetectionThresholds =
+    { StabilityMarginMaximum: float
+      TorsionalAccumulationMinimum: float }
+
 type NaturalContinuationPlan =
     { Label: string
       ContextPrefix: ContextPrefix
@@ -186,6 +213,23 @@ type ShockExecutionResult =
     | ShockExecuted of ShockTrialResult
     | ShockExecutionRefused of label: string * refusal: MeasuredValue
     | ShockExecutionFailed of label: string * error: ProtocolExecutionError
+
+type NaturalExecutionResult =
+    | NaturalExecuted of NaturalContinuationResult
+    | NaturalExecutionFailed of label: string * error: ProtocolExecutionError
+
+type NaturalPromptBuildRequest =
+    { Plan: NaturalContinuationPlan }
+
+type INaturalPromptBuilder =
+    abstract Build: NaturalPromptBuildRequest -> Result<Prompt, ProtocolExecutionError>
+
+type ForkedReplicationExecution =
+    { Plan: ForkedReplicationPlan
+      Results: ForkedReplicationResults
+      NaturalExecutionResults: NaturalExecutionResult list
+      ShockExecutionResults: ShockExecutionResult list
+      Warnings: string list }
 
 module Measurement =
     let private divide numerator denominator =
@@ -285,7 +329,7 @@ module Measurement =
         |> List.filter (System.String.IsNullOrWhiteSpace >> not)
         |> List.distinct
 
-    let buildMinimalTokenEditShock request =
+    let buildMinimalTokenEditShock (request: ShockConstructionRequest) =
         match request.Plan.Refusal with
         | Some refusal -> Ok { Prompt = Domain.prompt $"{request.Plan.Label}-refused-shock" ""; Lambda = nan; CandidateCount = 0; Basis = refusal.Basis; Assumptions = refusal.Assumptions }
         | None ->
@@ -415,6 +459,332 @@ module Measurement =
               Curvature = None
               TorsionalResistance = None
               Zeta4 = None }
+
+    let trajectoryPointFromObservableVector sequenceIndex (vector: ObservableVector) =
+        let coordinates =
+            [ "alpha", vector.Alpha
+              "beta", vector.Beta
+              "gamma", vector.Gamma
+              "delta", vector.Delta
+              "v", vector.Velocity
+              "kappa", vector.Curvature
+              "tau", vector.TorsionalResistance
+              "zeta4", vector.Zeta4 ]
+            |> List.choose (fun (name, value) ->
+                value
+                |> Option.bind (fun measurement ->
+                    if isUsable measurement then Some(name, measurement) else None))
+            |> Map.ofList
+
+        { TurnId = vector.TurnId
+          SequenceIndex = sequenceIndex
+          Coordinates = coordinates }
+
+    let private zeta4Assumption =
+        CouplingHypothesis "Zeta4 is computed as a four-component diagnostic norm over alpha, beta, gamma, and delta."
+
+    let zeta4FromObservableVector (vector: ObservableVector) =
+        match vector.Alpha, vector.Beta, vector.Gamma, vector.Delta with
+        | Some alpha, Some beta, Some gamma, Some delta
+            when [ alpha; beta; gamma; delta ] |> List.forall isUsable ->
+            let value =
+                [ alpha.Value; beta.Value; gamma.Value; delta.Value ]
+                |> List.sumBy (fun value -> value * value)
+                |> sqrt
+
+            Domain.measured
+                value
+                (HypothesisDependent [ zeta4Assumption ])
+                (combineSources [ alpha; beta; gamma; delta ])
+                ([ zeta4Assumption ] @ combineAssumptions [ alpha; beta; gamma; delta ] |> List.distinct)
+        | _ ->
+            Domain.refused "Zeta4 requires usable alpha, beta, gamma, and delta components."
+
+    let observableVectorWithZeta4 (vector: ObservableVector) =
+        { vector with Zeta4 = Some(zeta4FromObservableVector vector) }
+
+    let private sharedCoordinateNames points =
+        match points with
+        | [] -> Set.empty
+        | first :: rest ->
+            rest
+            |> List.fold
+                (fun names point -> Set.intersect names (point.Coordinates |> Map.keys |> Set.ofSeq))
+                (first.Coordinates |> Map.keys |> Set.ofSeq)
+
+    let private coordinateVector names point =
+        names
+        |> List.map (fun name -> point.Coordinates[name].Value)
+
+    let private subtract left right =
+        List.zip left right
+        |> List.map (fun (l, r) -> l - r)
+
+    let private add left right =
+        List.zip left right
+        |> List.map (fun (l, r) -> l + r)
+
+    let private scale factor vector =
+        vector |> List.map ((*) factor)
+
+    let private magnitude vector =
+        vector
+        |> List.sumBy (fun value -> value * value)
+        |> sqrt
+
+    let private distanceBetween left right =
+        subtract left right |> magnitude
+
+    let discreteCurvature previous current next =
+        let names =
+            sharedCoordinateNames [ previous; current; next ]
+            |> Set.toList
+
+        if names.Length < 2 then
+            Domain.refused "Curvature requires at least two shared usable observable coordinates across three trajectory points."
+        else
+            let a = coordinateVector names previous
+            let b = coordinateVector names current
+            let c = coordinateVector names next
+            let ab = distanceBetween a b
+            let bc = distanceBetween b c
+            let ac = distanceBetween a c
+
+            if ab = 0.0 || bc = 0.0 || ac = 0.0 then
+                Domain.refused "Curvature is undefined for repeated or zero-distance trajectory points."
+            else
+                let s = (ab + bc + ac) / 2.0
+                let areaSquared = max (s * (s - ab) * (s - bc) * (s - ac)) 0.0
+                let area = sqrt areaSquared
+                let curvature = (4.0 * area) / (ab * bc * ac)
+
+                Domain.measured
+                    curvature
+                    (HypothesisDependent [ IsotropicEmbeddingCurvatureApproximation ])
+                    [ FromTurn previous.TurnId; FromTurn current.TurnId; FromTurn next.TurnId ]
+                    [ IsotropicEmbeddingCurvatureApproximation ]
+
+    let private tangentBetween names previous next =
+        let previousValues = coordinateVector names previous
+        let nextValues = coordinateVector names next
+        let dt = float (max (next.SequenceIndex - previous.SequenceIndex) 1)
+        subtract nextValues previousValues |> scale (1.0 / dt)
+
+    let hermiteSegment previous startPoint endPoint next =
+        let names =
+            sharedCoordinateNames [ previous; startPoint; endPoint; next ]
+            |> Set.toList
+
+        if names.IsEmpty then
+            Error(ProtocolValidationFailure "Hermite interpolation requires at least one shared usable observable coordinate.")
+        else
+            let startTangentValues = tangentBetween names previous endPoint
+            let endTangentValues = tangentBetween names startPoint next
+
+            let measuredTangent point name value =
+                Domain.measured
+                    value
+                    (HypothesisDependent [ CouplingHypothesis "Cubic Hermite interpolation is a contour-style diagnostic approximation over observed states." ])
+                    [ FromTurn point.TurnId ]
+                    [ CouplingHypothesis "Cubic Hermite interpolation is a contour-style diagnostic approximation over observed states." ]
+
+            Ok
+                { StartPoint = startPoint
+                  EndPoint = endPoint
+                  StartTangent =
+                    List.zip names startTangentValues
+                    |> List.map (fun (name, value) -> name, measuredTangent startPoint name value)
+                    |> Map.ofList
+                  EndTangent =
+                    List.zip names endTangentValues
+                    |> List.map (fun (name, value) -> name, measuredTangent endPoint name value)
+                    |> Map.ofList
+                  Assumptions = [ CouplingHypothesis "Cubic Hermite interpolation is a contour-style diagnostic approximation over observed states." ] }
+
+    let interpolateHermite u segment =
+        let u = max 0.0 (min 1.0 u)
+        let h00 = 2.0 * u * u * u - 3.0 * u * u + 1.0
+        let h10 = u * u * u - 2.0 * u * u + u
+        let h01 = -2.0 * u * u * u + 3.0 * u * u
+        let h11 = u * u * u - u * u
+        let names =
+            sharedCoordinateNames [ segment.StartPoint; segment.EndPoint ]
+            |> Set.intersect (segment.StartTangent |> Map.keys |> Set.ofSeq)
+            |> Set.intersect (segment.EndTangent |> Map.keys |> Set.ofSeq)
+            |> Set.toList
+
+        let coordinates =
+            names
+            |> List.map (fun name ->
+                let p0 = segment.StartPoint.Coordinates[name]
+                let p1 = segment.EndPoint.Coordinates[name]
+                let m0 = segment.StartTangent[name]
+                let m1 = segment.EndTangent[name]
+                let value = h00 * p0.Value + h10 * m0.Value + h01 * p1.Value + h11 * m1.Value
+
+                name,
+                Domain.measured
+                    value
+                    (HypothesisDependent segment.Assumptions)
+                    (p0.Sources @ p1.Sources @ m0.Sources @ m1.Sources |> List.distinct)
+                    segment.Assumptions)
+            |> Map.ofList
+
+        { TurnId = segment.StartPoint.TurnId
+          SequenceIndex = segment.StartPoint.SequenceIndex
+          Coordinates = coordinates }
+
+    let private diagnosticAssumption name =
+        CouplingHypothesis $"{name} is a formal diagnostic from the ISD coupling hypotheses and is not yet empirically validated."
+
+    let identity1StabilityCriterion (point: TrajectoryPoint) =
+        let assumption = diagnosticAssumption "Identity 1 stability criterion"
+
+        match point.Coordinates.TryFind "alpha", point.Coordinates.TryFind "v" with
+        | Some alpha, Some velocity when isUsable alpha && isUsable velocity ->
+            { Kind = StabilityCriterion
+              Value =
+                Domain.measured
+                    (alpha.Value - velocity.Value)
+                    (HypothesisDependent [ assumption ])
+                    (combineSources [ alpha; velocity ])
+                    ([ assumption ] @ combineAssumptions [ alpha; velocity ] |> List.distinct)
+              Inputs = [ "alpha"; "v" ]
+              Description = "Diagnostic stability margin alpha - v." }
+        | _ ->
+            { Kind = StabilityCriterion
+              Value = Domain.refused "Identity 1 requires usable alpha and velocity coordinates."
+              Inputs = [ "alpha"; "v" ]
+              Description = "Diagnostic stability margin alpha - v." }
+
+    let identity2CumulativeLeakage (points: TrajectoryPoint list) =
+        let assumption = diagnosticAssumption "Identity 2 cumulative leakage functional"
+
+        let deltas =
+            points
+            |> List.choose (fun point -> point.Coordinates.TryFind "delta")
+
+        if deltas.Length <> points.Length || deltas |> List.exists (isUsable >> not) then
+            { Kind = CumulativeLeakageFunctional
+              Value = Domain.refused "Identity 2 requires usable delta coordinates for every trajectory point."
+              Inputs = [ "delta" ]
+              Description = "Diagnostic cumulative leakage as sum(abs(delta))." }
+        else
+            { Kind = CumulativeLeakageFunctional
+              Value =
+                Domain.measured
+                    (deltas |> List.sumBy (fun delta -> abs delta.Value))
+                    (HypothesisDependent [ assumption ])
+                    (combineSources deltas)
+                    ([ assumption ] @ combineAssumptions deltas |> List.distinct)
+              Inputs = [ "delta" ]
+              Description = "Diagnostic cumulative leakage as sum(abs(delta))." }
+
+    let identity3TorsionalAccumulation (points: TrajectoryPoint list) =
+        let assumption = diagnosticAssumption "Identity 3 torsional accumulation"
+
+        let torsionOrCurvature =
+            points
+            |> List.choose (fun point ->
+                point.Coordinates.TryFind "tau"
+                |> Option.orElseWith (fun () -> point.Coordinates.TryFind "kappa"))
+
+        if torsionOrCurvature.Length <> points.Length || torsionOrCurvature |> List.exists (isUsable >> not) then
+            { Kind = TorsionalAccumulation
+              Value = Domain.refused "Identity 3 requires usable tau coordinates, or kappa fallback coordinates, for every trajectory point."
+              Inputs = [ "tau"; "kappa" ]
+              Description = "Diagnostic torsional accumulation as sum(abs(tau)) with kappa fallback." }
+        else
+            { Kind = TorsionalAccumulation
+              Value =
+                Domain.measured
+                    (torsionOrCurvature |> List.sumBy (fun value -> abs value.Value))
+                    (HypothesisDependent [ assumption ])
+                    (combineSources torsionOrCurvature)
+                    ([ assumption ] @ combineAssumptions torsionOrCurvature |> List.distinct)
+              Inputs = [ "tau"; "kappa" ]
+              Description = "Diagnostic torsional accumulation as sum(abs(tau)) with kappa fallback." }
+
+    let formalIdentityDiagnostics points =
+        match points with
+        | [] -> []
+        | first :: _ ->
+            [ identity1StabilityCriterion first
+              identity2CumulativeLeakage points
+              identity3TorsionalAccumulation points ]
+
+    let measuredTorsionalResistanceFromEscapeThreshold turnId escapeThreshold =
+        if System.Double.IsNaN escapeThreshold || System.Double.IsInfinity escapeThreshold || escapeThreshold <= 0.0 then
+            Domain.refused "Measured torsional resistance requires a positive finite escape threshold."
+        else
+            Domain.measured
+                escapeThreshold
+                DirectObservation
+                [ FromTurn turnId ]
+                []
+
+    let estimatedTorsionalResistance turnId kind value description =
+        let assumption =
+            match kind with
+            | MeasuredEscapeThreshold -> None
+            | QualitativeEstimate -> Some(CouplingHypothesis $"Qualitative torsional resistance estimate: {description}")
+            | ArchitecturallyInheritedEstimate -> Some(CouplingHypothesis $"Architecturally inherited torsional resistance estimate: {description}")
+
+        match kind, assumption with
+        | MeasuredEscapeThreshold, _ -> measuredTorsionalResistanceFromEscapeThreshold turnId value
+        | _, Some flag ->
+            if System.Double.IsNaN value || System.Double.IsInfinity value || value < 0.0 then
+                Domain.refused "Estimated torsional resistance requires a non-negative finite value."
+            else
+                Domain.measured
+                    value
+                    (HypothesisDependent [ flag ])
+                    [ FromTurn turnId ]
+                    [ flag ]
+        | _ -> Domain.refused "Unsupported torsional resistance estimate."
+
+    let attractorEventFromTorsionalResistance turnId description kind torsionalResistance =
+        { TurnId = turnId
+          Description = description
+          TorsionalResistance = Some torsionalResistance
+          TorsionalResistanceKind = kind
+          Assumptions = torsionalResistance.Assumptions }
+
+    let detectAttractorApproach thresholds (points: TrajectoryPoint list) =
+        match points with
+        | [] -> None
+        | [ _ ] -> None
+        | _ ->
+            let lastPoint = points |> List.last
+            let stability = identity1StabilityCriterion lastPoint
+            let torsion = identity3TorsionalAccumulation points
+
+            if isUsable stability.Value
+               && isUsable torsion.Value
+               && stability.Value.Value <= thresholds.StabilityMarginMaximum
+               && torsion.Value.Value >= thresholds.TorsionalAccumulationMinimum then
+                let assumption =
+                    CouplingHypothesis "Attractor approach detection is a diagnostic signature based on stability margin and torsional accumulation thresholds."
+
+                let tau =
+                    Domain.measured
+                        torsion.Value.Value
+                        (HypothesisDependent [ assumption ])
+                        torsion.Value.Sources
+                        ([ assumption ] @ torsion.Value.Assumptions |> List.distinct)
+
+                Some
+                    { TurnId = lastPoint.TurnId
+                      Description =
+                        sprintf
+                            "Attractor-approach signature: stability margin %.3f, torsional accumulation %.3f."
+                            stability.Value.Value
+                            torsion.Value.Value
+                      TorsionalResistance = Some tau
+                      TorsionalResistanceKind = QualitativeEstimate
+                      Assumptions = tau.Assumptions }
+            else
+                None
 
     let reportObservableVector subject (vector: ObservableVector) =
         let items =
@@ -617,6 +987,73 @@ module Measurement =
           LocalMeasurementDecision = decision
           Warnings = sampleWarnings @ shockWarnings }
 
+    let buildDefaultNaturalContinuationPrompt (request: NaturalPromptBuildRequest) =
+        let promptText =
+            request.Plan.ContextPrefix.PromptResponseHistory
+            |> List.tryLast
+            |> Option.map (fun (prompt, _) -> prompt.Text)
+            |> Option.defaultValue ""
+
+        if System.String.IsNullOrWhiteSpace promptText then
+            Error(ProtocolValidationFailure "Natural continuation prompt requires a non-empty context prefix.")
+        else
+            Ok(Domain.prompt $"{request.Plan.Label}-natural-prompt" promptText)
+
+    let executeNaturalContinuation metric (builder: INaturalPromptBuilder) (executor: IPromptExecutor) (plan: NaturalContinuationPlan) =
+        async {
+            let buildRequest: NaturalPromptBuildRequest = { Plan = plan }
+
+            match builder.Build buildRequest with
+            | Error error -> return NaturalExecutionFailed(plan.Label, error)
+            | Ok prompt ->
+                let executionRequest =
+                    { Label = plan.Label
+                      ContextPrefix = plan.ContextPrefix
+                      Prompt = prompt
+                      Strategy = Natural
+                      BatchId = Some plan.BatchId }
+
+                let! execution = executor.Submit executionRequest
+
+                match execution with
+                | Error error -> return NaturalExecutionFailed(plan.Label, error)
+                | Ok result ->
+                    let previousPrompt, previousResponse =
+                        plan.ContextPrefix.PromptResponseHistory
+                        |> List.tryLast
+                        |> Option.defaultValue (prompt, Domain.response $"{plan.Label}-empty-prefix-response" "")
+
+                    let previousTurn =
+                        Domain.turn
+                            $"{plan.Label}-previous"
+                            (let (SessionId value) = plan.ContextPrefix.SessionId in value)
+                            plan.ContextPrefix.ThroughSequenceIndex
+                            previousPrompt
+                            previousResponse
+                            result.ObservedAt
+                            Natural
+                            0
+
+                    let currentTurn =
+                        Domain.turn
+                            $"{plan.BatchId}-{plan.Label}"
+                            (let (SessionId value) = plan.ContextPrefix.SessionId in value)
+                            (plan.ContextPrefix.ThroughSequenceIndex + 1)
+                            prompt
+                            result.Response
+                            result.ObservedAt
+                            Natural
+                            0
+
+                    let velocity = velocityFromTurnPair metric previousTurn currentTurn
+
+                    return
+                        NaturalExecuted
+                            { PlanLabel = plan.Label
+                              Turn = currentTurn
+                              Velocity = velocity }
+        }
+
     let executeShockTrial metric (builder: IShockPromptBuilder) (executor: IPromptExecutor) candidateTokens (plan: ShockTrialPlan) =
         async {
             match plan.Refusal with
@@ -663,6 +1100,67 @@ module Measurement =
                                 { PlanLabel = plan.Label
                                   Trial = trial
                                   PerturbationVelocity = perturbation }
+        }
+
+    let runForkedReplicationPlan
+        metric
+        (naturalBuilder: INaturalPromptBuilder)
+        (shockBuilder: IShockPromptBuilder)
+        (executor: IPromptExecutor)
+        candidateTokens
+        (plan: ForkedReplicationPlan)
+        =
+        async {
+            let! naturalResults =
+                plan.NaturalContinuations
+                |> List.map (executeNaturalContinuation metric naturalBuilder executor)
+                |> Async.Parallel
+
+            let! shockResults =
+                plan.ShockTrials
+                |> List.map (executeShockTrial metric shockBuilder executor candidateTokens)
+                |> Async.Parallel
+
+            let successfulNaturals =
+                naturalResults
+                |> Array.toList
+                |> List.choose (function
+                    | NaturalExecuted result -> Some result
+                    | NaturalExecutionFailed _ -> None)
+
+            let successfulShocks =
+                shockResults
+                |> Array.toList
+                |> List.choose (function
+                    | ShockExecuted result -> Some result
+                    | ShockExecutionRefused _
+                    | ShockExecutionFailed _ -> None)
+
+            let warnings =
+                [ yield! plan.Warnings
+                  yield!
+                      naturalResults
+                      |> Array.choose (function
+                          | NaturalExecutionFailed(label, error) -> Some $"Natural continuation {label} failed: {error}."
+                          | NaturalExecuted _ -> None)
+                  yield!
+                      shockResults
+                      |> Array.choose (function
+                          | ShockExecutionRefused(label, refusal) -> Some $"Shock trial {label} refused: {refusal.Basis}."
+                          | ShockExecutionFailed(label, error) -> Some $"Shock trial {label} failed: {error}."
+                          | ShockExecuted _ -> None) ]
+
+            let results =
+                { Plan = plan
+                  NaturalContinuations = successfulNaturals
+                  ShockTrials = successfulShocks }
+
+            return
+                { Plan = plan
+                  Results = results
+                  NaturalExecutionResults = naturalResults |> Array.toList
+                  ShockExecutionResults = shockResults |> Array.toList
+                  Warnings = warnings }
         }
 
     let marginalEstimate (batch: ForkedReplicationBatch) =

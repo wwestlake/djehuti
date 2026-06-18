@@ -66,11 +66,22 @@ type ConstantDto = {
   value: string
 }
 
+type AttractorEventDto = {
+  turnId: string
+  sequenceIndex: number
+  description: string
+  torsionalResistanceValue: number | null
+  torsionalResistanceBasis: string
+  torsionalResistanceKind: string
+  assumptions: string[]
+}
+
 type AnalyzeResponse = {
   summary: SummaryDto
   turns: TurnMetricDto[]
   velocities: VelocityPointDto[]
   constants: ConstantDto[]
+  attractorEvents: AttractorEventDto[]
   warnings: string[]
 }
 
@@ -362,7 +373,7 @@ type TimelineSeries = {
   formatter?: (value: number) => string
 }
 
-type FeatureSource = 'prompt' | 'response' | 'transition' | 'metrics'
+type FeatureSource = 'prompt' | 'response' | 'transition' | 'metrics' | 'attractor'
 
 type FeatureSeverity = 'low' | 'medium' | 'high'
 
@@ -419,7 +430,7 @@ const evidenceSnippet = (text: string, term?: string) => {
   return `${prefix}${compact.slice(start, end)}${suffix}`
 }
 
-function detectFeatures(turns: TurnMetricDto[]) {
+function detectFeatures(turns: TurnMetricDto[], attractorEvents: AttractorEventDto[]) {
   const hits: FeatureHit[] = []
   const seenPrompts = new Map<string, number>()
 
@@ -520,6 +531,32 @@ function detectFeatures(turns: TurnMetricDto[]) {
         )
       }
     }
+  }
+
+  for (const event of attractorEvents) {
+    if (event.sequenceIndex < 0) {
+      continue
+    }
+
+    const tau =
+      event.torsionalResistanceValue === null
+        ? 'tau unavailable'
+        : `tau ${formatNumber(event.torsionalResistanceValue)}`
+    const basis = event.torsionalResistanceBasis
+      ? `; ${event.torsionalResistanceBasis}`
+      : ''
+    const kind = event.torsionalResistanceKind
+      ? `; ${event.torsionalResistanceKind}`
+      : ''
+
+    hits.push({
+      id: `${event.sequenceIndex}-attractor-${hits.length}`,
+      label: 'attractor approach',
+      sequenceIndex: event.sequenceIndex,
+      source: 'attractor',
+      severity: 'high',
+      evidence: `${event.description} (${tau}${basis}${kind})`,
+    })
   }
 
   return hits.sort((left, right) => {
@@ -696,14 +733,19 @@ function MetricTimelines({ turns }: { turns: TurnMetricDto[] }) {
 
 function FeatureExplorer({
   turns,
+  attractorEvents,
   selectedTurn,
   onSelectTurn,
 }: {
   turns: TurnMetricDto[]
+  attractorEvents: AttractorEventDto[]
   selectedTurn: TurnMetricDto | null
   onSelectTurn: (turn: TurnMetricDto) => void
 }) {
-  const features = useMemo(() => detectFeatures(turns), [turns])
+  const features = useMemo(
+    () => detectFeatures(turns, attractorEvents),
+    [turns, attractorEvents],
+  )
   const visibleRailHits = useMemo(
     () => sampleEvenly(features, maxFeatureRailHits),
     [features],
@@ -1553,6 +1595,7 @@ function App() {
 
       <FeatureExplorer
         turns={analysis?.turns ?? []}
+        attractorEvents={analysis?.attractorEvents ?? []}
         selectedTurn={selectedTurn}
         onSelectTurn={setSelectedTurn}
       />

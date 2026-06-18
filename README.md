@@ -23,6 +23,8 @@ The dashboard includes metric timelines for prompt-response alignment, velocity,
 
 It also includes a feature finder that marks high-velocity transitions, low prompt-response alignment, structural changes, repeated prompts, and topic markers over integer logical time.
 
+Attractor-approach diagnostics produced by the API are exported in the analysis JSON and shown as high-severity feature-finder markers with their torsional-resistance basis and kind.
+
 ![Djehuti dashboard feature finder](docs/images/dashboard-feature-finder.png)
 
 ## Core Principle
@@ -114,6 +116,8 @@ Contains initial protocol-level calculations:
 - marginal summaries
 - energy state calculation
 - dissipation checks
+- measured and estimated torsional resistance helpers
+- attractor-approach diagnostic events
 
 ### Storage.fs
 
@@ -200,6 +204,11 @@ Implemented so far:
 - provider-agnostic prompt execution ports
 - minimal token-edit shock construction
 - shock execution boundary with executed/refused/failed results
+- full forked replication runner from plan to executable results
+- trajectory geometry helpers for discrete curvature and Hermite interpolation
+- zeta4 and formal identity diagnostic scaffolding with hypothesis flags
+- torsional resistance helpers for measured escape thresholds and hypothesis-marked estimates
+- attractor-approach detection from stability-margin and torsional-accumulation thresholds
 - refusal-aware energy computation
 - Delta Psi comparison across shared observable components
 - structured measurement report items carrying basis, assumptions, sources, and refusal status
@@ -207,16 +216,19 @@ Implemented so far:
 - provider-neutral ingestion event boundary
 - JSON reader/writer and JSON-backed data source
 - HTTP API and React dashboard for interactive analysis
+- analysis JSON export of detected attractor events
+- dashboard feature-finder markers for attractor-approach events
 - xUnit test suite
 
 Known near-term work:
 
 - strengthen calibration precondition checks
 - remove metadata-string dependence from marginal natural velocity estimation
-- prevent refused or NaN-valued measurements from flowing into energy calculations
+- broaden refusal checks across all derived protocol calculations
 - resolve state-transition comparison support
-- add protocol orchestration for forked replication batches
 - add structured reporting/export
+- add persistent database-backed attractor event storage
+- add dedicated attractor-event dashboard review surfaces
 - add provider adapters outside the core
 
 ## License

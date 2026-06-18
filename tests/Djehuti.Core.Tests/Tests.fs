@@ -311,6 +311,239 @@ let ``observable vector report preserves refused measurements without numeric va
     Assert.Equal(Some "beta requires unavailable calibration", beta.RefusalReason)
     Assert.Contains("beta refused", Assert.Single(report.Warnings))
 
+let private trajectoryPoint turnId sequenceIndex coordinates =
+    { TurnId = TurnId turnId
+      SequenceIndex = sequenceIndex
+      Coordinates =
+        coordinates
+        |> List.map (fun (name, value) ->
+            name, Domain.measured value DirectObservation [ FromTurn(TurnId turnId) ] [])
+        |> Map.ofList }
+
+[<Fact>]
+let ``discrete curvature is near zero for straight observable trajectory`` () =
+    let previous = trajectoryPoint "curve-0" 0 [ "alpha", 0.0; "beta", 0.0 ]
+    let current = trajectoryPoint "curve-1" 1 [ "alpha", 1.0; "beta", 1.0 ]
+    let next = trajectoryPoint "curve-2" 2 [ "alpha", 2.0; "beta", 2.0 ]
+
+    let curvature = Measurement.discreteCurvature previous current next
+
+    Assert.Equal(0.0, curvature.Value, 6)
+    Assert.Contains(IsotropicEmbeddingCurvatureApproximation, curvature.Assumptions)
+
+[<Fact>]
+let ``discrete curvature is positive for bent observable trajectory`` () =
+    let previous = trajectoryPoint "bend-0" 0 [ "alpha", 0.0; "beta", 0.0 ]
+    let current = trajectoryPoint "bend-1" 1 [ "alpha", 1.0; "beta", 0.0 ]
+    let next = trajectoryPoint "bend-2" 2 [ "alpha", 1.0; "beta", 1.0 ]
+
+    let curvature = Measurement.discreteCurvature previous current next
+
+    Assert.True(curvature.Value > 0.0)
+
+[<Fact>]
+let ``discrete curvature refuses missing shared coordinate geometry`` () =
+    let previous = trajectoryPoint "missing-0" 0 [ "alpha", 0.0 ]
+    let current = trajectoryPoint "missing-1" 1 [ "beta", 1.0 ]
+    let next = trajectoryPoint "missing-2" 2 [ "gamma", 2.0 ]
+
+    let curvature = Measurement.discreteCurvature previous current next
+
+    match curvature.Basis with
+    | Refused reason -> Assert.Contains("shared usable observable coordinates", reason)
+    | other -> failwithf "Expected refused curvature, got %A" other
+
+[<Fact>]
+let ``hermite interpolation returns segment endpoints`` () =
+    let before = trajectoryPoint "hermite-before" 0 [ "alpha", 0.0; "beta", 0.0 ]
+    let startPoint = trajectoryPoint "hermite-start" 1 [ "alpha", 1.0; "beta", 1.0 ]
+    let endPoint = trajectoryPoint "hermite-end" 2 [ "alpha", 3.0; "beta", 1.0 ]
+    let after = trajectoryPoint "hermite-after" 3 [ "alpha", 4.0; "beta", 0.0 ]
+
+    match Measurement.hermiteSegment before startPoint endPoint after with
+    | Error error -> failwithf "Expected Hermite segment, got %A" error
+    | Ok segment ->
+        let atStart = Measurement.interpolateHermite 0.0 segment
+        let atEnd = Measurement.interpolateHermite 1.0 segment
+
+        Assert.Equal(startPoint.Coordinates["alpha"].Value, atStart.Coordinates["alpha"].Value, 6)
+        Assert.Equal(startPoint.Coordinates["beta"].Value, atStart.Coordinates["beta"].Value, 6)
+        Assert.Equal(endPoint.Coordinates["alpha"].Value, atEnd.Coordinates["alpha"].Value, 6)
+        Assert.Equal(endPoint.Coordinates["beta"].Value, atEnd.Coordinates["beta"].Value, 6)
+
+[<Fact>]
+let ``zeta4 computes four component diagnostic norm`` () =
+    let measured value =
+        Domain.measured value DirectObservation [ FromTurn(TurnId "zeta-turn") ] []
+
+    let vector =
+        Measurement.observableVector
+            (TurnId "zeta-turn")
+            { Alpha = Some(measured 1.0)
+              Beta = Some(measured 2.0)
+              Gamma = Some(measured 2.0)
+              Delta = Some(measured 1.0)
+              Velocity = None
+              Curvature = None
+              TorsionalResistance = None
+              Zeta4 = None }
+
+    let zeta4 = Measurement.zeta4FromObservableVector vector
+
+    Assert.Equal(Math.Sqrt(10.0), zeta4.Value, 6)
+    match zeta4.Basis with
+    | HypothesisDependent assumptions ->
+        Assert.Contains(assumptions, fun assumption ->
+            match assumption with
+            | CouplingHypothesis text -> text.Contains("Zeta4")
+            | _ -> false)
+    | other -> failwithf "Expected hypothesis-dependent zeta4, got %A" other
+
+[<Fact>]
+let ``zeta4 refuses missing four component inputs`` () =
+    let vector =
+        Measurement.observableVector
+            (TurnId "zeta-refused")
+            { Alpha = Some(Domain.measured 1.0 DirectObservation [] [])
+              Beta = None
+              Gamma = None
+              Delta = None
+              Velocity = None
+              Curvature = None
+              TorsionalResistance = None
+              Zeta4 = None }
+
+    let zeta4 = Measurement.zeta4FromObservableVector vector
+
+    match zeta4.Basis with
+    | Refused reason -> Assert.Contains("alpha, beta, gamma, and delta", reason)
+    | other -> failwithf "Expected refused zeta4, got %A" other
+
+[<Fact>]
+let ``formal identity diagnostics compute hypothesis dependent values`` () =
+    let point0 =
+        trajectoryPoint
+            "identity-0"
+            0
+            [ "alpha", 0.8
+              "v", 0.2
+              "delta", -1.0
+              "kappa", 0.1 ]
+
+    let point1 =
+        trajectoryPoint
+            "identity-1"
+            1
+            [ "alpha", 0.7
+              "v", 0.3
+              "delta", 2.0
+              "kappa", 0.2 ]
+
+    let diagnostics = Measurement.formalIdentityDiagnostics [ point0; point1 ]
+
+    Assert.Equal(3, diagnostics.Length)
+
+    let stability =
+        diagnostics |> List.find (fun item -> item.Kind = StabilityCriterion)
+
+    let leakage =
+        diagnostics |> List.find (fun item -> item.Kind = CumulativeLeakageFunctional)
+
+    let torsion =
+        diagnostics |> List.find (fun item -> item.Kind = TorsionalAccumulation)
+
+    Assert.Equal(0.6, stability.Value.Value, 6)
+    Assert.Equal(3.0, leakage.Value.Value, 6)
+    Assert.Equal(0.3, torsion.Value.Value, 6)
+    Assert.All(diagnostics, fun diagnostic ->
+        match diagnostic.Value.Basis with
+        | HypothesisDependent _ -> ()
+        | other -> failwithf "Expected hypothesis-dependent diagnostic, got %A" other)
+
+[<Fact>]
+let ``formal identity diagnostics refuse missing coordinates`` () =
+    let point = trajectoryPoint "identity-refused" 0 [ "alpha", 0.8 ]
+    let diagnostics = Measurement.formalIdentityDiagnostics [ point ]
+
+    Assert.Equal(3, diagnostics.Length)
+    Assert.Contains(diagnostics, fun item ->
+        item.Kind = StabilityCriterion
+        && match item.Value.Basis with
+           | Refused _ -> true
+           | _ -> false)
+    Assert.Contains(diagnostics, fun item ->
+        item.Kind = CumulativeLeakageFunctional
+        && match item.Value.Basis with
+           | Refused _ -> true
+           | _ -> false)
+
+[<Fact>]
+let ``measured torsional resistance records escape threshold as direct observation`` () =
+    let tau = Measurement.measuredTorsionalResistanceFromEscapeThreshold (TurnId "tau-turn") 0.42
+
+    Assert.Equal(0.42, tau.Value, 6)
+    Assert.Equal(DirectObservation, tau.Basis)
+    Assert.Contains(FromTurn(TurnId "tau-turn"), tau.Sources)
+
+[<Fact>]
+let ``torsional resistance refuses invalid escape threshold`` () =
+    let tau = Measurement.measuredTorsionalResistanceFromEscapeThreshold (TurnId "bad-tau") -1.0
+
+    match tau.Basis with
+    | Refused reason -> Assert.Contains("positive finite escape threshold", reason)
+    | other -> failwithf "Expected refused tau, got %A" other
+
+[<Fact>]
+let ``qualitative torsional resistance carries hypothesis flag`` () =
+    let tau =
+        Measurement.estimatedTorsionalResistance
+            (TurnId "qual-tau")
+            QualitativeEstimate
+            0.7
+            "manual attractor review"
+
+    match tau.Basis with
+    | HypothesisDependent assumptions ->
+        Assert.Contains(assumptions, fun assumption ->
+            match assumption with
+            | CouplingHypothesis text -> text.Contains("manual attractor review")
+            | _ -> false)
+    | other -> failwithf "Expected hypothesis-dependent tau, got %A" other
+
+[<Fact>]
+let ``attractor detection emits qualitative event when stability and torsion thresholds pass`` () =
+    let points =
+        [ trajectoryPoint "attr-0" 0 [ "alpha", 0.6; "v", 0.2; "tau", 0.3 ]
+          trajectoryPoint "attr-1" 1 [ "alpha", 0.35; "v", 0.3; "tau", 0.4 ] ]
+
+    let detection =
+        Measurement.detectAttractorApproach
+            { StabilityMarginMaximum = 0.10
+              TorsionalAccumulationMinimum = 0.6 }
+            points
+
+    match detection with
+    | Some event ->
+        Assert.Equal(TurnId "attr-1", event.TurnId)
+        Assert.Equal(QualitativeEstimate, event.TorsionalResistanceKind)
+        Assert.True(event.TorsionalResistance.IsSome)
+        Assert.Contains("Attractor-approach", event.Description)
+    | None -> failwith "Expected attractor approach event."
+
+[<Fact>]
+let ``attractor detection returns none when thresholds do not pass`` () =
+    let points =
+        [ trajectoryPoint "no-attr-0" 0 [ "alpha", 0.9; "v", 0.1; "tau", 0.1 ]
+          trajectoryPoint "no-attr-1" 1 [ "alpha", 0.8; "v", 0.1; "tau", 0.1 ] ]
+
+    let detection =
+        Measurement.detectAttractorApproach
+            { StabilityMarginMaximum = 0.10
+              TorsionalAccumulationMinimum = 0.6 }
+            points
+
+    Assert.True(detection.IsNone)
+
 let private feasibleCalibration =
     Measurement.buildCalibrationRecord
         { Id = CalibrationRecordId "cal-feasible"
@@ -573,6 +806,127 @@ let ``shock execution returns refused result for refused shock plan`` () =
         | Refused reason -> Assert.Contains("Window Inequality", reason)
         | other -> failwithf "Expected refused measured value, got %A" other
     | other -> failwithf "Expected refused shock execution, got %A" other
+
+[<Fact>]
+let ``forked replication runner executes natural and shock plans through provider ports`` () =
+    let plan =
+        Measurement.planForkedReplicationBatch
+            (ForkedReplicationBatchId "batch-run")
+            (ContextClassId "general")
+            testPrefix
+            feasibleCalibration
+            2
+            2
+            MinimalTokenEdit
+
+    let naturalBuilder =
+        { new INaturalPromptBuilder with
+            member _.Build request = Measurement.buildDefaultNaturalContinuationPrompt request }
+
+    let shockBuilder =
+        { new IShockPromptBuilder with
+            member _.Build request =
+                Measurement.buildMinimalTokenEditShock
+                    { request with CandidateTokens = [ "orthogonal"; "entropy" ] } }
+
+    let executor =
+        { new IPromptExecutor with
+            member _.Submit request =
+                async {
+                    let suffix =
+                        match request.Strategy with
+                        | Natural -> "natural continuation"
+                        | Shock -> "shock continuation"
+                        | InterleavedWithHistory -> "interleaved continuation"
+
+                    return
+                        Ok
+                            { RequestLabel = request.Label
+                              Response = Domain.response $"{request.Label}-response" $"{suffix} for {request.Prompt.Text}"
+                              ObservedAt = DateTimeOffset.UnixEpoch
+                              Metadata = Map.empty }
+                } }
+
+    let execution =
+        Measurement.runForkedReplicationPlan
+            CosineDistance
+            naturalBuilder
+            shockBuilder
+            executor
+            [ "orthogonal"; "entropy" ]
+            plan
+        |> Async.RunSynchronously
+
+    Assert.Equal(2, execution.Results.NaturalContinuations.Length)
+    Assert.Equal(2, execution.Results.ShockTrials.Length)
+    Assert.Empty(execution.Warnings)
+
+    let report = Measurement.aggregateForkedReplicationResults execution.Results
+
+    Assert.Equal(2, report.NaturalObservationCount)
+    Assert.Equal(2, report.ShockObservationCount)
+    Assert.True(report.Summary.NaturalVelocity.IsSome)
+    Assert.True(report.Summary.PerturbationVelocity.IsSome)
+
+[<Fact>]
+let ``forked replication runner preserves natural failures and shock refusals`` () =
+    let missingCalibration =
+        { Id = CalibrationRecordId "cal-run-missing"
+          ContextClassId = ContextClassId "general"
+          EstimatedAt = DateTimeOffset.UnixEpoch
+          ValidFrom = DateTimeOffset.UnixEpoch
+          ValidUntil = None
+          NoiseFloorEpsilon = None
+          LambdaMinEpsilon = None
+          LocalValidityRadiusDelta = None
+          LambdaMaxDelta = None
+          TokenGranularityLambdaQuantum = None }
+
+    let plan =
+        Measurement.planForkedReplicationBatch
+            (ForkedReplicationBatchId "batch-run-refused")
+            (ContextClassId "general")
+            testPrefix
+            missingCalibration
+            1
+            1
+            MinimalTokenEdit
+
+    let naturalBuilder =
+        { new INaturalPromptBuilder with
+            member _.Build _ = Error(ProtocolValidationFailure "natural prompt unavailable") }
+
+    let shockBuilder =
+        { new IShockPromptBuilder with
+            member _.Build _ = failwith "Shock builder should not run for refused shock plan." }
+
+    let executor =
+        { new IPromptExecutor with
+            member _.Submit _ = failwith "Executor should not run when natural build fails and shock is refused." }
+
+    let execution =
+        Measurement.runForkedReplicationPlan
+            CosineDistance
+            naturalBuilder
+            shockBuilder
+            executor
+            [ "orthogonal" ]
+            plan
+        |> Async.RunSynchronously
+
+    Assert.Empty(execution.Results.NaturalContinuations)
+    Assert.Empty(execution.Results.ShockTrials)
+    Assert.Contains(execution.NaturalExecutionResults, fun result ->
+        match result with
+        | NaturalExecutionFailed(label, ProtocolValidationFailure message) ->
+            label = "natural-1" && message.Contains("unavailable")
+        | _ -> false)
+    Assert.Contains(execution.ShockExecutionResults, fun result ->
+        match result with
+        | ShockExecutionRefused("shock-1", _) -> true
+        | _ -> false)
+    Assert.Contains(execution.Warnings, fun warning -> warning.Contains("Natural continuation natural-1 failed"))
+    Assert.Contains(execution.Warnings, fun warning -> warning.Contains("Shock trial shock-1 refused"))
 
 [<Fact>]
 let ``storage computation saves and loads turns through context`` () =

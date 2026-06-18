@@ -68,12 +68,23 @@ type MeasurementReportDto =
       Warnings: string list }
 
 [<CLIMutable>]
+type AttractorEventDto =
+    { TurnId: string
+      SequenceIndex: int
+      Description: string
+      TorsionalResistanceValue: Nullable<float>
+      TorsionalResistanceBasis: string
+      TorsionalResistanceKind: string
+      Assumptions: string list }
+
+[<CLIMutable>]
 type AnalyzeResponse =
     { Summary: SummaryDto
       Turns: TurnMetricDto list
       Velocities: VelocityPointDto list
       Constants: ConstantDto list
       Reports: MeasurementReportDto list
+      AttractorEvents: AttractorEventDto list
       Warnings: string list }
 
 [<CLIMutable>]
@@ -200,6 +211,33 @@ module Dto =
           Items = report.Items |> List.map reportItemDto
           Warnings = report.Warnings }
 
+    let torsionalResistanceKindText kind =
+        match kind with
+        | MeasuredEscapeThreshold -> "measured escape threshold"
+        | QualitativeEstimate -> "qualitative estimate"
+        | ArchitecturallyInheritedEstimate -> "architecturally inherited estimate"
+
+    let attractorEventDto sequenceByTurnId (event: AttractorEvent) =
+        let resistance =
+            event.TorsionalResistance
+
+        { TurnId = unwrapTurnId event.TurnId
+          SequenceIndex =
+            sequenceByTurnId
+            |> Map.tryFind event.TurnId
+            |> Option.defaultValue -1
+          Description = event.Description
+          TorsionalResistanceValue =
+            resistance
+            |> Option.map (fun value -> Nullable value.Value)
+            |> Option.defaultValue (Nullable())
+          TorsionalResistanceBasis =
+            resistance
+            |> Option.map (fun value -> basisText value.Basis)
+            |> Option.defaultValue ""
+          TorsionalResistanceKind = torsionalResistanceKindText event.TorsionalResistanceKind
+          Assumptions = event.Assumptions |> List.map assumptionText }
+
     let rec jsonValueText value =
         match value with
         | JsonNull -> "null"
@@ -222,10 +260,27 @@ module Dto =
         { Name = name
           Value = jsonValueText value }
 
+    let private constantFloat name fallback (constants: Map<string, JsonValue>) =
+        constants
+        |> Map.tryFind name
+        |> Option.bind (function
+            | JsonNumber value when not (Double.IsNaN value || Double.IsInfinity value) -> Some value
+            | JsonString value ->
+                match Double.TryParse value with
+                | true, parsed when not (Double.IsNaN parsed || Double.IsInfinity parsed) -> Some parsed
+                | _ -> None
+            | _ -> None)
+        |> Option.defaultValue fallback
+
     let sourceIdFromMetadata (turn: Turn) =
         turn.Metadata
         |> Map.tryFind "data_source_id"
         |> Option.defaultValue ""
+
+    let private measuredValueIsUsable (value: MeasuredValue) =
+        match value.Basis with
+        | Refused _ -> false
+        | _ -> not (Double.IsNaN value.Value || Double.IsInfinity value.Value)
 
     let analyze (datasetJson: string) =
         let dataSet = JsonInterop.readDataSetFromString datasetJson
@@ -277,6 +332,63 @@ module Dto =
                             if index = 0 then None else Some turns[index - 1]
 
                         Measurement.observableVectorFromTurn CosineDistance previousTurn turn)
+
+                let sequenceByTurnId =
+                    turns
+                    |> List.map (fun turn -> turn.Id, turn.SequenceIndex)
+                    |> Map.ofList
+
+                let trajectoryPoints =
+                    (turns, observableVectors)
+                    ||> List.zip
+                    |> List.map (fun (turn, vector) ->
+                        Measurement.trajectoryPointFromObservableVector turn.SequenceIndex vector)
+
+                let curvaturePoints =
+                    trajectoryPoints
+                    |> List.windowed 3
+                    |> List.choose (function
+                        | [ previous; current; next ] ->
+                            let curvature = Measurement.discreteCurvature previous current next
+
+                            if measuredValueIsUsable curvature then
+                                Some
+                                    { current with
+                                        Coordinates = current.Coordinates |> Map.add "kappa" curvature }
+                            else
+                                None
+                        | _ -> None)
+
+                let attractorThresholds =
+                    { StabilityMarginMaximum =
+                        constantFloat "attractorStabilityMarginMaximum" 0.10 dataSet.Constants
+                      TorsionalAccumulationMinimum =
+                        constantFloat "attractorTorsionalAccumulationMinimum" 0.60 dataSet.Constants }
+
+                let detectedAttractorEvents =
+                    curvaturePoints
+                    |> List.windowed 3
+                    |> List.choose (Measurement.detectAttractorApproach attractorThresholds)
+
+                for event in detectedAttractorEvents do
+                    match
+                        StorageOps.saveAttractorEvent event
+                        |> Storage.run context
+                        |> Async.RunSynchronously
+                    with
+                    | Ok () -> ()
+                    | Error error -> failwith $"Attractor event save failed: {error}"
+
+                let attractorEvents =
+                    turns
+                    |> List.collect (fun turn ->
+                        match
+                            StorageOps.listAttractorEventsByTurn turn.Id
+                            |> Storage.run context
+                            |> Async.RunSynchronously
+                        with
+                        | Ok events -> events
+                        | Error error -> failwith $"Attractor event load failed: {error}")
 
                 let reports =
                     observableVectors
@@ -352,6 +464,9 @@ module Dto =
                   Velocities = velocityRows
                   Constants = constants
                   Reports = reports
+                  AttractorEvents =
+                    attractorEvents
+                    |> List.map (attractorEventDto sequenceByTurnId)
                   Warnings =
                     [ if ingestionSummary.Gaps.Length > 0 then
                         yield $"{ingestionSummary.Gaps.Length} logical-time gap(s) detected." ] }
