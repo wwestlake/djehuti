@@ -1,6 +1,6 @@
 # Djehuti
 
-[![Djehuti DOI](https://zenodo.org/badge/1270368145.svg)](https://zenodo.org/badge/latestdoi/1270368145)
+[![Djehuti DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20739448.svg)](https://doi.org/10.5281/zenodo.20739448)
 [![ISD Framework DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20690590.svg)](https://doi.org/10.5281/zenodo.20690590)
 
 Djehuti is an empirical measurement instrument for studying large language model behavior in information space.
@@ -8,13 +8,6 @@ Djehuti is an empirical measurement instrument for studying large language model
 It is not an agent framework, prompt library, benchmark leaderboard, or provider wrapper. Djehuti is a protocol-oriented toolkit for recording externally observable prompt-response trajectories, applying controlled perturbations, and computing carefully labeled observables from those records.
 
 This project implements the Information Space Dynamics (ISD) measurement framework described in Westlake (2026).
-
-References:
-
-- ISD framework: [https://doi.org/10.5281/zenodo.20690590](https://doi.org/10.5281/zenodo.20690590)
-- Djehuti application: [https://doi.org/10.5281/zenodo.20739449](https://doi.org/10.5281/zenodo.20739449)
-
-The Djehuti badge uses Zenodo's GitHub repository badge and resolves to the latest DOI for this repository. The ISD framework badge points to the framework DOI directly.
 
 ## Dashboard Preview
 
