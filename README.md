@@ -1,7 +1,7 @@
 # Djehuti
 
-[![Djehuti DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20739448.svg)](https://doi.org/10.5281/zenodo.20739448)
-[![ISD Framework DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20690590.svg)](https://doi.org/10.5281/zenodo.20690590)
+[![Djehuti DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.20739448-blue)](https://doi.org/10.5281/zenodo.20739448)
+[![ISD Framework DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.20690590-blue)](https://doi.org/10.5281/zenodo.20690590)
 
 Djehuti is an empirical measurement instrument for studying large language model behavior in information space.
 
