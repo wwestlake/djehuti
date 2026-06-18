@@ -192,9 +192,21 @@ Implemented so far:
 - text decomposition and basic comparison metrics
 - measurement basis and provenance model
 - calibration record shape
+- calibration helpers for noise floor, local validity, token granularity, and Window Inequality decisions
+- observable vector construction for turn-level measurement records
+- typed marginal estimates that avoid fabricated joint pairings
+- forked replication planning with calibration-gated shock trial plans
+- forked replication aggregation that reports independent marginals without per-instance joint synthesis
+- provider-agnostic prompt execution ports
+- minimal token-edit shock construction
+- shock execution boundary with executed/refused/failed results
+- refusal-aware energy computation
+- Delta Psi comparison across shared observable components
+- structured measurement report items carrying basis, assumptions, sources, and refusal status
 - storage monad and in-memory storage adapter
 - provider-neutral ingestion event boundary
 - JSON reader/writer and JSON-backed data source
+- HTTP API and React dashboard for interactive analysis
 - xUnit test suite
 
 Known near-term work:

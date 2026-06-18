@@ -97,6 +97,57 @@ let ``window feasibility refuses local measurement when token floor exceeds uppe
     | result -> failwithf "Expected infeasible result, got %A" result
 
 [<Fact>]
+let ``calibration builder derives window bounds from observed calibration samples`` () =
+    let calibration =
+        Measurement.buildCalibrationRecord
+            { Id = CalibrationRecordId "cal-built"
+              ContextClassId = ContextClassId "general"
+              EstimatedAt = DateTimeOffset.UnixEpoch
+              ValidFrom = DateTimeOffset.UnixEpoch
+              ValidUntil = None
+              NullTrialDisplacements = [ 0.01; 0.02; 0.03 ]
+              HomogeneityScan =
+                [ { Lambda = 0.10; VelocityChange = 0.02; CurvatureChange = 0.02 }
+                  { Lambda = 0.25; VelocityChange = 0.04; CurvatureChange = 0.03 }
+                  { Lambda = 0.40; VelocityChange = 0.20; CurvatureChange = 0.03 } ]
+              SingleTokenEditDisplacements = [ 0.06; 0.08; 0.10 ]
+              TokenGranularityStatistic = Median
+              LocalTolerance = 0.05 }
+
+    Assert.Equal(Some 0.02, calibration.NoiseFloorEpsilon |> Option.map _.Value)
+    Assert.Equal(Some 0.04, calibration.LambdaMinEpsilon |> Option.map _.Value)
+    Assert.Equal(Some 0.25, calibration.LambdaMaxDelta |> Option.map _.Value)
+    Assert.Equal(Some 0.08, calibration.TokenGranularityLambdaQuantum |> Option.map _.Value)
+
+    match Measurement.decideLocalMeasurement calibration with
+    | LocalMeasurementAllowed(LocalCalibrationEstimate(ContextClassId "general"), lowerBound, upperBound) ->
+        Assert.Equal(0.08, lowerBound, 3)
+        Assert.Equal(0.25, upperBound, 3)
+    | other -> failwithf "Expected allowed local measurement, got %A" other
+
+[<Fact>]
+let ``local measurement decision refuses missing calibration`` () =
+    let calibration =
+        { Id = CalibrationRecordId "cal-missing"
+          ContextClassId = ContextClassId "general"
+          EstimatedAt = DateTimeOffset.UnixEpoch
+          ValidFrom = DateTimeOffset.UnixEpoch
+          ValidUntil = None
+          NoiseFloorEpsilon = None
+          LambdaMinEpsilon = None
+          LocalValidityRadiusDelta = None
+          LambdaMaxDelta = None
+          TokenGranularityLambdaQuantum = None }
+
+    match Measurement.decideLocalMeasurement calibration with
+    | LocalMeasurementRefused(refusal, MissingCalibration missingFields) ->
+        Assert.Contains("lambda_min(epsilon)", missingFields)
+        match refusal.Basis with
+        | Refused reason -> Assert.Contains("Window Inequality", reason)
+        | other -> failwithf "Expected refused basis, got %A" other
+    | other -> failwithf "Expected refused local measurement, got %A" other
+
+[<Fact>]
 let ``effective mass is marked as marginal estimate from perturbation velocity`` () =
     let perturbationVelocity =
         Domain.measured
@@ -126,6 +177,402 @@ let ``dissipation check flags positive energy deltas`` () =
     match Measurement.checkDissipation [ state "t1" 10.0; state "t2" 10.5 ] with
     | Violation(_, _, delta) -> Assert.Equal(0.5, delta, 3)
     | result -> failwithf "Expected violation result, got %A" result
+
+[<Fact>]
+let ``observable vector from turn preserves direct prompt response measurements`` () =
+    let prompt = Domain.prompt "p-vector" "alpha beta beta"
+    let response = Domain.response "r-vector" "alpha gamma"
+
+    let turn =
+        Domain.turn
+            "t-vector"
+            "s-vector"
+            0
+            prompt
+            response
+            DateTimeOffset.UnixEpoch
+            Natural
+            0
+
+    let vector = Measurement.observableVectorFromTurn CosineDistance None turn
+
+    Assert.Equal(turn.Id, vector.TurnId)
+
+    match vector.Alpha, vector.Beta, vector.Gamma, vector.Delta, vector.Velocity with
+    | Some alpha, Some beta, Some gamma, Some delta, None ->
+        Assert.Equal(DirectObservation, alpha.Basis)
+        Assert.InRange(alpha.Value, 0.316, 0.317)
+        Assert.InRange(beta.Value, 0.333, 0.334)
+        Assert.True(gamma.Value > 0.0)
+        Assert.Equal(-1.0, delta.Value)
+    | other -> failwithf "Expected alpha/beta/gamma/delta and no first-turn velocity, got %A" other
+
+[<Fact>]
+let ``energy computation refuses refused or invalid measurement inputs`` () =
+    let measured value =
+        Domain.measured value GlobalCalibrationEstimate [] [ GlobalCalibrationFallback ]
+
+    let state =
+        Measurement.computeEnergy
+            (TurnId "t-energy-refused")
+            (measured 1.0)
+            (Domain.refused "No calibrated effective mass expectation is available.")
+            (measured 0.25)
+
+    match state.TotalEnergy.Basis with
+    | Refused reason -> Assert.Contains("Energy cannot be computed", reason)
+    | other -> failwithf "Expected refused energy, got %A" other
+
+    Assert.True(Double.IsNaN state.TotalEnergy.Value)
+
+[<Fact>]
+let ``typed marginal estimate ignores refused observations and preserves marginal basis`` () =
+    let measured value =
+        Domain.measured value MarginalEstimate [ FromForkedReplicationBatch(ForkedReplicationBatchId "batch-typed") ] []
+
+    let observations =
+        { ContextClassId = ContextClassId "general"
+          BatchId = ForkedReplicationBatchId "batch-typed"
+          NaturalVelocities =
+            [ { Label = "natural-a"; Value = measured 0.2 }
+              { Label = "natural-refused"; Value = Domain.refused "bad natural sample" }
+              { Label = "natural-b"; Value = measured 0.4 } ]
+          PerturbationVelocities =
+            [ { Label = "shock-a"; Value = measured 0.25 }
+              { Label = "shock-b"; Value = measured 0.5 } ] }
+
+    let summary = Measurement.marginalEstimateFromObservations observations
+
+    Assert.Equal(MarginalEstimate, summary.Basis)
+
+    match summary.NaturalVelocity, summary.PerturbationVelocity, summary.EffectiveMass with
+    | Some natural, Some perturbation, Some mass ->
+        Assert.Equal(2, natural.Count)
+        Assert.Equal(0.3, natural.Mean, 3)
+        Assert.Equal(2, perturbation.Count)
+        Assert.Equal(0.375, perturbation.Mean, 3)
+        Assert.Equal(2, mass.Count)
+        Assert.Equal(3.0, mass.Mean, 3)
+    | other -> failwithf "Expected all marginal summaries, got %A" other
+
+[<Fact>]
+let ``delta psi compares shared observable components between vectors`` () =
+    let measured turnId value =
+        Domain.measured value DirectObservation [ FromTurn(TurnId turnId) ] []
+
+    let vector turnId alpha beta =
+        Measurement.observableVector
+            (TurnId turnId)
+            { Alpha = Some(measured turnId alpha)
+              Beta = Some(measured turnId beta)
+              Gamma = None
+              Delta = None
+              Velocity = None
+              Curvature = None
+              TorsionalResistance = None
+              Zeta4 = None }
+
+    let delta = Measurement.deltaPsi (vector "left" 0.2 0.5) (vector "right" 0.7 0.1)
+
+    Assert.Equal(TurnId "left", delta.LeftTurnId)
+    Assert.Equal(TurnId "right", delta.RightTurnId)
+    Assert.Equal(2, delta.Components.Length)
+    Assert.Contains(delta.Components, fun item ->
+        item.Name = "alpha" && Math.Abs(item.Difference.Value - 0.5) < 0.001)
+    Assert.True(
+        delta.Assumptions
+        |> List.contains (CouplingHypothesis "Delta Psi compares externally observed trajectories; it does not imply shared internal model state.")
+    )
+
+[<Fact>]
+let ``observable vector report preserves refused measurements without numeric values`` () =
+    let vector =
+        Measurement.observableVector
+            (TurnId "reported-turn")
+            { Alpha = Some(Domain.measured 0.8 DirectObservation [ FromTurn(TurnId "reported-turn") ] [])
+              Beta = Some(Domain.refused "beta requires unavailable calibration")
+              Gamma = None
+              Delta = None
+              Velocity = None
+              Curvature = None
+              TorsionalResistance = None
+              Zeta4 = None }
+
+    let report = Measurement.reportObservableVector "reported-turn" vector
+
+    Assert.Equal("reported-turn", report.Subject)
+    Assert.Equal(2, report.Items.Length)
+
+    let beta =
+        report.Items
+        |> List.find (fun item -> item.Name = "beta")
+
+    Assert.Equal(None, beta.Value)
+    Assert.Equal(Some "beta requires unavailable calibration", beta.RefusalReason)
+    Assert.Contains("beta refused", Assert.Single(report.Warnings))
+
+let private feasibleCalibration =
+    Measurement.buildCalibrationRecord
+        { Id = CalibrationRecordId "cal-feasible"
+          ContextClassId = ContextClassId "general"
+          EstimatedAt = DateTimeOffset.UnixEpoch
+          ValidFrom = DateTimeOffset.UnixEpoch
+          ValidUntil = None
+          NullTrialDisplacements = [ 0.01; 0.02; 0.03 ]
+          HomogeneityScan =
+            [ { Lambda = 0.10; VelocityChange = 0.02; CurvatureChange = 0.02 }
+              { Lambda = 0.25; VelocityChange = 0.04; CurvatureChange = 0.03 } ]
+          SingleTokenEditDisplacements = [ 0.06; 0.08; 0.10 ]
+          TokenGranularityStatistic = Median
+          LocalTolerance = 0.05 }
+
+let private testPrefix =
+    { SessionId = SessionId "protocol-session"
+      ThroughSequenceIndex = 4
+      PromptResponseHistory =
+        [ Domain.prompt "prefix-p0" "Prompt zero", Domain.response "prefix-r0" "Response zero"
+          Domain.prompt "prefix-p1" "Prompt one", Domain.response "prefix-r1" "Response one" ] }
+
+[<Fact>]
+let ``forked replication planner creates separate natural and shock tasks when calibration is feasible`` () =
+    let plan =
+        Measurement.planForkedReplicationBatch
+            (ForkedReplicationBatchId "batch-plan")
+            (ContextClassId "general")
+            testPrefix
+            feasibleCalibration
+            3
+            2
+            (TargetLambda 0.12)
+
+    Assert.Equal(3, plan.NaturalContinuations.Length)
+    Assert.Equal(2, plan.ShockTrials.Length)
+    Assert.All(plan.ShockTrials, fun trial ->
+        Assert.Equal(None, trial.Refusal)
+        Assert.Equal(TargetLambda 0.12, trial.Mode)
+        Assert.Equal(LocalCalibrationEstimate(ContextClassId "general"), trial.Basis))
+
+[<Fact>]
+let ``forked replication planner refuses shock tasks when calibration is missing`` () =
+    let missingCalibration =
+        { Id = CalibrationRecordId "cal-missing-protocol"
+          ContextClassId = ContextClassId "general"
+          EstimatedAt = DateTimeOffset.UnixEpoch
+          ValidFrom = DateTimeOffset.UnixEpoch
+          ValidUntil = None
+          NoiseFloorEpsilon = None
+          LambdaMinEpsilon = None
+          LocalValidityRadiusDelta = None
+          LambdaMaxDelta = None
+          TokenGranularityLambdaQuantum = None }
+
+    let plan =
+        Measurement.planForkedReplicationBatch
+            (ForkedReplicationBatchId "batch-refused")
+            (ContextClassId "general")
+            testPrefix
+            missingCalibration
+            1
+            2
+            MinimalTokenEdit
+
+    Assert.Equal(1, plan.NaturalContinuations.Length)
+    Assert.Equal(2, plan.ShockTrials.Length)
+    Assert.All(plan.ShockTrials, fun trial ->
+        Assert.True(trial.Refusal.IsSome)
+        match trial.Basis with
+        | Refused reason -> Assert.Contains("calibration", reason)
+        | other -> failwithf "Expected refused shock basis, got %A" other)
+    Assert.Contains(plan.Warnings, fun warning -> warning.Contains("calibration"))
+
+[<Fact>]
+let ``forked replication aggregation reports independent marginals without joint pairing`` () =
+    let plan =
+        Measurement.planForkedReplicationBatch
+            (ForkedReplicationBatchId "batch-results")
+            (ContextClassId "general")
+            testPrefix
+            feasibleCalibration
+            2
+            3
+            (TargetLambda 0.12)
+
+    let measured label value source =
+        Domain.measured value MarginalEstimate [ source ] [ ContinuityOfPerturbationVelocity ]
+
+    let turn index =
+        Domain.turn
+            $"natural-result-{index}"
+            "protocol-session"
+            (5 + index)
+            (Domain.prompt $"natural-p-{index}" $"Natural prompt {index}")
+            (Domain.response $"natural-r-{index}" $"Natural response {index}")
+            DateTimeOffset.UnixEpoch
+            Natural
+            0
+
+    let shockTrial index =
+        { Id = ShockTrialId $"shock-result-{index}"
+          ContextPrefix = testPrefix
+          ShockPrompt = Domain.prompt $"shock-p-{index}" $"Shock prompt {index}"
+          Response = Domain.response $"shock-r-{index}" $"Shock response {index}"
+          IntensityLambda = Some 0.12
+          Mode = TargetLambda 0.12
+          ResultingPerturbationVelocity = None
+          ForkedReplicationBatchId = Some(ForkedReplicationBatchId "batch-results")
+          AppliedInline = false }
+
+    let results =
+        { Plan = plan
+          NaturalContinuations =
+            [ { PlanLabel = "natural-1"
+                Turn = turn 1
+                Velocity = measured "natural-1" 0.20 (FromTurn(TurnId "natural-result-1")) }
+              { PlanLabel = "natural-2"
+                Turn = turn 2
+                Velocity = measured "natural-2" 0.40 (FromTurn(TurnId "natural-result-2")) } ]
+          ShockTrials =
+            [ { PlanLabel = "shock-1"
+                Trial = shockTrial 1
+                PerturbationVelocity = measured "shock-1" 0.25 (FromShockTrial(ShockTrialId "shock-result-1")) }
+              { PlanLabel = "shock-2"
+                Trial = shockTrial 2
+                PerturbationVelocity = measured "shock-2" 0.50 (FromShockTrial(ShockTrialId "shock-result-2")) }
+              { PlanLabel = "shock-3"
+                Trial = shockTrial 3
+                PerturbationVelocity = measured "shock-3" 1.00 (FromShockTrial(ShockTrialId "shock-result-3")) } ] }
+
+    let report = Measurement.aggregateForkedReplicationResults results
+
+    Assert.Equal(2, report.NaturalObservationCount)
+    Assert.Equal(3, report.ShockObservationCount)
+
+    match report.Summary.NaturalVelocity, report.Summary.PerturbationVelocity, report.Summary.EffectiveMass with
+    | Some natural, Some perturbation, Some mass ->
+        Assert.Equal(0.30, natural.Mean, 3)
+        Assert.Equal(0.583, perturbation.Mean, 3)
+        Assert.Equal(2.333, mass.Mean, 3)
+    | other -> failwithf "Expected marginal summaries, got %A" other
+
+    Assert.Contains(report.Report.Warnings, fun warning -> warning.Contains("no natural/shock per-instance joint pairing"))
+
+[<Fact>]
+let ``minimal token edit shock builder chooses a nonzero displacement candidate`` () =
+    let plan =
+        Measurement.planForkedReplicationBatch
+            (ForkedReplicationBatchId "batch-shock-build")
+            (ContextClassId "general")
+            testPrefix
+            feasibleCalibration
+            0
+            1
+            MinimalTokenEdit
+
+    let shockPlan = Assert.Single(plan.ShockTrials)
+
+    let result =
+        Measurement.buildMinimalTokenEditShock
+            { Plan = shockPlan
+              Metric = CosineDistance
+              CandidateTokens = [ "orthogonal"; "entropy" ] }
+
+    match result with
+    | Ok constructed ->
+        Assert.True(constructed.Lambda > 0.0)
+        Assert.True(constructed.CandidateCount > 0)
+        Assert.False(String.IsNullOrWhiteSpace constructed.Prompt.Text)
+        Assert.Contains(TokenGranularityAggregation "minimal-token-edit", constructed.Assumptions)
+    | Error error -> failwithf "Expected constructed shock prompt, got %A" error
+
+[<Fact>]
+let ``shock execution uses builder and executor without provider coupling`` () =
+    let plan =
+        Measurement.planForkedReplicationBatch
+            (ForkedReplicationBatchId "batch-exec")
+            (ContextClassId "general")
+            testPrefix
+            feasibleCalibration
+            0
+            1
+            MinimalTokenEdit
+
+    let shockPlan = Assert.Single(plan.ShockTrials)
+
+    let builder =
+        { new IShockPromptBuilder with
+            member _.Build request =
+                Measurement.buildMinimalTokenEditShock
+                    { request with CandidateTokens = [ "orthogonal"; "entropy" ] } }
+
+    let executor =
+        { new IPromptExecutor with
+            member _.Submit request =
+                async {
+                    return
+                        Ok
+                            { RequestLabel = request.Label
+                              Response = Domain.response "executed-shock-response" $"Executed response to {request.Prompt.Text}"
+                              ObservedAt = DateTimeOffset.UnixEpoch
+                              Metadata = Map.ofList [ "executor", "fake" ] }
+                } }
+
+    let result =
+        Measurement.executeShockTrial CosineDistance builder executor [ "orthogonal"; "entropy" ] shockPlan
+        |> Async.RunSynchronously
+
+    match result with
+    | ShockExecuted executed ->
+        Assert.Equal(shockPlan.Label, executed.PlanLabel)
+        Assert.Equal(Some shockPlan.BatchId, executed.Trial.ForkedReplicationBatchId)
+        Assert.True(executed.PerturbationVelocity.Value > 0.0)
+        Assert.Equal(MarginalEstimate, executed.PerturbationVelocity.Basis)
+    | other -> failwithf "Expected executed shock, got %A" other
+
+[<Fact>]
+let ``shock execution returns refused result for refused shock plan`` () =
+    let missingCalibration =
+        { Id = CalibrationRecordId "cal-exec-missing"
+          ContextClassId = ContextClassId "general"
+          EstimatedAt = DateTimeOffset.UnixEpoch
+          ValidFrom = DateTimeOffset.UnixEpoch
+          ValidUntil = None
+          NoiseFloorEpsilon = None
+          LambdaMinEpsilon = None
+          LocalValidityRadiusDelta = None
+          LambdaMaxDelta = None
+          TokenGranularityLambdaQuantum = None }
+
+    let plan =
+        Measurement.planForkedReplicationBatch
+            (ForkedReplicationBatchId "batch-exec-refused")
+            (ContextClassId "general")
+            testPrefix
+            missingCalibration
+            0
+            1
+            MinimalTokenEdit
+
+    let shockPlan = Assert.Single(plan.ShockTrials)
+
+    let builder =
+        { new IShockPromptBuilder with
+            member _.Build _ = failwith "Builder should not be called for a refused shock plan." }
+
+    let executor =
+        { new IPromptExecutor with
+            member _.Submit _ = failwith "Executor should not be called for a refused shock plan." }
+
+    let result =
+        Measurement.executeShockTrial CosineDistance builder executor [ "orthogonal" ] shockPlan
+        |> Async.RunSynchronously
+
+    match result with
+    | ShockExecutionRefused(label, refusal) ->
+        Assert.Equal(shockPlan.Label, label)
+        match refusal.Basis with
+        | Refused reason -> Assert.Contains("Window Inequality", reason)
+        | other -> failwithf "Expected refused measured value, got %A" other
+    | other -> failwithf "Expected refused shock execution, got %A" other
 
 [<Fact>]
 let ``storage computation saves and loads turns through context`` () =

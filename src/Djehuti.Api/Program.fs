@@ -54,11 +54,26 @@ type ConstantDto =
       Value: string }
 
 [<CLIMutable>]
+type MeasurementReportItemDto =
+    { Name: string
+      Value: Nullable<float>
+      Basis: string
+      Assumptions: string list
+      RefusalReason: string }
+
+[<CLIMutable>]
+type MeasurementReportDto =
+    { Subject: string
+      Items: MeasurementReportItemDto list
+      Warnings: string list }
+
+[<CLIMutable>]
 type AnalyzeResponse =
     { Summary: SummaryDto
       Turns: TurnMetricDto list
       Velocities: VelocityPointDto list
       Constants: ConstantDto list
+      Reports: MeasurementReportDto list
       Warnings: string list }
 
 [<CLIMutable>]
@@ -128,6 +143,7 @@ module Dto =
     let private unwrapSessionId (SessionId value) = value
     let private unwrapModelId (ModelId value) = value
     let private unwrapDataSourceId (DataSourceId value) = value
+    let private unwrapTurnId (TurnId value) = value
 
     let sourceKindText kind =
         match kind with
@@ -158,6 +174,31 @@ module Dto =
         | HypothesisDependent _ -> "hypothesis dependent"
         | ContaminatedTrajectory _ -> "contaminated trajectory"
         | Refused reason -> $"refused: {reason}"
+
+    let assumptionText assumption =
+        match assumption with
+        | ContinuityOfPerturbationVelocity -> "continuity of perturbation velocity"
+        | IsotropicEmbeddingCurvatureApproximation -> "isotropic embedding curvature approximation"
+        | CouplingHypothesis name -> $"coupling hypothesis: {name}"
+        | ProviderSuppliedMetadata name -> $"provider supplied metadata: {name}"
+        | GlobalCalibrationFallback -> "global calibration fallback"
+        | LocalCalibrationAssumption(ContextClassId contextClass) -> $"local calibration assumption: {contextClass}"
+        | TokenGranularityAggregation statistic -> $"token granularity aggregation: {statistic}"
+
+    let reportItemDto (item: MeasurementReportItem) =
+        { Name = item.Name
+          Value =
+            item.Value
+            |> Option.map Nullable
+            |> Option.defaultValue (Nullable())
+          Basis = basisText item.Basis
+          Assumptions = item.Assumptions |> List.map assumptionText
+          RefusalReason = item.RefusalReason |> Option.defaultValue "" }
+
+    let reportDto (report: MeasurementReport) =
+        { Subject = report.Subject
+          Items = report.Items |> List.map reportItemDto
+          Warnings = report.Warnings }
 
     let rec jsonValueText value =
         match value with
@@ -229,6 +270,20 @@ module Dto =
                     velocities
                     |> Map.ofList
 
+                let observableVectors =
+                    turns
+                    |> List.mapi (fun index turn ->
+                        let previousTurn =
+                            if index = 0 then None else Some turns[index - 1]
+
+                        Measurement.observableVectorFromTurn CosineDistance previousTurn turn)
+
+                let reports =
+                    observableVectors
+                    |> List.map (fun vector ->
+                        Measurement.reportObservableVector (unwrapTurnId vector.TurnId) vector
+                        |> reportDto)
+
                 let turnRows =
                     (turns, corpus.MetricsByComparison)
                     ||> List.zip
@@ -296,6 +351,7 @@ module Dto =
                   Turns = turnRows
                   Velocities = velocityRows
                   Constants = constants
+                  Reports = reports
                   Warnings =
                     [ if ingestionSummary.Gaps.Length > 0 then
                         yield $"{ingestionSummary.Gaps.Length} logical-time gap(s) detected." ] }
