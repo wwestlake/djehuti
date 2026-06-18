@@ -1,6 +1,8 @@
 open System
+open System.IO
 open System.Text.Json
 open Microsoft.AspNetCore.Builder
+open Microsoft.AspNetCore.Hosting
 open Microsoft.AspNetCore.Http
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
@@ -58,6 +60,69 @@ type AnalyzeResponse =
       Velocities: VelocityPointDto list
       Constants: ConstantDto list
       Warnings: string list }
+
+[<CLIMutable>]
+type DataSetCatalogItem =
+    { Id: string
+      Name: string
+      Description: string
+      File: string
+      SourceKind: string
+      TurnCount: int
+      DeclaredTurnCount: Nullable<int>
+      Status: string }
+
+module DataLibrary =
+    let private serializerOptions =
+        JsonSerializerOptions(PropertyNameCaseInsensitive = true)
+
+    let private normalizePath (path: string) =
+        Path.GetFullPath(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+
+    let private candidateRoots (contentRoot: string) =
+        [ Path.Combine(contentRoot, "data", "datasets")
+          Path.Combine(contentRoot, "..", "..", "data", "datasets")
+          Path.Combine(contentRoot, "..", "..", "..", "data", "datasets")
+          Path.Combine(AppContext.BaseDirectory, "data", "datasets")
+          Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "data", "datasets") ]
+        |> List.map normalizePath
+        |> List.distinct
+
+    let private tryRoot contentRoot =
+        candidateRoots contentRoot
+        |> List.tryFind Directory.Exists
+
+    let catalog contentRoot =
+        match tryRoot contentRoot with
+        | None -> []
+        | Some root ->
+            let manifestPath = Path.Combine(root, "manifest.json")
+            if File.Exists manifestPath then
+                File.ReadAllText manifestPath
+                |> fun json -> JsonSerializer.Deserialize<DataSetCatalogItem array>(json, serializerOptions)
+                |> Option.ofObj
+                |> Option.map Array.toList
+                |> Option.defaultValue []
+            else
+                []
+
+    let tryReadDataSet contentRoot id =
+        match tryRoot contentRoot with
+        | None -> Error "Data library folder was not found."
+        | Some root ->
+            catalog contentRoot
+            |> List.tryFind (fun item -> String.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase))
+            |> function
+                | None -> Error $"Dataset '{id}' was not found."
+                | Some item ->
+                    let rootPath = normalizePath root
+                    let datasetPath = normalizePath (Path.Combine(rootPath, item.File))
+                    if not (datasetPath.StartsWith(rootPath, StringComparison.OrdinalIgnoreCase)) then
+                        Error "Dataset path is outside the data library."
+                    elif not (File.Exists datasetPath) then
+                        Error $"Dataset file '{item.File}' was not found."
+                    else
+                        Ok(File.ReadAllText datasetPath)
 
 module Dto =
     let private unwrapSessionId (SessionId value) = value
@@ -258,6 +323,23 @@ let main args =
     app.UseCors() |> ignore
 
     app.MapGet("/api/health", Func<string>(fun () -> "ok")) |> ignore
+
+    app.MapGet(
+        "/api/datasets",
+        Func<IWebHostEnvironment, IResult>(fun environment ->
+            DataLibrary.catalog environment.ContentRootPath
+            |> Results.Ok)
+    )
+    |> ignore
+
+    app.MapGet(
+        "/api/datasets/{id}",
+        Func<string, IWebHostEnvironment, IResult>(fun id environment ->
+            match DataLibrary.tryReadDataSet environment.ContentRootPath id with
+            | Ok json -> Results.Text(json, "application/json")
+            | Error error -> Results.NotFound(error))
+    )
+    |> ignore
 
     app.MapPost(
         "/api/analyze",

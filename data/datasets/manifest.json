@@ -1,0 +1,12 @@
+[
+  {
+    "id": "descartes-synthetic-partial",
+    "name": "Descartes synthetic run",
+    "description": "Partial import from Google Doc \"Large sim data set\". The source document currently ends mid-record, so this includes only complete prompt-response pairs.",
+    "file": "descartes-synthetic-partial.json",
+    "sourceKind": "prompt-response-log",
+    "turnCount": 154,
+    "declaredTurnCount": 2000,
+    "status": "partial"
+  }
+]
