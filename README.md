@@ -8,6 +8,20 @@ This project implements the Information Space Dynamics (ISD) measurement framewo
 
 [https://doi.org/10.5281/zenodo.20690590](https://doi.org/10.5281/zenodo.20690590)
 
+## Dashboard Preview
+
+The current workbench includes an interactive dashboard for loading prompt-response datasets, running analysis, and inspecting the resulting trajectory.
+
+![Djehuti dashboard deformation phase-space view](docs/images/dashboard-deformation-phase-space.png)
+
+The dashboard includes metric timelines for prompt-response alignment, velocity, lexical similarity, word-count delta, and response length.
+
+![Djehuti dashboard metric timelines](docs/images/dashboard-metric-timelines.png)
+
+It also includes a feature finder that marks high-velocity transitions, low prompt-response alignment, structural changes, repeated prompts, and topic markers over integer logical time.
+
+![Djehuti dashboard feature finder](docs/images/dashboard-feature-finder.png)
+
 ## Core Principle
 
 Djehuti follows a strict pure-observability rule:
