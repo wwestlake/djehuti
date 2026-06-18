@@ -252,6 +252,35 @@
   color: #a8c4d4;
 }
 
+.phase-mode-control {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 4px;
+}
+
+.phase-mode-control button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #dce8ee;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  min-height: 32px;
+  padding: 0 6px;
+}
+
+.phase-mode-control button:hover,
+.phase-mode-control button.active {
+  background: #ffffff;
+  color: #10202c;
+}
+
 .phase-axis-list {
   display: grid;
   gap: 8px;

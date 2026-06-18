@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js'
 import {
   flexRender,
   getCoreRowModel,
@@ -188,6 +189,18 @@ const strategyColors: Record<string, number> = {
   Drifting: 0xb42318,
   Unknown: 0x667085,
 }
+
+type PhaseRenderMode = 'points' | 'solid' | 'hybrid' | 'envelope'
+
+const phaseRenderModes: Array<{
+  id: PhaseRenderMode
+  label: string
+}> = [
+  { id: 'points', label: 'Points' },
+  { id: 'solid', label: 'Solid' },
+  { id: 'hybrid', label: 'Hybrid' },
+  { id: 'envelope', label: 'Envelope' },
+]
 
 const navItems = [
   { href: '#summary', label: 'Run summary', icon: Gauge },
@@ -870,6 +883,7 @@ function FeatureExplorer({
 
 function PhaseSpace3D({ turns }: { turns: TurnMetricDto[] }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
+  const [renderMode, setRenderMode] = useState<PhaseRenderMode>('points')
   const visibleTurns = useMemo(() => sampleEvenly(turns, maxPhasePoints), [turns])
 
   useEffect(() => {
@@ -918,6 +932,7 @@ function PhaseSpace3D({ turns }: { turns: TurnMetricDto[] }) {
     const pointGeometry = new THREE.SphereGeometry(0.075, 16, 16)
     const pointMaterials: THREE.Material[] = []
     const lineGeometries: THREE.BufferGeometry[] = [axisGeometry]
+    const transientMaterials: THREE.Material[] = []
 
     if (visibleTurns.length > 0) {
       const sequenceValues = visibleTurns.map((turn) => turn.sequenceIndex)
@@ -932,29 +947,150 @@ function PhaseSpace3D({ turns }: { turns: TurnMetricDto[] }) {
         return new THREE.Vector3(x, y, z)
       })
 
-      const lineGeometry = new THREE.BufferGeometry().setFromPoints(positions)
-      lineGeometries.push(lineGeometry)
-      const lineMaterial = new THREE.LineBasicMaterial({
-        color: 0x8bd3dd,
-        transparent: true,
-        opacity: 0.74,
-      })
-      scene.add(new THREE.Line(lineGeometry, lineMaterial))
+      if (positions.length > 1 && renderMode === 'envelope') {
+        const curve = new THREE.CatmullRomCurve3(positions)
+        const sampleCount = Math.min(Math.max(positions.length * 4, 64), 360)
+        const envelopePoints: THREE.Vector3[] = []
+        const radialDirections = [
+          new THREE.Vector3(1, 0, 0),
+          new THREE.Vector3(-1, 0, 0),
+          new THREE.Vector3(0, 1, 0),
+          new THREE.Vector3(0, -1, 0),
+          new THREE.Vector3(0, 0, 1),
+          new THREE.Vector3(0, 0, -1),
+          new THREE.Vector3(1, 1, 0).normalize(),
+          new THREE.Vector3(-1, 1, 0).normalize(),
+          new THREE.Vector3(1, 0, 1).normalize(),
+          new THREE.Vector3(-1, 0, 1).normalize(),
+          new THREE.Vector3(0, 1, 1).normalize(),
+          new THREE.Vector3(0, -1, 1).normalize(),
+        ]
 
-      visibleTurns.forEach((turn, index) => {
-        const color = strategyColors[turn.strategy] ?? strategyColors.Unknown
-        const material = new THREE.MeshStandardMaterial({
-          color,
-          emissive: color,
-          emissiveIntensity: index === 0 ? 0.18 : 0.08,
-          roughness: 0.42,
+        for (let index = 0; index < sampleCount; index += 1) {
+          const t = sampleCount === 1 ? 0 : index / (sampleCount - 1)
+          const center = curve.getPoint(t)
+          const turnIndex = Math.min(
+            Math.round(t * (visibleTurns.length - 1)),
+            visibleTurns.length - 1,
+          )
+          const turn = visibleTurns[turnIndex]
+          const velocity = turn.velocityFromPrevious ?? 0
+          const wordDeltaWeight = Math.min(Math.abs(turn.wordCountDelta) / 120, 1)
+          const radius = 0.2 + velocity * 0.18 + wordDeltaWeight * 0.12
+
+          envelopePoints.push(center)
+          radialDirections.forEach((direction) => {
+            envelopePoints.push(center.clone().add(direction.clone().multiplyScalar(radius)))
+          })
+        }
+
+        const envelopeGeometry = new ConvexGeometry(envelopePoints)
+        envelopeGeometry.computeVertexNormals()
+        lineGeometries.push(envelopeGeometry)
+        const envelopeMaterial = new THREE.MeshStandardMaterial({
+          color: 0x8bd3dd,
+          emissive: 0x087f8c,
+          emissiveIntensity: 0.14,
+          metalness: 0.04,
+          opacity: 0.62,
+          roughness: 0.28,
+          side: THREE.DoubleSide,
+          transparent: true,
         })
-        pointMaterials.push(material)
-        const point = new THREE.Mesh(pointGeometry, material)
-        point.position.copy(positions[index])
-        point.scale.setScalar(index === 0 || index === visibleTurns.length - 1 ? 1.55 : 1)
-        scene.add(point)
-      })
+        transientMaterials.push(envelopeMaterial)
+        scene.add(new THREE.Mesh(envelopeGeometry, envelopeMaterial))
+
+        const wireGeometry = new THREE.EdgesGeometry(envelopeGeometry, 16)
+        lineGeometries.push(wireGeometry)
+        const wireMaterial = new THREE.LineBasicMaterial({
+          color: 0xdce8ee,
+          opacity: 0.18,
+          transparent: true,
+        })
+        transientMaterials.push(wireMaterial)
+        scene.add(new THREE.LineSegments(wireGeometry, wireMaterial))
+      }
+
+      if (positions.length > 1 && renderMode !== 'points' && renderMode !== 'envelope') {
+        const curve = new THREE.CatmullRomCurve3(positions)
+        const tubeSegments = Math.min(Math.max(positions.length * 3, 48), 320)
+        const tubeGeometry = new THREE.TubeGeometry(
+          curve,
+          tubeSegments,
+          renderMode === 'solid' ? 0.13 : 0.09,
+          14,
+          false,
+        )
+        lineGeometries.push(tubeGeometry)
+        const tubeMaterial = new THREE.MeshStandardMaterial({
+          color: 0x8bd3dd,
+          emissive: 0x087f8c,
+          emissiveIntensity: 0.18,
+          metalness: 0.08,
+          opacity: renderMode === 'solid' ? 0.92 : 0.7,
+          roughness: 0.34,
+          transparent: true,
+        })
+        transientMaterials.push(tubeMaterial)
+        scene.add(new THREE.Mesh(tubeGeometry, tubeMaterial))
+
+        if (renderMode === 'solid') {
+          const glowGeometry = new THREE.TubeGeometry(curve, tubeSegments, 0.24, 14, false)
+          lineGeometries.push(glowGeometry)
+          const glowMaterial = new THREE.MeshBasicMaterial({
+            color: 0x8bd3dd,
+            opacity: 0.11,
+            transparent: true,
+          })
+          transientMaterials.push(glowMaterial)
+          scene.add(new THREE.Mesh(glowGeometry, glowMaterial))
+        }
+      }
+
+      if (renderMode !== 'solid' && renderMode !== 'envelope') {
+        const lineGeometry = new THREE.BufferGeometry().setFromPoints(positions)
+        lineGeometries.push(lineGeometry)
+        const lineMaterial = new THREE.LineBasicMaterial({
+          color: 0x8bd3dd,
+          transparent: true,
+          opacity: 0.74,
+        })
+        transientMaterials.push(lineMaterial)
+        scene.add(new THREE.Line(lineGeometry, lineMaterial))
+
+        visibleTurns.forEach((turn, index) => {
+          const color = strategyColors[turn.strategy] ?? strategyColors.Unknown
+          const material = new THREE.MeshStandardMaterial({
+            color,
+            emissive: color,
+            emissiveIntensity: index === 0 ? 0.18 : 0.08,
+            roughness: 0.42,
+          })
+          pointMaterials.push(material)
+          const point = new THREE.Mesh(pointGeometry, material)
+          point.position.copy(positions[index])
+          point.scale.setScalar(index === 0 || index === visibleTurns.length - 1 ? 1.55 : 1)
+          scene.add(point)
+        })
+      } else if (renderMode === 'solid' || renderMode === 'envelope') {
+        const endCapMaterial = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          emissive: 0x8bd3dd,
+          emissiveIntensity: 0.22,
+          roughness: 0.4,
+        })
+        transientMaterials.push(endCapMaterial)
+
+        const startCap = new THREE.Mesh(pointGeometry, endCapMaterial)
+        startCap.position.copy(positions[0])
+        startCap.scale.setScalar(1.7)
+        scene.add(startCap)
+
+        const endCap = new THREE.Mesh(pointGeometry, endCapMaterial)
+        endCap.position.copy(positions[positions.length - 1])
+        endCap.scale.setScalar(1.7)
+        scene.add(endCap)
+      }
     }
 
     const resizeObserver = new ResizeObserver(() => {
@@ -982,10 +1118,11 @@ function PhaseSpace3D({ turns }: { turns: TurnMetricDto[] }) {
       axisMaterial.dispose()
       pointGeometry.dispose()
       pointMaterials.forEach((material) => material.dispose())
+      transientMaterials.forEach((material) => material.dispose())
       lineGeometries.forEach((geometry) => geometry.dispose())
       host.replaceChildren()
     }
-  }, [visibleTurns])
+  }, [renderMode, visibleTurns])
 
   return (
     <section className="phase-space-section" id="phase-space">
@@ -993,6 +1130,18 @@ function PhaseSpace3D({ turns }: { turns: TurnMetricDto[] }) {
         <div>
           <p className="eyebrow">3D phase space</p>
           <h2>Conversation trajectory</h2>
+        </div>
+        <div className="phase-mode-control" aria-label="3D render mode">
+          {phaseRenderModes.map((mode) => (
+            <button
+              key={mode.id}
+              className={renderMode === mode.id ? 'active' : undefined}
+              type="button"
+              onClick={() => setRenderMode(mode.id)}
+            >
+              {mode.label}
+            </button>
+          ))}
         </div>
         <div className="phase-axis-list">
           <span>X: time</span>
