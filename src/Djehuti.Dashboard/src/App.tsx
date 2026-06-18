@@ -190,7 +190,7 @@ const strategyColors: Record<string, number> = {
   Unknown: 0x667085,
 }
 
-type PhaseRenderMode = 'points' | 'solid' | 'hybrid' | 'envelope'
+type PhaseRenderMode = 'points' | 'solid' | 'hybrid' | 'envelope' | 'deform'
 
 const phaseRenderModes: Array<{
   id: PhaseRenderMode
@@ -200,6 +200,7 @@ const phaseRenderModes: Array<{
   { id: 'solid', label: 'Solid' },
   { id: 'hybrid', label: 'Hybrid' },
   { id: 'envelope', label: 'Envelope' },
+  { id: 'deform', label: 'Deform' },
 ]
 
 const navItems = [
@@ -947,6 +948,88 @@ function PhaseSpace3D({ turns }: { turns: TurnMetricDto[] }) {
         return new THREE.Vector3(x, y, z)
       })
 
+      if (positions.length > 1 && renderMode === 'deform') {
+        const columns = 56
+        const rows = 34
+        const vertices: number[] = []
+        const indices: number[] = []
+        const colors: number[] = []
+        const color = new THREE.Color()
+
+        for (let row = 0; row < rows; row += 1) {
+          const y = -2 + (row / (rows - 1)) * 4
+          for (let column = 0; column < columns; column += 1) {
+            const x = -4 + (column / (columns - 1)) * 8
+            let displacement = 0
+            let influence = 0
+
+            positions.forEach((position, index) => {
+              const turn = visibleTurns[index]
+              const dx = x - position.x
+              const dy = y - position.y
+              const distanceSquared = dx * dx + dy * dy
+              const velocity = turn.velocityFromPrevious ?? 0
+              const alignmentStress = 1 - Math.max(Math.min(turn.promptResponseCosine, 1), 0)
+              const wordDeltaStress = Math.min(Math.abs(turn.wordCountDelta) / 140, 1)
+              const radius = 0.48 + velocity * 0.34 + wordDeltaStress * 0.18
+              const falloff = Math.exp(-distanceSquared / (radius * radius))
+              const signedPull = velocity * 1.25 + alignmentStress * 0.72 + wordDeltaStress * 0.48
+
+              displacement += falloff * signedPull
+              influence += falloff
+            })
+
+            const normalizedDisplacement = influence > 0 ? displacement / Math.max(influence, 0.35) : 0
+            const z = -2 + Math.min(normalizedDisplacement, 2.55)
+            vertices.push(x, y, z)
+
+            const heat = Math.min(Math.max((z + 2) / 2.55, 0), 1)
+            color.setHSL(0.52 - heat * 0.38, 0.66, 0.32 + heat * 0.22)
+            colors.push(color.r, color.g, color.b)
+          }
+        }
+
+        for (let row = 0; row < rows - 1; row += 1) {
+          for (let column = 0; column < columns - 1; column += 1) {
+            const current = row * columns + column
+            const right = current + 1
+            const below = current + columns
+            const belowRight = below + 1
+            indices.push(current, below, right, right, below, belowRight)
+          }
+        }
+
+        const surfaceGeometry = new THREE.BufferGeometry()
+        surfaceGeometry.setIndex(indices)
+        surfaceGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
+        surfaceGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+        surfaceGeometry.computeVertexNormals()
+        lineGeometries.push(surfaceGeometry)
+
+        const surfaceMaterial = new THREE.MeshStandardMaterial({
+          emissive: 0x063a43,
+          emissiveIntensity: 0.08,
+          metalness: 0.02,
+          opacity: 0.74,
+          roughness: 0.58,
+          side: THREE.DoubleSide,
+          transparent: true,
+          vertexColors: true,
+        })
+        transientMaterials.push(surfaceMaterial)
+        scene.add(new THREE.Mesh(surfaceGeometry, surfaceMaterial))
+
+        const wireGeometry = new THREE.WireframeGeometry(surfaceGeometry)
+        lineGeometries.push(wireGeometry)
+        const wireMaterial = new THREE.LineBasicMaterial({
+          color: 0xdce8ee,
+          opacity: 0.11,
+          transparent: true,
+        })
+        transientMaterials.push(wireMaterial)
+        scene.add(new THREE.LineSegments(wireGeometry, wireMaterial))
+      }
+
       if (positions.length > 1 && renderMode === 'envelope') {
         const curve = new THREE.CatmullRomCurve3(positions)
         const sampleCount = Math.min(Math.max(positions.length * 4, 64), 360)
@@ -1011,7 +1094,12 @@ function PhaseSpace3D({ turns }: { turns: TurnMetricDto[] }) {
         scene.add(new THREE.LineSegments(wireGeometry, wireMaterial))
       }
 
-      if (positions.length > 1 && renderMode !== 'points' && renderMode !== 'envelope') {
+      if (
+        positions.length > 1 &&
+        renderMode !== 'points' &&
+        renderMode !== 'envelope' &&
+        renderMode !== 'deform'
+      ) {
         const curve = new THREE.CatmullRomCurve3(positions)
         const tubeSegments = Math.min(Math.max(positions.length * 3, 48), 320)
         const tubeGeometry = new THREE.TubeGeometry(
