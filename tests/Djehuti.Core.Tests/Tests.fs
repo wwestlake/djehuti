@@ -24,6 +24,100 @@ let ``turn creation records strategy and contamination depth`` () =
     Assert.Equal(Contaminated 2, turn.ContaminationDepth)
 
 [<Fact>]
+let ``MLMCE session creates clean seed participant turns`` () =
+    let participant = MLMCE.participant "participant-a" "model-a" "advocate"
+    let seed = Domain.prompt "seed-prompt" "Discuss whether measurement changes model behavior."
+
+    let session =
+        MLMCE.session
+            "mlmce-session"
+            [ participant ]
+            "moderator-model"
+            "1"
+            Sequential
+            seed
+            MLMCE.defaultThresholds
+            SequentialDialogue
+            DateTimeOffset.UnixEpoch
+
+    let response = Domain.response "seed-response" "Measurement changes the observable protocol."
+    let turn = MLMCE.seedTurn session participant response DateTimeOffset.UnixEpoch
+    let participantTurn = MLMCE.participantTurn turn participant.Id None false
+
+    Assert.Equal(Seed, participantTurn.Turn.Strategy)
+    Assert.Equal(Clean, participantTurn.Turn.ContaminationDepth)
+    Assert.Equal(0, participantTurn.Turn.SequenceIndex)
+    Assert.Equal(participant.Id, participantTurn.ParticipantId)
+    Assert.False(participantTurn.PrecededByModeratorIntervention)
+
+[<Fact>]
+let ``MLMCE moderator event preserves trigger vector thresholds and shock prompt`` () =
+    let turn =
+        Domain.turn
+            "mlmce-turn"
+            "mlmce-session"
+            4
+            (Domain.prompt "mlmce-prompt" "Continue the argument.")
+            (Domain.response "mlmce-response" "The argument has narrowed into one basin.")
+            DateTimeOffset.UnixEpoch
+            Natural
+            0
+
+    let vector = Measurement.observableVectorFromTurn CosineDistance None turn
+    let shockPrompt = Domain.prompt "shock-prompt" "Answer from the orthogonal assumption."
+
+    let event =
+        MLMCE.moderatorEvent
+            "mod-event"
+            (SessionId "mlmce-session")
+            4
+            AttractorApproach
+            vector
+            MLMCE.defaultThresholds
+            shockPrompt
+            (ParticipantId "participant-a")
+            vector.Velocity
+
+    Assert.Equal(ModeratorEventId "mod-event", event.Id)
+    Assert.Equal(AttractorApproach, event.TriggerCondition)
+    Assert.Equal(vector.TurnId, event.ObservableVectorAtTrigger.TurnId)
+    Assert.Equal(MLMCE.defaultThresholds, event.Thresholds)
+    Assert.Equal(shockPrompt, event.ShockPrompt)
+
+[<Fact>]
+let ``MLMCE interferometer computes pairwise delta psi divergence flags`` () =
+    let measured value =
+        Domain.measured value DirectObservation [ FromTurn(TurnId "turn-source") ] []
+
+    let vector turnId alpha velocity =
+        { TurnId = TurnId turnId
+          Alpha = Some(measured alpha)
+          Beta = None
+          Gamma = None
+          Delta = None
+          Velocity = Some(measured velocity)
+          Curvature = None
+          TorsionalResistance = None
+          Zeta4 = None }
+
+    let deltas =
+        MLMCE.computeInterferometerDeltas
+            0.25
+            [ SessionId "session-a", 0, vector "a-0" 0.10 0.20
+              SessionId "session-b", 0, vector "b-0" 0.50 0.21
+              SessionId "session-c", 0, vector "c-0" 0.12 0.80 ]
+
+    Assert.Equal(3, deltas.Length)
+    Assert.Contains(deltas, fun item ->
+        item.LeftSessionId = SessionId "session-a"
+        && item.RightSessionId = SessionId "session-b"
+        && item.DivergentComponents = [ "alpha" ])
+    Assert.Contains(deltas, fun item ->
+        item.LeftSessionId = SessionId "session-a"
+        && item.RightSessionId = SessionId "session-c"
+        && item.DivergentComponents = [ "v" ])
+
+[<Fact>]
 let ``decomposition exposes words sentences lines and frequencies`` () =
     let parts = Decompose.parts "Hello world. Hello again.\nSecond line."
 
@@ -835,6 +929,7 @@ let ``forked replication runner executes natural and shock plans through provide
                 async {
                     let suffix =
                         match request.Strategy with
+                        | Seed -> "seed continuation"
                         | Natural -> "natural continuation"
                         | Shock -> "shock continuation"
                         | InterleavedWithHistory -> "interleaved continuation"
@@ -1417,3 +1512,166 @@ let ``example prompt response data ingests and produces metrics`` () =
         Assert.True(corpus.AverageCosineSimilarity > 0.0)
         Assert.True(corpus.AverageWordCountDelta > 0.0)
     | other -> failwithf "Expected example data ingestion and metrics, got %A" other
+
+[<Fact>]
+let ``embedded analyst sends framework grounding and app context through AI connection`` () =
+    let turn =
+        Domain.turn
+            "ai-turn-1"
+            "ai-session"
+            0
+            (Domain.prompt "ai-prompt-1" "Why did the response drift?")
+            (Domain.response "ai-response-1" "The answer changed topic and reduced overlap.")
+            DateTimeOffset.UnixEpoch
+            Natural
+            0
+
+    let vector = Measurement.observableVectorFromTurn CosineDistance None turn
+    let mutable capturedRequest: AiRequest option = None
+
+    let connection =
+        { new IAiConnection with
+            member _.Submit request =
+                async {
+                    capturedRequest <- Some request
+
+                    return
+                        Ok
+                            { ConnectionId = request.ConnectionId
+                              Model = request.Model
+                              Content = "The drift is visible in the supplied observable vector."
+                              Metadata = Map.ofList [ "provider", "fake" ] }
+                } }
+
+    let analyst = Ai.DjehutiAnalyst(connection, AiConnectionId "embedded") :> IDjehutiAnalyst
+
+    let context =
+        { Turns = [ turn ]
+          ObservableVectors = [ vector ]
+          Reports = [ Measurement.reportObservableVector "ai-turn-1" vector ]
+          AttractorEvents = []
+          Constants = Map.ofList [ "distanceMetric", "cosine" ]
+          Warnings = [ "sample warning" ] }
+
+    let result =
+        analyst.Ask
+            { Question = "What changed?"
+              Context = context
+              ConversationId = Some(AiConversationId "analysis-chat")
+              Model = Some(ModelId "analysis-model")
+              Temperature = Some 0.2
+              MaxOutputTokens = Some 512 }
+        |> Async.RunSynchronously
+
+    match result, capturedRequest with
+    | Ok answer, Some request ->
+        Assert.Equal("The drift is visible in the supplied observable vector.", answer.Answer)
+        Assert.Equal(AiConnectionId "embedded", request.ConnectionId)
+        Assert.Equal(Some(ModelId "analysis-model"), request.Model)
+        Assert.Equal(Some(AiConversationId "analysis-chat"), request.ConversationId)
+        Assert.Equal(Some 0.2, request.Temperature)
+        Assert.Equal(Some 512, request.MaxOutputTokens)
+        Assert.Contains(request.Messages, fun message ->
+            message.Role = System
+            && message.Content.Contains("embedded Djehuti analyst AI")
+            && message.Content.Contains("strict analytic style")
+            && message.Content.Contains("Do not claim access to model weights")
+            && message.Content.Contains("Identity 1 diagnostic: stability margin alpha - v")
+            && message.Content.Contains("pure-observability constrained"))
+        Assert.Contains(request.Messages, fun message ->
+            message.Role = User
+            && message.Content.Contains("Question:")
+            && message.Content.Contains("What changed?")
+            && message.Content.Contains("turns=1")
+            && message.Content.Contains("observableVectors=1")
+            && message.Content.Contains("distanceMetric: cosine"))
+        Assert.Contains(answer.Evidence, fun item -> item.Label = "turn 0")
+        Assert.Contains(answer.Evidence, fun item -> item.Label = "warning")
+        Assert.Equal("Djehuti Cyberscope AI+ embedded analyst", request.Metadata["djehuti.analyst_profile"])
+        Assert.Equal("1", request.Metadata["djehuti.analyst_profile_version"])
+    | other -> failwithf "Expected analyst answer and captured request, got %A" other
+
+[<Fact>]
+let ``analyst can be initialized with a custom framework profile`` () =
+    let mutable capturedRequest: AiRequest option = None
+
+    let connection =
+        { new IAiConnection with
+            member _.Submit request =
+                async {
+                    capturedRequest <- Some request
+
+                    return
+                        Ok
+                            { ConnectionId = request.ConnectionId
+                              Model = request.Model
+                              Content = "custom profile observed"
+                              Metadata = Map.empty }
+                } }
+
+    let initialization =
+        { Name = "Custom Djehuti analyst"
+          Version = "test"
+          BehaviorInstructions = [ "Use formal review language." ]
+          CompactFormalism = [ "xi = alpha - v is the local test diagnostic." ]
+          TheoryRationale = [ "A diagnostic is not an ontology claim." ]
+          AnswerDiscipline = [ "Return only claims supported by supplied evidence." ] }
+
+    let analyst =
+        Ai.DjehutiAnalyst(connection, AiConnectionId "custom", initialization) :> IDjehutiAnalyst
+
+    let result =
+        analyst.Ask
+            { Question = "How should I read this?"
+              Context =
+                { Turns = []
+                  ObservableVectors = []
+                  Reports = []
+                  AttractorEvents = []
+                  Constants = Map.empty
+                  Warnings = [] }
+              ConversationId = None
+              Model = None
+              Temperature = None
+              MaxOutputTokens = None }
+        |> Async.RunSynchronously
+
+    match result, capturedRequest with
+    | Ok _, Some request ->
+        Assert.Contains(request.Messages, fun message ->
+            message.Role = System
+            && message.Content.Contains("Custom Djehuti analyst vtest")
+            && message.Content.Contains("xi = alpha - v")
+            && message.Content.Contains("A diagnostic is not an ontology claim"))
+        Assert.Equal("Custom Djehuti analyst", request.Metadata["djehuti.analyst_profile"])
+        Assert.Equal("test", request.Metadata["djehuti.analyst_profile_version"])
+    | other -> failwithf "Expected custom initialized analyst request, got %A" other
+
+[<Fact>]
+let ``embedded analyst propagates AI connection errors`` () =
+    let connection =
+        { new IAiConnection with
+            member _.Submit _ =
+                async { return Error(AiConnectionUnavailable "offline") } }
+
+    let analyst = Ai.DjehutiAnalyst(connection, AiConnectionId "embedded") :> IDjehutiAnalyst
+
+    let result =
+        analyst.Ask
+            { Question = "Can you analyze this?"
+              Context =
+                { Turns = []
+                  ObservableVectors = []
+                  Reports = []
+                  AttractorEvents = []
+                  Constants = Map.empty
+                  Warnings = [] }
+              ConversationId = None
+              Model = None
+              Temperature = None
+              MaxOutputTokens = None }
+        |> Async.RunSynchronously
+
+    match result with
+    | Error(AiConnectionUnavailable "offline") -> ()
+    | other -> failwithf "Expected propagated connection error, got %A" other

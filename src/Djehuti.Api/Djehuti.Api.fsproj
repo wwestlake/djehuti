@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="OpenAiResponses.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

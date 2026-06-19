@@ -113,6 +113,7 @@ module JsonInterop =
 
     let private strategyFromString (value: string) =
         match value with
+        | "seed" -> Seed
         | "natural" -> Natural
         | "shock" -> Shock
         | "interleaved-with-history" -> InterleavedWithHistory
@@ -120,6 +121,7 @@ module JsonInterop =
 
     let private strategyToString strategy =
         match strategy with
+        | Seed -> "seed"
         | Natural -> "natural"
         | Shock -> "shock"
         | InterleavedWithHistory -> "interleaved-with-history"

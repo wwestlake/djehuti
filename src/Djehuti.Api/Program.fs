@@ -1,16 +1,26 @@
 open System
 open System.IO
+open System.Net.Http
 open System.Text.Json
 open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Hosting
 open Microsoft.AspNetCore.Http
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
+open Djehuti.Api
 open Djehuti.Core
 
 [<CLIMutable>]
 type AnalyzeRequest =
     { DatasetJson: string }
+
+[<CLIMutable>]
+type AnalystRequest =
+    { DatasetJson: string
+      Question: string
+      Model: string
+      Temperature: Nullable<float>
+      MaxOutputTokens: Nullable<int> }
 
 [<CLIMutable>]
 type SummaryDto =
@@ -86,6 +96,23 @@ type AnalyzeResponse =
       Reports: MeasurementReportDto list
       AttractorEvents: AttractorEventDto list
       Warnings: string list }
+
+[<CLIMutable>]
+type AnalystEvidenceDto =
+    { Label: string
+      Value: string
+      Source: string }
+
+[<CLIMutable>]
+type AnalystResponse =
+    { Answer: string
+      Evidence: AnalystEvidenceDto list
+      Model: string
+      Metadata: Map<string, string> }
+
+type AnalysisRun =
+    { Response: AnalyzeResponse
+      Context: DjehutiAnalysisContext }
 
 [<CLIMutable>]
 type DataSetCatalogItem =
@@ -167,6 +194,7 @@ module Dto =
 
     let strategyText strategy =
         match strategy with
+        | Seed -> "seed"
         | Natural -> "natural"
         | Shock -> "shock"
         | InterleavedWithHistory -> "interleaved"
@@ -196,6 +224,14 @@ module Dto =
         | LocalCalibrationAssumption(ContextClassId contextClass) -> $"local calibration assumption: {contextClass}"
         | TokenGranularityAggregation statistic -> $"token granularity aggregation: {statistic}"
 
+    let sourceText source =
+        match source with
+        | FromTurn turnId -> $"turn:{unwrapTurnId turnId}"
+        | FromShockTrial(ShockTrialId id) -> $"shock:{id}"
+        | FromForkedReplicationBatch(ForkedReplicationBatchId id) -> $"forked-batch:{id}"
+        | FromCalibrationRecord(CalibrationRecordId id) -> $"calibration:{id}"
+        | FromTextComparison comparisonId -> $"comparison:{comparisonId}"
+
     let reportItemDto (item: MeasurementReportItem) =
         { Name = item.Name
           Value =
@@ -210,6 +246,14 @@ module Dto =
         { Subject = report.Subject
           Items = report.Items |> List.map reportItemDto
           Warnings = report.Warnings }
+
+    let analystEvidenceDto (evidence: DjehutiAnalystEvidence) =
+        { Label = evidence.Label
+          Value = evidence.Value
+          Source =
+            evidence.Source
+            |> Option.map sourceText
+            |> Option.defaultValue "" }
 
     let torsionalResistanceKindText kind =
         match kind with
@@ -282,7 +326,7 @@ module Dto =
         | Refused _ -> false
         | _ -> not (Double.IsNaN value.Value || Double.IsInfinity value.Value)
 
-    let analyze (datasetJson: string) =
+    let analyzeRun (datasetJson: string) =
         let dataSet = JsonInterop.readDataSetFromString datasetJson
         let context = InMemoryStorage.createContext (fun () -> DateTimeOffset.UtcNow)
         let source = JsonDataSource(dataSet) :> IDataSource
@@ -390,11 +434,14 @@ module Dto =
                         | Ok events -> events
                         | Error error -> failwith $"Attractor event load failed: {error}")
 
-                let reports =
+                let measurementReports =
                     observableVectors
                     |> List.map (fun vector ->
-                        Measurement.reportObservableVector (unwrapTurnId vector.TurnId) vector
-                        |> reportDto)
+                        Measurement.reportObservableVector (unwrapTurnId vector.TurnId) vector)
+
+                let reports =
+                    measurementReports
+                    |> List.map reportDto
 
                 let turnRows =
                     (turns, corpus.MetricsByComparison)
@@ -433,6 +480,10 @@ module Dto =
                     |> Map.toList
                     |> List.map (fun (key, value) -> constantDto key value)
 
+                let constantsContext =
+                    dataSet.Constants
+                    |> Map.map (fun _ value -> jsonValueText value)
+
                 let sessionId =
                     turns
                     |> List.tryHead
@@ -449,27 +500,118 @@ module Dto =
                         |> Option.defaultValue "")
                     |> Option.defaultValue ""
 
-                { Summary =
-                    { SourceId = unwrapDataSourceId dataSet.Source.Id
-                      SourceName = dataSet.Source.Name
-                      SourceKind = sourceKindText dataSet.Source.Kind
-                      SessionId = sessionId
-                      ModelId = modelId
-                      TurnCount = turns.Length
-                      VelocityCount = velocities.Length
-                      GapCount = ingestionSummary.Gaps.Length
-                      AveragePromptResponseCosine = corpus.AverageCosineSimilarity
-                      AverageWordCountDelta = corpus.AverageWordCountDelta }
-                  Turns = turnRows
-                  Velocities = velocityRows
-                  Constants = constants
-                  Reports = reports
-                  AttractorEvents =
-                    attractorEvents
-                    |> List.map (attractorEventDto sequenceByTurnId)
-                  Warnings =
+                let warnings =
                     [ if ingestionSummary.Gaps.Length > 0 then
-                        yield $"{ingestionSummary.Gaps.Length} logical-time gap(s) detected." ] }
+                        yield $"{ingestionSummary.Gaps.Length} logical-time gap(s) detected." ]
+
+                { Response =
+                    { Summary =
+                        { SourceId = unwrapDataSourceId dataSet.Source.Id
+                          SourceName = dataSet.Source.Name
+                          SourceKind = sourceKindText dataSet.Source.Kind
+                          SessionId = sessionId
+                          ModelId = modelId
+                          TurnCount = turns.Length
+                          VelocityCount = velocities.Length
+                          GapCount = ingestionSummary.Gaps.Length
+                          AveragePromptResponseCosine = corpus.AverageCosineSimilarity
+                          AverageWordCountDelta = corpus.AverageWordCountDelta }
+                      Turns = turnRows
+                      Velocities = velocityRows
+                      Constants = constants
+                      Reports = reports
+                      AttractorEvents =
+                        attractorEvents
+                        |> List.map (attractorEventDto sequenceByTurnId)
+                      Warnings = warnings }
+                  Context =
+                    { Turns = turns
+                      ObservableVectors = observableVectors
+                      Reports = measurementReports
+                      AttractorEvents = attractorEvents
+                      Constants = constantsContext
+                      Warnings = warnings } }
+
+    let analyze datasetJson =
+        (analyzeRun datasetJson).Response
+
+module AnalystApi =
+    let private errorText error =
+        match error with
+        | AiConnectionUnavailable message -> message
+        | AiAuthenticationFailed message -> message
+        | AiRateLimited message -> message
+        | AiProviderRejectedRequest message -> message
+        | AiProviderFailure message -> message
+        | AiResponseInvalid message -> message
+
+    let private errorStatus error =
+        match error with
+        | AiConnectionUnavailable _ -> 503
+        | AiAuthenticationFailed _ -> 401
+        | AiRateLimited _ -> 429
+        | AiProviderRejectedRequest _ -> 400
+        | AiProviderFailure _ -> 502
+        | AiResponseInvalid _ -> 502
+
+    let ask (request: AnalystRequest) =
+        if String.IsNullOrWhiteSpace request.DatasetJson then
+            Results.BadRequest("datasetJson is required")
+        elif String.IsNullOrWhiteSpace request.Question then
+            Results.BadRequest("question is required")
+        else
+            match OpenAiResponses.tryOptionsFromEnvironment() with
+            | Error error ->
+                Results.Problem(detail = errorText error, statusCode = errorStatus error, title = "Analyst AI unavailable")
+            | Ok options ->
+                try
+                    let analysisRun = Dto.analyzeRun request.DatasetJson
+
+                    use httpClient = new HttpClient()
+                    httpClient.Timeout <- TimeSpan.FromSeconds 90.0
+
+                    let connection =
+                        OpenAiResponsesConnection(httpClient, options) :> IAiConnection
+
+                    let analyst =
+                        Ai.DjehutiAnalyst(connection, AiConnectionId "openai-responses") :> IDjehutiAnalyst
+
+                    let model =
+                        if String.IsNullOrWhiteSpace request.Model then
+                            None
+                        else
+                            Some(ModelId request.Model)
+
+                    let temperature =
+                        if request.Temperature.HasValue then Some request.Temperature.Value else Some 0.1
+
+                    let maxOutputTokens =
+                        if request.MaxOutputTokens.HasValue then Some request.MaxOutputTokens.Value else Some 900
+
+                    let result =
+                        analyst.Ask
+                            { Question = request.Question
+                              Context = analysisRun.Context
+                              ConversationId = None
+                              Model = model
+                              Temperature = temperature
+                              MaxOutputTokens = maxOutputTokens }
+                        |> Async.RunSynchronously
+
+                    match result with
+                    | Ok answer ->
+                        { Answer = answer.Answer
+                          Evidence = answer.Evidence |> List.map Dto.analystEvidenceDto
+                          Model =
+                            answer.AiResponse.Model
+                            |> Option.map (fun (ModelId value) -> value)
+                            |> Option.defaultValue options.Model
+                          Metadata = answer.AiResponse.Metadata }
+                        |> Results.Ok
+                    | Error error ->
+                        Results.Problem(detail = errorText error, statusCode = errorStatus error, title = "Analyst AI failed")
+                with ex ->
+                    Results.BadRequest(ex.Message)
 
 [<EntryPoint>]
 let main args =
@@ -523,6 +665,12 @@ let main args =
                     |> Results.Ok
                 with ex ->
                     Results.BadRequest(ex.Message))
+    )
+    |> ignore
+
+    app.MapPost(
+        "/api/analyst/ask",
+        Func<AnalystRequest, IResult>(AnalystApi.ask)
     )
     |> ignore
 

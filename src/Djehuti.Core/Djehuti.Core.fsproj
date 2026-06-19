@@ -9,6 +9,8 @@
     <Compile Include="Domain.fs" />
     <Compile Include="TextAnalysis.fs" />
     <Compile Include="Measurement.fs" />
+    <Compile Include="MLMCE.fs" />
+    <Compile Include="Ai.fs" />
     <Compile Include="Storage.fs" />
     <Compile Include="Ingestion.fs" />
     <Compile Include="JsonInterop.fs" />

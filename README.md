@@ -1,9 +1,9 @@
-# Djehuti
+# Djehuti Cyberscope AI+
 
 [![Djehuti DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.20739448-blue)](https://doi.org/10.5281/zenodo.20739448)
 [![ISD Framework DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.20690590-blue)](https://doi.org/10.5281/zenodo.20690590)
 
-Djehuti is an empirical measurement instrument for studying large language model behavior in information space.
+Djehuti Cyberscope AI+ is an empirical measurement workbench for studying large language model behavior in information space.
 
 It is not an agent framework, prompt library, benchmark leaderboard, or provider wrapper. Djehuti is a protocol-oriented toolkit for recording externally observable prompt-response trajectories, applying controlled perturbations, and computing carefully labeled observables from those records.
 
@@ -12,6 +12,8 @@ This project implements the Information Space Dynamics (ISD) measurement framewo
 ## Dashboard Preview
 
 The current workbench includes an interactive dashboard for loading prompt-response datasets, running analysis, and inspecting the resulting trajectory.
+
+It also includes a Live Lab page for client-side provider experiments. In Live Lab, an experimenter can enter a provider API key in the browser, start a vanilla chat with no Djehuti system context, and let Djehuti collect each completed prompt-response turn for measurement. The provider key remains in browser state and is not sent to the Djehuti API; only the captured prompt-response transcript is analyzed by the backend.
 
 ![Djehuti dashboard deformation phase-space view](docs/images/dashboard-deformation-phase-space.png)
 
@@ -67,10 +69,15 @@ This distinction is central to the project. For example, under pure observabilit
 ```text
 Djehuti.sln
   src/
+    Djehuti.Api/
+      OpenAiResponses.fs
+      Program.fs
     Djehuti.Core/
       Domain.fs
       TextAnalysis.fs
       Measurement.fs
+      MLMCE.fs
+      Ai.fs
       Storage.fs
       Ingestion.fs
       JsonInterop.fs
@@ -116,6 +123,40 @@ Contains initial protocol-level calculations:
 - dissipation checks
 - measured and estimated torsional resistance helpers
 - attractor-approach diagnostic events
+
+### MLMCE.fs
+
+Defines the Multi-LLM Moderated Conversation Engine data model:
+
+- participant identifiers, model identifiers, and role labels
+- sequential, prompted, and broadcast turn-taking modes
+- MLMCE session configuration with seed prompt and intervention thresholds
+- participant turns that preserve source participant and moderator-intervention state
+- moderator events with trigger condition, shock prompt, target participant, thresholds, and observable vector context
+- interferometer batches and pairwise `Delta Psi` matrix construction
+
+### Ai.fs
+
+Defines provider-neutral AI connection abstractions and the embedded Djehuti analyst boundary:
+
+- generic AI message, request, response, and connection error types
+- `IAiConnection` for provider adapters
+- versioned analyst initialization profile for Djehuti Cyberscope AI+
+- compact ISD/Djehuti formalism supplied to the analyst before each request
+- theory-rationale notes that preserve the pure-observability interpretation of the math
+- answer-discipline rules for evidence labels, refusal status, and hypothesis-dependent values
+- analysis-context packaging for turns, observable vectors, reports, warnings, constants, and attractor events
+- framework-grounded analyst prompting that preserves Djehuti measurement semantics
+- `IDjehutiAnalyst` for an app-embedded AI assistant that can help interpret analysis results
+
+### Djehuti.Api/OpenAiResponses.fs
+
+Implements the first concrete AI adapter for the embedded analyst:
+
+- backend-only OpenAI Responses API connection
+- `OPENAI_API_KEY` environment-variable configuration
+- optional `DJEHUTI_ANALYST_MODEL` override
+- low-temperature analyst requests through the core `IAiConnection` boundary
 
 ### Storage.fs
 
@@ -199,7 +240,17 @@ Implemented so far:
 - typed marginal estimates that avoid fabricated joint pairings
 - forked replication planning with calibration-gated shock trial plans
 - forked replication aggregation that reports independent marginals without per-instance joint synthesis
+- MLMCE session, participant-turn, moderator-event, and interferometer-batch model
+- `Seed` sampling strategy for first-class seed prompt observations
+- pairwise MLMCE interferometer `Delta Psi` matrix helpers with divergence flags
 - provider-agnostic prompt execution ports
+- provider-neutral AI connection abstraction
+- embedded Djehuti analyst boundary grounded in ISD and app analysis context
+- versioned embedded analyst initialization profile with strict analytic behavior, compact formalism, theory rationale, and answer discipline
+- OpenAI Responses API adapter for the embedded analyst
+- `/api/analyst/ask` endpoint for framework-grounded analysis questions
+- dashboard Analyst AI panel that sends current-run questions to the embedded analyst and displays answers with evidence items
+- dashboard Live Lab for client-side vanilla provider chats, prompt-response capture, incremental analysis, and warning logs
 - minimal token-edit shock construction
 - shock execution boundary with executed/refused/failed results
 - full forked replication runner from plan to executable results
@@ -227,7 +278,9 @@ Known near-term work:
 - add structured reporting/export
 - add persistent database-backed attractor event storage
 - add dedicated attractor-event dashboard review surfaces
-- add provider adapters outside the core
+- add additional AI provider adapters outside the core
+- add persistent analyst conversations and richer analyst permission controls
+- add more live-provider protocols and browser-compatible connection options
 
 ## License
 

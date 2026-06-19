@@ -33,6 +33,7 @@ type TextComparison =
     | StateTransition of TurnId * TurnId
 
 type SamplingStrategy =
+    | Seed
     | Natural
     | Shock
     | InterleavedWithHistory
@@ -205,6 +206,7 @@ module Domain =
 
     let contaminationDepth strategy priorShockCount =
         match strategy, priorShockCount with
+        | Seed, 0 -> Clean
         | Natural, 0 -> Clean
         | _, count when count <= 0 -> Clean
         | _, count -> Contaminated count
