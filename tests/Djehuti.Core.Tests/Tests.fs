@@ -47,8 +47,43 @@ let ``MLMCE session creates clean seed participant turns`` () =
     Assert.Equal(Seed, participantTurn.Turn.Strategy)
     Assert.Equal(Clean, participantTurn.Turn.ContaminationDepth)
     Assert.Equal(0, participantTurn.Turn.SequenceIndex)
+    Assert.Equal(SessionId "mlmce-session/participant-a", participantTurn.Turn.SessionId)
     Assert.Equal(participant.Id, participantTurn.ParticipantId)
+    Assert.Equal("mlmce-session", participantTurn.Turn.Metadata["mlmce_parent_session_id"])
+    Assert.Equal("participant-a", participantTurn.Turn.Metadata["mlmce_participant_id"])
     Assert.False(participantTurn.PrecededByModeratorIntervention)
+
+[<Fact>]
+let ``MLMCE seed turns use participant scoped sessions for broadcast storage`` () =
+    let left = MLMCE.participant "participant-a" "model-a" "advocate"
+    let right = MLMCE.participant "participant-b" "model-b" "critic"
+    let seed = Domain.prompt "seed-prompt" "Compare two interpretations."
+
+    let session =
+        MLMCE.session
+            "mlmce-session"
+            [ left; right ]
+            "moderator-model"
+            "1"
+            Broadcast
+            seed
+            MLMCE.defaultThresholds
+            ForkedInterferometerRun
+            DateTimeOffset.UnixEpoch
+
+    let leftTurn =
+        MLMCE.seedTurn session left (Domain.response "left-response" "Interpretation A.") DateTimeOffset.UnixEpoch
+
+    let rightTurn =
+        MLMCE.seedTurn session right (Domain.response "right-response" "Interpretation B.") DateTimeOffset.UnixEpoch
+
+    Assert.Equal(0, leftTurn.SequenceIndex)
+    Assert.Equal(0, rightTurn.SequenceIndex)
+    Assert.NotEqual(leftTurn.SessionId, rightTurn.SessionId)
+    Assert.Equal(SessionId "mlmce-session/participant-a", leftTurn.SessionId)
+    Assert.Equal(SessionId "mlmce-session/participant-b", rightTurn.SessionId)
+    Assert.Equal("mlmce-session", leftTurn.Metadata["mlmce_parent_session_id"])
+    Assert.Equal("mlmce-session", rightTurn.Metadata["mlmce_parent_session_id"])
 
 [<Fact>]
 let ``MLMCE moderator event preserves trigger vector thresholds and shock prompt`` () =
@@ -1512,6 +1547,60 @@ let ``example prompt response data ingests and produces metrics`` () =
         Assert.True(corpus.AverageCosineSimilarity > 0.0)
         Assert.True(corpus.AverageWordCountDelta > 0.0)
     | other -> failwithf "Expected example data ingestion and metrics, got %A" other
+
+[<Fact>]
+let ``api analyzer includes all sessions without cross session velocities`` () =
+    let json =
+        """
+{
+  "source": { "id": "multi-source", "name": "multi session sample", "kind": "manual-transcript" },
+  "interactions": [
+    {
+      "turnId": "a-0",
+      "sessionId": "session-a",
+      "modelId": "model-a",
+      "sequenceIndex": 0,
+      "prompt": "Ask A zero",
+      "response": "Answer A zero"
+    },
+    {
+      "turnId": "a-1",
+      "sessionId": "session-a",
+      "modelId": "model-a",
+      "sequenceIndex": 1,
+      "prompt": "Ask A one",
+      "response": "Answer A one"
+    },
+    {
+      "turnId": "b-0",
+      "sessionId": "session-b",
+      "modelId": "model-b",
+      "sequenceIndex": 0,
+      "prompt": "Ask B zero",
+      "response": "Answer B zero"
+    },
+    {
+      "turnId": "b-1",
+      "sessionId": "session-b",
+      "modelId": "model-b",
+      "sequenceIndex": 1,
+      "prompt": "Ask B one",
+      "response": "Answer B one"
+    }
+  ]
+}
+"""
+
+    let analysis = Program.Dto.analyze json
+
+    Assert.Equal(4, analysis.Summary.TurnCount)
+    Assert.Equal(2, analysis.Summary.VelocityCount)
+    Assert.Equal("session-a, session-b", analysis.Summary.SessionId)
+    Assert.Equal("model-a, model-b", analysis.Summary.ModelId)
+    Assert.Contains("2 sessions analyzed.", analysis.Warnings)
+    Assert.Equal(2, analysis.Velocities |> List.filter (fun item -> item.SequenceIndex = 1) |> List.length)
+    Assert.Contains(analysis.Turns, fun turn -> turn.SessionId = "session-a" && turn.SequenceIndex = 0)
+    Assert.Contains(analysis.Turns, fun turn -> turn.SessionId = "session-b" && turn.SequenceIndex = 0)
 
 [<Fact>]
 let ``embedded analyst sends framework grounding and app context through AI connection`` () =

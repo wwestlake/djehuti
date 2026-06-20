@@ -126,19 +126,33 @@ module MLMCE =
             EndedAt = Some endedAt
             TerminationCondition = Some condition }
 
+    let participantSessionId (session: MLMCESession) (participant: Participant) =
+        let (SessionId sessionId) = session.Id
+        let (ParticipantId participantId) = participant.Id
+        SessionId $"{sessionId}/{participantId}"
+
     let seedTurn (session: MLMCESession) (participant: Participant) response timestamp =
         let (SessionId sessionId) = session.Id
         let (ParticipantId participantId) = participant.Id
+        let (SessionId scopedSessionId) = participantSessionId session participant
 
         Domain.turn
             $"seed-{sessionId}-{participantId}"
-            sessionId
+            scopedSessionId
             0
             session.SeedPrompt
             response
             timestamp
             Seed
             0
+        |> fun turn ->
+            { turn with
+                Metadata =
+                    Map.ofList
+                        [ "mlmce_parent_session_id", sessionId
+                          "mlmce_participant_id", participantId
+                          "mlmce_participant_role", participant.RoleLabel
+                          "mlmce_turn_kind", "seed" ] }
 
     let participantTurn turn participantId promptSourceParticipantId precededByModeratorIntervention =
         { Turn = turn

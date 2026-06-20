@@ -38,6 +38,7 @@ type SummaryDto =
 [<CLIMutable>]
 type TurnMetricDto =
     { SequenceIndex: int
+      SessionId: string
       Prompt: string
       Response: string
       PromptWordCount: int
@@ -55,6 +56,7 @@ type TurnMetricDto =
 [<CLIMutable>]
 type VelocityPointDto =
     { SequenceIndex: int
+      SessionId: string
       Value: float
       Basis: string }
 
@@ -321,10 +323,156 @@ module Dto =
         |> Map.tryFind "data_source_id"
         |> Option.defaultValue ""
 
+    let private sessionIdsInEncounterOrder (dataSet: JsonInteractionDataSet) =
+        dataSet.Interactions
+        |> List.map _.SessionId
+        |> List.fold
+            (fun (seen, ordered) sessionId ->
+                if Set.contains sessionId seen then
+                    seen, ordered
+                else
+                    Set.add sessionId seen, ordered @ [ sessionId ])
+            (Set.empty, [])
+        |> snd
+
+    let private loadSessionTurns context sessionId =
+        StorageOps.listTurnsForSession sessionId
+        |> Storage.run context
+        |> Async.RunSynchronously
+
     let private measuredValueIsUsable (value: MeasuredValue) =
         match value.Basis with
         | Refused _ -> false
         | _ -> not (Double.IsNaN value.Value || Double.IsInfinity value.Value)
+
+    let private loadTurnsBySession (context: StorageContext) (dataSet: JsonInteractionDataSet) =
+        let sessionIds = sessionIdsInEncounterOrder dataSet
+
+        let turnsBySession =
+            sessionIds
+            |> List.map (fun sessionId ->
+                match loadSessionTurns context sessionId with
+                | Ok turns -> sessionId, turns
+                | Error error -> failwith $"Turn load failed: {error}")
+
+        sessionIds, turnsBySession, turnsBySession |> List.collect snd
+
+    let private computeVelocities (turnsBySession: (SessionId * Turn list) list) =
+        turnsBySession
+        |> List.collect (fun (_, sessionTurns) ->
+            sessionTurns
+            |> List.pairwise
+            |> List.map (fun (previousTurn, currentTurn) ->
+                currentTurn.Id,
+                currentTurn.SessionId,
+                currentTurn.SequenceIndex,
+                Measurement.velocityFromTurnPair CosineDistance previousTurn currentTurn))
+
+    let private computeObservableVectors (turnsBySession: (SessionId * Turn list) list) =
+        turnsBySession
+        |> List.collect (fun (_, sessionTurns) ->
+            sessionTurns
+            |> List.mapi (fun index turn ->
+                let previousTurn =
+                    if index = 0 then None else Some sessionTurns[index - 1]
+
+                Measurement.observableVectorFromTurn CosineDistance previousTurn turn))
+
+    let private detectAttractorEvents
+        (context: StorageContext)
+        (dataSet: JsonInteractionDataSet)
+        (turns: Turn list)
+        (observableVectors: ObservableVector list)
+        =
+        let trajectoryPoints =
+            (turns, observableVectors)
+            ||> List.zip
+            |> List.map (fun (turn, vector) ->
+                turn.SessionId, Measurement.trajectoryPointFromObservableVector turn.SequenceIndex vector)
+
+        let curvaturePointsBySession =
+            trajectoryPoints
+            |> List.groupBy fst
+            |> List.collect (fun (sessionId, points) ->
+                points
+                |> List.map snd
+                |> List.windowed 3
+                |> List.choose (function
+                    | [ previous; current; next ] ->
+                        let curvature = Measurement.discreteCurvature previous current next
+
+                        if measuredValueIsUsable curvature then
+                            Some
+                                (sessionId,
+                                 { current with
+                                    Coordinates = current.Coordinates |> Map.add "kappa" curvature })
+                        else
+                            None
+                    | _ -> None))
+
+        let attractorThresholds =
+            { StabilityMarginMaximum =
+                constantFloat "attractorStabilityMarginMaximum" 0.10 dataSet.Constants
+              TorsionalAccumulationMinimum =
+                constantFloat "attractorTorsionalAccumulationMinimum" 0.60 dataSet.Constants }
+
+        let detectedAttractorEvents =
+            curvaturePointsBySession
+            |> List.groupBy fst
+            |> List.collect (fun (_, points) ->
+                points
+                |> List.map snd
+                |> List.windowed 3
+                |> List.choose (Measurement.detectAttractorApproach attractorThresholds))
+
+        for event in detectedAttractorEvents do
+            match
+                StorageOps.saveAttractorEvent event
+                |> Storage.run context
+                |> Async.RunSynchronously
+            with
+            | Ok () -> ()
+            | Error error -> failwith $"Attractor event save failed: {error}"
+
+        turns
+        |> List.collect (fun turn ->
+            match
+                StorageOps.listAttractorEventsByTurn turn.Id
+                |> Storage.run context
+                |> Async.RunSynchronously
+            with
+            | Ok events -> events
+            | Error error -> failwith $"Attractor event load failed: {error}")
+
+    let private reportObservableVectors (observableVectors: ObservableVector list) =
+        observableVectors
+        |> List.map (fun vector ->
+            Measurement.reportObservableVector (unwrapTurnId vector.TurnId) vector)
+
+    let private runAnalysisPipeline
+        (dataSet: JsonInteractionDataSet)
+        (context: StorageContext)
+        (ingestionSummary: IngestionSummary)
+        =
+        let sessionIds, turnsBySession, turns = loadTurnsBySession context dataSet
+
+        let comparisons =
+            turns
+            |> List.map (fun turn -> PromptToResponse(turn.Prompt, turn.Response))
+
+        let corpus = TextMetrics.corpusMetrics comparisons
+        let velocities = computeVelocities turnsBySession
+        let observableVectors = computeObservableVectors turnsBySession
+        let attractorEvents = detectAttractorEvents context dataSet turns observableVectors
+        let measurementReports = reportObservableVectors observableVectors
+
+        let warnings =
+            [ if sessionIds.Length > 1 then
+                yield $"{sessionIds.Length} sessions analyzed."
+              if ingestionSummary.Gaps.Length > 0 then
+                yield $"{ingestionSummary.Gaps.Length} logical-time gap(s) detected." ]
+
+        sessionIds, turns, corpus, velocities, observableVectors, measurementReports, attractorEvents, warnings
 
     let analyzeRun (datasetJson: string) =
         let dataSet = JsonInterop.readDataSetFromString datasetJson
@@ -340,197 +488,108 @@ module Dto =
         | Error error ->
             failwith $"Ingestion failed: {error}"
         | Ok ingestionSummary ->
-            let turns =
+            let sessionIds, turns, corpus, velocities, observableVectors, measurementReports, attractorEvents, warnings =
+                runAnalysisPipeline dataSet context ingestionSummary
+
+            let velocityByTurnId =
+                velocities
+                |> List.map (fun (turnId, _, _, measured) -> turnId, measured)
+                |> Map.ofList
+
+            let sequenceByTurnId =
+                turns
+                |> List.map (fun turn -> turn.Id, turn.SequenceIndex)
+                |> Map.ofList
+
+            let reports =
+                measurementReports
+                |> List.map reportDto
+
+            let turnRows =
+                (turns, corpus.MetricsByComparison)
+                ||> List.zip
+                |> List.map (fun (turn, metric) ->
+                    let velocity =
+                        velocityByTurnId
+                        |> Map.tryFind turn.Id
+                        |> Option.map (fun value -> Nullable value.Value)
+                        |> Option.defaultValue (Nullable())
+
+                    { SequenceIndex = turn.SequenceIndex
+                      SessionId = unwrapSessionId turn.SessionId
+                      Prompt = turn.Prompt.Text
+                      Response = turn.Response.Text
+                      PromptWordCount = metric.Left.WordCount
+                      ResponseWordCount = metric.Right.WordCount
+                      WordCountDelta = metric.WordCountDelta
+                      SharedWordCount = metric.SharedWordCount
+                      PromptResponseCosine = metric.CosineSimilarity
+                      JaccardSimilarity = metric.JaccardSimilarity
+                      EditSimilarity = metric.NormalizedEditSimilarity
+                      VelocityFromPrevious = velocity
+                      Strategy = strategyText turn.Strategy
+                      ContaminationDepth = contaminationText turn.ContaminationDepth
+                      SourceId = sourceIdFromMetadata turn })
+
+            let velocityRows =
+                velocities
+                |> List.map (fun (_, sessionId, sequenceIndex, measured) ->
+                    { SequenceIndex = sequenceIndex
+                      SessionId = unwrapSessionId sessionId
+                      Value = measured.Value
+                      Basis = basisText measured.Basis })
+
+            let constants =
+                dataSet.Constants
+                |> Map.toList
+                |> List.map (fun (key, value) -> constantDto key value)
+
+            let constantsContext =
+                dataSet.Constants
+                |> Map.map (fun _ value -> jsonValueText value)
+
+            let sessionId =
+                match sessionIds with
+                | [] -> ""
+                | [ sessionId ] -> unwrapSessionId sessionId
+                | values -> values |> List.map unwrapSessionId |> String.concat ", "
+
+            let modelId =
                 dataSet.Interactions
-                |> List.tryHead
-                |> Option.map _.SessionId
-                |> Option.map (fun sessionId ->
-                    StorageOps.listTurnsForSession sessionId
-                    |> Storage.run context
-                    |> Async.RunSynchronously)
-                |> Option.defaultValue (Ok [])
+                |> List.map _.ModelId
+                |> List.distinct
+                |> function
+                    | [] -> ""
+                    | [ modelId ] -> unwrapModelId modelId
+                    | modelIds -> modelIds |> List.map unwrapModelId |> String.concat ", "
 
-            match turns with
-            | Error error -> failwith $"Turn load failed: {error}"
-            | Ok turns ->
-                let comparisons =
-                    turns
-                    |> List.map (fun turn -> PromptToResponse(turn.Prompt, turn.Response))
-
-                let corpus = TextMetrics.corpusMetrics comparisons
-
-                let velocities =
-                    turns
-                    |> List.pairwise
-                    |> List.map (fun (previousTurn, currentTurn) ->
-                        currentTurn.SequenceIndex, Measurement.velocityFromTurnPair CosineDistance previousTurn currentTurn)
-
-                let velocityByIndex =
-                    velocities
-                    |> Map.ofList
-
-                let observableVectors =
-                    turns
-                    |> List.mapi (fun index turn ->
-                        let previousTurn =
-                            if index = 0 then None else Some turns[index - 1]
-
-                        Measurement.observableVectorFromTurn CosineDistance previousTurn turn)
-
-                let sequenceByTurnId =
-                    turns
-                    |> List.map (fun turn -> turn.Id, turn.SequenceIndex)
-                    |> Map.ofList
-
-                let trajectoryPoints =
-                    (turns, observableVectors)
-                    ||> List.zip
-                    |> List.map (fun (turn, vector) ->
-                        Measurement.trajectoryPointFromObservableVector turn.SequenceIndex vector)
-
-                let curvaturePoints =
-                    trajectoryPoints
-                    |> List.windowed 3
-                    |> List.choose (function
-                        | [ previous; current; next ] ->
-                            let curvature = Measurement.discreteCurvature previous current next
-
-                            if measuredValueIsUsable curvature then
-                                Some
-                                    { current with
-                                        Coordinates = current.Coordinates |> Map.add "kappa" curvature }
-                            else
-                                None
-                        | _ -> None)
-
-                let attractorThresholds =
-                    { StabilityMarginMaximum =
-                        constantFloat "attractorStabilityMarginMaximum" 0.10 dataSet.Constants
-                      TorsionalAccumulationMinimum =
-                        constantFloat "attractorTorsionalAccumulationMinimum" 0.60 dataSet.Constants }
-
-                let detectedAttractorEvents =
-                    curvaturePoints
-                    |> List.windowed 3
-                    |> List.choose (Measurement.detectAttractorApproach attractorThresholds)
-
-                for event in detectedAttractorEvents do
-                    match
-                        StorageOps.saveAttractorEvent event
-                        |> Storage.run context
-                        |> Async.RunSynchronously
-                    with
-                    | Ok () -> ()
-                    | Error error -> failwith $"Attractor event save failed: {error}"
-
-                let attractorEvents =
-                    turns
-                    |> List.collect (fun turn ->
-                        match
-                            StorageOps.listAttractorEventsByTurn turn.Id
-                            |> Storage.run context
-                            |> Async.RunSynchronously
-                        with
-                        | Ok events -> events
-                        | Error error -> failwith $"Attractor event load failed: {error}")
-
-                let measurementReports =
-                    observableVectors
-                    |> List.map (fun vector ->
-                        Measurement.reportObservableVector (unwrapTurnId vector.TurnId) vector)
-
-                let reports =
-                    measurementReports
-                    |> List.map reportDto
-
-                let turnRows =
-                    (turns, corpus.MetricsByComparison)
-                    ||> List.zip
-                    |> List.map (fun (turn, metric) ->
-                        let velocity =
-                            velocityByIndex
-                            |> Map.tryFind turn.SequenceIndex
-                            |> Option.map (fun value -> Nullable value.Value)
-                            |> Option.defaultValue (Nullable())
-
-                        { SequenceIndex = turn.SequenceIndex
-                          Prompt = turn.Prompt.Text
-                          Response = turn.Response.Text
-                          PromptWordCount = metric.Left.WordCount
-                          ResponseWordCount = metric.Right.WordCount
-                          WordCountDelta = metric.WordCountDelta
-                          SharedWordCount = metric.SharedWordCount
-                          PromptResponseCosine = metric.CosineSimilarity
-                          JaccardSimilarity = metric.JaccardSimilarity
-                          EditSimilarity = metric.NormalizedEditSimilarity
-                          VelocityFromPrevious = velocity
-                          Strategy = strategyText turn.Strategy
-                          ContaminationDepth = contaminationText turn.ContaminationDepth
-                          SourceId = sourceIdFromMetadata turn })
-
-                let velocityRows =
-                    velocities
-                    |> List.map (fun (sequenceIndex, measured) ->
-                        { SequenceIndex = sequenceIndex
-                          Value = measured.Value
-                          Basis = basisText measured.Basis })
-
-                let constants =
-                    dataSet.Constants
-                    |> Map.toList
-                    |> List.map (fun (key, value) -> constantDto key value)
-
-                let constantsContext =
-                    dataSet.Constants
-                    |> Map.map (fun _ value -> jsonValueText value)
-
-                let sessionId =
-                    turns
-                    |> List.tryHead
-                    |> Option.map (fun turn -> unwrapSessionId turn.SessionId)
-                    |> Option.defaultValue ""
-
-                let modelId =
-                    turns
-                    |> List.tryHead
-                    |> Option.map (fun turn ->
-                        dataSet.Interactions
-                        |> List.tryFind (fun record -> record.TurnId = turn.Id)
-                        |> Option.map (fun record -> unwrapModelId record.ModelId)
-                        |> Option.defaultValue "")
-                    |> Option.defaultValue ""
-
-                let warnings =
-                    [ if ingestionSummary.Gaps.Length > 0 then
-                        yield $"{ingestionSummary.Gaps.Length} logical-time gap(s) detected." ]
-
-                { Response =
-                    { Summary =
-                        { SourceId = unwrapDataSourceId dataSet.Source.Id
-                          SourceName = dataSet.Source.Name
-                          SourceKind = sourceKindText dataSet.Source.Kind
-                          SessionId = sessionId
-                          ModelId = modelId
-                          TurnCount = turns.Length
-                          VelocityCount = velocities.Length
-                          GapCount = ingestionSummary.Gaps.Length
-                          AveragePromptResponseCosine = corpus.AverageCosineSimilarity
-                          AverageWordCountDelta = corpus.AverageWordCountDelta }
-                      Turns = turnRows
-                      Velocities = velocityRows
-                      Constants = constants
-                      Reports = reports
-                      AttractorEvents =
-                        attractorEvents
-                        |> List.map (attractorEventDto sequenceByTurnId)
-                      Warnings = warnings }
-                  Context =
-                    { Turns = turns
-                      ObservableVectors = observableVectors
-                      Reports = measurementReports
-                      AttractorEvents = attractorEvents
-                      Constants = constantsContext
-                      Warnings = warnings } }
+            { Response =
+                { Summary =
+                    { SourceId = unwrapDataSourceId dataSet.Source.Id
+                      SourceName = dataSet.Source.Name
+                      SourceKind = sourceKindText dataSet.Source.Kind
+                      SessionId = sessionId
+                      ModelId = modelId
+                      TurnCount = turns.Length
+                      VelocityCount = velocities.Length
+                      GapCount = ingestionSummary.Gaps.Length
+                      AveragePromptResponseCosine = corpus.AverageCosineSimilarity
+                      AverageWordCountDelta = corpus.AverageWordCountDelta }
+                  Turns = turnRows
+                  Velocities = velocityRows
+                  Constants = constants
+                  Reports = reports
+                  AttractorEvents =
+                    attractorEvents
+                    |> List.map (attractorEventDto sequenceByTurnId)
+                  Warnings = warnings }
+              Context =
+                { Turns = turns
+                  ObservableVectors = observableVectors
+                  Reports = measurementReports
+                  AttractorEvents = attractorEvents
+                  Constants = constantsContext
+                  Warnings = warnings } }
 
     let analyze datasetJson =
         (analyzeRun datasetJson).Response
@@ -617,6 +676,8 @@ module AnalystApi =
 let main args =
     let builder = WebApplication.CreateBuilder(args)
 
+    // Djehuti.Api is currently a local workstation service for the dashboard.
+    // Restrict origins and add authentication before deploying it remotely.
     builder.Services.AddCors(fun options ->
         options.AddDefaultPolicy(fun policy ->
             policy
@@ -663,8 +724,10 @@ let main args =
                 try
                     Dto.analyze request.DatasetJson
                     |> Results.Ok
-                with ex ->
-                    Results.BadRequest(ex.Message))
+                with
+                | :? ArgumentException as ex -> Results.BadRequest(ex.Message)
+                | :? JsonException as ex -> Results.BadRequest(ex.Message)
+                | ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Analysis failed"))
     )
     |> ignore
 

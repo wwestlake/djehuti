@@ -34,138 +34,48 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import {
+  analyzeDatasetJson,
+  askAnalystApi,
+  fetchDataSetCatalog,
+  fetchDataSetJson,
+} from './api/djehutiApi'
+import {
+  maxChartPoints,
+  maxFeatureRailHits,
+  maxFeatureRows,
+  maxPhasePoints,
+  maxTimelinePoints,
+  maxVisibleRows,
+  phaseRenderModes,
+  strategyColors,
+  visualizationIdeas,
+} from './config/dashboard'
+import { detectFeatures } from './features/featureFinder/featureDetection'
+import { askLiveProvider, deriveLiveWarnings, liveTurnsToDatasetJson } from './features/live/liveLab'
+import { buildMlmceConfigPreview, validateMlmceConfig } from './features/mlmce/mlmceConfig'
+import { formatNumber, sampleEvenly } from './lib/format'
+import type {
+  AnalystMessage,
+  AnalyzeResponse,
+  AnalyzeView,
+  AppMode,
+  AttractorEventDto,
+  DataSetCatalogItem,
+  FeatureHit,
+  LiveProviderConfig,
+  LiveTurn,
+  LiveWarning,
+  MlmceParticipantConfig,
+  MlmceSessionKind,
+  MlmceThresholdConfig,
+  MlmceTurnMode,
+  PhaseRenderMode,
+  TimelineSeries,
+  TurnMetricDto,
+  VelocityPointDto,
+} from './types'
 import './App.css'
-
-type SummaryDto = {
-  sourceId: string
-  sourceName: string
-  sourceKind: string
-  sessionId: string
-  modelId: string
-  turnCount: number
-  velocityCount: number
-  gapCount: number
-  averagePromptResponseCosine: number
-  averageWordCountDelta: number
-}
-
-type TurnMetricDto = {
-  sequenceIndex: number
-  prompt: string
-  response: string
-  promptWordCount: number
-  responseWordCount: number
-  wordCountDelta: number
-  sharedWordCount: number
-  promptResponseCosine: number
-  jaccardSimilarity: number
-  editSimilarity: number
-  velocityFromPrevious: number | null
-  strategy: string
-  contaminationDepth: string
-  sourceId: string
-}
-
-type VelocityPointDto = {
-  sequenceIndex: number
-  value: number
-  basis: string
-}
-
-type ConstantDto = {
-  name: string
-  value: string
-}
-
-type AttractorEventDto = {
-  turnId: string
-  sequenceIndex: number
-  description: string
-  torsionalResistanceValue: number | null
-  torsionalResistanceBasis: string
-  torsionalResistanceKind: string
-  assumptions: string[]
-}
-
-type AnalyzeResponse = {
-  summary: SummaryDto
-  turns: TurnMetricDto[]
-  velocities: VelocityPointDto[]
-  constants: ConstantDto[]
-  attractorEvents: AttractorEventDto[]
-  warnings: string[]
-}
-
-type DataSetCatalogItem = {
-  id: string
-  name: string
-  description: string
-  file: string
-  sourceKind: string
-  turnCount: number
-  declaredTurnCount: number | null
-  status: string
-}
-
-type AnalystEvidenceDto = {
-  label: string
-  value: string
-  source: string
-}
-
-type AnalystResponse = {
-  answer: string
-  evidence: AnalystEvidenceDto[]
-  model: string
-  metadata: Record<string, string>
-}
-
-type AnalystMessage = {
-  id: string
-  question: string
-  response: AnalystResponse
-}
-
-type LiveProviderProtocol = 'openai-responses'
-
-type LiveProviderConfig = {
-  protocol: LiveProviderProtocol
-  apiKey: string
-  model: string
-  endpoint: string
-}
-
-type LiveTurn = {
-  sequenceIndex: number
-  prompt: string
-  response: string
-  modelId: string
-}
-
-type LiveWarning = {
-  id: string
-  sequenceIndex: number
-  severity: FeatureSeverity
-  label: string
-  evidence: string
-}
-
-type MlmceTurnMode = 'sequential' | 'prompted' | 'broadcast'
-type MlmceSessionKind = 'sequential-dialogue' | 'forked-interferometer-run'
-
-type MlmceParticipantConfig = {
-  id: string
-  roleLabel: string
-  modelId: string
-}
-
-type MlmceThresholdConfig = {
-  stabilityCriterionMargin: number
-  leakageBudgetFraction: number
-  torsionalAccumulationCeiling: number
-  attractorWindow: number
-  divergenceThreshold: number
-}
 
 const sampleJson = `{
   "source": {
@@ -252,41 +162,6 @@ const sampleJson = `{
   ]
 }`
 
-const formatNumber = (value: number | null | undefined, digits = 3) =>
-  typeof value === 'number' && Number.isFinite(value)
-    ? value.toFixed(digits)
-    : 'n/a'
-
-const maxVisibleRows = 250
-const maxChartPoints = 300
-const maxPhasePoints = 600
-const maxTimelinePoints = 360
-const maxFeatureRailHits = 800
-const maxFeatureRows = 220
-
-const strategyColors: Record<string, number> = {
-  Stable: 0x087f8c,
-  Expansive: 0x7c3aed,
-  Corrective: 0xd97706,
-  Drifting: 0xb42318,
-  Unknown: 0x667085,
-}
-
-type PhaseRenderMode = 'points' | 'solid' | 'hybrid' | 'envelope' | 'deform'
-type AppMode = 'analyze' | 'live' | 'mlmce' | 'reports' | 'settings'
-type AnalyzeView = 'overview' | 'phase' | 'timelines' | 'features' | 'data' | 'input'
-
-const phaseRenderModes: Array<{
-  id: PhaseRenderMode
-  label: string
-}> = [
-  { id: 'points', label: 'Points' },
-  { id: 'solid', label: 'Solid' },
-  { id: 'hybrid', label: 'Hybrid' },
-  { id: 'envelope', label: 'Envelope' },
-  { id: 'deform', label: 'Deform' },
-]
-
 const modeItems = [
   { id: 'analyze', label: 'Analyze', icon: Gauge },
   { id: 'live', label: 'Live Lab', icon: MessageSquare },
@@ -303,33 +178,6 @@ const analyzeNavItems = [
   { id: 'data', label: 'Turn metrics', icon: Table2 },
   { id: 'input', label: 'JSON input', icon: Braces },
 ] satisfies Array<{ id: AnalyzeView; label: string; icon: typeof Gauge }>
-
-const visualizationIdeas = [
-  {
-    name: 'Metric timelines',
-    detail: 'Plot cosine, Jaccard, edit similarity, and word delta over integer time.',
-  },
-  {
-    name: 'Prompt-response phase space',
-    detail: 'Render time, alignment, and velocity as an interactive trajectory through measurement space.',
-  },
-  {
-    name: 'Strategy bands',
-    detail: 'Show contiguous spans of stable, corrective, expansive, or drifting behavior.',
-  },
-  {
-    name: 'State transition graph',
-    detail: 'Connect each turn to the next by velocity and annotate large jumps.',
-  },
-  {
-    name: 'Gap detector',
-    detail: 'Highlight missing sequence indexes and abrupt metric discontinuities.',
-  },
-  {
-    name: 'Corpus distribution',
-    detail: 'Histogram or density view for response length, velocity, and similarity.',
-  },
-]
 
 const sampleEvenly = <T,>(items: T[], limit: number) => {
   if (items.length <= limit) {

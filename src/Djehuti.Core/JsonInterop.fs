@@ -52,7 +52,7 @@ module JsonInterop =
     let private parseDate (value: string) =
         match DateTimeOffset.TryParse(value) with
         | true, parsed -> Some parsed
-        | false, _ -> invalidArg "observedAt" $"Invalid DateTimeOffset value '{value}'."
+        | false, _ -> None
 
     let private metadataFromElement (element: JsonElement option) =
         match element with

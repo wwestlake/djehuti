@@ -298,12 +298,11 @@ module Ingestion =
                             return Ok summary
                     }
 
-                let! result = loop emptySummary
-                do!
-                    enumerator.DisposeAsync().AsTask()
-                    |> Async.AwaitTask
-
-                return result
+                try
+                    let! result = loop emptySummary
+                    return result
+                finally
+                    enumerator.DisposeAsync().AsTask().GetAwaiter().GetResult()
             })
 
     let ingestDataSource (source: IDataSource) cancellationToken =

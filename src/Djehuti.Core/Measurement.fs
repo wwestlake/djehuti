@@ -578,8 +578,8 @@ module Measurement =
         if names.IsEmpty then
             Error(ProtocolValidationFailure "Hermite interpolation requires at least one shared usable observable coordinate.")
         else
-            let startTangentValues = tangentBetween names previous endPoint
-            let endTangentValues = tangentBetween names startPoint next
+            let startTangentValues = tangentBetween names previous startPoint
+            let endTangentValues = tangentBetween names endPoint next
 
             let measuredTangent point name value =
                 Domain.measured
@@ -911,6 +911,8 @@ module Measurement =
           NoiseFloorEpsilon = noiseFloor
           LambdaMinEpsilon = lambdaMin
           LocalValidityRadiusDelta = localValidity
+          // The current calibration protocol exposes one local-validity upper bound; keep
+          // LambdaMaxDelta tied to it until a distinct homogeneity scan bound is added.
           LambdaMaxDelta = localValidity
           TokenGranularityLambdaQuantum = tokenGranularity }
 

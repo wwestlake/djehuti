@@ -64,7 +64,6 @@ module Decompose =
             wordPattern.Matches text
             |> Seq.cast<Match>
             |> Seq.map (fun m -> normalizeWord m.Value)
-            |> Seq.filter (String.IsNullOrWhiteSpace >> not)
             |> Seq.toList
 
     let sentences (text: string) =
