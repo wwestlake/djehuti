@@ -73,17 +73,18 @@ export const askLiveProvider = async (
     { role: 'user', content: prompt },
   ]
 
+  const body: Record<string, unknown> = { model: config.model, input, store: false }
+  if (config.webSearch) {
+    body.tools = [{ type: 'web_search_preview' }]
+  }
+
   const response = await fetch(config.endpoint, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model: config.model,
-      input,
-      store: false,
-    }),
+    body: JSON.stringify(body),
     signal,
   })
 

@@ -24,12 +24,14 @@ import {
   KeyRound,
   Menu,
   MessageSquare,
+  Moon,
   PanelRightClose,
   PanelRightOpen,
   Play,
   Route,
   Send,
   Settings,
+  Sun,
   Table2,
   Users,
   X,
@@ -1033,7 +1035,14 @@ function MetricTile({
 function App() {
   const [datasetJson, setDatasetJson] = useState(sampleJson)
   const [catalog, setCatalog] = useState<DataSetCatalogItem[]>([])
+  const [theme, setTheme] = useState<'light' | 'dark' | 'midnight'>(
+    () => (localStorage.getItem('djehuti.theme') as 'light' | 'dark' | 'midnight') ?? 'dark'
+  )
   const [selectedDataSetId, setSelectedDataSetId] = useState('')
+  const [isRenamingDataSet, setIsRenamingDataSet] = useState(false)
+  const [renameDataSetName, setRenameDataSetName] = useState('')
+  const [renameDataSetDesc, setRenameDataSetDesc] = useState('')
+  const [renameError, setRenameError] = useState<string | null>(null)
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null)
   const [selectedTurn, setSelectedTurn] = useState<TurnMetricDto | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -1050,14 +1059,25 @@ function App() {
   const [analystMessages, setAnalystMessages] = useState<AnalystMessage[]>([])
   const [isAskingAnalyst, setIsAskingAnalyst] = useState(false)
   const [analystError, setAnalystError] = useState<string | null>(null)
-  const [liveApiKey, setLiveApiKey] = useState('')
-  const [liveModel, setLiveModel] = useState('gpt-4.1-mini')
-  const [liveEndpoint, setLiveEndpoint] = useState('https://api.openai.com/v1/responses')
+  const [liveApiKey, setLiveApiKey] = useState(() => localStorage.getItem('djehuti.liveApiKey') ?? '')
+  const [liveModel, setLiveModel] = useState(() => localStorage.getItem('djehuti.liveModel') ?? 'gpt-4.1-mini')
+  const [liveEndpoint, setLiveEndpoint] = useState(() => localStorage.getItem('djehuti.liveEndpoint') ?? 'https://api.openai.com/v1/responses')
   const [livePrompt, setLivePrompt] = useState('')
-  const [liveTurns, setLiveTurns] = useState<LiveTurn[]>([])
-  const [liveWarnings, setLiveWarnings] = useState<LiveWarning[]>([])
+  const [liveTurns, setLiveTurns] = useState<LiveTurn[]>(() => {
+    try { return JSON.parse(localStorage.getItem('djehuti.liveTurns') ?? '[]') as LiveTurn[] }
+    catch { return [] }
+  })
+  const [liveWarnings, setLiveWarnings] = useState<LiveWarning[]>(() => {
+    try { return JSON.parse(localStorage.getItem('djehuti.liveWarnings') ?? '[]') as LiveWarning[] }
+    catch { return [] }
+  })
+  const [liveWebSearch, setLiveWebSearch] = useState(false)
   const [isLiveSending, setIsLiveSending] = useState(false)
   const [liveError, setLiveError] = useState<string | null>(null)
+  const [isSavingRun, setIsSavingRun] = useState(false)
+  const [saveRunName, setSaveRunName] = useState('')
+  const [saveRunError, setSaveRunError] = useState<string | null>(null)
+  const [saveRunSuccess, setSaveRunSuccess] = useState<string | null>(null)
   const [mlmceParticipants, setMlmceParticipants] = useState<MlmceParticipantConfig[]>([
     { id: 'participant-a', roleLabel: 'Advocate', modelId: 'gpt-4.1-mini' },
     { id: 'participant-b', roleLabel: 'Critic', modelId: 'gpt-4.1-mini' },
@@ -1077,6 +1097,17 @@ function App() {
     attractorWindow: 3,
     divergenceThreshold: 0.25,
   })
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('djehuti.theme', theme)
+  }, [theme])
+
+  useEffect(() => { localStorage.setItem('djehuti.liveApiKey', liveApiKey) }, [liveApiKey])
+  useEffect(() => { localStorage.setItem('djehuti.liveModel', liveModel) }, [liveModel])
+  useEffect(() => { localStorage.setItem('djehuti.liveEndpoint', liveEndpoint) }, [liveEndpoint])
+  useEffect(() => { localStorage.setItem('djehuti.liveTurns', JSON.stringify(liveTurns)) }, [liveTurns])
+  useEffect(() => { localStorage.setItem('djehuti.liveWarnings', JSON.stringify(liveWarnings)) }, [liveWarnings])
 
   const closeMenu = () => setIsMenuOpen(false)
 
@@ -1204,6 +1235,8 @@ function App() {
     setLiveWarnings([])
     setLivePrompt('')
     setLiveError(null)
+    localStorage.removeItem('djehuti.liveTurns')
+    localStorage.removeItem('djehuti.liveWarnings')
     const emptyJson = liveTurnsToDatasetJson([])
     setDatasetJson(emptyJson)
     setAnalysis(null)
@@ -1232,6 +1265,7 @@ function App() {
         apiKey: key,
         model: liveModel.trim() || 'gpt-4.1-mini',
         endpoint: liveEndpoint.trim() || 'https://api.openai.com/v1/responses',
+        webSearch: liveWebSearch,
       }
 
       const responseText = await askLiveProvider(
@@ -1248,6 +1282,7 @@ function App() {
           prompt,
           response: responseText,
           modelId: config.model,
+          webSearch: liveWebSearch,
         },
       ]
       const nextJson = liveTurnsToDatasetJson(nextTurns)
@@ -1535,7 +1570,66 @@ function App() {
           <div className="panel-heading">
             <MessageSquare size={18} />
             <h2>Live conversation</h2>
+            <form
+              className="live-save-form"
+              onSubmit={async (event) => {
+                event.preventDefault()
+                if (!liveTurns.length) return
+                setIsSavingRun(true)
+                setSaveRunError(null)
+                setSaveRunSuccess(null)
+                try {
+                  const name = saveRunName.trim() || `Live Lab ${new Date().toLocaleString()}`
+                  const response = await fetch('/api/datasets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      name,
+                      description: `Live Lab run — ${liveTurns.length} turns, model: ${liveModel.trim() || 'gpt-4.1-mini'}`,
+                      sourceKind: 'live-lab',
+                      turnCount: liveTurns.length,
+                      datasetJson: liveTurnsToDatasetJson(liveTurns),
+                    }),
+                  })
+                  if (!response.ok) {
+                    const text = await response.text()
+                    throw new Error(text || `Save failed with ${response.status}`)
+                  }
+                  const saved = await response.json() as { id: string; name: string }
+                  setSaveRunSuccess(`Saved as "${saved.name}"`)
+                  setSaveRunName('')
+                  const refreshed = await fetch('/api/datasets')
+                  if (refreshed.ok) {
+                    const items = await refreshed.json() as DataSetCatalogItem[]
+                    setCatalog(items)
+                  }
+                } catch (err) {
+                  setSaveRunError(err instanceof Error ? err.message : 'Save failed')
+                } finally {
+                  setIsSavingRun(false)
+                }
+              }}
+            >
+              <input
+                className="live-save-name"
+                value={saveRunName}
+                onChange={(e) => { setSaveRunName(e.target.value); setSaveRunSuccess(null) }}
+                placeholder="Run name (optional)"
+                disabled={isSavingRun || liveTurns.length === 0}
+              />
+              <button
+                className="panel-heading-action"
+                type="submit"
+                disabled={isSavingRun || liveTurns.length === 0}
+                title="Save conversation to dataset library"
+              >
+                <FileJson size={14} />
+                {isSavingRun ? 'Saving…' : 'Save run'}
+              </button>
+            </form>
           </div>
+          {saveRunSuccess && <p className="live-save-success">{saveRunSuccess}</p>}
+          {saveRunError && <p className="error-line live-error">{saveRunError}</p>}
           <div className="live-transcript">
             {liveTurns.length === 0 ? (
               <div className="empty-state">
@@ -1547,14 +1641,15 @@ function App() {
                   <div className="live-turn-header">
                     <strong>t={turn.sequenceIndex}</strong>
                     <span>{turn.modelId}</span>
+                    {turn.webSearch && <span className="live-search-badge"><Database size={11} /> web search</span>}
                   </div>
                   <div className="live-bubble live-prompt">
                     <span>Prompt</span>
-                    <p>{turn.prompt}</p>
+                    <div className="live-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{turn.prompt}</ReactMarkdown></div>
                   </div>
                   <div className="live-bubble live-response">
                     <span>Response</span>
-                    <p>{turn.response}</p>
+                    <div className="live-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{turn.response}</ReactMarkdown></div>
                   </div>
                 </article>
               ))
@@ -1582,6 +1677,16 @@ function App() {
                 disabled={isLiveSending || liveTurns.length === 0}
               >
                 Reset run
+              </button>
+              <button
+                className={`live-web-search-toggle${liveWebSearch ? ' active' : ''}`}
+                type="button"
+                onClick={() => setLiveWebSearch((v) => !v)}
+                aria-pressed={liveWebSearch}
+                title={liveWebSearch ? 'Web search on — click to disable' : 'Web search off — click to enable'}
+              >
+                <Database size={14} />
+                Web search
               </button>
               <button
                 className="primary-action"
@@ -1913,6 +2018,12 @@ function App() {
     </section>
   )
 
+  const themes: Array<{ id: 'light' | 'dark' | 'midnight'; label: string; description: string }> = [
+    { id: 'light', label: 'Light', description: 'Clean light background, default workbench look.' },
+    { id: 'dark', label: 'Dark', description: 'Dark grey surfaces, easy on the eyes in low light.' },
+    { id: 'midnight', label: 'Midnight', description: 'Deep blue palette matching the phase-space canvas.' },
+  ]
+
   const renderSettingsWorkspace = () => (
     <section className="workspace-home view-panel">
       <div className="workspace-hero-panel">
@@ -1923,17 +2034,48 @@ function App() {
           dashboard behavior, export preferences, and local-only client settings.
         </p>
       </div>
-      <div className="settings-grid">
-        <label>
-          <span>Live Lab model</span>
-          <input value={liveModel} onChange={(event) => setLiveModel(event.target.value)} />
-        </label>
-        <label>
-          <span>Live Lab endpoint</span>
-          <input value={liveEndpoint} onChange={(event) => setLiveEndpoint(event.target.value)} />
-        </label>
-        <div className="settings-note">
-          Provider experiment keys are intentionally not persisted here. Live Lab keeps them in browser state only.
+
+      <div className="settings-section">
+        <h3>Appearance</h3>
+        <div className="theme-picker">
+          {themes.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`theme-card${theme === t.id ? ' active' : ''}`}
+              onClick={() => setTheme(t.id)}
+            >
+              <div className={`theme-swatch theme-swatch-${t.id}`}>
+                <div className="swatch-topbar" />
+                <div className="swatch-body">
+                  <div className="swatch-sidebar" />
+                  <div className="swatch-content">
+                    <div className="swatch-line" />
+                    <div className="swatch-line short" />
+                  </div>
+                </div>
+              </div>
+              <strong>{t.label}</strong>
+              <p>{t.description}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h3>Live Lab provider</h3>
+        <div className="settings-grid">
+          <label>
+            <span>Default model</span>
+            <input value={liveModel} onChange={(event) => setLiveModel(event.target.value)} />
+          </label>
+          <label>
+            <span>Endpoint</span>
+            <input value={liveEndpoint} onChange={(event) => setLiveEndpoint(event.target.value)} />
+          </label>
+          <div className="settings-note">
+            Provider experiment keys are not persisted here — Live Lab stores them in browser session only.
+          </div>
         </div>
       </div>
     </section>
@@ -2061,10 +2203,6 @@ function App() {
     >
       <aside className="side-menu" aria-label="Dashboard navigation">
         <div className="side-menu-header">
-          <div>
-            <span className="menu-kicker">Djehuti Cyberscope AI+</span>
-            <strong>Workbench</strong>
-          </div>
           <button className="icon-button menu-close" type="button" onClick={closeMenu} aria-label="Close menu">
             <X size={18} />
           </button>
@@ -2134,10 +2272,20 @@ function App() {
             >
               <Menu size={20} />
             </button>
+            <img src="/logo.png" alt="Djehuti Cyberscope AI+" className="topbar-logo" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
             <div>
               <p className="eyebrow">Djehuti Cyberscope AI+</p>
               <h1>{pageTitle}</h1>
             </div>
+            <button
+              className="icon-button theme-toggle"
+              type="button"
+              onClick={() => setTheme((t) => t === 'light' ? 'dark' : t === 'dark' ? 'midnight' : 'light')}
+              title={`Theme: ${theme} — click to cycle`}
+              aria-label="Cycle theme"
+            >
+              {theme === 'light' ? <Sun size={18} /> : theme === 'dark' ? <Moon size={18} /> : <Moon size={18} />}
+            </button>
           </div>
           {activeMode === 'analyze' && (
             <div className="topbar-actions">
@@ -2146,7 +2294,11 @@ function App() {
                 <select
                   aria-label="Dataset library"
                   value={selectedDataSetId}
-                  onChange={(event) => setSelectedDataSetId(event.target.value)}
+                  onChange={(event) => {
+                    setSelectedDataSetId(event.target.value)
+                    setIsRenamingDataSet(false)
+                    setRenameError(null)
+                  }}
                 >
                   <option value="">Manual JSON</option>
                   {catalog.map((item) => (
@@ -2159,6 +2311,22 @@ function App() {
                   ))}
                 </select>
               </label>
+              {selectedDataSetId && (
+                <button
+                  className={`icon-button${isRenamingDataSet ? ' active' : ''}`}
+                  type="button"
+                  title="Rename dataset"
+                  onClick={() => {
+                    const item = catalog.find((c) => c.id === selectedDataSetId)
+                    setRenameDataSetName(item?.name ?? '')
+                    setRenameDataSetDesc(item?.description ?? '')
+                    setRenameError(null)
+                    setIsRenamingDataSet((v) => !v)
+                  }}
+                >
+                  <FileText size={16} />
+                </button>
+              )}
               <button
                 className="secondary-action"
                 onClick={loadSelectedDataSet}
@@ -2180,6 +2348,56 @@ function App() {
                 {isToolsOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
               </button>
             </div>
+          )}
+          {activeMode === 'analyze' && isRenamingDataSet && selectedDataSetId && (
+            <form
+              className="rename-dataset-bar"
+              onSubmit={async (event) => {
+                event.preventDefault()
+                const name = renameDataSetName.trim()
+                if (!name) return
+                setRenameError(null)
+                try {
+                  const response = await fetch(`/api/datasets/${encodeURIComponent(selectedDataSetId)}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, description: renameDataSetDesc.trim() }),
+                  })
+                  if (!response.ok) {
+                    const text = await response.text()
+                    throw new Error(text || `Rename failed with ${response.status}`)
+                  }
+                  const refreshed = await fetch('/api/datasets')
+                  if (refreshed.ok) setCatalog(await refreshed.json() as DataSetCatalogItem[])
+                  setIsRenamingDataSet(false)
+                } catch (err) {
+                  setRenameError(err instanceof Error ? err.message : 'Rename failed')
+                }
+              }}
+            >
+              <input
+                className="rename-input"
+                value={renameDataSetName}
+                onChange={(e) => setRenameDataSetName(e.target.value)}
+                placeholder="Dataset name"
+                aria-label="Dataset name"
+                autoFocus
+              />
+              <input
+                className="rename-input rename-desc"
+                value={renameDataSetDesc}
+                onChange={(e) => setRenameDataSetDesc(e.target.value)}
+                placeholder="Description (optional)"
+                aria-label="Dataset description"
+              />
+              <button className="secondary-action" type="submit" disabled={!renameDataSetName.trim()}>
+                Save name
+              </button>
+              <button className="icon-button" type="button" onClick={() => { setIsRenamingDataSet(false); setRenameError(null) }}>
+                <X size={15} />
+              </button>
+              {renameError && <span className="rename-error">{renameError}</span>}
+            </form>
           )}
         </header>
 

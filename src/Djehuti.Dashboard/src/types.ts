@@ -110,6 +110,7 @@ export type LiveProviderConfig = {
   apiKey: string
   model: string
   endpoint: string
+  webSearch: boolean
 }
 
 export type LiveTurn = {
@@ -117,6 +118,7 @@ export type LiveTurn = {
   prompt: string
   response: string
   modelId: string
+  webSearch?: boolean
 }
 
 export type LiveWarning = {

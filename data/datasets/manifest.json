@@ -8,5 +8,15 @@
     "turnCount": 154,
     "declaredTurnCount": 2000,
     "status": "partial"
+  },
+  {
+    "id": "live-lab-6-20-2026-8-43-24-pm-20260621-004324",
+    "name": "Live Lab 6/20/2026, 8:43:24 PM",
+    "description": "Live Lab run — 4 turns, model: gpt-4.1-mini",
+    "file": "live-lab-6-20-2026-8-43-24-pm-20260621-004324.json",
+    "sourceKind": "live-lab",
+    "turnCount": 4,
+    "declaredTurnCount": null,
+    "status": "complete"
   }
 ]

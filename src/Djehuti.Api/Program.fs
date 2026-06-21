@@ -11,6 +11,19 @@ open Djehuti.Api
 open Djehuti.Core
 
 [<CLIMutable>]
+type RenameDataSetRequest =
+    { Name: string
+      Description: string }
+
+[<CLIMutable>]
+type SaveDataSetRequest =
+    { Name: string
+      Description: string
+      SourceKind: string
+      TurnCount: int
+      DatasetJson: string }
+
+[<CLIMutable>]
 type AnalyzeRequest =
     { DatasetJson: string }
 
@@ -160,6 +173,59 @@ module DataLibrary =
                 |> Option.defaultValue []
             else
                 []
+
+    let private slugify (text: string) =
+        text.ToLowerInvariant()
+        |> Seq.map (fun ch -> if Char.IsLetterOrDigit ch then ch else '-')
+        |> Seq.toArray
+        |> String
+        |> fun s -> System.Text.RegularExpressions.Regex.Replace(s, "-{2,}", "-").Trim('-')
+
+    let saveDataSet contentRoot (name: string) (description: string) (sourceKind: string) (turnCount: int) (datasetJson: string) =
+        match tryRoot contentRoot with
+        | None -> Error "Data library folder was not found."
+        | Some root ->
+            let slug = slugify name
+            let timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss")
+            let id = $"{slug}-{timestamp}"
+            let fileName = $"{id}.json"
+            let filePath = Path.Combine(root, fileName)
+
+            let existing = catalog contentRoot
+            let newItem =
+                { Id = id
+                  Name = name
+                  Description = description
+                  File = fileName
+                  SourceKind = sourceKind
+                  TurnCount = turnCount
+                  DeclaredTurnCount = Nullable()
+                  Status = "complete" }
+
+            let updated = existing @ [ newItem ]
+            let manifestPath = Path.Combine(root, "manifest.json")
+            let writeOptions = JsonSerializerOptions(WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
+
+            File.WriteAllText(filePath, datasetJson)
+            File.WriteAllText(manifestPath, JsonSerializer.Serialize(updated, writeOptions))
+            Ok newItem
+
+    let renameDataSet contentRoot id (name: string) (description: string) =
+        match tryRoot contentRoot with
+        | None -> Error "Data library folder was not found."
+        | Some root ->
+            let existing = catalog contentRoot
+            match existing |> List.tryFindIndex (fun item -> String.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase)) with
+            | None -> Error $"Dataset '{id}' was not found."
+            | Some index ->
+                let updated =
+                    existing |> List.mapi (fun i item ->
+                        if i = index then { item with Name = name.Trim(); Description = description.Trim() }
+                        else item)
+                let manifestPath = Path.Combine(root, "manifest.json")
+                let writeOptions = JsonSerializerOptions(WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
+                File.WriteAllText(manifestPath, JsonSerializer.Serialize(updated, writeOptions))
+                Ok updated.[index]
 
     let tryReadDataSet contentRoot id =
         match tryRoot contentRoot with
@@ -712,6 +778,41 @@ let main args =
             match DataLibrary.tryReadDataSet environment.ContentRootPath id with
             | Ok json -> Results.Text(json, "application/json")
             | Error error -> Results.NotFound(error))
+    )
+    |> ignore
+
+    app.MapPost(
+        "/api/datasets",
+        Func<SaveDataSetRequest, IWebHostEnvironment, IResult>(fun request environment ->
+            if String.IsNullOrWhiteSpace request.Name then
+                Results.BadRequest("name is required")
+            elif String.IsNullOrWhiteSpace request.DatasetJson then
+                Results.BadRequest("datasetJson is required")
+            else
+                try
+                    let name = request.Name.Trim()
+                    let description = if String.IsNullOrWhiteSpace request.Description then $"Live Lab run: {name}" else request.Description.Trim()
+                    let sourceKind = if String.IsNullOrWhiteSpace request.SourceKind then "live-lab" else request.SourceKind.Trim()
+                    match DataLibrary.saveDataSet environment.ContentRootPath name description sourceKind request.TurnCount request.DatasetJson with
+                    | Ok item -> Results.Ok(item)
+                    | Error message -> Results.Problem(detail = message, statusCode = 500, title = "Save failed")
+                with ex ->
+                    Results.Problem(detail = ex.Message, statusCode = 500, title = "Save failed"))
+    )
+    |> ignore
+
+    app.MapPatch(
+        "/api/datasets/{id}",
+        Func<string, RenameDataSetRequest, IWebHostEnvironment, IResult>(fun id request environment ->
+            if String.IsNullOrWhiteSpace request.Name then
+                Results.BadRequest("name is required")
+            else
+                try
+                    match DataLibrary.renameDataSet environment.ContentRootPath id request.Name request.Description with
+                    | Ok item -> Results.Ok(item)
+                    | Error message -> Results.NotFound(message)
+                with ex ->
+                    Results.Problem(detail = ex.Message, statusCode = 500, title = "Rename failed"))
     )
     |> ignore
 

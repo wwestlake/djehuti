@@ -1,0 +1,42 @@
+{
+  "source": {
+    "id": "live-lab",
+    "kind": "client-side-live-chat",
+    "name": "Live Lab client-side run"
+  },
+  "constants": {
+    "distanceMetric": "cosine",
+    "captureMode": "client-side-provider-key",
+    "contextPolicy": "vanilla chat history only"
+  },
+  "interactions": [
+    {
+      "sessionId": "live-lab-session",
+      "modelId": "gpt-4.1-mini",
+      "sequenceIndex": 0,
+      "prompt": "wow this jungle juice concentrate is high quality",
+      "response": "That sounds great! Jungle juice concentrate can be a lot of fun for making mixed drinks or punches. What flavors did you get, or what are you planning to mix it with?"
+    },
+    {
+      "sessionId": "live-lab-session",
+      "modelId": "gpt-4.1-mini",
+      "sequenceIndex": 1,
+      "prompt": "Its a Cannabis concentrate, for Dabbing",
+      "response": "Got it! Cannabis concentrates like jungle juice can offer a potent and flavorful dabbing experience. Are you looking for any tips on how to dab it safely or ways to enhance the flavor and effect?"
+    },
+    {
+      "sessionId": "live-lab-session",
+      "modelId": "gpt-4.1-mini",
+      "sequenceIndex": 2,
+      "prompt": "no just like to vibe about it you know converse nothing formal",
+      "response": "Totally get you! Vibing about good cannabis concentrates is always a vibe. Jungle juice sounds like it’s hitting the spot. What’s the flavor profile like? Fruity, earthy, citrusy? And how’s the hit—smooth, strong, uplifting? Just kick back and enjoy the chat!"
+    },
+    {
+      "sessionId": "live-lab-session",
+      "modelId": "gpt-4.1-mini",
+      "sequenceIndex": 3,
+      "prompt": "I have some maui wowwie sativa very nice flavor kind of minty almost",
+      "response": "Maui Wowie with that minty twist sounds dope! Classic sativa vibes with a fresh cool edge — perfect for keeping things lifted and chill. I imagine the flavor really makes each dab pop. Do you usually go for sativa concentrates like that to stay energized or just to vibe and relax?"
+    }
+  ]
+}
