@@ -540,6 +540,32 @@
   padding: 0 10px;
 }
 
+.tour-prompt-bar {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-muted));
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  padding: 8px 20px;
+}
+
+.tour-prompt-input {
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text);
+  flex: 1;
+  font: inherit;
+  font-size: 13px;
+  min-width: 260px;
+  outline: none;
+  padding: 5px 10px;
+}
+
+.tour-prompt-input:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
 .rename-dataset-bar {
   align-items: center;
   background: var(--surface-muted);

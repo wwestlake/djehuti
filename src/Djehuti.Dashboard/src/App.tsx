@@ -23,6 +23,7 @@ import {
   FileText,
   FileJson,
   Gauge,
+  GraduationCap,
   KeyRound,
   Menu,
   MessageSquare,
@@ -60,6 +61,7 @@ import { detectFeatures } from './features/featureFinder/featureDetection'
 import { askLiveProvider, deriveLiveWarnings, liveTurnsToDatasetJson } from './features/live/liveLab'
 import { buildMlmceConfigPreview, validateMlmceConfig } from './features/mlmce/mlmceConfig'
 import { formatNumber } from './lib/format'
+import { parseTourFromResponse, startTour } from './lib/tour'
 import type {
   AnalystMessage,
   AnalyzeResponse,
@@ -224,6 +226,8 @@ function App() {
   })
   const [liveWebSearch, setLiveWebSearch] = useState(false)
   const [isLiveSending, setIsLiveSending] = useState(false)
+  const [showTourPrompt, setShowTourPrompt] = useState(false)
+  const [tourQuestion, setTourQuestion] = useState('Walk me through ')
   const [liveError, setLiveError] = useState<string | null>(null)
   const [isSavingRun, setIsSavingRun] = useState(false)
   const [saveRunName, setSaveRunName] = useState('')
@@ -525,15 +529,18 @@ function App() {
       }
 
       const result = (await response.json()) as AnalystResponse
+      const { tour, cleaned } = parseTourFromResponse(result.answer)
+      const displayedResult = tour ? { ...result, answer: cleaned } : result
       setAnalystMessages((messages) => [
         {
           id: `${Date.now()}-${messages.length}`,
           question,
-          response: result,
+          response: displayedResult,
         },
         ...messages,
       ])
       setAnalystQuestion('')
+      if (tour) startTour(tour)
     } catch (err) {
       setAnalystError(
         err instanceof Error && err.name === 'AbortError'
@@ -748,6 +755,7 @@ function App() {
             <h2>Live conversation</h2>
             <form
               className="live-save-form"
+              data-tour="live-save-form"
               onSubmit={async (event) => {
                 event.preventDefault()
                 if (!liveTurns.length) return
@@ -806,7 +814,7 @@ function App() {
           </div>
           {saveRunSuccess && <p className="live-save-success">{saveRunSuccess}</p>}
           {saveRunError && <p className="error-line live-error">{saveRunError}</p>}
-          <div className="live-transcript">
+          <div className="live-transcript" data-tour="live-transcript">
             {liveTurns.length === 0 ? (
               <div className="empty-state">
                 Start a vanilla provider conversation. Djehuti will observe each completed turn.
@@ -833,6 +841,7 @@ function App() {
           </div>
           <form
             className="live-compose"
+            data-tour="live-compose"
             onSubmit={(event) => {
               event.preventDefault()
               void sendLivePrompt()
@@ -1377,7 +1386,7 @@ function App() {
         .filter(Boolean)
         .join(' ')}
     >
-      <aside className="side-menu" aria-label="Dashboard navigation">
+      <aside className="side-menu" aria-label="Dashboard navigation" data-tour="side-menu">
         <div className="side-menu-header">
           <button className="icon-button menu-close" type="button" onClick={closeMenu} aria-label="Close menu">
             <X size={18} />
@@ -1438,7 +1447,7 @@ function App() {
       {isMenuOpen && <button className="menu-backdrop" type="button" onClick={closeMenu} aria-label="Dismiss menu" />}
 
       <main className="dashboard-shell">
-        <header className="topbar">
+        <header className="topbar" data-tour="topbar">
           <div className="title-row">
             <button
               className="icon-button menu-trigger"
@@ -1454,18 +1463,55 @@ function App() {
               <h1>{pageTitle}</h1>
             </div>
             <button
-              className="icon-button theme-toggle"
-              type="button"
+              className=”icon-button theme-toggle”
+              type=”button”
               onClick={() => setTheme((t) => t === 'light' ? 'dark' : t === 'dark' ? 'midnight' : 'light')}
-              title={`Theme: ${theme} â€” click to cycle`}
-              aria-label="Cycle theme"
+              title={`Theme: ${theme} — click to cycle`}
+              aria-label=”Cycle theme”
             >
-              {theme === 'light' ? <Sun size={18} /> : theme === 'dark' ? <Moon size={18} /> : <Moon size={18} />}
+              {theme === 'light' ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+            <button
+              className={`icon-button tour-trigger${showTourPrompt ? ' active' : ''}`}
+              type=”button”
+              title=”Ask the AI to walk you through something”
+              aria-label=”Start a guided tour”
+              onClick={() => setShowTourPrompt((v) => !v)}
+            >
+              <GraduationCap size={18} />
             </button>
           </div>
+          {showTourPrompt && (
+            <form
+              className=”tour-prompt-bar”
+              onSubmit={async (e) => {
+                e.preventDefault()
+                const q = tourQuestion.trim()
+                if (!q || !analysis) return
+                setShowTourPrompt(false)
+                setAnalystQuestion(q)
+                await askAnalyst()
+              }}
+            >
+              <input
+                className=”tour-prompt-input”
+                value={tourQuestion}
+                onChange={(e) => setTourQuestion(e.target.value)}
+                placeholder=”Walk me through analyzing a dataset…”
+                autoFocus
+                aria-label=”Tour request”
+              />
+              <button className=”secondary-action” type=”submit” disabled={!tourQuestion.trim() || !analysis}>
+                Go
+              </button>
+              <button className=”icon-button” type=”button” onClick={() => setShowTourPrompt(false)}>
+                <X size={15} />
+              </button>
+            </form>
+          )}
           {activeMode === 'analyze' && (
             <div className="topbar-actions">
-              <label className="dataset-picker">
+              <label className="dataset-picker" data-tour="dataset-picker">
                 <Database size={16} />
                 <select
                   aria-label="Dataset library"
@@ -1541,7 +1587,7 @@ function App() {
                 <FileJson size={16} />
                 {isLoadingDataSet ? 'Loading' : 'Load Data'}
               </button>
-              <button className="primary-action" onClick={analyze} disabled={isAnalyzing}>
+              <button className="primary-action" onClick={analyze} disabled={isAnalyzing} data-tour="analyze-button">
                 <Play size={16} />
                 {isAnalyzing ? 'Analyzing' : 'Analyze JSON'}
               </button>
@@ -1617,7 +1663,7 @@ function App() {
           <div className="view-stage">{renderMainView()}</div>
 
           {showToolsPanel && isToolsOpen && (
-          <aside className="tools-panel" aria-label="Analysis tools">
+          <aside className="tools-panel" aria-label="Analysis tools" data-tour="tools-panel">
             <div className="tools-panel-header">
               <div>
                 <p className="eyebrow">Tools</p>
@@ -1654,6 +1700,7 @@ function App() {
               </p>
               <form
                 className="analyst-form"
+                data-tour="analyst-form"
                 onSubmit={(event) => {
                   event.preventDefault()
                   void askAnalyst()

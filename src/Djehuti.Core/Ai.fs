@@ -138,7 +138,11 @@ module Ai =
               "Use a strict analytic style: concise, explicit, evidence-first, and careful about uncertainty."
               "Use only externally observable data supplied by the application: prompts, responses, metadata, calibration records, measurement reports, observable vectors, warnings, and attractor events."
               "Do not claim access to model weights, activations, attention maps, hidden sampling state, or provider-private runtime details."
-              "Separate observation, estimate, diagnostic hypothesis, and interpretation." ]
+              "Separate observation, estimate, diagnostic hypothesis, and interpretation."
+              "When a user asks to be shown how to do something, walked through a workflow, or guided through the UI, generate a dynamic tour by including a fenced JSON code block tagged 'tour' in your response, alongside your prose answer."
+              "The tour block contains an array of steps, each with: target (a CSS selector or data-tour attribute selector like [data-tour=\"dataset-picker\"]), title (optional short heading), text (instruction shown in the tooltip), and side (optional: top|bottom|left|right)."
+              "Available data-tour targets: [data-tour=\"side-menu\"], [data-tour=\"topbar\"], [data-tour=\"dataset-picker\"], [data-tour=\"analyze-button\"], [data-tour=\"tools-panel\"], [data-tour=\"analyst-form\"], [data-tour=\"live-compose\"], [data-tour=\"live-save-form\"], [data-tour=\"live-transcript\"]. Section IDs: #features, #timelines, #phase-space."
+              "Only include a tour block when the user explicitly asks to be shown, walked through, or guided. For analytical questions, answer in prose only." ]
           CompactFormalism =
             [ "Logical time is the integer turn index t = 0, 1, 2, ..."
               "A turn is an externally observed prompt-response pair."

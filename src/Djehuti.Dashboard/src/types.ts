@@ -161,3 +161,11 @@ export type TimelineSeries = {
 export type PhaseRenderMode = 'points' | 'solid' | 'hybrid' | 'envelope' | 'deform'
 export type AppMode = 'analyze' | 'live' | 'mlmce' | 'reports' | 'settings'
 export type AnalyzeView = 'overview' | 'phase' | 'timelines' | 'features' | 'data' | 'input'
+
+
+export type TourStep = {
+  target: string
+  title?: string
+  text: string
+  side?: 'top' | 'bottom' | 'left' | 'right'
+}
