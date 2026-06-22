@@ -227,6 +227,22 @@ module DataLibrary =
                 File.WriteAllText(manifestPath, JsonSerializer.Serialize(updated, writeOptions))
                 Ok updated.[index]
 
+    let deleteDataSet contentRoot id =
+        match tryRoot contentRoot with
+        | None -> Error "Data library folder was not found."
+        | Some root ->
+            let existing = catalog contentRoot
+            match existing |> List.tryFind (fun item -> String.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase)) with
+            | None -> Error $"Dataset '{id}' was not found."
+            | Some item ->
+                let filePath = Path.Combine(root, item.File)
+                let updated = existing |> List.filter (fun i -> not (String.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase)))
+                let manifestPath = Path.Combine(root, "manifest.json")
+                let writeOptions = JsonSerializerOptions(WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
+                if File.Exists filePath then File.Delete filePath
+                File.WriteAllText(manifestPath, JsonSerializer.Serialize(updated, writeOptions))
+                Ok()
+
     let tryReadDataSet contentRoot id =
         match tryRoot contentRoot with
         | None -> Error "Data library folder was not found."
@@ -813,6 +829,18 @@ let main args =
                     | Error message -> Results.NotFound(message)
                 with ex ->
                     Results.Problem(detail = ex.Message, statusCode = 500, title = "Rename failed"))
+    )
+    |> ignore
+
+    app.MapDelete(
+        "/api/datasets/{id}",
+        Func<string, IWebHostEnvironment, IResult>(fun id environment ->
+            try
+                match DataLibrary.deleteDataSet environment.ContentRootPath id with
+                | Ok () -> Results.NoContent()
+                | Error message -> Results.NotFound(message)
+            with ex ->
+                Results.Problem(detail = ex.Message, statusCode = 500, title = "Delete failed"))
     )
     |> ignore
 

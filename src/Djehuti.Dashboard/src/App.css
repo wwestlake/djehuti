@@ -144,6 +144,11 @@
   color: var(--accent);
 }
 
+.icon-button.danger:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
 .title-row {
   align-items: center;
   display: flex;

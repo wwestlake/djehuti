@@ -1,7 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -10,6 +7,11 @@ import {
 import type { ColumnDef } from '@tanstack/react-table'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { FeatureExplorer } from './components/charts/FeatureExplorer'
+import { MetricTimelines } from './components/charts/MetricTimelines'
+import { PhaseSpace3D } from './components/charts/PhaseSpace3D'
+import { VelocityChart } from './components/charts/VelocityChart'
+import { MetricTile } from './components/MetricTile'
 import {
   Activity,
   AlertTriangle,
@@ -33,6 +35,7 @@ import {
   Settings,
   Sun,
   Table2,
+  Trash2,
   Users,
   X,
 } from 'lucide-react'
@@ -56,7 +59,7 @@ import {
 import { detectFeatures } from './features/featureFinder/featureDetection'
 import { askLiveProvider, deriveLiveWarnings, liveTurnsToDatasetJson } from './features/live/liveLab'
 import { buildMlmceConfigPreview, validateMlmceConfig } from './features/mlmce/mlmceConfig'
-import { formatNumber, sampleEvenly } from './lib/format'
+import { formatNumber } from './lib/format'
 import type {
   AnalystMessage,
   AnalyzeResponse,
@@ -64,8 +67,6 @@ import type {
   AppMode,
   AttractorEventDto,
   DataSetCatalogItem,
-  FeatureHit,
-  FeatureSeverity,
   LiveProviderConfig,
   LiveTurn,
   LiveWarning,
@@ -73,10 +74,7 @@ import type {
   MlmceSessionKind,
   MlmceThresholdConfig,
   MlmceTurnMode,
-  PhaseRenderMode,
-  TimelineSeries,
   TurnMetricDto,
-  VelocityPointDto,
 } from './types'
 import './App.css'
 
@@ -183,855 +181,6 @@ const analyzeNavItems = [
 ] satisfies Array<{ id: AnalyzeView; label: string; icon: typeof Gauge }>
 
 
-function VelocityChart({ points }: { points: VelocityPointDto[] }) {
-  const width = 720
-  const height = 260
-  const padding = { top: 20, right: 16, bottom: 34, left: 42 }
-  const plotWidth = width - padding.left - padding.right
-  const plotHeight = height - padding.top - padding.bottom
-  const visiblePoints = sampleEvenly(points, maxChartPoints)
-  const xDenominator = Math.max(visiblePoints.length - 1, 1)
-
-  const coordinates = visiblePoints.map((point, index) => {
-    const x = padding.left + (index / xDenominator) * plotWidth
-    const y = padding.top + (1 - point.value) * plotHeight
-    return { ...point, x, y }
-  })
-
-  const path =
-    coordinates.length === 0
-      ? ''
-      : coordinates
-          .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
-          .join(' ')
-
-  const areaPath =
-    coordinates.length === 0
-      ? ''
-      : `${path} L ${coordinates[coordinates.length - 1].x} ${height - padding.bottom} L ${coordinates[0].x} ${height - padding.bottom} Z`
-
-  const gridLines = [0, 0.25, 0.5, 0.75, 1]
-
-  return (
-    <div className="chart-frame">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Response velocity chart">
-        {gridLines.map((value) => {
-          const y = padding.top + (1 - value) * plotHeight
-          return (
-            <g key={value}>
-              <line
-                className="chart-grid"
-                x1={padding.left}
-                x2={width - padding.right}
-                y1={y}
-                y2={y}
-              />
-              <text className="chart-label" x={10} y={y + 4}>
-                {value.toFixed(value === 0 || value === 1 ? 0 : 2)}
-              </text>
-            </g>
-          )
-        })}
-        <line
-          className="chart-axis"
-          x1={padding.left}
-          x2={width - padding.right}
-          y1={height - padding.bottom}
-          y2={height - padding.bottom}
-        />
-        <line
-          className="chart-axis"
-          x1={padding.left}
-          x2={padding.left}
-          y1={padding.top}
-          y2={height - padding.bottom}
-        />
-        {areaPath && <path className="chart-area" d={areaPath} />}
-        {path && <path className="chart-line" d={path} />}
-        {coordinates.map((point, index) => (
-          <g key={point.sequenceIndex}>
-            <circle className="chart-point" cx={point.x} cy={point.y} r="4.5" />
-            {index % Math.max(Math.floor(coordinates.length / 12), 1) === 0 && (
-              <text className="chart-x-label" x={point.x} y={height - 10}>
-                {point.sequenceIndex}
-              </text>
-            )}
-            <title>
-              t={point.sequenceIndex}, velocity={formatNumber(point.value)}
-            </title>
-          </g>
-        ))}
-        <text className="chart-title-y" x={8} y={14}>
-          velocity
-        </text>
-        <text className="chart-title-x" x={width - 12} y={height - 10}>
-          t
-        </text>
-      </svg>
-      {points.length === 0 && (
-        <div className="empty-state chart-empty">Analyze a dataset to plot velocity.</div>
-      )}
-      {points.length > visiblePoints.length && (
-        <div className="chart-note">
-          Showing {visiblePoints.length} sampled points from {points.length} velocities.
-        </div>
-      )}
-    </div>
-  )
-}
-
-function MiniTimelineChart({ series }: { series: TimelineSeries }) {
-  const width = 720
-  const height = 112
-  const padding = { top: 12, right: 12, bottom: 24, left: 44 }
-  const plotWidth = width - padding.left - padding.right
-  const plotHeight = height - padding.top - padding.bottom
-  const visiblePoints = sampleEvenly(series.points, maxTimelinePoints)
-  const values = visiblePoints.map((point) => point.value)
-  const minValue = values.length > 0 ? Math.min(...values) : 0
-  const maxValue = values.length > 0 ? Math.max(...values) : 1
-  const valueSpan = Math.max(maxValue - minValue, 0.0001)
-  const sequenceValues = visiblePoints.map((point) => point.sequenceIndex)
-  const minSequence = sequenceValues.length > 0 ? Math.min(...sequenceValues) : 0
-  const maxSequence = sequenceValues.length > 0 ? Math.max(...sequenceValues) : 1
-  const sequenceSpan = Math.max(maxSequence - minSequence, 1)
-
-  const coordinates = visiblePoints.map((point) => {
-    const x = padding.left + ((point.sequenceIndex - minSequence) / sequenceSpan) * plotWidth
-    const y = padding.top + (1 - (point.value - minValue) / valueSpan) * plotHeight
-    return { ...point, x, y }
-  })
-
-  const path =
-    coordinates.length === 0
-      ? ''
-      : coordinates
-          .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
-          .join(' ')
-
-  const format = series.formatter ?? ((value: number) => formatNumber(value))
-
-  return (
-    <article className="timeline-card">
-      <div className="timeline-card-heading">
-        <strong>{series.label}</strong>
-        <span>
-          {format(minValue)} - {format(maxValue)}
-        </span>
-      </div>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${series.label} timeline`}>
-        <line
-          className="timeline-grid"
-          x1={padding.left}
-          x2={width - padding.right}
-          y1={padding.top + plotHeight / 2}
-          y2={padding.top + plotHeight / 2}
-        />
-        <line
-          className="timeline-axis"
-          x1={padding.left}
-          x2={width - padding.right}
-          y1={height - padding.bottom}
-          y2={height - padding.bottom}
-        />
-        {path && <path className="timeline-line" d={path} style={{ stroke: series.color }} />}
-        {coordinates.map((point, index) =>
-          index % Math.max(Math.floor(coordinates.length / 18), 1) === 0 ? (
-            <circle
-              key={`${point.sequenceIndex}-${index}`}
-              className="timeline-point"
-              cx={point.x}
-              cy={point.y}
-              r="3"
-              style={{ fill: series.color }}
-            >
-              <title>
-                t={point.sequenceIndex}, {series.label}={format(point.value)}
-              </title>
-            </circle>
-          ) : null,
-        )}
-        <text className="timeline-label" x={8} y={padding.top + 4}>
-          {format(maxValue)}
-        </text>
-        <text className="timeline-label" x={8} y={height - padding.bottom + 4}>
-          {format(minValue)}
-        </text>
-        <text className="timeline-x-label" x={padding.left} y={height - 6}>
-          t={minSequence}
-        </text>
-        <text className="timeline-x-label timeline-x-label-end" x={width - padding.right} y={height - 6}>
-          t={maxSequence}
-        </text>
-      </svg>
-      {series.points.length > visiblePoints.length && (
-        <p className="timeline-note">
-          Showing {visiblePoints.length} sampled points from {series.points.length}.
-        </p>
-      )}
-    </article>
-  )
-}
-
-function MetricTimelines({ turns }: { turns: TurnMetricDto[] }) {
-  const series = useMemo<TimelineSeries[]>(
-    () => [
-      {
-        label: 'prompt-response cosine',
-        color: '#087f8c',
-        points: turns.map((turn) => ({
-          sequenceIndex: turn.sequenceIndex,
-          value: turn.promptResponseCosine,
-        })),
-      },
-      {
-        label: 'velocity',
-        color: '#7c3aed',
-        points: turns
-          .filter((turn) => turn.velocityFromPrevious !== null)
-          .map((turn) => ({
-            sequenceIndex: turn.sequenceIndex,
-            value: turn.velocityFromPrevious ?? 0,
-          })),
-      },
-      {
-        label: 'jaccard similarity',
-        color: '#2563eb',
-        points: turns.map((turn) => ({
-          sequenceIndex: turn.sequenceIndex,
-          value: turn.jaccardSimilarity,
-        })),
-      },
-      {
-        label: 'word delta',
-        color: '#d97706',
-        points: turns.map((turn) => ({
-          sequenceIndex: turn.sequenceIndex,
-          value: turn.wordCountDelta,
-        })),
-        formatter: (value) => value.toFixed(0),
-      },
-      {
-        label: 'response length',
-        color: '#b42318',
-        points: turns.map((turn) => ({
-          sequenceIndex: turn.sequenceIndex,
-          value: turn.responseWordCount,
-        })),
-        formatter: (value) => value.toFixed(0),
-      },
-    ],
-    [turns],
-  )
-
-  return (
-    <section className="timelines-panel" id="timelines">
-      <div className="panel-heading">
-        <BarChart3 size={18} />
-        <h2>Metric timelines</h2>
-      </div>
-      {turns.length === 0 ? (
-        <div className="empty-state">Analyze a dataset to populate timelines.</div>
-      ) : (
-        <div className="timeline-grid-panel">
-          {series.map((item) => (
-            <MiniTimelineChart key={item.label} series={item} />
-          ))}
-        </div>
-      )}
-    </section>
-  )
-}
-
-function FeatureExplorer({
-  turns,
-  attractorEvents,
-  selectedTurn,
-  onSelectTurn,
-}: {
-  turns: TurnMetricDto[]
-  attractorEvents: AttractorEventDto[]
-  selectedTurn: TurnMetricDto | null
-  onSelectTurn: (turn: TurnMetricDto) => void
-}) {
-  const features = useMemo(
-    () => detectFeatures(turns, attractorEvents),
-    [turns, attractorEvents],
-  )
-  const visibleRailHits = useMemo(
-    () => sampleEvenly(features, maxFeatureRailHits),
-    [features],
-  )
-  const visibleRows = features.slice(0, maxFeatureRows)
-  const turnBySequence = useMemo(
-    () => new Map(turns.map((turn) => [turn.sequenceIndex, turn])),
-    [turns],
-  )
-  const sequenceValues = turns.map((turn) => turn.sequenceIndex)
-  const minSequence = sequenceValues.length > 0 ? Math.min(...sequenceValues) : 0
-  const maxSequence = sequenceValues.length > 0 ? Math.max(...sequenceValues) : 1
-  const sequenceSpan = Math.max(maxSequence - minSequence, 1)
-  const railWidth = 720
-  const railHeight = 138
-  const padding = { left: 56, right: 18 }
-  const plotWidth = railWidth - padding.left - padding.right
-  const severityY: Record<FeatureSeverity, number> = {
-    high: 34,
-    medium: 68,
-    low: 102,
-  }
-  const severityCounts = features.reduce<Record<FeatureSeverity, number>>(
-    (counts, feature) => {
-      counts[feature.severity] += 1
-      return counts
-    },
-    { high: 0, medium: 0, low: 0 },
-  )
-
-  const selectFeature = (feature: FeatureHit) => {
-    const turn = turnBySequence.get(feature.sequenceIndex)
-    if (turn) {
-      onSelectTurn(turn)
-    }
-  }
-
-  return (
-    <section className="features-panel" id="features">
-      <div className="panel-heading">
-        <AlertTriangle size={18} />
-        <h2>Feature finder</h2>
-      </div>
-      {turns.length === 0 ? (
-        <div className="empty-state">Analyze a dataset to locate conversation features.</div>
-      ) : (
-        <>
-          <div className="feature-summary">
-            <span>
-              <strong>{features.length}</strong>
-              detected features
-            </span>
-            <span className="severity-pill severity-high">
-              {severityCounts.high} high
-            </span>
-            <span className="severity-pill severity-medium">
-              {severityCounts.medium} medium
-            </span>
-            <span className="severity-pill severity-low">
-              {severityCounts.low} low
-            </span>
-          </div>
-
-          <div className="feature-rail-wrap">
-            <svg
-              className="feature-rail"
-              viewBox={`0 0 ${railWidth} ${railHeight}`}
-              role="img"
-              aria-label="Detected features over conversation time"
-            >
-              {(['high', 'medium', 'low'] as FeatureSeverity[]).map((severity) => (
-                <g key={severity}>
-                  <text className="feature-rail-label" x="8" y={severityY[severity] + 4}>
-                    {severity}
-                  </text>
-                  <line
-                    className="feature-rail-line"
-                    x1={padding.left}
-                    x2={railWidth - padding.right}
-                    y1={severityY[severity]}
-                    y2={severityY[severity]}
-                  />
-                </g>
-              ))}
-              <text className="feature-rail-time" x={padding.left} y={railHeight - 8}>
-                t={minSequence}
-              </text>
-              <text
-                className="feature-rail-time feature-rail-time-end"
-                x={railWidth - padding.right}
-                y={railHeight - 8}
-              >
-                t={maxSequence}
-              </text>
-              {visibleRailHits.map((feature) => {
-                const x =
-                  padding.left +
-                  ((feature.sequenceIndex - minSequence) / sequenceSpan) * plotWidth
-                const selected = selectedTurn?.sequenceIndex === feature.sequenceIndex
-                return (
-                  <circle
-                    key={feature.id}
-                    className={`feature-rail-marker severity-${feature.severity}${
-                      selected ? ' selected' : ''
-                    }`}
-                    cx={x}
-                    cy={severityY[feature.severity]}
-                    r={selected ? 5.5 : 4}
-                    tabIndex={0}
-                    role="button"
-                    onClick={() => selectFeature(feature)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        selectFeature(feature)
-                      }
-                    }}
-                  >
-                    <title>
-                      t={feature.sequenceIndex}, {feature.label}: {feature.evidence}
-                    </title>
-                  </circle>
-                )
-              })}
-            </svg>
-            {features.length > visibleRailHits.length && (
-              <p className="render-note">
-                Showing {visibleRailHits.length} sampled feature markers from {features.length}.
-              </p>
-            )}
-          </div>
-
-          <div className="feature-table-wrap">
-            <table className="feature-table">
-              <thead>
-                <tr>
-                  <th>t</th>
-                  <th>feature</th>
-                  <th>source</th>
-                  <th>severity</th>
-                  <th>evidence</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRows.map((feature) => (
-                  <tr
-                    key={feature.id}
-                    className={
-                      selectedTurn?.sequenceIndex === feature.sequenceIndex
-                        ? 'selected'
-                        : undefined
-                    }
-                    onClick={() => selectFeature(feature)}
-                  >
-                    <td>{feature.sequenceIndex}</td>
-                    <td>{feature.label}</td>
-                    <td>{feature.source}</td>
-                    <td>
-                      <span className={`severity-pill severity-${feature.severity}`}>
-                        {feature.severity}
-                      </span>
-                    </td>
-                    <td>{feature.evidence}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {features.length > visibleRows.length && (
-              <p className="render-note">
-                Showing first {visibleRows.length} rows from {features.length} detected features.
-              </p>
-            )}
-          </div>
-        </>
-      )}
-    </section>
-  )
-}
-
-function PhaseSpace3D({ turns }: { turns: TurnMetricDto[] }) {
-  const hostRef = useRef<HTMLDivElement | null>(null)
-  const [renderMode, setRenderMode] = useState<PhaseRenderMode>('points')
-  const visibleTurns = useMemo(() => sampleEvenly(turns, maxPhasePoints), [turns])
-
-  useEffect(() => {
-    const host = hostRef.current
-    if (!host) {
-      return undefined
-    }
-
-    host.replaceChildren()
-
-    const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0x10202c)
-
-    const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 100)
-    camera.position.set(6.8, 4.8, 7.4)
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-    renderer.setSize(host.clientWidth, host.clientHeight)
-    host.appendChild(renderer.domElement)
-
-    const controls = new OrbitControls(camera, renderer.domElement)
-    controls.enableDamping = true
-    controls.target.set(0, 0.2, 0)
-
-    scene.add(new THREE.AmbientLight(0xffffff, 0.82))
-    const keyLight = new THREE.DirectionalLight(0xffffff, 1.6)
-    keyLight.position.set(3, 7, 5)
-    scene.add(keyLight)
-
-    const grid = new THREE.GridHelper(8, 8, 0x486477, 0x263b4a)
-    grid.position.y = -2.05
-    scene.add(grid)
-
-    const axisMaterial = new THREE.LineBasicMaterial({ color: 0xb6c7d4 })
-    const axisGeometry = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(-4.2, -2, -2.2),
-      new THREE.Vector3(4.2, -2, -2.2),
-      new THREE.Vector3(-4.2, -2, -2.2),
-      new THREE.Vector3(-4.2, 2.2, -2.2),
-      new THREE.Vector3(-4.2, -2, -2.2),
-      new THREE.Vector3(-4.2, -2, 2.2),
-    ])
-    scene.add(new THREE.LineSegments(axisGeometry, axisMaterial))
-
-    const pointGeometry = new THREE.SphereGeometry(0.075, 16, 16)
-    const pointMaterials: THREE.Material[] = []
-    const lineGeometries: THREE.BufferGeometry[] = [axisGeometry]
-    const transientMaterials: THREE.Material[] = []
-
-    if (visibleTurns.length > 0) {
-      const sequenceValues = visibleTurns.map((turn) => turn.sequenceIndex)
-      const minSequence = Math.min(...sequenceValues)
-      const maxSequence = Math.max(...sequenceValues)
-      const sequenceSpan = Math.max(maxSequence - minSequence, 1)
-
-      const positions = visibleTurns.map((turn) => {
-        const x = ((turn.sequenceIndex - minSequence) / sequenceSpan) * 8 - 4
-        const y = Math.max(Math.min(turn.promptResponseCosine, 1), 0) * 4 - 2
-        const z = Math.max(Math.min(turn.velocityFromPrevious ?? 0, 1), 0) * 4 - 2
-        return new THREE.Vector3(x, y, z)
-      })
-
-      if (positions.length > 1 && renderMode === 'deform') {
-        const columns = 56
-        const rows = 34
-        const vertices: number[] = []
-        const indices: number[] = []
-        const colors: number[] = []
-        const color = new THREE.Color()
-
-        for (let row = 0; row < rows; row += 1) {
-          const y = -2 + (row / (rows - 1)) * 4
-          for (let column = 0; column < columns; column += 1) {
-            const x = -4 + (column / (columns - 1)) * 8
-            let displacement = 0
-            let influence = 0
-
-            positions.forEach((position, index) => {
-              const turn = visibleTurns[index]
-              const dx = x - position.x
-              const dy = y - position.y
-              const distanceSquared = dx * dx + dy * dy
-              const velocity = turn.velocityFromPrevious ?? 0
-              const alignmentStress = 1 - Math.max(Math.min(turn.promptResponseCosine, 1), 0)
-              const wordDeltaStress = Math.min(Math.abs(turn.wordCountDelta) / 140, 1)
-              const radius = 0.48 + velocity * 0.34 + wordDeltaStress * 0.18
-              const falloff = Math.exp(-distanceSquared / (radius * radius))
-              const signedPull = velocity * 1.25 + alignmentStress * 0.72 + wordDeltaStress * 0.48
-
-              displacement += falloff * signedPull
-              influence += falloff
-            })
-
-            const normalizedDisplacement = influence > 0 ? displacement / Math.max(influence, 0.35) : 0
-            const z = -2 + Math.min(normalizedDisplacement, 2.55)
-            vertices.push(x, y, z)
-
-            const heat = Math.min(Math.max((z + 2) / 2.55, 0), 1)
-            color.setHSL(0.52 - heat * 0.38, 0.66, 0.32 + heat * 0.22)
-            colors.push(color.r, color.g, color.b)
-          }
-        }
-
-        for (let row = 0; row < rows - 1; row += 1) {
-          for (let column = 0; column < columns - 1; column += 1) {
-            const current = row * columns + column
-            const right = current + 1
-            const below = current + columns
-            const belowRight = below + 1
-            indices.push(current, below, right, right, below, belowRight)
-          }
-        }
-
-        const surfaceGeometry = new THREE.BufferGeometry()
-        surfaceGeometry.setIndex(indices)
-        surfaceGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
-        surfaceGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
-        surfaceGeometry.computeVertexNormals()
-        lineGeometries.push(surfaceGeometry)
-
-        const surfaceMaterial = new THREE.MeshStandardMaterial({
-          emissive: 0x063a43,
-          emissiveIntensity: 0.08,
-          metalness: 0.02,
-          opacity: 0.74,
-          roughness: 0.58,
-          side: THREE.DoubleSide,
-          transparent: true,
-          vertexColors: true,
-        })
-        transientMaterials.push(surfaceMaterial)
-        scene.add(new THREE.Mesh(surfaceGeometry, surfaceMaterial))
-
-        const wireGeometry = new THREE.WireframeGeometry(surfaceGeometry)
-        lineGeometries.push(wireGeometry)
-        const wireMaterial = new THREE.LineBasicMaterial({
-          color: 0xdce8ee,
-          opacity: 0.11,
-          transparent: true,
-        })
-        transientMaterials.push(wireMaterial)
-        scene.add(new THREE.LineSegments(wireGeometry, wireMaterial))
-      }
-
-      if (positions.length > 1 && renderMode === 'envelope') {
-        const curve = new THREE.CatmullRomCurve3(positions)
-        const sampleCount = Math.min(Math.max(positions.length * 4, 64), 360)
-        const envelopePoints: THREE.Vector3[] = []
-        const radialDirections = [
-          new THREE.Vector3(1, 0, 0),
-          new THREE.Vector3(-1, 0, 0),
-          new THREE.Vector3(0, 1, 0),
-          new THREE.Vector3(0, -1, 0),
-          new THREE.Vector3(0, 0, 1),
-          new THREE.Vector3(0, 0, -1),
-          new THREE.Vector3(1, 1, 0).normalize(),
-          new THREE.Vector3(-1, 1, 0).normalize(),
-          new THREE.Vector3(1, 0, 1).normalize(),
-          new THREE.Vector3(-1, 0, 1).normalize(),
-          new THREE.Vector3(0, 1, 1).normalize(),
-          new THREE.Vector3(0, -1, 1).normalize(),
-        ]
-
-        for (let index = 0; index < sampleCount; index += 1) {
-          const t = sampleCount === 1 ? 0 : index / (sampleCount - 1)
-          const center = curve.getPoint(t)
-          const turnIndex = Math.min(
-            Math.round(t * (visibleTurns.length - 1)),
-            visibleTurns.length - 1,
-          )
-          const turn = visibleTurns[turnIndex]
-          const velocity = turn.velocityFromPrevious ?? 0
-          const wordDeltaWeight = Math.min(Math.abs(turn.wordCountDelta) / 120, 1)
-          const radius = 0.2 + velocity * 0.18 + wordDeltaWeight * 0.12
-
-          envelopePoints.push(center)
-          radialDirections.forEach((direction) => {
-            envelopePoints.push(center.clone().add(direction.clone().multiplyScalar(radius)))
-          })
-        }
-
-        const envelopeGeometry = new ConvexGeometry(envelopePoints)
-        envelopeGeometry.computeVertexNormals()
-        lineGeometries.push(envelopeGeometry)
-        const envelopeMaterial = new THREE.MeshStandardMaterial({
-          color: 0x8bd3dd,
-          emissive: 0x087f8c,
-          emissiveIntensity: 0.14,
-          metalness: 0.04,
-          opacity: 0.62,
-          roughness: 0.28,
-          side: THREE.DoubleSide,
-          transparent: true,
-        })
-        transientMaterials.push(envelopeMaterial)
-        scene.add(new THREE.Mesh(envelopeGeometry, envelopeMaterial))
-
-        const wireGeometry = new THREE.EdgesGeometry(envelopeGeometry, 16)
-        lineGeometries.push(wireGeometry)
-        const wireMaterial = new THREE.LineBasicMaterial({
-          color: 0xdce8ee,
-          opacity: 0.18,
-          transparent: true,
-        })
-        transientMaterials.push(wireMaterial)
-        scene.add(new THREE.LineSegments(wireGeometry, wireMaterial))
-      }
-
-      if (
-        positions.length > 1 &&
-        renderMode !== 'points' &&
-        renderMode !== 'envelope' &&
-        renderMode !== 'deform'
-      ) {
-        const curve = new THREE.CatmullRomCurve3(positions)
-        const tubeSegments = Math.min(Math.max(positions.length * 3, 48), 320)
-        const tubeGeometry = new THREE.TubeGeometry(
-          curve,
-          tubeSegments,
-          renderMode === 'solid' ? 0.13 : 0.09,
-          14,
-          false,
-        )
-        lineGeometries.push(tubeGeometry)
-        const tubeMaterial = new THREE.MeshStandardMaterial({
-          color: 0x8bd3dd,
-          emissive: 0x087f8c,
-          emissiveIntensity: 0.18,
-          metalness: 0.08,
-          opacity: renderMode === 'solid' ? 0.92 : 0.7,
-          roughness: 0.34,
-          transparent: true,
-        })
-        transientMaterials.push(tubeMaterial)
-        scene.add(new THREE.Mesh(tubeGeometry, tubeMaterial))
-
-        if (renderMode === 'solid') {
-          const glowGeometry = new THREE.TubeGeometry(curve, tubeSegments, 0.24, 14, false)
-          lineGeometries.push(glowGeometry)
-          const glowMaterial = new THREE.MeshBasicMaterial({
-            color: 0x8bd3dd,
-            opacity: 0.11,
-            transparent: true,
-          })
-          transientMaterials.push(glowMaterial)
-          scene.add(new THREE.Mesh(glowGeometry, glowMaterial))
-        }
-      }
-
-      if (renderMode !== 'solid' && renderMode !== 'envelope') {
-        const lineGeometry = new THREE.BufferGeometry().setFromPoints(positions)
-        lineGeometries.push(lineGeometry)
-        const lineMaterial = new THREE.LineBasicMaterial({
-          color: 0x8bd3dd,
-          transparent: true,
-          opacity: 0.74,
-        })
-        transientMaterials.push(lineMaterial)
-        scene.add(new THREE.Line(lineGeometry, lineMaterial))
-
-        visibleTurns.forEach((turn, index) => {
-          const color = strategyColors[turn.strategy] ?? strategyColors.Unknown
-          const material = new THREE.MeshStandardMaterial({
-            color,
-            emissive: color,
-            emissiveIntensity: index === 0 ? 0.18 : 0.08,
-            roughness: 0.42,
-          })
-          pointMaterials.push(material)
-          const point = new THREE.Mesh(pointGeometry, material)
-          point.position.copy(positions[index])
-          point.scale.setScalar(index === 0 || index === visibleTurns.length - 1 ? 1.55 : 1)
-          scene.add(point)
-        })
-      } else if (renderMode === 'solid' || renderMode === 'envelope') {
-        const endCapMaterial = new THREE.MeshStandardMaterial({
-          color: 0xffffff,
-          emissive: 0x8bd3dd,
-          emissiveIntensity: 0.22,
-          roughness: 0.4,
-        })
-        transientMaterials.push(endCapMaterial)
-
-        const startCap = new THREE.Mesh(pointGeometry, endCapMaterial)
-        startCap.position.copy(positions[0])
-        startCap.scale.setScalar(1.7)
-        scene.add(startCap)
-
-        const endCap = new THREE.Mesh(pointGeometry, endCapMaterial)
-        endCap.position.copy(positions[positions.length - 1])
-        endCap.scale.setScalar(1.7)
-        scene.add(endCap)
-      }
-    }
-
-    const resizeObserver = new ResizeObserver(() => {
-      const width = host.clientWidth
-      const height = host.clientHeight
-      camera.aspect = width / Math.max(height, 1)
-      camera.updateProjectionMatrix()
-      renderer.setSize(width, height)
-    })
-    resizeObserver.observe(host)
-
-    let frameId = 0
-    const render = () => {
-      frameId = window.requestAnimationFrame(render)
-      controls.update()
-      renderer.render(scene, camera)
-    }
-    render()
-
-    return () => {
-      window.cancelAnimationFrame(frameId)
-      resizeObserver.disconnect()
-      controls.dispose()
-      renderer.dispose()
-      axisMaterial.dispose()
-      pointGeometry.dispose()
-      pointMaterials.forEach((material) => material.dispose())
-      transientMaterials.forEach((material) => material.dispose())
-      lineGeometries.forEach((geometry) => geometry.dispose())
-      host.replaceChildren()
-    }
-  }, [renderMode, visibleTurns])
-
-  return (
-    <section className="phase-space-section" id="phase-space">
-      <div className="phase-copy">
-        <div>
-          <p className="eyebrow">3D phase space</p>
-          <h2>Conversation trajectory</h2>
-        </div>
-        <div className="phase-mode-control" aria-label="3D render mode">
-          {phaseRenderModes.map((mode) => (
-            <button
-              key={mode.id}
-              className={renderMode === mode.id ? 'active' : undefined}
-              type="button"
-              onClick={() => setRenderMode(mode.id)}
-            >
-              {mode.label}
-            </button>
-          ))}
-        </div>
-        <div className="phase-axis-list">
-          <span>X: time</span>
-          <span>Y: prompt-response cosine</span>
-          <span>Z: velocity</span>
-        </div>
-      </div>
-      <div className="phase-canvas-shell">
-        <div className="phase-canvas" ref={hostRef} aria-label="3D phase-space graph" />
-        {turns.length === 0 && (
-          <div className="phase-empty">Analyze a dataset to render the trajectory.</div>
-        )}
-        {turns.length > visibleTurns.length && (
-          <div className="phase-sample-note">
-            Showing {visibleTurns.length} sampled turns from {turns.length}.
-          </div>
-        )}
-        <div className="phase-legend">
-          {Object.entries(strategyColors).map(([name, color]) => (
-            <span key={name}>
-              <i style={{ backgroundColor: `#${color.toString(16).padStart(6, '0')}` }} />
-              {name}
-            </span>
-          ))}
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function MetricTile({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode
-  label: string
-  value: string
-}) {
-  return (
-    <div className="metric-tile">
-      <span className="metric-icon">{icon}</span>
-      <span className="metric-label">{label}</span>
-      <strong>{value}</strong>
-    </div>
-  )
-}
-
 function App() {
   const [datasetJson, setDatasetJson] = useState(sampleJson)
   const [catalog, setCatalog] = useState<DataSetCatalogItem[]>([])
@@ -1043,6 +192,8 @@ function App() {
   const [renameDataSetName, setRenameDataSetName] = useState('')
   const [renameDataSetDesc, setRenameDataSetDesc] = useState('')
   const [renameError, setRenameError] = useState<string | null>(null)
+  const [isDeletingDataSet, setIsDeletingDataSet] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null)
   const [selectedTurn, setSelectedTurn] = useState<TurnMetricDto | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -1175,6 +326,31 @@ function App() {
       ignore = true
     }
   }, [])
+
+  const deleteSelectedDataSet = async () => {
+    if (!selectedDataSetId) return
+    if (!window.confirm(`Delete "${catalog.find(c => c.id === selectedDataSetId)?.name ?? selectedDataSetId}"? This cannot be undone.`)) return
+    setIsDeletingDataSet(true)
+    setDeleteError(null)
+    try {
+      const response = await fetch(`/api/datasets/${encodeURIComponent(selectedDataSetId)}`, { method: 'DELETE' })
+      if (!response.ok) {
+        const text = await response.text()
+        throw new Error(text || `Delete failed with ${response.status}`)
+      }
+      const refreshed = await fetch('/api/datasets')
+      if (refreshed.ok) {
+        const items = await refreshed.json() as DataSetCatalogItem[]
+        setCatalog(items)
+        setSelectedDataSetId(items[0]?.id ?? '')
+      }
+      setIsRenamingDataSet(false)
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Delete failed')
+    } finally {
+      setIsDeletingDataSet(false)
+    }
+  }
 
   const loadSelectedDataSet = async () => {
     if (!selectedDataSetId) {
@@ -1585,7 +761,7 @@ function App() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                       name,
-                      description: `Live Lab run — ${liveTurns.length} turns, model: ${liveModel.trim() || 'gpt-4.1-mini'}`,
+                      description: `Live Lab run â€” ${liveTurns.length} turns, model: ${liveModel.trim() || 'gpt-4.1-mini'}`,
                       sourceKind: 'live-lab',
                       turnCount: liveTurns.length,
                       datasetJson: liveTurnsToDatasetJson(liveTurns),
@@ -1624,7 +800,7 @@ function App() {
                 title="Save conversation to dataset library"
               >
                 <FileJson size={14} />
-                {isSavingRun ? 'Saving…' : 'Save run'}
+                {isSavingRun ? 'Savingâ€¦' : 'Save run'}
               </button>
             </form>
           </div>
@@ -1683,7 +859,7 @@ function App() {
                 type="button"
                 onClick={() => setLiveWebSearch((v) => !v)}
                 aria-pressed={liveWebSearch}
-                title={liveWebSearch ? 'Web search on — click to disable' : 'Web search off — click to enable'}
+                title={liveWebSearch ? 'Web search on â€” click to disable' : 'Web search off â€” click to enable'}
               >
                 <Database size={14} />
                 Web search
@@ -2074,7 +1250,7 @@ function App() {
             <input value={liveEndpoint} onChange={(event) => setLiveEndpoint(event.target.value)} />
           </label>
           <div className="settings-note">
-            Provider experiment keys are not persisted here — Live Lab stores them in browser session only.
+            Provider experiment keys are not persisted here â€” Live Lab stores them in browser session only.
           </div>
         </div>
       </div>
@@ -2281,7 +1457,7 @@ function App() {
               className="icon-button theme-toggle"
               type="button"
               onClick={() => setTheme((t) => t === 'light' ? 'dark' : t === 'dark' ? 'midnight' : 'light')}
-              title={`Theme: ${theme} — click to cycle`}
+              title={`Theme: ${theme} â€” click to cycle`}
               aria-label="Cycle theme"
             >
               {theme === 'light' ? <Sun size={18} /> : theme === 'dark' ? <Moon size={18} /> : <Moon size={18} />}
@@ -2312,20 +1488,50 @@ function App() {
                 </select>
               </label>
               {selectedDataSetId && (
-                <button
-                  className={`icon-button${isRenamingDataSet ? ' active' : ''}`}
-                  type="button"
-                  title="Rename dataset"
-                  onClick={() => {
-                    const item = catalog.find((c) => c.id === selectedDataSetId)
-                    setRenameDataSetName(item?.name ?? '')
-                    setRenameDataSetDesc(item?.description ?? '')
-                    setRenameError(null)
-                    setIsRenamingDataSet((v) => !v)
-                  }}
-                >
-                  <FileText size={16} />
-                </button>
+                <>
+                  <button
+                    className={`icon-button${isRenamingDataSet ? ' active' : ''}`}
+                    type="button"
+                    title="Rename dataset"
+                    onClick={() => {
+                      const item = catalog.find((c) => c.id === selectedDataSetId)
+                      setRenameDataSetName(item?.name ?? '')
+                      setRenameDataSetDesc(item?.description ?? '')
+                      setRenameError(null)
+                      setDeleteError(null)
+                      setIsRenamingDataSet((v) => !v)
+                    }}
+                  >
+                    <FileText size={16} />
+                  </button>
+                  <button
+                    className="icon-button"
+                    type="button"
+                    title="Export dataset as JSON"
+                    onClick={() => {
+                      const item = catalog.find((c) => c.id === selectedDataSetId)
+                      const blob = new Blob([datasetJson], { type: 'application/json' })
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.download = `${item?.id ?? selectedDataSetId}.json`
+                      a.click()
+                      URL.revokeObjectURL(url)
+                    }}
+                    disabled={!datasetJson}
+                  >
+                    <FileJson size={16} />
+                  </button>
+                  <button
+                    className="icon-button danger"
+                    type="button"
+                    title="Delete dataset"
+                    onClick={deleteSelectedDataSet}
+                    disabled={isDeletingDataSet}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </>
               )}
               <button
                 className="secondary-action"
@@ -2398,6 +1604,12 @@ function App() {
               </button>
               {renameError && <span className="rename-error">{renameError}</span>}
             </form>
+          )}
+          {deleteError && (
+            <div className="rename-dataset-bar">
+              <span className="rename-error">{deleteError}</span>
+              <button className="icon-button" type="button" onClick={() => setDeleteError(null)}><X size={15} /></button>
+            </div>
           )}
         </header>
 
