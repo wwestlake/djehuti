@@ -2665,3 +2665,122 @@ tbody tr.selected {
   font-size: 13px;
   line-height: 1.5;
 }
+
+/* Password Reset Screens */
+.reset-password-container,
+.reset-password-card {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.reset-password-container {
+  background: var(--bg);
+  padding: 20px;
+}
+
+.reset-password-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 420px;
+  padding: 40px;
+  width: 100%;
+}
+
+.reset-password-card h2 {
+  font-size: 24px;
+  margin: 0;
+  text-align: center;
+}
+
+.reset-password-card p {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0;
+  text-align: center;
+}
+
+.reset-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.reset-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reset-form label span {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.reset-form input {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  padding: 10px 12px;
+  transition: border-color 200ms;
+}
+
+.reset-form input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.reset-form input:disabled {
+  opacity: 0.6;
+}
+
+.reset-error {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  color: var(--danger);
+  font-size: 14px;
+  padding: 12px;
+}
+
+.reset-button {
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 12px;
+  text-decoration: none;
+  transition: background 200ms;
+}
+
+.reset-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 110%, transparent);
+}
+
+.reset-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.reset-icon {
+  height: 48px;
+  width: 48px;
+}
+
+.reset-icon.success {
+  color: #6ee7a0;
+}
+
+.reset-icon.error {
+  color: var(--danger);
+}

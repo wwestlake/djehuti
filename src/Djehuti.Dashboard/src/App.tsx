@@ -15,6 +15,7 @@ import { VelocityChart } from './components/charts/VelocityChart'
 import { MetricTile } from './components/MetricTile'
 import { LoginModal } from './components/auth/LoginModal'
 import { SignupModal } from './components/auth/SignupModal'
+import { ForgotPasswordModal } from './components/auth/ForgotPasswordModal'
 import { UserMenu } from './components/auth/UserMenu'
 import {
   Activity,
@@ -175,6 +176,7 @@ const analyzeNavItems = [
 function App() {
   const [showLoginModal, setShowLoginModal] = useState(false)
   const [showSignupModal, setShowSignupModal] = useState(false)
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false)
   const [datasetJson, setDatasetJson] = useState(sampleJson)
   const [catalog, setCatalog] = useState<DataSetCatalogItem[]>([])
   const [theme, setTheme] = useState<'light' | 'dark' | 'midnight'>(
@@ -1821,6 +1823,10 @@ function App() {
           setShowLoginModal(false)
           setShowSignupModal(true)
         }}
+        onSwitchToForgotPassword={() => {
+          setShowLoginModal(false)
+          setShowForgotPasswordModal(true)
+        }}
       />
 
       <SignupModal
@@ -1828,6 +1834,15 @@ function App() {
         onClose={() => setShowSignupModal(false)}
         onSwitchToLogin={() => {
           setShowSignupModal(false)
+          setShowLoginModal(true)
+        }}
+      />
+
+      <ForgotPasswordModal
+        open={showForgotPasswordModal}
+        onClose={() => setShowForgotPasswordModal(false)}
+        onSwitchToLogin={() => {
+          setShowForgotPasswordModal(false)
           setShowLoginModal(true)
         }}
       />

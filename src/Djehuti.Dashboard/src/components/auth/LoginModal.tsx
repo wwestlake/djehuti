@@ -6,9 +6,10 @@ type LoginModalProps = {
   open: boolean
   onClose: () => void
   onSwitchToSignup: () => void
+  onSwitchToForgotPassword: () => void
 }
 
-export function LoginModal({ open, onClose, onSwitchToSignup }: LoginModalProps) {
+export function LoginModal({ open, onClose, onSwitchToSignup, onSwitchToForgotPassword }: LoginModalProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -135,7 +136,14 @@ export function LoginModal({ open, onClose, onSwitchToSignup }: LoginModalProps)
 
         <div className="auth-modal-footer">
           <span>Forgot your password?</span>
-          <button type="button" className="auth-link" disabled>
+          <button
+            type="button"
+            className="auth-link"
+            onClick={() => {
+              clearError()
+              onSwitchToForgotPassword()
+            }}
+          >
             Reset it
           </button>
         </div>
