@@ -131,6 +131,60 @@ type AnalysisRun =
 
 // DataSetCatalogItem and DataLibrary are now in DataLibrary.fs (PostgreSQL-backed)
 
+// ── Auth DTOs ────────────────────────────────────────────────────────────────
+
+[<CLIMutable>]
+type RegisterRequest =
+    { Email: string
+      Password: string
+      HCaptchaToken: string }
+
+[<CLIMutable>]
+type LoginRequest =
+    { Email: string
+      Password: string }
+
+[<CLIMutable>]
+type VerifyEmailRequest =
+    { Token: string }
+
+[<CLIMutable>]
+type PasswordResetRequest =
+    { Email: string }
+
+[<CLIMutable>]
+type PasswordResetConfirmRequest =
+    { Token: string
+      Password: string }
+
+[<CLIMutable>]
+type UpdateProfileRequest =
+    { DisplayName: string option
+      Bio: string option
+      Pronouns: string option
+      Location: string option
+      NotifyByEmail: bool }
+
+type UserDto =
+    { Id: string
+      Email: string
+      DisplayName: string option
+      AvatarUrl: string option
+      Bio: string option
+      Pronouns: string option
+      Location: string option
+      Role: string
+      Status: string
+      CreatedAt: DateTime }
+
+type PublicProfileDto =
+    { Id: string
+      DisplayName: string option
+      AvatarUrl: string option
+      Bio: string option
+      Pronouns: string option
+      Location: string option }
+
 module Dto =
     let private unwrapSessionId (SessionId value) = value
     let private unwrapModelId (ModelId value) = value
@@ -742,6 +796,262 @@ let main args =
     app.MapPost(
         "/api/analyst/ask",
         Func<AnalystRequest, IResult>(AnalystApi.ask)
+    )
+    |> ignore
+
+    // ── Auth Endpoints ───────────────────────────────────────────────────────────
+    app.MapPost(
+        "/api/auth/register",
+        Func<RegisterRequest, System.Threading.Tasks.Task<IResult>>(fun request ->
+            async {
+                if String.IsNullOrWhiteSpace request.Email || String.IsNullOrWhiteSpace request.Password then
+                    return Results.BadRequest("email and password are required")
+                elif request.Password.Length < 8 then
+                    return Results.BadRequest("password must be at least 8 characters")
+                else
+                    let! hcaptchaValid = Auth.verifyHCaptcha request.HCaptchaToken
+                    if not hcaptchaValid then
+                        return Results.BadRequest("hCaptcha verification failed")
+                    else
+                        let! existingUser = UserRepository.tryGetByEmail request.Email
+                        if existingUser.IsSome then
+                            return Results.BadRequest("email already registered")
+                        else
+                            let passwordHash = Auth.hashPassword request.Password
+                            let! newUser = UserRepository.createUser request.Email (Some passwordHash)
+                            match newUser with
+                            | Some user ->
+                                let verifyToken = Auth.generateSecureToken ()
+                                let! tokenStored = UserRepository.createEmailVerificationToken user.Id verifyToken
+                                if tokenStored then
+                                    let verifyLink = $"https://djehuti.lagdaemon.com/auth/verify?token={verifyToken}"
+                                    let emailBody = Email.verificationEmailTemplate (user.Email) verifyLink
+                                    let! _emailSent = Email.sendEmail {
+                                        To = user.Email
+                                        Subject = "Confirm your email address"
+                                        HtmlBody = emailBody
+                                    }
+                                    return Results.Accepted()
+                                else
+                                    return Results.Problem(detail = "Failed to generate verification token", statusCode = 500, title = "Registration failed")
+                            | None ->
+                                return Results.Problem(detail = "Failed to create user", statusCode = 500, title = "Registration failed")
+            } |> Async.StartAsTask)
+    )
+    |> ignore
+
+    app.MapPost(
+        "/api/auth/login",
+        Func<LoginRequest, HttpContext, System.Threading.Tasks.Task<IResult>>(fun request ctx ->
+            async {
+                if String.IsNullOrWhiteSpace request.Email || String.IsNullOrWhiteSpace request.Password then
+                    return Results.BadRequest("email and password are required")
+                else
+                    let! user = UserRepository.tryGetByEmail request.Email
+                    match user with
+                    | Some u when u.PasswordHash.IsSome && Auth.verifyPassword request.Password u.PasswordHash.Value ->
+                        if u.Status <> "active" then
+                            return Results.Problem(detail = $"Account is {u.Status}", statusCode = 403, title = "Login failed")
+                        else
+                            let token = Auth.generateToken {
+                                UserId = u.Id.ToString()
+                                Email = u.Email
+                                DisplayName = u.DisplayName
+                                Role = u.Role
+                                IssuedAt = DateTime.UtcNow
+                                ExpiresAt = DateTime.UtcNow.AddHours(1.0)
+                            }
+                            ctx.Response.Cookies.Append(
+                                "djehuti_auth",
+                                token,
+                                Microsoft.AspNetCore.Http.CookieOptions(
+                                    HttpOnly = true,
+                                    Secure = true,
+                                    SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
+                                    Expires = DateTimeOffset.UtcNow.AddHours(1.0)
+                                )
+                            )
+                            return Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt })
+                    | _ ->
+                        return Results.BadRequest("invalid email or password")
+            } |> Async.StartAsTask)
+    )
+    |> ignore
+
+    app.MapGet(
+        "/api/users/{id}",
+        Func<string, System.Threading.Tasks.Task<IResult>>(fun id ->
+            async {
+                match Guid.TryParse(id) with
+                | true, userId ->
+                    let! profile = UserRepository.getPublicProfile userId
+                    return match profile with
+                           | Some p -> Results.Ok({ Id = p.Id.ToString(); DisplayName = p.DisplayName; AvatarUrl = p.AvatarUrl; Bio = p.Bio; Pronouns = p.Pronouns; Location = p.Location })
+                           | None -> Results.NotFound()
+                | _ ->
+                    return Results.BadRequest("invalid user id")
+            } |> Async.StartAsTask)
+    )
+    |> ignore
+
+    app.MapPost(
+        "/api/auth/verify-email",
+        Func<VerifyEmailRequest, System.Threading.Tasks.Task<IResult>>(fun request ->
+            async {
+                if String.IsNullOrWhiteSpace request.Token then
+                    return Results.BadRequest("token is required")
+                else
+                    let! userId = UserRepository.verifyEmailToken request.Token
+                    match userId with
+                    | Some id ->
+                        let! verified = UserRepository.verifyEmail id
+                        if verified then
+                            let! _ = UserRepository.deleteEmailVerificationToken request.Token
+                            return Results.Ok("Email verified successfully")
+                        else
+                            return Results.Problem(detail = "Failed to verify email", statusCode = 500, title = "Verification failed")
+                    | None ->
+                        return Results.BadRequest("invalid or expired token")
+            } |> Async.StartAsTask)
+    )
+    |> ignore
+
+    app.MapPost(
+        "/api/auth/password-reset-request",
+        Func<PasswordResetRequest, System.Threading.Tasks.Task<IResult>>(fun request ->
+            async {
+                if String.IsNullOrWhiteSpace request.Email then
+                    return Results.BadRequest("email is required")
+                else
+                    let! user = UserRepository.tryGetByEmail request.Email
+                    match user with
+                    | Some u ->
+                        let resetToken = Auth.generateSecureToken ()
+                        let! tokenStored = UserRepository.createPasswordResetToken u.Id resetToken
+                        if tokenStored then
+                            let resetLink = $"https://djehuti.lagdaemon.com/auth/reset?token={resetToken}"
+                            let emailBody = Email.passwordResetEmailTemplate u.Email resetLink
+                            let! _emailSent = Email.sendEmail {
+                                To = u.Email
+                                Subject = "Reset your password"
+                                HtmlBody = emailBody
+                            }
+                            return Results.Accepted()
+                        else
+                            return Results.Problem(detail = "Failed to generate reset token", statusCode = 500, title = "Reset request failed")
+                    | None ->
+                        return Results.Accepted()
+            } |> Async.StartAsTask)
+    )
+    |> ignore
+
+    app.MapPost(
+        "/api/auth/password-reset-confirm",
+        Func<PasswordResetConfirmRequest, System.Threading.Tasks.Task<IResult>>(fun request ->
+            async {
+                if String.IsNullOrWhiteSpace request.Token || String.IsNullOrWhiteSpace request.Password then
+                    return Results.BadRequest("token and password are required")
+                elif request.Password.Length < 8 then
+                    return Results.BadRequest("password must be at least 8 characters")
+                else
+                    let! userId = UserRepository.verifyPasswordResetToken request.Token
+                    match userId with
+                    | Some id ->
+                        let passwordHash = Auth.hashPassword request.Password
+                        let! updated = UserRepository.updatePassword id passwordHash
+                        if updated then
+                            let! _ = UserRepository.deletePasswordResetToken request.Token
+                            return Results.Ok("Password reset successfully")
+                        else
+                            return Results.Problem(detail = "Failed to reset password", statusCode = 500, title = "Reset failed")
+                    | None ->
+                        return Results.BadRequest("invalid or expired token")
+            } |> Async.StartAsTask)
+    )
+    |> ignore
+
+    app.MapGet(
+        "/api/auth/me",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            async {
+                match ctx.Request.Cookies.TryGetValue("djehuti_auth") with
+                | true, token ->
+                    match Auth.verifyToken token with
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | true, userId ->
+                            let! user = UserRepository.tryGetById userId
+                            return match user with
+                                   | Some u -> Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt })
+                                   | None -> Results.NotFound()
+                        | _ -> return Results.Unauthorized()
+                    | None -> return Results.Unauthorized()
+                | _ -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    )
+    |> ignore
+
+    app.MapPut(
+        "/api/auth/profile",
+        Func<HttpContext, UpdateProfileRequest, System.Threading.Tasks.Task<IResult>>(fun ctx request ->
+            async {
+                match ctx.Request.Cookies.TryGetValue("djehuti_auth") with
+                | true, token ->
+                    match Auth.verifyToken token with
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | true, userId ->
+                            let! updated = UserRepository.updateProfile userId request.DisplayName request.Bio request.Pronouns request.Location request.NotifyByEmail
+                            return match updated with
+                                   | Some u -> Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt })
+                                   | None -> Results.Problem(detail = "Failed to update profile", statusCode = 500, title = "Update failed")
+                        | _ -> return Results.Unauthorized()
+                    | None -> return Results.Unauthorized()
+                | _ -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    )
+    |> ignore
+
+    app.MapPost(
+        "/api/auth/logout",
+        Func<HttpContext, IResult>(fun ctx ->
+            ctx.Response.Cookies.Delete("djehuti_auth")
+            Results.Ok("Logged out successfully"))
+    )
+    |> ignore
+
+    // ── OAuth Endpoints ──────────────────────────────────────────────────────────
+    app.MapGet(
+        "/api/auth/oauth/google/callback",
+        Func<string, string, System.Threading.Tasks.Task<IResult>>(fun code state ->
+            async {
+                if String.IsNullOrWhiteSpace code then
+                    return Results.BadRequest("code is required")
+                else
+                    // TODO: Exchange code for token with Google OAuth endpoint
+                    // TODO: Parse token to get user info (email, name, picture)
+                    // TODO: Check if user exists by email or create new user
+                    // TODO: Create/link user_identity record
+                    // TODO: Set JWT cookie and redirect to app
+                    return Results.StatusCode(501)
+            } |> Async.StartAsTask)
+    )
+    |> ignore
+
+    app.MapGet(
+        "/api/auth/oauth/github/callback",
+        Func<string, string, System.Threading.Tasks.Task<IResult>>(fun code state ->
+            async {
+                if String.IsNullOrWhiteSpace code then
+                    return Results.BadRequest("code is required")
+                else
+                    // TODO: Exchange code for token with GitHub OAuth endpoint
+                    // TODO: Parse token to get user info (email, name, avatar_url)
+                    // TODO: Check if user exists by email or create new user
+                    // TODO: Create/link user_identity record
+                    // TODO: Set JWT cookie and redirect to app
+                    return Results.StatusCode(501)
+            } |> Async.StartAsTask)
     )
     |> ignore
 

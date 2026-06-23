@@ -13,6 +13,9 @@ import { MetricTimelines } from './components/charts/MetricTimelines'
 import { PhaseSpace3D } from './components/charts/PhaseSpace3D'
 import { VelocityChart } from './components/charts/VelocityChart'
 import { MetricTile } from './components/MetricTile'
+import { LoginModal } from './components/auth/LoginModal'
+import { SignupModal } from './components/auth/SignupModal'
+import { UserMenu } from './components/auth/UserMenu'
 import {
   Activity,
   AlertTriangle,
@@ -170,6 +173,8 @@ const analyzeNavItems = [
 
 
 function App() {
+  const [showLoginModal, setShowLoginModal] = useState(false)
+  const [showSignupModal, setShowSignupModal] = useState(false)
   const [datasetJson, setDatasetJson] = useState(sampleJson)
   const [catalog, setCatalog] = useState<DataSetCatalogItem[]>([])
   const [theme, setTheme] = useState<'light' | 'dark' | 'midnight'>(
@@ -1448,6 +1453,7 @@ function App() {
               <p className="eyebrow">Djehuti Cyberscope AI+</p>
               <h1>{pageTitle}</h1>
             </div>
+            <UserMenu onOpenLogin={() => setShowLoginModal(true)} />
             <button
               className="icon-button theme-toggle"
               type="button"
@@ -1807,6 +1813,24 @@ function App() {
           </button>
         )}
       </main>
+
+      <LoginModal
+        open={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onSwitchToSignup={() => {
+          setShowLoginModal(false)
+          setShowSignupModal(true)
+        }}
+      />
+
+      <SignupModal
+        open={showSignupModal}
+        onClose={() => setShowSignupModal(false)}
+        onSwitchToLogin={() => {
+          setShowSignupModal(false)
+          setShowLoginModal(true)
+        }}
+      />
     </div>
   )
 }
