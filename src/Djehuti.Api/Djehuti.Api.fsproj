@@ -9,6 +9,8 @@
     <Compile Include="Database.fs" />
     <Compile Include="DataLibrary.fs" />
     <Compile Include="Auth.fs" />
+    <Compile Include="Email.fs" />
+    <Compile Include="UserRepository.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
