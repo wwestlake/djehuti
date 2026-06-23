@@ -55,13 +55,13 @@ jobs:
           chmod 600 ~/.ssh/deploy.pem
           ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Stop API service
+      - name: Prepare server directories and stop service
         run: |
           ssh -i ~/.ssh/deploy.pem \
             -o ConnectTimeout=15 \
             -o StrictHostKeyChecking=no \
             ubuntu@${{ secrets.DEPLOY_HOST }} \
-            "sudo systemctl stop djehuti-api 2>/dev/null || true" || true
+            "sudo mkdir -p /var/www/djehuti /opt/djehuti-api && sudo chown ubuntu:ubuntu /var/www/djehuti /opt/djehuti-api && sudo systemctl stop djehuti-api 2>/dev/null || true"
 
       - name: Upload dashboard static files
         run: |
