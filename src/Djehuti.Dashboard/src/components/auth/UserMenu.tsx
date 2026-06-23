@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { LogIn, LogOut, User, ChevronDown, X } from 'lucide-react'
+import { LogIn, LogOut, User, ChevronDown } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 
 type UserMenuProps = {

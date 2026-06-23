@@ -30,10 +30,6 @@ export function SignupModal({ open, onClose, onSwitchToLogin }: SignupModalProps
 
   if (!open) return null
 
-  const handleHcaptchaCallback = (token: string) => {
-    setHcaptchaToken(token)
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     clearError()
