@@ -1692,5 +1692,53 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // ── User Profiles ─────────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/profiles/{userId}",
+        Func<string, IResult>(fun userId ->
+            match Guid.TryParse(userId) with
+            | false, _ -> Results.BadRequest("Invalid user id")
+            | true, uid ->
+                use conn = Database.openConnection()
+                match UserProfileRepository.getProfile conn uid with
+                | Some p -> Results.Ok(p)
+                | None   -> Results.NotFound())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/profiles/me",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        use conn = Database.openConnection()
+                        match UserProfileRepository.getProfile conn userId with
+                        | Some p -> return Results.Ok(p)
+                        | None   -> return Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPut(
+        "/api/profiles/me",
+        Func<HttpContext, {| displayName: string; bio: string; avatarUrl: string; website: string; location: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        let opt (s: string) = if String.IsNullOrWhiteSpace(s) then None else Some s
+                        use conn = Database.openConnection()
+                        let p = UserProfileRepository.upsertProfile conn userId (opt body.displayName) (opt body.bio) (opt body.avatarUrl) (opt body.website) (opt body.location)
+                        return Results.Ok(p)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     app.Run()
     0

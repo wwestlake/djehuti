@@ -74,6 +74,7 @@ import ForumThreadPage from './pages/ForumThreadPage'
 import BlogPage from './pages/BlogPage'
 import BlogArticlePage from './pages/BlogArticlePage'
 import BlogEditorPage from './pages/BlogEditorPage'
+import ProfilePage from './pages/ProfilePage'
 import './App.css'
 
 const sampleJson = `{
@@ -167,6 +168,7 @@ const modeItems = [
   { id: 'mlmce', label: 'MLMCE', icon: Users },
   { id: 'forum', label: 'Forum', icon: MessageSquare },
   { id: 'blog', label: 'Blog', icon: FileText },
+  { id: 'profile', label: 'Profile', icon: Users },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'settings', label: 'Settings', icon: Settings },
 ] satisfies Array<{ id: AppMode; label: string; icon: typeof Gauge }>
@@ -1408,6 +1410,8 @@ function App() {
         return renderForumView()
       case 'blog':
         return renderBlogView()
+      case 'profile':
+        return <ProfilePage />
       case 'reports':
         return renderReportsWorkspace()
       case 'settings':
