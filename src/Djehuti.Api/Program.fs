@@ -1023,34 +1023,151 @@ let main args =
     // ── OAuth Endpoints ──────────────────────────────────────────────────────────
     app.MapGet(
         "/api/auth/oauth/google/callback",
-        Func<string, string, System.Threading.Tasks.Task<IResult>>(fun code state ->
+        Func<string, string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun code state ctx ->
             async {
                 if String.IsNullOrWhiteSpace code then
                     return Results.BadRequest("code is required")
                 else
-                    // TODO: Exchange code for token with Google OAuth endpoint
-                    // TODO: Parse token to get user info (email, name, picture)
-                    // TODO: Check if user exists by email or create new user
-                    // TODO: Create/link user_identity record
-                    // TODO: Set JWT cookie and redirect to app
-                    return Results.StatusCode(501)
+                    let googleClientId = Environment.GetEnvironmentVariable("GOOGLE_OAUTH_CLIENT_ID")
+                    let googleClientSecret = Environment.GetEnvironmentVariable("GOOGLE_OAUTH_CLIENT_SECRET")
+
+                    if String.IsNullOrWhiteSpace googleClientId || String.IsNullOrWhiteSpace googleClientSecret then
+                        return Results.Problem(detail = "Google OAuth not configured", statusCode = 500, title = "OAuth configuration error")
+                    else
+                        let! tokenResponse = OAuth.exchangeGoogleCode code googleClientId googleClientSecret
+                        match tokenResponse with
+                        | Some tokenData ->
+                            let! userInfo = OAuth.getGoogleUserInfo tokenData.access_token
+                            match userInfo with
+                            | Some info ->
+                                let! existingUser = UserRepository.tryGetUserByIdentity "google" info.id
+                                match existingUser with
+                                | Some user ->
+                                    let token = Auth.generateToken {
+                                        UserId = user.Id.ToString()
+                                        Email = user.Email
+                                        DisplayName = user.DisplayName
+                                        Role = user.Role
+                                        IssuedAt = DateTime.UtcNow
+                                        ExpiresAt = DateTime.UtcNow.AddHours(1.0)
+                                    }
+                                    ctx.Response.Cookies.Append(
+                                        "djehuti_auth",
+                                        token,
+                                        Microsoft.AspNetCore.Http.CookieOptions(
+                                            HttpOnly = true,
+                                            Secure = true,
+                                            SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
+                                            Expires = DateTimeOffset.UtcNow.AddHours(1.0)
+                                        )
+                                    )
+                                    return Results.Redirect("/djehuti/")
+                                | None ->
+                                    let! newUser = UserRepository.createUser info.email None
+                                    match newUser with
+                                    | Some user ->
+                                        let! _identity = UserRepository.createUserIdentity user.Id "google" info.id (Some info.email) info.name info.picture
+                                        let token = Auth.generateToken {
+                                            UserId = user.Id.ToString()
+                                            Email = user.Email
+                                            DisplayName = user.DisplayName
+                                            Role = user.Role
+                                            IssuedAt = DateTime.UtcNow
+                                            ExpiresAt = DateTime.UtcNow.AddHours(1.0)
+                                        }
+                                        ctx.Response.Cookies.Append(
+                                            "djehuti_auth",
+                                            token,
+                                            Microsoft.AspNetCore.Http.CookieOptions(
+                                                HttpOnly = true,
+                                                Secure = true,
+                                                SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
+                                                Expires = DateTimeOffset.UtcNow.AddHours(1.0)
+                                            )
+                                        )
+                                        return Results.Redirect("/djehuti/")
+                                    | None ->
+                                        return Results.Problem(detail = "Failed to create user", statusCode = 500, title = "OAuth login failed")
+                            | None ->
+                                return Results.BadRequest("Failed to get user info from Google")
+                        | None ->
+                            return Results.BadRequest("Failed to exchange authorization code")
             } |> Async.StartAsTask)
     )
     |> ignore
 
     app.MapGet(
         "/api/auth/oauth/github/callback",
-        Func<string, string, System.Threading.Tasks.Task<IResult>>(fun code state ->
+        Func<string, string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun code state ctx ->
             async {
                 if String.IsNullOrWhiteSpace code then
                     return Results.BadRequest("code is required")
                 else
-                    // TODO: Exchange code for token with GitHub OAuth endpoint
-                    // TODO: Parse token to get user info (email, name, avatar_url)
-                    // TODO: Check if user exists by email or create new user
-                    // TODO: Create/link user_identity record
-                    // TODO: Set JWT cookie and redirect to app
-                    return Results.StatusCode(501)
+                    let githubClientId = Environment.GetEnvironmentVariable("GITHUB_OAUTH_CLIENT_ID")
+                    let githubClientSecret = Environment.GetEnvironmentVariable("GITHUB_OAUTH_CLIENT_SECRET")
+
+                    if String.IsNullOrWhiteSpace githubClientId || String.IsNullOrWhiteSpace githubClientSecret then
+                        return Results.Problem(detail = "GitHub OAuth not configured", statusCode = 500, title = "OAuth configuration error")
+                    else
+                        let! tokenResponse = OAuth.exchangeGitHubCode code githubClientId githubClientSecret
+                        match tokenResponse with
+                        | Some tokenData ->
+                            let! userInfo = OAuth.getGitHubUserInfo tokenData.access_token
+                            match userInfo with
+                            | Some info ->
+                                let! existingUser = UserRepository.tryGetUserByIdentity "github" (info.id.ToString())
+                                match existingUser with
+                                | Some user ->
+                                    let token = Auth.generateToken {
+                                        UserId = user.Id.ToString()
+                                        Email = user.Email
+                                        DisplayName = user.DisplayName
+                                        Role = user.Role
+                                        IssuedAt = DateTime.UtcNow
+                                        ExpiresAt = DateTime.UtcNow.AddHours(1.0)
+                                    }
+                                    ctx.Response.Cookies.Append(
+                                        "djehuti_auth",
+                                        token,
+                                        Microsoft.AspNetCore.Http.CookieOptions(
+                                            HttpOnly = true,
+                                            Secure = true,
+                                            SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
+                                            Expires = DateTimeOffset.UtcNow.AddHours(1.0)
+                                        )
+                                    )
+                                    return Results.Redirect("/djehuti/")
+                                | None ->
+                                    let email = info.email |> Option.defaultValue $"{info.login}@github.local"
+                                    let! newUser = UserRepository.createUser email None
+                                    match newUser with
+                                    | Some user ->
+                                        let! _identity = UserRepository.createUserIdentity user.Id "github" (info.id.ToString()) info.email info.name info.avatar_url
+                                        let token = Auth.generateToken {
+                                            UserId = user.Id.ToString()
+                                            Email = user.Email
+                                            DisplayName = user.DisplayName
+                                            Role = user.Role
+                                            IssuedAt = DateTime.UtcNow
+                                            ExpiresAt = DateTime.UtcNow.AddHours(1.0)
+                                        }
+                                        ctx.Response.Cookies.Append(
+                                            "djehuti_auth",
+                                            token,
+                                            Microsoft.AspNetCore.Http.CookieOptions(
+                                                HttpOnly = true,
+                                                Secure = true,
+                                                SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
+                                                Expires = DateTimeOffset.UtcNow.AddHours(1.0)
+                                            )
+                                        )
+                                        return Results.Redirect("/djehuti/")
+                                    | None ->
+                                        return Results.Problem(detail = "Failed to create user", statusCode = 500, title = "OAuth login failed")
+                            | None ->
+                                return Results.BadRequest("Failed to get user info from GitHub")
+                        | None ->
+                            return Results.BadRequest("Failed to exchange authorization code")
             } |> Async.StartAsTask)
     )
     |> ignore
