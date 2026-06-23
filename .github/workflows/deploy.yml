@@ -57,26 +57,31 @@ jobs:
 
       - name: Stop API service
         run: |
-          ssh -i ~/.ssh/deploy.pem ubuntu@${{ secrets.DEPLOY_HOST }} \
-            "sudo systemctl stop djehuti-api || true"
+          ssh -i ~/.ssh/deploy.pem \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.DEPLOY_HOST }} \
+            "sudo systemctl stop djehuti-api 2>/dev/null || true" || true
 
       - name: Upload dashboard static files
         run: |
           rsync -az --delete \
-            -e "ssh -i ~/.ssh/deploy.pem" \
+            -e "ssh -i ~/.ssh/deploy.pem -o StrictHostKeyChecking=no" \
             src/Djehuti.Dashboard/dist/ \
             ubuntu@${{ secrets.DEPLOY_HOST }}:/var/www/djehuti/
 
       - name: Upload API binary
         run: |
           rsync -az \
-            -e "ssh -i ~/.ssh/deploy.pem" \
+            -e "ssh -i ~/.ssh/deploy.pem -o StrictHostKeyChecking=no" \
             artifacts/api/ \
             ubuntu@${{ secrets.DEPLOY_HOST }}:/opt/djehuti-api/
 
       - name: Fix permissions and restart API
         run: |
-          ssh -i ~/.ssh/deploy.pem ubuntu@${{ secrets.DEPLOY_HOST }} << 'EOF'
+          ssh -i ~/.ssh/deploy.pem \
+            -o StrictHostKeyChecking=no \
+            ubuntu@${{ secrets.DEPLOY_HOST }} << 'EOF'
             chmod +x /opt/djehuti-api/Djehuti.Api
             sudo systemctl daemon-reload
             sudo systemctl enable djehuti-api
