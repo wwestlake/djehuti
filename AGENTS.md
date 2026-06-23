@@ -35,6 +35,10 @@ If something fails twice without a clear diagnosis, stop taking action and talk 
 
 ---
 
+## Communication Style
+
+Use plain, precise language. Avoid slang and informal shorthand. The user has a DoD background and expects clear, unambiguous communication — define terms before using them, and do not assume shared informal vocabulary.
+
 ## Writing Rules
 
 When the user states a new rule or preference, add it to this file (`AGENTS.md`) immediately — in the same response, before moving on. Do not rely solely on memory files. This file is the authoritative source of project-level rules for all agents.

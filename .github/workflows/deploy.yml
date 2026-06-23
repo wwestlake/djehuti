@@ -14,18 +14,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── Build React dashboard ────────────────────────────────────────────────
+      # ── Build frontend apps ──────────────────────────────────────────────────
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: src/Djehuti.Dashboard/package-lock.json
+          cache-dependency-path: |
+            src/Djehuti.Dashboard/package-lock.json
+            src/Lagdaemon.Web/package-lock.json
 
       - name: Build dashboard
         working-directory: src/Djehuti.Dashboard
         env:
           VITE_API_BASE: /djehuti
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build lagdaemon.com homepage
+        working-directory: src/Lagdaemon.Web
         run: |
           npm ci
           npm run build
@@ -59,6 +67,15 @@ jobs:
             -e "ssh -i ~/.ssh/deploy_key" \
             src/Djehuti.Dashboard/dist/ \
             ubuntu@${{ secrets.DEPLOY_HOST }}:/var/www/djehuti/
+
+      - name: Sync lagdaemon.com homepage
+        run: |
+          # --exclude=djehuti preserves the /var/www/lagdaemon/djehuti symlink
+          # to /var/www/djehuti that lets lagdaemon.com/djehuti/ serve the dashboard.
+          rsync -az --delete --exclude=djehuti \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            src/Lagdaemon.Web/dist/ \
+            ubuntu@${{ secrets.DEPLOY_HOST }}:/var/www/lagdaemon/
 
       - name: Sync API
         run: |
