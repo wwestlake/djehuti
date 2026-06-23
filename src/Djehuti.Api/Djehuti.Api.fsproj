@@ -17,6 +17,7 @@
     <Compile Include="MediaService.fs" />
     <Compile Include="ForumRepository.fs" />
     <Compile Include="UserProfileRepository.fs" />
+    <Compile Include="PaperRepository.fs" />
     <Compile Include="BlogRepository.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
