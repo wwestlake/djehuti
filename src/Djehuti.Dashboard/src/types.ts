@@ -159,7 +159,7 @@ export type TimelineSeries = {
 }
 
 export type PhaseRenderMode = 'points' | 'solid' | 'hybrid' | 'envelope' | 'deform'
-export type AppMode = 'analyze' | 'live' | 'mlmce' | 'reports' | 'settings'
+export type AppMode = 'analyze' | 'live' | 'mlmce' | 'reports' | 'settings' | 'forum' | 'blog' | 'profile' | 'papers' | 'admin'
 export type AnalyzeView = 'overview' | 'phase' | 'timelines' | 'features' | 'data' | 'input'
 
 

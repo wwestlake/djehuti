@@ -13,6 +13,12 @@
     <Compile Include="UserRepository.fs" />
     <Compile Include="OAuth.fs" />
     <Compile Include="RateLimiter.fs" />
+    <Compile Include="Permissions.fs" />
+    <Compile Include="MediaService.fs" />
+    <Compile Include="ForumRepository.fs" />
+    <Compile Include="UserProfileRepository.fs" />
+    <Compile Include="PaperRepository.fs" />
+    <Compile Include="BlogRepository.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -21,6 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="3.7.400.2" />
     <PackageReference Include="Npgsql" Version="9.0.3" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.4.0" />
     <PackageReference Include="AWSSDK.SimpleEmail" Version="3.7.200.29" />

@@ -158,6 +158,222 @@ let private migrations : (int * string) list =
 
         CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
         """
+
+        8, """
+        -- Tighten users.role to system roles only
+        ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+        ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('user', 'admin'));
+
+        -- Scoped context roles: module-level or content-level assignments
+        CREATE TABLE IF NOT EXISTS user_roles (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            module      TEXT NOT NULL,
+            role        TEXT NOT NULL,
+            scope_id    UUID,
+            granted_by  UUID REFERENCES users(id),
+            granted_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+            UNIQUE (user_id, module, role, scope_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_roles_module_scope ON user_roles(module, scope_id);
+        """
+
+        9, """
+        CREATE TABLE IF NOT EXISTS forum_categories (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name        TEXT NOT NULL,
+            description TEXT,
+            position    INT NOT NULL DEFAULT 0,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS forum_forums (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            category_id     UUID NOT NULL REFERENCES forum_categories(id) ON DELETE CASCADE,
+            name            TEXT NOT NULL,
+            description     TEXT,
+            position        INT NOT NULL DEFAULT 0,
+            thread_count    INT NOT NULL DEFAULT 0,
+            post_count      INT NOT NULL DEFAULT 0,
+            last_post_at    TIMESTAMPTZ,
+            last_post_by    UUID REFERENCES users(id),
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_forum_forums_category_id ON forum_forums(category_id);
+
+        CREATE TABLE IF NOT EXISTS forum_threads (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            forum_id    UUID NOT NULL REFERENCES forum_forums(id) ON DELETE CASCADE,
+            author_id   UUID NOT NULL REFERENCES users(id),
+            title       TEXT NOT NULL,
+            is_pinned   BOOLEAN NOT NULL DEFAULT FALSE,
+            is_locked   BOOLEAN NOT NULL DEFAULT FALSE,
+            post_count  INT NOT NULL DEFAULT 0,
+            view_count  INT NOT NULL DEFAULT 0,
+            last_post_at    TIMESTAMPTZ,
+            last_post_by    UUID REFERENCES users(id),
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_forum_threads_forum_id ON forum_threads(forum_id);
+        CREATE INDEX IF NOT EXISTS idx_forum_threads_author_id ON forum_threads(author_id);
+
+        CREATE TABLE IF NOT EXISTS forum_posts (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            thread_id   UUID NOT NULL REFERENCES forum_threads(id) ON DELETE CASCADE,
+            author_id   UUID NOT NULL REFERENCES users(id),
+            content     TEXT NOT NULL,
+            is_answer   BOOLEAN NOT NULL DEFAULT FALSE,
+            vote_count  INT NOT NULL DEFAULT 0,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            deleted_at  TIMESTAMPTZ
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_forum_posts_thread_id ON forum_posts(thread_id);
+        CREATE INDEX IF NOT EXISTS idx_forum_posts_author_id ON forum_posts(author_id);
+
+        CREATE TABLE IF NOT EXISTS forum_post_votes (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            post_id     UUID NOT NULL REFERENCES forum_posts(id) ON DELETE CASCADE,
+            user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (post_id, user_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_forum_post_votes_post_id ON forum_post_votes(post_id);
+        """
+
+        10, """
+        CREATE TABLE IF NOT EXISTS media (
+            id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            uploader_id  UUID NOT NULL REFERENCES users(id),
+            module       TEXT NOT NULL,
+            context_id   UUID,
+            s3_key       TEXT NOT NULL UNIQUE,
+            url          TEXT NOT NULL,
+            filename     TEXT NOT NULL,
+            content_type TEXT NOT NULL,
+            size_bytes   BIGINT,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_media_uploader_id ON media(uploader_id);
+        CREATE INDEX IF NOT EXISTS idx_media_module_context ON media(module, context_id);
+        """
+
+        11, """
+        CREATE TABLE IF NOT EXISTS blog_sections (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name        TEXT NOT NULL,
+            slug        TEXT NOT NULL UNIQUE,
+            description TEXT,
+            position    INT NOT NULL DEFAULT 0,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS blog_articles (
+            id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            section_id   UUID NOT NULL REFERENCES blog_sections(id) ON DELETE CASCADE,
+            author_id    UUID NOT NULL REFERENCES users(id),
+            title        TEXT NOT NULL,
+            slug         TEXT NOT NULL UNIQUE,
+            content      TEXT NOT NULL DEFAULT '',
+            excerpt      TEXT,
+            cover_url    TEXT,
+            status       TEXT NOT NULL DEFAULT 'draft'
+                         CHECK (status IN ('draft', 'submitted', 'published', 'rejected')),
+            published_at TIMESTAMPTZ,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_blog_articles_section_id  ON blog_articles(section_id);
+        CREATE INDEX IF NOT EXISTS idx_blog_articles_author_id   ON blog_articles(author_id);
+        CREATE INDEX IF NOT EXISTS idx_blog_articles_status      ON blog_articles(status);
+        CREATE INDEX IF NOT EXISTS idx_blog_articles_slug        ON blog_articles(slug);
+
+        CREATE TABLE IF NOT EXISTS blog_tags (
+            id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name TEXT NOT NULL UNIQUE,
+            slug TEXT NOT NULL UNIQUE
+        );
+
+        CREATE TABLE IF NOT EXISTS blog_article_tags (
+            article_id UUID NOT NULL REFERENCES blog_articles(id) ON DELETE CASCADE,
+            tag_id     UUID NOT NULL REFERENCES blog_tags(id) ON DELETE CASCADE,
+            PRIMARY KEY (article_id, tag_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS blog_comments (
+            id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            article_id UUID NOT NULL REFERENCES blog_articles(id) ON DELETE CASCADE,
+            author_id  UUID NOT NULL REFERENCES users(id),
+            content    TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            deleted_at TIMESTAMPTZ
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_blog_comments_article_id ON blog_comments(article_id);
+        """
+
+        13, """
+        CREATE TABLE IF NOT EXISTS papers (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            owner_id    UUID NOT NULL REFERENCES users(id),
+            title       TEXT NOT NULL,
+            abstract    TEXT,
+            status      TEXT NOT NULL DEFAULT 'draft'
+                        CHECK (status IN ('draft', 'in_progress', 'review', 'published', 'archived')),
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_papers_owner_id ON papers(owner_id);
+        CREATE INDEX IF NOT EXISTS idx_papers_status   ON papers(status);
+
+        CREATE TABLE IF NOT EXISTS paper_collaborators (
+            paper_id    UUID NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+            user_id     UUID REFERENCES users(id),
+            name        TEXT NOT NULL,
+            email       TEXT,
+            role        TEXT NOT NULL DEFAULT 'contributor'
+                        CHECK (role IN ('author', 'contributor', 'reviewer')),
+            is_external BOOLEAN NOT NULL DEFAULT false,
+            added_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (paper_id, name)
+        );
+
+        CREATE TABLE IF NOT EXISTS paper_sections (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            paper_id    UUID NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+            title       TEXT NOT NULL,
+            content     TEXT NOT NULL DEFAULT '',
+            position    INT  NOT NULL DEFAULT 0,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_paper_sections_paper_id ON paper_sections(paper_id);
+        """
+
+        12, """
+        CREATE TABLE IF NOT EXISTS user_profiles (
+            user_id      UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            display_name TEXT,
+            bio          TEXT,
+            avatar_url   TEXT,
+            website      TEXT,
+            location     TEXT,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
