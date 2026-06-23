@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { blogApi, BlogArticle, BlogComment } from '../components/blog/blogApi'
+import { blogApi } from '../components/blog/blogApi'
+import type { BlogArticle, BlogComment } from '../components/blog/blogApi'
 import { useAuth } from '../contexts/AuthContext'
 
 interface Props {

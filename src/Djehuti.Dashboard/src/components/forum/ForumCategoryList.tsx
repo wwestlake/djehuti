@@ -1,4 +1,4 @@
-import { ForumCategory, ForumForum } from './forumApi'
+import type { ForumCategory, ForumForum } from './forumApi'
 
 interface Props {
   category: ForumCategory

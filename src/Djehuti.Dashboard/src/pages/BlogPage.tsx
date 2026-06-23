@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { blogApi, BlogSection, BlogArticle } from '../components/blog/blogApi'
+import { blogApi } from '../components/blog/blogApi'
+import type { BlogSection, BlogArticle } from '../components/blog/blogApi'
 import { useAuth } from '../contexts/AuthContext'
 
 interface Props {

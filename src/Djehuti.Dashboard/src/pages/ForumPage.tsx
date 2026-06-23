@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { forumApi, ForumCategory, ForumForum } from '../components/forum/forumApi'
+import { forumApi } from '../components/forum/forumApi'
+import type { ForumCategory, ForumForum } from '../components/forum/forumApi'
 import ForumCategoryList from '../components/forum/ForumCategoryList'
 
 interface Props {

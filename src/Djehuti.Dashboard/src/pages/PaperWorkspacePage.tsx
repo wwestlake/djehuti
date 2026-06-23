@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { papersApi, Paper, PaperSection } from '../components/papers/papersApi'
+import { papersApi } from '../components/papers/papersApi'
+import type { Paper, PaperSection } from '../components/papers/papersApi'
 import { apiBase } from '../lib/apiBase'
 
 interface Props {
