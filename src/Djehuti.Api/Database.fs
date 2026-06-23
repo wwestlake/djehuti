@@ -158,6 +158,28 @@ let private migrations : (int * string) list =
 
         CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
         """
+
+        8, """
+        -- Tighten users.role to system roles only
+        ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+        ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('user', 'admin'));
+
+        -- Scoped context roles: module-level or content-level assignments
+        CREATE TABLE IF NOT EXISTS user_roles (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            module      TEXT NOT NULL,
+            role        TEXT NOT NULL,
+            scope_id    UUID,
+            granted_by  UUID REFERENCES users(id),
+            granted_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+            UNIQUE (user_id, module, role, scope_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_roles_module_scope ON user_roles(module, scope_id);
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
