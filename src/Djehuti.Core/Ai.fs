@@ -139,10 +139,15 @@ module Ai =
               "Use only externally observable data supplied by the application: prompts, responses, metadata, calibration records, measurement reports, observable vectors, warnings, and attractor events."
               "Do not claim access to model weights, activations, attention maps, hidden sampling state, or provider-private runtime details."
               "Separate observation, estimate, diagnostic hypothesis, and interpretation."
-              "When a user asks to be shown how to do something, walked through a workflow, or guided through the UI, generate a dynamic tour by including a fenced JSON code block tagged 'tour' in your response, alongside your prose answer."
-              "The tour block contains an array of steps, each with: target (a CSS selector or data-tour attribute selector like [data-tour=\"dataset-picker\"]), title (optional short heading), text (instruction shown in the tooltip), and side (optional: top|bottom|left|right)."
-              "Available data-tour targets: [data-tour=\"side-menu\"], [data-tour=\"topbar\"], [data-tour=\"dataset-picker\"], [data-tour=\"analyze-button\"], [data-tour=\"tools-panel\"], [data-tour=\"analyst-form\"], [data-tour=\"live-compose\"], [data-tour=\"live-save-form\"], [data-tour=\"live-transcript\"]. Section IDs: #features, #timelines, #phase-space."
-              "Only include a tour block when the user explicitly asks to be shown, walked through, or guided. For analytical questions, answer in prose only." ]
+              "When a user asks to be shown, walked through, or guided through something, generate a data-driven expert tour by including a fenced JSON code block tagged 'tour' in your response, alongside your prose answer."
+              "Tours must read like an ISD expert guiding a student through their actual measurement run. Every tooltip must: (1) cite the real value or event from the supplied data, (2) explain what it means within Information Space Dynamics theory — not just the number, but its theoretical interpretation. Use the ISD formalism: velocity as semantic displacement rate, alpha as embedding alignment, stability margin (alpha minus v) as proximity to attractor boundary, torsional accumulation as trajectory rigidity, attractor events as boundary-crossing signatures, and so on."
+              "For example: instead of 'this is the feature finder panel', write 'Your run logged 4 high-severity attractor approaches. In ISD, these occur when the stability margin alpha-v drops below threshold while torsional accumulation is elevated — the model trajectory is approaching a fixed point, resisting perturbation. Turn 47 is the sharpest: stability margin fell to 0.04, meaning the response almost exactly tracked the perturbation velocity, a signature of deep attractor lock-in.'"
+              "Another example for timelines: instead of 'this chart shows velocity', write 'Velocity (v) here measures how far the model moved through embedding space in one turn. Your run shows a spike to 0.89 at turn 23 — unusually high. In ISD that means the response at turn 23 was a dramatic semantic departure from turn 22: either a topic jump, a refusal boundary, or a sudden context discontinuity. Everything before and after is below 0.3, so turn 23 is a genuine singularity in this trajectory.'"
+              "Be specific, be theoretical, be expert. The user is learning what ISD measurements mean by seeing them in their own data."
+              "The tour block contains an array of steps, each with: target (CSS selector or data-tour attribute), title (short heading), text (the expert ISD narration for this specific data), and side (optional: top|bottom|left|right)."
+              "CRITICAL: Only use the exact targets listed here. Do not invent selectors, controls, or panels not in this list. If no matching target exists for a step, skip it."
+              "Exact available targets: [data-tour=\"side-menu\"] = left nav sidebar; [data-tour=\"topbar\"] = top bar with dataset controls; [data-tour=\"dataset-picker\"] = dataset selector dropdown; [data-tour=\"analyze-button\"] = runs the analysis; [data-tour=\"tools-panel\"] = right panel with analyst AI; [data-tour=\"analyst-form\"] = ask the analyst a question; [data-tour=\"live-compose\"] = Live Lab compose form; [data-tour=\"live-save-form\"] = save a Live Lab run; [data-tour=\"live-transcript\"] = Live Lab conversation. Section anchors: #features = Feature Finder; #timelines = Metric Timelines; #phase-space = 3D Phase Space."
+              "Only include a tour block when the user explicitly asks to be shown, walked through, or guided. For pure analytical questions, answer in prose only." ]
           CompactFormalism =
             [ "Logical time is the integer turn index t = 0, 1, 2, ..."
               "A turn is an externally observed prompt-response pair."
@@ -247,7 +252,7 @@ module Ai =
     let evidenceFromContext (context: DjehutiAnalysisContext) =
         [ yield!
             context.Turns
-            |> List.truncate 8
+            |> List.truncate 50
             |> List.map (fun turn ->
                 { Label = $"turn {turn.SequenceIndex}"
                   Value = turnLine turn
@@ -255,7 +260,7 @@ module Ai =
 
           yield!
             context.ObservableVectors
-            |> List.truncate 12
+            |> List.truncate 50
             |> List.mapi (fun index vector ->
                 { Label = $"observable {index}"
                   Value = vectorLine index vector
@@ -263,7 +268,7 @@ module Ai =
 
           yield!
             context.Reports
-            |> List.truncate 8
+            |> List.truncate 20
             |> List.map (fun report ->
                 { Label = report.Subject
                   Value = reportLine report
@@ -271,7 +276,7 @@ module Ai =
 
           yield!
             context.AttractorEvents
-            |> List.truncate 8
+            |> List.truncate 20
             |> List.map (fun event ->
                 { Label = $"attractor {unwrapTurnId event.TurnId}"
                   Value = attractorLine event
@@ -279,7 +284,7 @@ module Ai =
 
           yield!
             context.Warnings
-            |> List.truncate 8
+            |> List.truncate 20
             |> List.map (fun warning ->
                 { Label = "warning"
                   Value = warning

@@ -1,8 +1,9 @@
 import type { AnalystResponse, AnalyzeResponse, DataSetCatalogItem } from '../types'
 import { readErrorMessage } from '../lib/format'
+import { apiBase } from '../lib/apiBase'
 
 export const fetchDataSetCatalog = async () => {
-  const response = await fetch('/api/datasets')
+  const response = await fetch(`${apiBase}/api/datasets`)
   if (!response.ok) {
     throw new Error(`Dataset catalog failed with ${response.status}`)
   }
@@ -11,7 +12,7 @@ export const fetchDataSetCatalog = async () => {
 }
 
 export const fetchDataSetJson = async (id: string) => {
-  const response = await fetch(`/api/datasets/${encodeURIComponent(id)}`)
+  const response = await fetch(`${apiBase}/api/datasets/${encodeURIComponent(id)}`)
   if (!response.ok) {
     const message = await response.text()
     throw new Error(message || `Dataset load failed with ${response.status}`)
@@ -21,7 +22,7 @@ export const fetchDataSetJson = async (id: string) => {
 }
 
 export const analyzeDatasetJson = async (json: string, signal?: AbortSignal) => {
-  const response = await fetch('/api/analyze', {
+  const response = await fetch(`${apiBase}/api/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ datasetJson: json }),
@@ -41,7 +42,7 @@ export const askAnalystApi = async (
   question: string,
   signal?: AbortSignal,
 ) => {
-  const response = await fetch('/api/analyst/ask', {
+  const response = await fetch(`${apiBase}/api/analyst/ask`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

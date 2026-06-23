@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -40,34 +40,19 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import {
-  analyzeDatasetJson,
-  askAnalystApi,
-  fetchDataSetCatalog,
-  fetchDataSetJson,
-} from './api/djehutiApi'
-import {
-  maxChartPoints,
-  maxFeatureRailHits,
-  maxFeatureRows,
-  maxPhasePoints,
-  maxTimelinePoints,
-  maxVisibleRows,
-  phaseRenderModes,
-  strategyColors,
-  visualizationIdeas,
-} from './config/dashboard'
-import { detectFeatures } from './features/featureFinder/featureDetection'
+import { analyzeDatasetJson } from './api/djehutiApi'
+import { maxVisibleRows, visualizationIdeas } from './config/dashboard'
 import { askLiveProvider, deriveLiveWarnings, liveTurnsToDatasetJson } from './features/live/liveLab'
 import { buildMlmceConfigPreview, validateMlmceConfig } from './features/mlmce/mlmceConfig'
-import { formatNumber } from './lib/format'
+import { apiBase } from './lib/apiBase'
+import { formatNumber, readErrorMessage } from './lib/format'
 import { parseTourFromResponse, startTour } from './lib/tour'
 import type {
   AnalystMessage,
+  AnalystResponse,
   AnalyzeResponse,
   AnalyzeView,
   AppMode,
-  AttractorEventDto,
   DataSetCatalogItem,
   LiveProviderConfig,
   LiveTurn,
@@ -308,7 +293,7 @@ function App() {
 
     const loadCatalog = async () => {
       try {
-        const response = await fetch('/api/datasets')
+        const response = await fetch(`${apiBase}/api/datasets`)
         if (!response.ok) {
           throw new Error(`Dataset catalog failed with ${response.status}`)
         }
@@ -337,12 +322,12 @@ function App() {
     setIsDeletingDataSet(true)
     setDeleteError(null)
     try {
-      const response = await fetch(`/api/datasets/${encodeURIComponent(selectedDataSetId)}`, { method: 'DELETE' })
+      const response = await fetch(`${apiBase}/api/datasets/${encodeURIComponent(selectedDataSetId)}`, { method: 'DELETE' })
       if (!response.ok) {
         const text = await response.text()
         throw new Error(text || `Delete failed with ${response.status}`)
       }
-      const refreshed = await fetch('/api/datasets')
+      const refreshed = await fetch(`${apiBase}/api/datasets`)
       if (refreshed.ok) {
         const items = await refreshed.json() as DataSetCatalogItem[]
         setCatalog(items)
@@ -365,7 +350,7 @@ function App() {
     setError(null)
 
     try {
-      const response = await fetch(`/api/datasets/${encodeURIComponent(selectedDataSetId)}`)
+      const response = await fetch(`${apiBase}/api/datasets/${encodeURIComponent(selectedDataSetId)}`)
       if (!response.ok) {
         const message = await response.text()
         throw new Error(message || `Dataset load failed with ${response.status}`)
@@ -498,8 +483,8 @@ function App() {
     }
   }
 
-  const askAnalyst = async () => {
-    const question = analystQuestion.trim()
+  const askAnalyst = async (overrideQuestion?: string) => {
+    const question = (overrideQuestion ?? analystQuestion).trim()
     if (!analysis || !question) {
       return
     }
@@ -511,7 +496,7 @@ function App() {
     const timeoutId = window.setTimeout(() => controller.abort(), 95000)
 
     try {
-      const response = await fetch('/api/analyst/ask', {
+      const response = await fetch(`${apiBase}/api/analyst/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -764,12 +749,12 @@ function App() {
                 setSaveRunSuccess(null)
                 try {
                   const name = saveRunName.trim() || `Live Lab ${new Date().toLocaleString()}`
-                  const response = await fetch('/api/datasets', {
+                  const response = await fetch(`${apiBase}/api/datasets`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                       name,
-                      description: `Live Lab run â€” ${liveTurns.length} turns, model: ${liveModel.trim() || 'gpt-4.1-mini'}`,
+                      description: `Live Lab run - ${liveTurns.length} turns, model: ${liveModel.trim() || 'gpt-4.1-mini'}`,
                       sourceKind: 'live-lab',
                       turnCount: liveTurns.length,
                       datasetJson: liveTurnsToDatasetJson(liveTurns),
@@ -782,7 +767,7 @@ function App() {
                   const saved = await response.json() as { id: string; name: string }
                   setSaveRunSuccess(`Saved as "${saved.name}"`)
                   setSaveRunName('')
-                  const refreshed = await fetch('/api/datasets')
+                  const refreshed = await fetch(`${apiBase}/api/datasets`)
                   if (refreshed.ok) {
                     const items = await refreshed.json() as DataSetCatalogItem[]
                     setCatalog(items)
@@ -808,7 +793,7 @@ function App() {
                 title="Save conversation to dataset library"
               >
                 <FileJson size={14} />
-                {isSavingRun ? 'Savingâ€¦' : 'Save run'}
+                {isSavingRun ? 'Saving...' : 'Save run'}
               </button>
             </form>
           </div>
@@ -868,7 +853,7 @@ function App() {
                 type="button"
                 onClick={() => setLiveWebSearch((v) => !v)}
                 aria-pressed={liveWebSearch}
-                title={liveWebSearch ? 'Web search on â€” click to disable' : 'Web search off â€” click to enable'}
+                title={liveWebSearch ? 'Web search on - click to disable' : 'Web search off - click to enable'}
               >
                 <Database size={14} />
                 Web search
@@ -1259,7 +1244,7 @@ function App() {
             <input value={liveEndpoint} onChange={(event) => setLiveEndpoint(event.target.value)} />
           </label>
           <div className="settings-note">
-            Provider experiment keys are not persisted here â€” Live Lab stores them in browser session only.
+            Provider experiment keys are not persisted here - Live Lab stores them in browser session only.
           </div>
         </div>
       </div>
@@ -1463,48 +1448,55 @@ function App() {
               <h1>{pageTitle}</h1>
             </div>
             <button
-              className=”icon-button theme-toggle”
-              type=”button”
+              className="icon-button theme-toggle"
+              type="button"
               onClick={() => setTheme((t) => t === 'light' ? 'dark' : t === 'dark' ? 'midnight' : 'light')}
-              title={`Theme: ${theme} — click to cycle`}
-              aria-label=”Cycle theme”
+              title={`Theme: ${theme} - click to cycle`}
+              aria-label="Cycle theme"
             >
               {theme === 'light' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             <button
               className={`icon-button tour-trigger${showTourPrompt ? ' active' : ''}`}
-              type=”button”
-              title=”Ask the AI to walk you through something”
-              aria-label=”Start a guided tour”
+              type="button"
+              title="Ask the AI to walk you through something"
+              aria-label="Start a guided tour"
               onClick={() => setShowTourPrompt((v) => !v)}
             >
               <GraduationCap size={18} />
             </button>
           </div>
-          {showTourPrompt && (
+          {(showTourPrompt || isAskingAnalyst) && (
             <form
-              className=”tour-prompt-bar”
+              className="tour-prompt-bar"
               onSubmit={async (e) => {
                 e.preventDefault()
                 const q = tourQuestion.trim()
                 if (!q || !analysis) return
                 setShowTourPrompt(false)
-                setAnalystQuestion(q)
-                await askAnalyst()
+                setTourQuestion('Walk me through ')
+                await askAnalyst(q)
               }}
             >
-              <input
-                className=”tour-prompt-input”
-                value={tourQuestion}
-                onChange={(e) => setTourQuestion(e.target.value)}
-                placeholder=”Walk me through analyzing a dataset…”
-                autoFocus
-                aria-label=”Tour request”
-              />
-              <button className=”secondary-action” type=”submit” disabled={!tourQuestion.trim() || !analysis}>
-                Go
+              {isAskingAnalyst ? (
+                <span className="tour-generating">
+                  <span className="tour-spinner" />
+                  Generating your tour...
+                </span>
+              ) : (
+                <input
+                  className="tour-prompt-input"
+                  value={tourQuestion}
+                  onChange={(e) => setTourQuestion(e.target.value)}
+                  placeholder="Walk me through analyzing a dataset..."
+                  autoFocus
+                  aria-label="Tour request"
+                />
+              )}
+              <button className="secondary-action" type="submit" disabled={!tourQuestion.trim() || !analysis || isAskingAnalyst}>
+                {isAskingAnalyst ? 'Working...' : 'Go'}
               </button>
-              <button className=”icon-button” type=”button” onClick={() => setShowTourPrompt(false)}>
+              <button className="icon-button" type="button" onClick={() => setShowTourPrompt(false)} disabled={isAskingAnalyst}>
                 <X size={15} />
               </button>
             </form>
@@ -1610,7 +1602,7 @@ function App() {
                 if (!name) return
                 setRenameError(null)
                 try {
-                  const response = await fetch(`/api/datasets/${encodeURIComponent(selectedDataSetId)}`, {
+                  const response = await fetch(`${apiBase}/api/datasets/${encodeURIComponent(selectedDataSetId)}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name, description: renameDataSetDesc.trim() }),
@@ -1619,7 +1611,7 @@ function App() {
                     const text = await response.text()
                     throw new Error(text || `Rename failed with ${response.status}`)
                   }
-                  const refreshed = await fetch('/api/datasets')
+                  const refreshed = await fetch(`${apiBase}/api/datasets`)
                   if (refreshed.ok) setCatalog(await refreshed.json() as DataSetCatalogItem[])
                   setIsRenamingDataSet(false)
                 } catch (err) {
@@ -1819,3 +1811,4 @@ function App() {
 }
 
 export default App
+
