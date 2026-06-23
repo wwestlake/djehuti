@@ -180,6 +180,74 @@ let private migrations : (int * string) list =
         CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id);
         CREATE INDEX IF NOT EXISTS idx_user_roles_module_scope ON user_roles(module, scope_id);
         """
+
+        9, """
+        CREATE TABLE IF NOT EXISTS forum_categories (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name        TEXT NOT NULL,
+            description TEXT,
+            position    INT NOT NULL DEFAULT 0,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS forum_forums (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            category_id     UUID NOT NULL REFERENCES forum_categories(id) ON DELETE CASCADE,
+            name            TEXT NOT NULL,
+            description     TEXT,
+            position        INT NOT NULL DEFAULT 0,
+            thread_count    INT NOT NULL DEFAULT 0,
+            post_count      INT NOT NULL DEFAULT 0,
+            last_post_at    TIMESTAMPTZ,
+            last_post_by    UUID REFERENCES users(id),
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_forum_forums_category_id ON forum_forums(category_id);
+
+        CREATE TABLE IF NOT EXISTS forum_threads (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            forum_id    UUID NOT NULL REFERENCES forum_forums(id) ON DELETE CASCADE,
+            author_id   UUID NOT NULL REFERENCES users(id),
+            title       TEXT NOT NULL,
+            is_pinned   BOOLEAN NOT NULL DEFAULT FALSE,
+            is_locked   BOOLEAN NOT NULL DEFAULT FALSE,
+            post_count  INT NOT NULL DEFAULT 0,
+            view_count  INT NOT NULL DEFAULT 0,
+            last_post_at    TIMESTAMPTZ,
+            last_post_by    UUID REFERENCES users(id),
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_forum_threads_forum_id ON forum_threads(forum_id);
+        CREATE INDEX IF NOT EXISTS idx_forum_threads_author_id ON forum_threads(author_id);
+
+        CREATE TABLE IF NOT EXISTS forum_posts (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            thread_id   UUID NOT NULL REFERENCES forum_threads(id) ON DELETE CASCADE,
+            author_id   UUID NOT NULL REFERENCES users(id),
+            content     TEXT NOT NULL,
+            is_answer   BOOLEAN NOT NULL DEFAULT FALSE,
+            vote_count  INT NOT NULL DEFAULT 0,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            deleted_at  TIMESTAMPTZ
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_forum_posts_thread_id ON forum_posts(thread_id);
+        CREATE INDEX IF NOT EXISTS idx_forum_posts_author_id ON forum_posts(author_id);
+
+        CREATE TABLE IF NOT EXISTS forum_post_votes (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            post_id     UUID NOT NULL REFERENCES forum_posts(id) ON DELETE CASCADE,
+            user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (post_id, user_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_forum_post_votes_post_id ON forum_post_votes(post_id);
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

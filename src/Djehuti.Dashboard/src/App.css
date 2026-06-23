@@ -2784,3 +2784,225 @@ tbody tr.selected {
 .reset-icon.error {
   color: var(--danger);
 }
+
+/* ── Forum ─────────────────────────────────────────────────────────────────── */
+
+.forum-page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 24px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.forum-title { font-size: 1.6rem; font-weight: 700; color: var(--text); }
+
+.forum-breadcrumb {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.breadcrumb-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.85rem;
+  text-decoration: underline;
+}
+
+.forum-category { display: flex; flex-direction: column; gap: 8px; }
+
+.forum-category-name {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.forum-category-desc { font-size: 0.85rem; color: var(--text-muted); margin: 0; }
+
+.forum-list { display: flex; flex-direction: column; gap: 4px; }
+
+.forum-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.15s;
+}
+
+.forum-list-item:hover { border-color: var(--accent); }
+.forum-list-item-info { display: flex; flex-direction: column; gap: 2px; }
+.forum-list-item-name { font-weight: 600; color: var(--text); font-size: 0.95rem; }
+.forum-list-item-desc { font-size: 0.8rem; color: var(--text-muted); }
+.forum-list-item-stats { display: flex; gap: 12px; font-size: 0.8rem; color: var(--text-muted); }
+
+.forum-forum-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.forum-forum-header h1 { font-size: 1.4rem; font-weight: 700; }
+
+.thread-list { display: flex; flex-direction: column; gap: 4px; }
+
+.thread-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.15s;
+}
+
+.thread-list-item:hover { border-color: var(--accent); }
+.thread-list-item-badges { display: flex; gap: 4px; flex-shrink: 0; }
+.thread-list-item-info { display: flex; flex-direction: column; gap: 2px; }
+.thread-title { font-weight: 600; color: var(--text); font-size: 0.95rem; }
+.thread-meta { font-size: 0.8rem; color: var(--text-muted); }
+
+.badge {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge-pinned { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+.badge-locked { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+
+.thread-header { display: flex; flex-direction: column; gap: 8px; }
+.thread-header h1 { font-size: 1.4rem; font-weight: 700; }
+.thread-header-badges { display: flex; gap: 6px; }
+.thread-mod-actions { display: flex; gap: 8px; }
+
+.post-list { display: flex; flex-direction: column; gap: 12px; }
+
+.post-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.post-answer { border-color: #6ee7a0; }
+
+.post-answer-badge {
+  background: color-mix(in srgb, #6ee7a0 20%, transparent);
+  color: #6ee7a0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 4px 14px;
+}
+
+.post-body { padding: 16px; }
+
+.post-content { color: var(--text); font-size: 0.9rem; line-height: 1.6; }
+.post-content p { margin: 0 0 10px; }
+.post-content p:last-child { margin: 0; }
+.post-content code { background: var(--bg); padding: 1px 5px; border-radius: 3px; font-size: 0.85em; }
+.post-content pre { background: var(--bg); padding: 12px; border-radius: 6px; overflow-x: auto; }
+
+.post-edit textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.9rem;
+  resize: vertical;
+}
+
+.post-edit-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+.post-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 80%, var(--bg));
+}
+
+.post-meta { font-size: 0.75rem; color: var(--text-muted); }
+.post-actions { display: flex; gap: 8px; }
+
+.post-action {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.post-action:hover { color: var(--text); border-color: var(--accent); }
+.post-action-delete:hover { color: var(--danger); border-color: var(--danger); }
+
+.reply-form { display: flex; flex-direction: column; gap: 10px; }
+.reply-form h3 { font-size: 1rem; font-weight: 600; }
+
+.reply-form textarea {
+  width: 100%;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.9rem;
+  resize: vertical;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 8px 18px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  align-self: flex-start;
+}
+
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.forum-empty { color: var(--text-muted); font-size: 0.9rem; padding: 12px 0; }
+.forum-loading { color: var(--text-muted); padding: 24px; text-align: center; }
+.forum-error { color: var(--danger); padding: 24px; text-align: center; }
+
+.forum-login-prompt,
+.forum-locked-notice {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}

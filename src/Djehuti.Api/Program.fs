@@ -1179,5 +1179,277 @@ let main args =
     )
     |> ignore
 
+    // ── Forum: helper ─────────────────────────────────────────────────────────
+
+    let tryGetAuthClaims (ctx: HttpContext) =
+        match ctx.Request.Cookies.TryGetValue("djehuti_auth") with
+        | true, token -> Auth.verifyToken token
+        | _ -> None
+
+    // ── Forum: Categories (read=anonymous, write=admin) ───────────────────────
+
+    app.MapGet(
+        "/api/forum/categories",
+        Func<IResult>(fun () ->
+            let cats = ForumRepository.getCategories ()
+            Results.Ok(cats))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/forum/categories",
+        Func<HttpContext, {| name: string; description: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    let desc = if String.IsNullOrWhiteSpace body.description then None else Some body.description
+                    return match ForumRepository.createCategory body.name desc with
+                           | Some cat -> Results.Created($"/api/forum/categories/{cat.Id}", cat)
+                           | None     -> Results.Problem(detail = "Failed to create category", statusCode = 500, title = "Error")
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // ── Forum: Forums (read=anonymous, write=admin) ───────────────────────────
+
+    app.MapGet(
+        "/api/forum/categories/{categoryId}/forums",
+        Func<string, IResult>(fun categoryId ->
+            match Guid.TryParse(categoryId) with
+            | true, cid -> Results.Ok(ForumRepository.getForumsByCategory cid)
+            | _ -> Results.BadRequest("Invalid category id"))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/forum/categories/{categoryId}/forums",
+        Func<string, HttpContext, {| name: string; description: string |}, System.Threading.Tasks.Task<IResult>>(fun categoryId ctx body ->
+            async {
+                match Guid.TryParse(categoryId) with
+                | false, _ -> return Results.BadRequest("Invalid category id")
+                | true, cid ->
+                    match tryGetAuthClaims ctx with
+                    | Some claims when Permissions.isAdmin claims.Role ->
+                        let desc = if String.IsNullOrWhiteSpace body.description then None else Some body.description
+                        return match ForumRepository.createForum cid body.name desc with
+                               | Some f -> Results.Created($"/api/forum/forums/{f.Id}", f)
+                               | None   -> Results.Problem(detail = "Failed to create forum", statusCode = 500, title = "Error")
+                    | Some _ -> return Results.Forbid()
+                    | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapGet(
+        "/api/forum/forums/{forumId}",
+        Func<string, IResult>(fun forumId ->
+            match Guid.TryParse(forumId) with
+            | true, fid ->
+                match ForumRepository.getForumById fid with
+                | Some f -> Results.Ok(f)
+                | None   -> Results.NotFound()
+            | _ -> Results.BadRequest("Invalid forum id"))
+    ) |> ignore
+
+    // ── Forum: Threads (read=anonymous, create=authenticated) ─────────────────
+
+    app.MapGet(
+        "/api/forum/forums/{forumId}/threads",
+        Func<string, int, int, IResult>(fun forumId page pageSize ->
+            match Guid.TryParse(forumId) with
+            | true, fid ->
+                let p  = if page < 1 then 1 else page
+                let ps = if pageSize < 1 || pageSize > 100 then 25 else pageSize
+                Results.Ok(ForumRepository.getThreadsByForum fid p ps)
+            | _ -> Results.BadRequest("Invalid forum id"))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/forum/threads/{threadId}",
+        Func<string, IResult>(fun threadId ->
+            match Guid.TryParse(threadId) with
+            | true, tid ->
+                ForumRepository.incrementViewCount tid
+                match ForumRepository.getThreadById tid with
+                | Some t -> Results.Ok(t)
+                | None   -> Results.NotFound()
+            | _ -> Results.BadRequest("Invalid thread id"))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/forum/forums/{forumId}/threads",
+        Func<string, HttpContext, {| title: string; content: string |}, System.Threading.Tasks.Task<IResult>>(fun forumId ctx body ->
+            async {
+                match Guid.TryParse(forumId) with
+                | false, _ -> return Results.BadRequest("Invalid forum id")
+                | true, fid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            return match ForumRepository.createThread fid userId body.title body.content with
+                                   | Some t -> Results.Created($"/api/forum/threads/{t.Id}", t)
+                                   | None   -> Results.Problem(detail = "Failed to create thread", statusCode = 500, title = "Error")
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/forum/threads/{threadId}/pin",
+        Func<string, HttpContext, {| pinned: bool |}, System.Threading.Tasks.Task<IResult>>(fun threadId ctx body ->
+            async {
+                match Guid.TryParse(threadId) with
+                | false, _ -> return Results.BadRequest("Invalid thread id")
+                | true, tid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match ForumRepository.getThreadById tid with
+                        | None -> return Results.NotFound()
+                        | Some thread ->
+                            let isMod = Permissions.hasContextRole (Database.openConnection()) (Guid.Parse(claims.UserId)) Permissions.ModuleForum Permissions.RoleModerator (Some thread.ForumId)
+                            if Permissions.isAdmin claims.Role || isMod then
+                                ForumRepository.setThreadPinned tid body.pinned
+                                return Results.Ok()
+                            else return Results.Forbid()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/forum/threads/{threadId}/lock",
+        Func<string, HttpContext, {| locked: bool |}, System.Threading.Tasks.Task<IResult>>(fun threadId ctx body ->
+            async {
+                match Guid.TryParse(threadId) with
+                | false, _ -> return Results.BadRequest("Invalid thread id")
+                | true, tid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match ForumRepository.getThreadById tid with
+                        | None -> return Results.NotFound()
+                        | Some thread ->
+                            let isMod = Permissions.hasContextRole (Database.openConnection()) (Guid.Parse(claims.UserId)) Permissions.ModuleForum Permissions.RoleModerator (Some thread.ForumId)
+                            if Permissions.isAdmin claims.Role || isMod then
+                                ForumRepository.setThreadLocked tid body.locked
+                                return Results.Ok()
+                            else return Results.Forbid()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // ── Forum: Posts (read=anonymous, create=authenticated) ───────────────────
+
+    app.MapGet(
+        "/api/forum/threads/{threadId}/posts",
+        Func<string, int, int, IResult>(fun threadId page pageSize ->
+            match Guid.TryParse(threadId) with
+            | true, tid ->
+                let p  = if page < 1 then 1 else page
+                let ps = if pageSize < 1 || pageSize > 100 then 25 else pageSize
+                Results.Ok(ForumRepository.getPostsByThread tid p ps)
+            | _ -> Results.BadRequest("Invalid thread id"))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/forum/threads/{threadId}/posts",
+        Func<string, HttpContext, {| content: string |}, System.Threading.Tasks.Task<IResult>>(fun threadId ctx body ->
+            async {
+                match Guid.TryParse(threadId) with
+                | false, _ -> return Results.BadRequest("Invalid thread id")
+                | true, tid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match ForumRepository.getThreadById tid with
+                        | None -> return Results.NotFound()
+                        | Some thread when thread.IsLocked ->
+                            return Results.Problem(detail = "Thread is locked", statusCode = 403, title = "Locked")
+                        | Some _ ->
+                            match Guid.TryParse(claims.UserId) with
+                            | false, _ -> return Results.Unauthorized()
+                            | true, userId ->
+                                return match ForumRepository.createPost tid userId body.content with
+                                       | Some p -> Results.Created($"/api/forum/posts/{p.Id}", p)
+                                       | None   -> Results.Problem(detail = "Failed to create post", statusCode = 500, title = "Error")
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPut(
+        "/api/forum/posts/{postId}",
+        Func<string, HttpContext, {| content: string |}, System.Threading.Tasks.Task<IResult>>(fun postId ctx body ->
+            async {
+                match Guid.TryParse(postId) with
+                | false, _ -> return Results.BadRequest("Invalid post id")
+                | true, pid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            return match ForumRepository.updatePost pid userId body.content with
+                                   | Some p -> Results.Ok(p)
+                                   | None   -> Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/forum/posts/{postId}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun postId ctx ->
+            async {
+                match Guid.TryParse(postId) with
+                | false, _ -> return Results.BadRequest("Invalid post id")
+                | true, pid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        let deleted = ForumRepository.deletePost pid
+                        return if deleted then Results.Ok() else Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/forum/posts/{postId}/vote",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun postId ctx ->
+            async {
+                match Guid.TryParse(postId) with
+                | false, _ -> return Results.BadRequest("Invalid post id")
+                | true, pid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            let voted = ForumRepository.votePost pid userId
+                            return Results.Ok({| voted = voted |})
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/forum/posts/{postId}/answer",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun postId ctx ->
+            async {
+                match Guid.TryParse(postId) with
+                | false, _ -> return Results.BadRequest("Invalid post id")
+                | true, pid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, _ ->
+                            // find the thread to verify ownership
+                            let posts = ForumRepository.getPostsByThread pid 1 1
+                            match posts with
+                            | [] -> return Results.NotFound()
+                            | post :: _ ->
+                                match ForumRepository.getThreadById post.ThreadId with
+                                | None -> return Results.NotFound()
+                                | Some thread when thread.AuthorId.ToString() = claims.UserId || Permissions.isAdmin claims.Role ->
+                                    ForumRepository.markAsAnswer pid thread.Id
+                                    return Results.Ok()
+                                | _ -> return Results.Forbid()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     app.Run()
     0

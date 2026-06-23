@@ -68,6 +68,9 @@ import type {
   MlmceTurnMode,
   TurnMetricDto,
 } from './types'
+import ForumPage from './pages/ForumPage'
+import ForumForumPage from './pages/ForumForumPage'
+import ForumThreadPage from './pages/ForumThreadPage'
 import './App.css'
 
 const sampleJson = `{
@@ -159,6 +162,7 @@ const modeItems = [
   { id: 'analyze', label: 'Analyze', icon: Gauge },
   { id: 'live', label: 'Live Lab', icon: MessageSquare },
   { id: 'mlmce', label: 'MLMCE', icon: Users },
+  { id: 'forum', label: 'Forum', icon: MessageSquare },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'settings', label: 'Settings', icon: Settings },
 ] satisfies Array<{ id: AppMode; label: string; icon: typeof Gauge }>
@@ -238,6 +242,8 @@ function App() {
   const [mlmceSeedPrompt, setMlmceSeedPrompt] = useState(
     'Discuss whether measurement changes observable model behavior.',
   )
+  const [forumView, setForumView] = useState<{ page: 'home' | 'forum' | 'thread'; id?: string }>({ page: 'home' })
+
   const [mlmceThresholds, setMlmceThresholds] = useState<MlmceThresholdConfig>({
     stabilityCriterionMargin: 0.1,
     leakageBudgetFraction: 0.8,
@@ -1352,12 +1358,26 @@ function App() {
     }
   }
 
+  const renderForumView = () => {
+    switch (forumView.page) {
+      case 'forum':
+        return <ForumForumPage forumId={forumView.id!} onNavigateThread={id => setForumView({ page: 'thread', id })} onNavigateHome={() => setForumView({ page: 'home' })} />
+      case 'thread':
+        return <ForumThreadPage threadId={forumView.id!} onNavigateHome={() => setForumView({ page: 'home' })} onNavigateForum={id => setForumView({ page: 'forum', id })} />
+      case 'home':
+      default:
+        return <ForumPage onNavigateForum={id => setForumView({ page: 'forum', id })} />
+    }
+  }
+
   const renderMainView = () => {
     switch (activeMode) {
       case 'live':
         return renderLiveLab()
       case 'mlmce':
         return renderMlmceWorkspace()
+      case 'forum':
+        return renderForumView()
       case 'reports':
         return renderReportsWorkspace()
       case 'settings':
