@@ -1,13 +1,33 @@
 [
   {
+    "id": "grpc-pipeline",
+    "name": "gRPC Pipeline Design",
+    "description": "10-turn technical troubleshooting conversation about designing a distributed gRPC streaming pipeline with backpressure.",
+    "file": "grpc-pipeline.json",
+    "sourceKind": "manual-transcript",
+    "turnCount": 10,
+    "declaredTurnCount": 10,
+    "status": "complete"
+  },
+  {
     "id": "descartes-synthetic-partial",
-    "name": "Descartes synthetic run",
-    "description": "Partial import from Google Doc \"Large sim data set\". The source document currently ends mid-record, so this includes only complete prompt-response pairs.",
+    "name": "Descartes Synthetic Run (partial)",
+    "description": "Partial synthetic run on Cartesian philosophy topics. Source document truncates mid-record — includes only complete prompt-response pairs.",
     "file": "descartes-synthetic-partial.json",
     "sourceKind": "prompt-response-log",
     "turnCount": 154,
     "declaredTurnCount": 2000,
     "status": "partial"
+  },
+  {
+    "id": "descartes-synthetic",
+    "name": "Descartes Synthetic Run (truncated)",
+    "description": "Same source as above — file is malformed at the same cut-off point. Awaiting a clean export from the source document.",
+    "file": "descartes-synthetic.json",
+    "sourceKind": "prompt-response-log",
+    "turnCount": null,
+    "declaredTurnCount": 2000,
+    "status": "truncated"
   },
   {
     "id": "live-lab-6-20-2026-8-43-24-pm-20260621-004324",
