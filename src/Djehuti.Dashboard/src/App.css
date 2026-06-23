@@ -128,7 +128,7 @@
 
 .icon-button {
   align-items: center;
-  background: #ffffff;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text);
@@ -547,6 +547,31 @@
   display: flex;
   gap: 8px;
   padding: 8px 20px;
+}
+
+.tour-generating {
+  align-items: center;
+  color: var(--accent);
+  display: flex;
+  flex: 1;
+  font-size: 13px;
+  font-style: italic;
+  gap: 8px;
+}
+
+.tour-spinner {
+  animation: tour-spin 0.8s linear infinite;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  border-top-color: var(--accent);
+  display: inline-block;
+  flex-shrink: 0;
+  height: 16px;
+  width: 16px;
+}
+
+@keyframes tour-spin {
+  to { transform: rotate(360deg); }
 }
 
 .tour-prompt-input {
