@@ -11,6 +11,8 @@
     <Compile Include="Auth.fs" />
     <Compile Include="Email.fs" />
     <Compile Include="UserRepository.fs" />
+    <Compile Include="OAuth.fs" />
+    <Compile Include="RateLimiter.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

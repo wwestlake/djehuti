@@ -42,7 +42,8 @@ let sendEmail (message: EmailMessage) : Async<bool> =
 
 // ── Email Templates ─────────────────────────────────────────────────────────
 
-let verificationEmailTemplate (userName: string) (verifyLink: string) : string =
+let verificationEmailTemplate (userName: string) (token: string) : string =
+    let verifyLink = $"https://lagdaemon.com/verify?token={token}"
     sprintf """
     <html>
     <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #333;">

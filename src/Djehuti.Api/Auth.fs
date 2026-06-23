@@ -138,3 +138,9 @@ let verifyHCaptcha (token: string) : Async<bool> =
         with _ ->
             return false
     }
+
+// ── Refresh Tokens ──────────────────────────────────────────────────────────
+
+let generateRefreshToken () : string =
+    let bytes = RandomNumberGenerator.GetBytes(64)
+    Convert.ToBase64String(bytes)
