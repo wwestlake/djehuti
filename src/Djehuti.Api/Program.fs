@@ -1927,6 +1927,98 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // ── Admin ─────────────────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/admin/users",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    use conn = Database.openConnection()
+                    use cmd = new Npgsql.NpgsqlCommand(
+                        "SELECT id, email, role, display_name, created_at, email_verified FROM users ORDER BY created_at DESC", conn)
+                    use reader = cmd.ExecuteReader()
+                    let mutable rows = []
+                    while reader.Read() do
+                        rows <- rows @ [
+                            {| Id           = reader.GetGuid(0).ToString()
+                               Email        = reader.GetString(1)
+                               Role         = reader.GetString(2)
+                               DisplayName  = if reader.IsDBNull(3) then null else reader.GetString(3)
+                               CreatedAt    = reader.GetDateTime(4)
+                               EmailVerified= reader.GetBoolean(5) |}
+                        ]
+                    return Results.Ok(rows)
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/admin/users/{id}/role",
+        Func<string, HttpContext, {| role: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    match Guid.TryParse(id) with
+                    | false, _ -> return Results.BadRequest("Invalid user id")
+                    | true, uid ->
+                        use conn = Database.openConnection()
+                        use cmd = new Npgsql.NpgsqlCommand(
+                            "UPDATE users SET role = @role WHERE id = @id", conn)
+                        cmd.Parameters.AddWithValue("role", body.role) |> ignore
+                        cmd.Parameters.AddWithValue("id", uid) |> ignore
+                        let affected = cmd.ExecuteNonQuery()
+                        return if affected > 0 then Results.Ok() else Results.NotFound()
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/blog/queue",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    return Results.Ok(BlogRepository.getSubmittedArticles ())
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/context-roles",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    use conn = Database.openConnection()
+                    let roles = Permissions.getAllContextRoles conn
+                    return Results.Ok(roles)
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/admin/context-roles/{id}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    match Guid.TryParse(id) with
+                    | false, _ -> return Results.BadRequest("Invalid role id")
+                    | true, rid ->
+                        use conn = Database.openConnection()
+                        let removed = Permissions.revokeContextRoleById conn rid
+                        return if removed then Results.Ok() else Results.NotFound()
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     // ── User Profiles ─────────────────────────────────────────────────────────
 
     app.MapGet(

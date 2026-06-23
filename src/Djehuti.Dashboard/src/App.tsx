@@ -77,6 +77,7 @@ import BlogEditorPage from './pages/BlogEditorPage'
 import ProfilePage from './pages/ProfilePage'
 import PapersListPage from './pages/PapersListPage'
 import PaperWorkspacePage from './pages/PaperWorkspacePage'
+import AdminPage from './pages/AdminPage'
 import './App.css'
 
 const sampleJson = `{
@@ -172,6 +173,7 @@ const modeItems = [
   { id: 'blog', label: 'Blog', icon: FileText },
   { id: 'papers', label: 'Papers', icon: GraduationCap },
   { id: 'profile', label: 'Profile', icon: Users },
+  { id: 'admin', label: 'Admin', icon: KeyRound },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'settings', label: 'Settings', icon: Settings },
 ] satisfies Array<{ id: AppMode; label: string; icon: typeof Gauge }>
@@ -1425,6 +1427,8 @@ function App() {
         return renderPapersView()
       case 'profile':
         return <ProfilePage />
+      case 'admin':
+        return <AdminPage />
       case 'reports':
         return renderReportsWorkspace()
       case 'settings':
