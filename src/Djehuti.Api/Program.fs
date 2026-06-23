@@ -824,8 +824,7 @@ let main args =
                                 let verifyToken = Auth.generateSecureToken ()
                                 let! tokenStored = UserRepository.createEmailVerificationToken user.Id verifyToken
                                 if tokenStored then
-                                    let verifyLink = $"https://djehuti.lagdaemon.com/auth/verify?token={verifyToken}"
-                                    let emailBody = Email.verificationEmailTemplate (user.Email) verifyLink
+                                    let emailBody = Email.verificationEmailTemplate (user.Email) verifyToken
                                     let! _emailSent = Email.sendEmail {
                                         To = user.Email
                                         Subject = "Confirm your email address"

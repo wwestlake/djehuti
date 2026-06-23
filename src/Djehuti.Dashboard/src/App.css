@@ -2625,3 +2625,43 @@ tbody tr.selected {
     background: color-mix(in srgb, #24292e 15%, var(--surface));
   }
 }
+
+/* Email Verification Screen */
+.auth-verification-pending {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: center;
+}
+
+.verification-icon {
+  background: color-mix(in srgb, #2e7d4f 15%, transparent);
+  border-radius: 50%;
+  color: #6ee7a0;
+  font-size: 32px;
+  height: 64px;
+  line-height: 64px;
+  width: 64px;
+}
+
+.auth-verification-pending h3 {
+  font-size: 18px;
+  margin: 0;
+  color: var(--text-strong);
+}
+
+.auth-verification-pending p {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0;
+}
+
+.auth-verification-pending p strong {
+  color: var(--text-strong);
+}
+
+.verification-note {
+  font-size: 13px;
+  line-height: 1.5;
+}

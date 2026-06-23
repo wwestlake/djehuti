@@ -23,7 +23,7 @@ export function SignupModal({ open, onClose, onSwitchToLogin }: SignupModalProps
   const [confirmPassword, setConfirmPassword] = useState('')
   const [hcaptchaToken, setHcaptchaToken] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [successMessage, setSuccessMessage] = useState('')
+  const [successEmail, setSuccessEmail] = useState('')
   const { signup, error, clearError } = useAuth()
 
   const hcaptchaSiteKey = import.meta.env.VITE_HCAPTCHA_SITE_KEY || ''
@@ -54,18 +54,7 @@ export function SignupModal({ open, onClose, onSwitchToLogin }: SignupModalProps
 
     try {
       await signup(email, password, hcaptchaToken)
-      setSuccessMessage(
-        'Account created! Check your email to verify your address. ' +
-        'Then you can sign in.'
-      )
-      setTimeout(() => {
-        setEmail('')
-        setPassword('')
-        setConfirmPassword('')
-        setHcaptchaToken('')
-        setSuccessMessage('')
-        onSwitchToLogin()
-      }, 3000)
+      setSuccessEmail(email)
     } catch {
       // Error is managed by context
       if (window.hcaptcha) {
@@ -92,10 +81,26 @@ export function SignupModal({ open, onClose, onSwitchToLogin }: SignupModalProps
           <p className="auth-modal-subtitle">Save and manage your datasets</p>
         </div>
 
-        {successMessage && (
-          <div className="auth-success">{successMessage}</div>
+        {successEmail && (
+          <div className="auth-verification-pending">
+            <div className="verification-icon">✓</div>
+            <h3>Check your email</h3>
+            <p>We sent a verification link to <strong>{successEmail}</strong></p>
+            <p className="verification-note">Click the link in your email to verify your account, then you can sign in.</p>
+            <button
+              type="button"
+              className="primary-action"
+              onClick={() => {
+                setSuccessEmail('')
+                onSwitchToLogin()
+              }}
+            >
+              Go to sign in
+            </button>
+          </div>
         )}
 
+        {!successEmail && (
         <form onSubmit={handleSubmit} className="auth-form">
           <label>
             <span>Email</span>
@@ -156,7 +161,9 @@ export function SignupModal({ open, onClose, onSwitchToLogin }: SignupModalProps
             {isLoading ? 'Creating account...' : 'Create account'}
           </button>
         </form>
+        )}
 
+        {!successEmail && (
         <div className="auth-modal-footer">
           <span>Already have an account?</span>
           <button
@@ -204,12 +211,14 @@ export function SignupModal({ open, onClose, onSwitchToLogin }: SignupModalProps
           </a>
         </div>
 
+        {!successEmail && (
         <div className="auth-modal-terms">
           <small>
             By creating an account, you agree to our terms.
             Your data is stored securely and never shared.
           </small>
         </div>
+        )}
       </div>
     </div>
   )
