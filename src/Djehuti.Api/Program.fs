@@ -648,6 +648,13 @@ let main args =
 
     Database.runMigrations ()
 
+    let datasetDir =
+        [ Path.Combine(AppContext.BaseDirectory, "data", "datasets")
+          Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "data", "datasets") ]
+        |> List.tryFind Directory.Exists
+        |> Option.defaultValue (Path.Combine(AppContext.BaseDirectory, "data", "datasets"))
+    DataLibrary.migrateFromFilesystem datasetDir
+
     app.UseCors() |> ignore
 
     app.MapGet("/api/health", Func<string>(fun () -> "ok")) |> ignore

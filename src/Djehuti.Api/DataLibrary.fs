@@ -267,3 +267,43 @@ let importFromFile (filePath: string) (name: string) (description: string) =
         saveDataSet name description sourceKind turnCount json
     with ex ->
         Error $"Failed to import '{filePath}': {ex.Message}"
+
+// ── Startup migration from filesystem ────────────────────────────────────────
+
+let private existingSourceIds () =
+    use conn = openConn ()
+    use cmd = new NpgsqlCommand("SELECT source_id FROM datasets", conn)
+    use reader = cmd.ExecuteReader()
+    let mutable ids = Set.empty
+    while reader.Read() do
+        ids <- ids |> Set.add (reader.GetString(0))
+    ids
+
+let migrateFromFilesystem (datasetDir: string) =
+    if not (IO.Directory.Exists datasetDir) then
+        printfn "[DataLibrary] No filesystem dataset directory found at %s — skipping migration" datasetDir
+    else
+        let manifestPath = IO.Path.Combine(datasetDir, "manifest.json")
+        if not (IO.File.Exists manifestPath) then
+            printfn "[DataLibrary] No manifest.json found — skipping migration"
+        else
+            let manifestJson = IO.File.ReadAllText manifestPath
+            let manifest =
+                try JsonSerializer.Deserialize<{| id: string; name: string; description: string; file: string; status: string |} array>(manifestJson, jsonOptions)
+                with _ -> [||]
+
+            let existing = existingSourceIds ()
+
+            for entry in manifest do
+                if entry.status = "truncated" then
+                    printfn "[DataLibrary] Skipping truncated dataset '%s'" entry.name
+                elif Set.contains entry.id existing then
+                    printfn "[DataLibrary] Dataset '%s' already in database — skipping" entry.name
+                else
+                    let filePath = IO.Path.Combine(datasetDir, entry.file)
+                    if not (IO.File.Exists filePath) then
+                        printfn "[DataLibrary] File not found for '%s' — skipping" entry.name
+                    else
+                        match importFromFile filePath entry.name entry.description with
+                        | Ok item -> printfn "[DataLibrary] Imported '%s' (%s)" item.Name item.Id
+                        | Error err -> printfn "[DataLibrary] Failed to import '%s': %s" entry.name err
