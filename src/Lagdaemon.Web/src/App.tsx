@@ -1,7 +1,14 @@
 import { useState } from 'react'
 import './App.css'
+import { AuthProvider } from './contexts/AuthContext'
+import { UserMenu } from './components/auth/UserMenu'
+import { LoginModal } from './components/auth/LoginModal'
+import { SignupModal } from './components/auth/SignupModal'
+import { ForgotPasswordModal } from './components/auth/ForgotPasswordModal'
 
-function Nav() {
+type NavProps = { onOpenLogin: () => void }
+
+function Nav({ onOpenLogin }: NavProps) {
   return (
     <header className="nav">
       <a className="nav-logo" href="#top">
@@ -13,6 +20,7 @@ function Nav() {
         <a href="#papers">Papers</a>
         <a href="#about">About</a>
         <a className="nav-cta" href="/djehuti/">Open Djehuti ↗</a>
+        <UserMenu onOpenLogin={onOpenLogin} />
       </nav>
     </header>
   )
@@ -286,13 +294,16 @@ function Footer({ onPrivacy, onAup }: { onPrivacy: () => void; onAup: () => void
   )
 }
 
-function App() {
+function AppInner() {
   const [privacyOpen, setPrivacyOpen] = useState(false)
   const [aupOpen, setAupOpen] = useState(false)
+  const [showLogin, setShowLogin] = useState(false)
+  const [showSignup, setShowSignup] = useState(false)
+  const [showForgotPassword, setShowForgotPassword] = useState(false)
 
   return (
     <>
-      <Nav />
+      <Nav onOpenLogin={() => setShowLogin(true)} />
       <Hero />
       <Pitch />
       <Screenshots />
@@ -313,7 +324,31 @@ function App() {
         effective="Effective Date: June 23, 2026"
         items={AUP_ITEMS}
       />
+      <LoginModal
+        open={showLogin}
+        onClose={() => setShowLogin(false)}
+        onSwitchToSignup={() => { setShowLogin(false); setShowSignup(true) }}
+        onSwitchToForgotPassword={() => { setShowLogin(false); setShowForgotPassword(true) }}
+      />
+      <SignupModal
+        open={showSignup}
+        onClose={() => setShowSignup(false)}
+        onSwitchToLogin={() => { setShowSignup(false); setShowLogin(true) }}
+      />
+      <ForgotPasswordModal
+        open={showForgotPassword}
+        onClose={() => setShowForgotPassword(false)}
+        onSwitchToLogin={() => { setShowForgotPassword(false); setShowLogin(true) }}
+      />
     </>
+  )
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppInner />
+    </AuthProvider>
   )
 }
 
