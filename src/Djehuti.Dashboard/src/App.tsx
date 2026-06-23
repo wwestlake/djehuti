@@ -71,6 +71,9 @@ import type {
 import ForumPage from './pages/ForumPage'
 import ForumForumPage from './pages/ForumForumPage'
 import ForumThreadPage from './pages/ForumThreadPage'
+import BlogPage from './pages/BlogPage'
+import BlogArticlePage from './pages/BlogArticlePage'
+import BlogEditorPage from './pages/BlogEditorPage'
 import './App.css'
 
 const sampleJson = `{
@@ -163,6 +166,7 @@ const modeItems = [
   { id: 'live', label: 'Live Lab', icon: MessageSquare },
   { id: 'mlmce', label: 'MLMCE', icon: Users },
   { id: 'forum', label: 'Forum', icon: MessageSquare },
+  { id: 'blog', label: 'Blog', icon: FileText },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'settings', label: 'Settings', icon: Settings },
 ] satisfies Array<{ id: AppMode; label: string; icon: typeof Gauge }>
@@ -243,6 +247,7 @@ function App() {
     'Discuss whether measurement changes observable model behavior.',
   )
   const [forumView, setForumView] = useState<{ page: 'home' | 'forum' | 'thread'; id?: string }>({ page: 'home' })
+  const [blogView, setBlogView] = useState<{ page: 'list' | 'article' | 'editor'; slug?: string; articleId?: string }>({ page: 'list' })
 
   const [mlmceThresholds, setMlmceThresholds] = useState<MlmceThresholdConfig>({
     stabilityCriterionMargin: 0.1,
@@ -1370,6 +1375,29 @@ function App() {
     }
   }
 
+  const renderBlogView = () => {
+    switch (blogView.page) {
+      case 'article':
+        return <BlogArticlePage
+          slug={blogView.slug!}
+          onNavigateBack={() => setBlogView({ page: 'list' })}
+          onNavigateEditor={id => setBlogView({ page: 'editor', articleId: id })}
+        />
+      case 'editor':
+        return <BlogEditorPage
+          articleId={blogView.articleId}
+          onSaved={slug => setBlogView({ page: 'article', slug })}
+          onCancel={() => setBlogView({ page: 'list' })}
+        />
+      case 'list':
+      default:
+        return <BlogPage
+          onNavigateArticle={slug => setBlogView({ page: 'article', slug })}
+          onNavigateEditor={() => setBlogView({ page: 'editor' })}
+        />
+    }
+  }
+
   const renderMainView = () => {
     switch (activeMode) {
       case 'live':
@@ -1378,6 +1406,8 @@ function App() {
         return renderMlmceWorkspace()
       case 'forum':
         return renderForumView()
+      case 'blog':
+        return renderBlogView()
       case 'reports':
         return renderReportsWorkspace()
       case 'settings':

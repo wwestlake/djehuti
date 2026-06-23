@@ -1511,5 +1511,186 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // ── Blog: Sections ────────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/blog/sections",
+        Func<IResult>(fun () -> Results.Ok(BlogRepository.getSections()))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/blog/sections",
+        Func<HttpContext, {| name: string; description: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    let desc = if String.IsNullOrWhiteSpace body.description then None else Some body.description
+                    return match BlogRepository.createSection body.name desc with
+                           | Some s -> Results.Created($"/api/blog/sections/{s.Slug}", s)
+                           | None   -> Results.Problem(detail = "Failed to create section", statusCode = 500, title = "Error")
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // ── Blog: Articles ────────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/blog/articles",
+        Func<string, int, int, IResult>(fun sectionId page pageSize ->
+            let sid = match Guid.TryParse(sectionId) with | true, g -> Some g | _ -> None
+            let p  = if page < 1 then 1 else page
+            let ps = if pageSize < 1 || pageSize > 50 then 20 else pageSize
+            Results.Ok(BlogRepository.getPublishedArticles sid p ps))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/blog/articles/{slug}",
+        Func<string, IResult>(fun slug ->
+            match BlogRepository.getArticleBySlug slug with
+            | Some a -> Results.Ok(a)
+            | None   -> Results.NotFound())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/blog/my-articles",
+        Func<HttpContext, int, int, System.Threading.Tasks.Task<IResult>>(fun ctx page pageSize ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        let p  = if page < 1 then 1 else page
+                        let ps = if pageSize < 1 || pageSize > 50 then 20 else pageSize
+                        return Results.Ok(BlogRepository.getArticlesByAuthor userId p ps)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/blog/articles",
+        Func<HttpContext, {| sectionId: string; title: string; content: string; excerpt: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId), Guid.TryParse(body.sectionId) with
+                    | (true, userId), (true, sectionId) ->
+                        let excerpt = if String.IsNullOrWhiteSpace body.excerpt then None else Some body.excerpt
+                        return match BlogRepository.createArticle sectionId userId body.title body.content excerpt with
+                               | Some a -> Results.Created($"/api/blog/articles/{a.Slug}", a)
+                               | None   -> Results.Problem(detail = "Failed to create article", statusCode = 500, title = "Error")
+                    | _ -> return Results.BadRequest("Invalid userId or sectionId")
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPut(
+        "/api/blog/articles/{id}",
+        Func<string, HttpContext, {| title: string; content: string; excerpt: string; coverUrl: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid article id")
+                | true, aid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            let excerpt  = if String.IsNullOrWhiteSpace body.excerpt then None else Some body.excerpt
+                            let coverUrl = if String.IsNullOrWhiteSpace body.coverUrl then None else Some body.coverUrl
+                            return match BlogRepository.updateArticle aid userId body.title body.content excerpt coverUrl with
+                                   | Some a -> Results.Ok(a)
+                                   | None   -> Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/blog/articles/{id}/status",
+        Func<string, HttpContext, {| status: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid article id")
+                | true, aid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        let allowed =
+                            match body.status with
+                            | "submitted" -> true
+                            | "published" | "rejected" -> Permissions.isAdmin claims.Role
+                            | "draft" -> true
+                            | _ -> false
+                        if not allowed then return Results.Forbid()
+                        else
+                            return match BlogRepository.setArticleStatus aid body.status with
+                                   | Some a -> Results.Ok(a)
+                                   | None   -> Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/blog/articles/{id}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid article id")
+                | true, aid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            let deleted = BlogRepository.deleteArticle aid userId (Permissions.isAdmin claims.Role)
+                            return if deleted then Results.Ok() else Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // ── Blog: Comments ────────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/blog/articles/{id}/comments",
+        Func<string, IResult>(fun id ->
+            match Guid.TryParse(id) with
+            | true, aid -> Results.Ok(BlogRepository.getComments aid)
+            | _ -> Results.BadRequest("Invalid article id"))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/blog/articles/{id}/comments",
+        Func<string, HttpContext, {| content: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid article id")
+                | true, aid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            return match BlogRepository.createComment aid userId body.content with
+                                   | Some c -> Results.Created($"/api/blog/comments/{c.Id}", c)
+                                   | None   -> Results.Problem(detail = "Failed to create comment", statusCode = 500, title = "Error")
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/blog/comments/{id}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid comment id")
+                | true, cid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some _ ->
+                        let deleted = BlogRepository.deleteComment cid
+                        return if deleted then Results.Ok() else Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     app.Run()
     0
