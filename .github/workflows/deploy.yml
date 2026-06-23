@@ -67,6 +67,13 @@ jobs:
             artifacts/api/ \
             ubuntu@${{ secrets.DEPLOY_HOST }}:/opt/djehuti-api/
 
+      - name: Sync datasets
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            data/datasets/ \
+            ubuntu@${{ secrets.DEPLOY_HOST }}:/opt/djehuti-api/data/datasets/
+
       - name: Relink and restart API service
         run: |
           ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.DEPLOY_HOST }} bash -s << 'EOF'
