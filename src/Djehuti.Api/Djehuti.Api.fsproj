@@ -8,6 +8,7 @@
     <Compile Include="OpenAiResponses.fs" />
     <Compile Include="Database.fs" />
     <Compile Include="DataLibrary.fs" />
+    <Compile Include="Auth.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -17,6 +18,8 @@
 
   <ItemGroup>
     <PackageReference Include="Npgsql" Version="9.0.3" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.4.0" />
+    <PackageReference Include="AWSSDK.SimpleEmail" Version="3.7.200.29" />
   </ItemGroup>
 
 </Project>

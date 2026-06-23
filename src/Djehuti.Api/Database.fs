@@ -97,6 +97,67 @@ let private migrations : (int * string) list =
         CREATE INDEX IF NOT EXISTS idx_attractor_events_run_id
             ON attractor_events(analysis_run_id);
         """
+
+        6, """
+        CREATE TABLE IF NOT EXISTS users (
+            id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            email               TEXT NOT NULL UNIQUE,
+            email_verified_at   TIMESTAMPTZ,
+            password_hash       TEXT,
+            display_name        TEXT,
+            avatar_url          TEXT,
+            bio                 TEXT,
+            pronouns            TEXT,
+            location            TEXT,
+            external_links      JSONB DEFAULT '[]'::jsonb,
+            notify_by_email     BOOLEAN NOT NULL DEFAULT FALSE,
+            role                TEXT NOT NULL DEFAULT 'user'
+                                CHECK (role IN ('user', 'admin')),
+            status              TEXT NOT NULL DEFAULT 'active'
+                                CHECK (status IN ('pending', 'active', 'suspended')),
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+        """
+
+        7, """
+        CREATE TABLE IF NOT EXISTS user_identities (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            provider        TEXT NOT NULL,
+            subject_id      TEXT NOT NULL,
+            email           TEXT,
+            display_name    TEXT,
+            avatar_url      TEXT,
+            linked_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+            UNIQUE (provider, subject_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_user_identities_user_id ON user_identities(user_id);
+
+        CREATE TABLE IF NOT EXISTS email_verification_tokens (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            token           TEXT NOT NULL UNIQUE,
+            expires_at      TIMESTAMPTZ NOT NULL,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_user_id ON email_verification_tokens(user_id);
+
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            token           TEXT NOT NULL UNIQUE,
+            expires_at      TIMESTAMPTZ NOT NULL,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
