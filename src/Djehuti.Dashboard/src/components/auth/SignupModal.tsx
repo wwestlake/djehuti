@@ -33,7 +33,6 @@ export function SignupModal({ open, onClose, onSwitchToLogin }: SignupModalProps
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     clearError()
-    setSuccessMessage('')
 
     if (password !== confirmPassword) {
       alert('Passwords do not match')

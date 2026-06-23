@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { profileApi, UserProfile, UpdateProfileInput } from '../components/profile/profileApi'
+import { profileApi } from '../components/profile/profileApi'
+import type { UserProfile, UpdateProfileInput } from '../components/profile/profileApi'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function ProfilePage() {

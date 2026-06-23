@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { forumApi, ForumForum, ForumThread } from '../components/forum/forumApi'
+import { forumApi } from '../components/forum/forumApi'
+import type { ForumForum, ForumThread } from '../components/forum/forumApi'
 import { useAuth } from '../contexts/AuthContext'
 import NewThreadModal from '../components/forum/NewThreadModal'
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { papersApi, Paper } from '../components/papers/papersApi'
+import { papersApi } from '../components/papers/papersApi'
+import type { Paper } from '../components/papers/papersApi'
 import { useAuth } from '../contexts/AuthContext'
 
 interface Props {

@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { forumApi, ForumThread } from './forumApi'
+import { forumApi } from './forumApi'
+import type { ForumThread } from './forumApi'
 
 interface Props {
   forumId: string

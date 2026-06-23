@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { forumApi, ForumThread, ForumPost } from '../components/forum/forumApi'
+import { forumApi } from '../components/forum/forumApi'
+import type { ForumThread, ForumPost } from '../components/forum/forumApi'
 import { useAuth } from '../contexts/AuthContext'
 
 interface Props {
