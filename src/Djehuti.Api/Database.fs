@@ -266,6 +266,61 @@ let private migrations : (int * string) list =
         CREATE INDEX IF NOT EXISTS idx_media_uploader_id ON media(uploader_id);
         CREATE INDEX IF NOT EXISTS idx_media_module_context ON media(module, context_id);
         """
+
+        11, """
+        CREATE TABLE IF NOT EXISTS blog_sections (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name        TEXT NOT NULL,
+            slug        TEXT NOT NULL UNIQUE,
+            description TEXT,
+            position    INT NOT NULL DEFAULT 0,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS blog_articles (
+            id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            section_id   UUID NOT NULL REFERENCES blog_sections(id) ON DELETE CASCADE,
+            author_id    UUID NOT NULL REFERENCES users(id),
+            title        TEXT NOT NULL,
+            slug         TEXT NOT NULL UNIQUE,
+            content      TEXT NOT NULL DEFAULT '',
+            excerpt      TEXT,
+            cover_url    TEXT,
+            status       TEXT NOT NULL DEFAULT 'draft'
+                         CHECK (status IN ('draft', 'submitted', 'published', 'rejected')),
+            published_at TIMESTAMPTZ,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_blog_articles_section_id  ON blog_articles(section_id);
+        CREATE INDEX IF NOT EXISTS idx_blog_articles_author_id   ON blog_articles(author_id);
+        CREATE INDEX IF NOT EXISTS idx_blog_articles_status      ON blog_articles(status);
+        CREATE INDEX IF NOT EXISTS idx_blog_articles_slug        ON blog_articles(slug);
+
+        CREATE TABLE IF NOT EXISTS blog_tags (
+            id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name TEXT NOT NULL UNIQUE,
+            slug TEXT NOT NULL UNIQUE
+        );
+
+        CREATE TABLE IF NOT EXISTS blog_article_tags (
+            article_id UUID NOT NULL REFERENCES blog_articles(id) ON DELETE CASCADE,
+            tag_id     UUID NOT NULL REFERENCES blog_tags(id) ON DELETE CASCADE,
+            PRIMARY KEY (article_id, tag_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS blog_comments (
+            id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            article_id UUID NOT NULL REFERENCES blog_articles(id) ON DELETE CASCADE,
+            author_id  UUID NOT NULL REFERENCES users(id),
+            content    TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            deleted_at TIMESTAMPTZ
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_blog_comments_article_id ON blog_comments(article_id);
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
