@@ -47,7 +47,7 @@ let exchangeGoogleCode (code: string) (clientId: string) (clientSecret: string) 
         new System.Collections.Generic.KeyValuePair<string, string>("code", code)
         new System.Collections.Generic.KeyValuePair<string, string>("client_id", clientId)
         new System.Collections.Generic.KeyValuePair<string, string>("client_secret", clientSecret)
-        new System.Collections.Generic.KeyValuePair<string, string>("redirect_uri", "https://djehuti.lagdaemon.com/api/auth/oauth/google/callback")
+        new System.Collections.Generic.KeyValuePair<string, string>("redirect_uri", "https://lagdaemon.com/djehuti/api/auth/oauth/google/callback")
         new System.Collections.Generic.KeyValuePair<string, string>("grant_type", "authorization_code")
       ])
 
@@ -84,7 +84,7 @@ let exchangeGitHubCode (code: string) (clientId: string) (clientSecret: string) 
         new System.Collections.Generic.KeyValuePair<string, string>("code", code)
         new System.Collections.Generic.KeyValuePair<string, string>("client_id", clientId)
         new System.Collections.Generic.KeyValuePair<string, string>("client_secret", clientSecret)
-        new System.Collections.Generic.KeyValuePair<string, string>("redirect_uri", "https://djehuti.lagdaemon.com/api/auth/oauth/github/callback")
+        new System.Collections.Generic.KeyValuePair<string, string>("redirect_uri", "https://lagdaemon.com/djehuti/api/auth/oauth/github/callback")
       ])
 
       let! response = client.PostAsync("https://github.com/login/oauth/access_token", content) |> Async.AwaitTask

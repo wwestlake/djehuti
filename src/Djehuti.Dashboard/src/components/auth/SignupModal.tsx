@@ -177,7 +177,7 @@ export function SignupModal({ open, onClose, onSwitchToLogin }: SignupModalProps
           <a
             href={`https://accounts.google.com/o/oauth2/v2/auth?client_id=${
               import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID || ''
-            }&redirect_uri=https://djehuti.lagdaemon.com/api/auth/oauth/google/callback&response_type=code&scope=openid%20email%20profile`}
+            }&redirect_uri=https://lagdaemon.com/djehuti/api/auth/oauth/google/callback&response_type=code&scope=openid%20email%20profile`}
             className="oauth-button google"
             title="Sign up with Google"
           >
@@ -193,7 +193,7 @@ export function SignupModal({ open, onClose, onSwitchToLogin }: SignupModalProps
           <a
             href={`https://github.com/login/oauth/authorize?client_id=${
               import.meta.env.VITE_GITHUB_OAUTH_CLIENT_ID || ''
-            }&redirect_uri=https://djehuti.lagdaemon.com/api/auth/oauth/github/callback&scope=user:email`}
+            }&redirect_uri=https://lagdaemon.com/djehuti/api/auth/oauth/github/callback&scope=user:email`}
             className="oauth-button github"
             title="Sign up with GitHub"
           >
