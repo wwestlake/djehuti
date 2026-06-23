@@ -161,7 +161,12 @@ function Papers() {
             </p>
             <div className="paper-doi">
               <a href="https://doi.org/10.5281/zenodo.20739448" target="_blank" rel="noopener">
-                DOI: 10.5281/zenodo.20739448 ↗
+                Protocol DOI: 10.5281/zenodo.20739448 ↗
+              </a>
+            </div>
+            <div className="paper-doi">
+              <a href="https://doi.org/10.5281/zenodo.20816558" target="_blank" rel="noopener">
+                Software DOI (1.0.4): 10.5281/zenodo.20816558 ↗
               </a>
             </div>
           </div>

@@ -2,6 +2,7 @@
 
 [![Djehuti DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.20739448-blue)](https://doi.org/10.5281/zenodo.20739448)
 [![ISD Framework DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.20690590-blue)](https://doi.org/10.5281/zenodo.20690590)
+[![Software DOI (1.0.4)](https://img.shields.io/badge/Software_DOI-10.5281%2Fzenodo.20816558-green)](https://doi.org/10.5281/zenodo.20816558)
 
 Djehuti Cyberscope AI+ is an empirical measurement workbench for studying large language model behavior in information space.
 
