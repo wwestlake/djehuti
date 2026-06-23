@@ -35,7 +35,7 @@ jobs:
       - name: Build lagdaemon.com homepage
         working-directory: src/Lagdaemon.Web
         run: |
-          npm ci
+          npm install
           npm run build
 
       # ── Build F# API ─────────────────────────────────────────────────────────
