@@ -1692,6 +1692,241 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // ── Papers ────────────────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/papers",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        use conn = Database.openConnection()
+                        return Results.Ok(PaperRepository.getPapersByOwner conn userId)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapGet(
+        "/api/papers/{id}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid paper id")
+                | true, pid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        use conn = Database.openConnection()
+                        match PaperRepository.getPaperById conn pid with
+                        | None -> return Results.NotFound()
+                        | Some p when p.OwnerId.ToString() = claims.UserId || Permissions.isAdmin claims.Role ->
+                            return Results.Ok(p)
+                        | _ -> return Results.Forbid()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/papers",
+        Func<HttpContext, {| title: string; summary: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        let abs = if String.IsNullOrWhiteSpace(body.summary) then None else Some body.summary
+                        use conn = Database.openConnection()
+                        return match PaperRepository.createPaper conn userId body.title abs with
+                               | Some p -> Results.Created($"/api/papers/{p.Id}", p)
+                               | None   -> Results.Problem(detail = "Failed to create paper", statusCode = 500, title = "Error")
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPut(
+        "/api/papers/{id}",
+        Func<string, HttpContext, {| title: string; summary: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid paper id")
+                | true, pid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        use conn = Database.openConnection()
+                        match PaperRepository.getPaperById conn pid with
+                        | None -> return Results.NotFound()
+                        | Some p when p.OwnerId.ToString() <> claims.UserId && not (Permissions.isAdmin claims.Role) ->
+                            return Results.Forbid()
+                        | _ ->
+                            let abs = if String.IsNullOrWhiteSpace(body.summary) then None else Some body.summary
+                            return match PaperRepository.updatePaper conn pid body.title abs with
+                                   | Some updated -> Results.Ok(updated)
+                                   | None         -> Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/papers/{id}/status",
+        Func<string, HttpContext, {| status: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid paper id")
+                | true, pid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        use conn = Database.openConnection()
+                        match PaperRepository.getPaperById conn pid with
+                        | None -> return Results.NotFound()
+                        | Some p when p.OwnerId.ToString() <> claims.UserId && not (Permissions.isAdmin claims.Role) ->
+                            return Results.Forbid()
+                        | _ ->
+                            return match PaperRepository.setStatus conn pid body.status with
+                                   | Some updated -> Results.Ok(updated)
+                                   | None         -> Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/papers/{id}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid paper id")
+                | true, pid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            let deleted = PaperRepository.deletePaper conn pid userId (Permissions.isAdmin claims.Role)
+                            return if deleted then Results.Ok() else Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // Papers: Sections
+
+    app.MapGet(
+        "/api/papers/{id}/sections",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid paper id")
+                | true, pid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some _ ->
+                        use conn = Database.openConnection()
+                        return Results.Ok(PaperRepository.getSections conn pid)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/papers/{id}/sections",
+        Func<string, HttpContext, {| title: string; position: int |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid paper id")
+                | true, pid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some _ ->
+                        use conn = Database.openConnection()
+                        return match PaperRepository.createSection conn pid body.title body.position with
+                               | Some s -> Results.Created($"/api/papers/{pid}/sections/{s.Id}", s)
+                               | None   -> Results.Problem(detail = "Failed to create section", statusCode = 500, title = "Error")
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPut(
+        "/api/papers/sections/{sectionId}",
+        Func<string, HttpContext, {| title: string; content: string |}, System.Threading.Tasks.Task<IResult>>(fun sectionId ctx body ->
+            async {
+                match Guid.TryParse(sectionId) with
+                | false, _ -> return Results.BadRequest("Invalid section id")
+                | true, sid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some _ ->
+                        use conn = Database.openConnection()
+                        return match PaperRepository.updateSection conn sid body.title body.content with
+                               | Some s -> Results.Ok(s)
+                               | None   -> Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/papers/sections/{sectionId}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun sectionId ctx ->
+            async {
+                match Guid.TryParse(sectionId) with
+                | false, _ -> return Results.BadRequest("Invalid section id")
+                | true, sid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some _ ->
+                        use conn = Database.openConnection()
+                        let deleted = PaperRepository.deleteSection conn sid
+                        return if deleted then Results.Ok() else Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // Papers: Collaborators
+
+    app.MapGet(
+        "/api/papers/{id}/collaborators",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid paper id")
+                | true, pid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some _ ->
+                        use conn = Database.openConnection()
+                        return Results.Ok(PaperRepository.getCollaborators conn pid)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/papers/{id}/collaborators",
+        Func<string, HttpContext, {| name: string; email: string; role: string; isExternal: bool |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid paper id")
+                | true, pid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some _ ->
+                        let email = if String.IsNullOrWhiteSpace(body.email) then None else Some body.email
+                        use conn = Database.openConnection()
+                        PaperRepository.addCollaborator conn pid body.name email body.role None body.isExternal |> ignore
+                        return Results.Ok()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/papers/{id}/collaborators/{name}",
+        Func<string, string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id name ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid paper id")
+                | true, pid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some _ ->
+                        use conn = Database.openConnection()
+                        let removed = PaperRepository.removeCollaborator conn pid name
+                        return if removed then Results.Ok() else Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     // ── User Profiles ─────────────────────────────────────────────────────────
 
     app.MapGet(

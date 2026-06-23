@@ -75,6 +75,8 @@ import BlogPage from './pages/BlogPage'
 import BlogArticlePage from './pages/BlogArticlePage'
 import BlogEditorPage from './pages/BlogEditorPage'
 import ProfilePage from './pages/ProfilePage'
+import PapersListPage from './pages/PapersListPage'
+import PaperWorkspacePage from './pages/PaperWorkspacePage'
 import './App.css'
 
 const sampleJson = `{
@@ -168,6 +170,7 @@ const modeItems = [
   { id: 'mlmce', label: 'MLMCE', icon: Users },
   { id: 'forum', label: 'Forum', icon: MessageSquare },
   { id: 'blog', label: 'Blog', icon: FileText },
+  { id: 'papers', label: 'Papers', icon: GraduationCap },
   { id: 'profile', label: 'Profile', icon: Users },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'settings', label: 'Settings', icon: Settings },
@@ -250,6 +253,7 @@ function App() {
   )
   const [forumView, setForumView] = useState<{ page: 'home' | 'forum' | 'thread'; id?: string }>({ page: 'home' })
   const [blogView, setBlogView] = useState<{ page: 'list' | 'article' | 'editor'; slug?: string; articleId?: string }>({ page: 'list' })
+  const [papersView, setPapersView] = useState<{ page: 'list' | 'workspace'; paperId?: string }>({ page: 'list' })
 
   const [mlmceThresholds, setMlmceThresholds] = useState<MlmceThresholdConfig>({
     stabilityCriterionMargin: 0.1,
@@ -1400,6 +1404,13 @@ function App() {
     }
   }
 
+  const renderPapersView = () => {
+    if (papersView.page === 'workspace' && papersView.paperId) {
+      return <PaperWorkspacePage paperId={papersView.paperId} onBack={() => setPapersView({ page: 'list' })} />
+    }
+    return <PapersListPage onOpen={id => setPapersView({ page: 'workspace', paperId: id })} />
+  }
+
   const renderMainView = () => {
     switch (activeMode) {
       case 'live':
@@ -1410,6 +1421,8 @@ function App() {
         return renderForumView()
       case 'blog':
         return renderBlogView()
+      case 'papers':
+        return renderPapersView()
       case 'profile':
         return <ProfilePage />
       case 'reports':

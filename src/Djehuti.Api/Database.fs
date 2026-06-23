@@ -322,6 +322,46 @@ let private migrations : (int * string) list =
         CREATE INDEX IF NOT EXISTS idx_blog_comments_article_id ON blog_comments(article_id);
         """
 
+        13, """
+        CREATE TABLE IF NOT EXISTS papers (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            owner_id    UUID NOT NULL REFERENCES users(id),
+            title       TEXT NOT NULL,
+            abstract    TEXT,
+            status      TEXT NOT NULL DEFAULT 'draft'
+                        CHECK (status IN ('draft', 'in_progress', 'review', 'published', 'archived')),
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_papers_owner_id ON papers(owner_id);
+        CREATE INDEX IF NOT EXISTS idx_papers_status   ON papers(status);
+
+        CREATE TABLE IF NOT EXISTS paper_collaborators (
+            paper_id    UUID NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+            user_id     UUID REFERENCES users(id),
+            name        TEXT NOT NULL,
+            email       TEXT,
+            role        TEXT NOT NULL DEFAULT 'contributor'
+                        CHECK (role IN ('author', 'contributor', 'reviewer')),
+            is_external BOOLEAN NOT NULL DEFAULT false,
+            added_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (paper_id, name)
+        );
+
+        CREATE TABLE IF NOT EXISTS paper_sections (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            paper_id    UUID NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+            title       TEXT NOT NULL,
+            content     TEXT NOT NULL DEFAULT '',
+            position    INT  NOT NULL DEFAULT 0,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_paper_sections_paper_id ON paper_sections(paper_id);
+        """
+
         12, """
         CREATE TABLE IF NOT EXISTS user_profiles (
             user_id      UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
