@@ -18,19 +18,17 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: src/Djehuti.Dashboard/package-lock.json
 
-      - name: Install dashboard dependencies
-        run: npm ci
-        working-directory: src/Djehuti.Dashboard
-
       - name: Build dashboard
-        run: npm run build
         working-directory: src/Djehuti.Dashboard
         env:
           VITE_API_BASE: /djehuti
+        run: |
+          npm ci
+          npm run build
 
       # ── Build F# API ─────────────────────────────────────────────────────────
       - name: Set up .NET
@@ -48,30 +46,35 @@ jobs:
             -o artifacts/api
 
       # ── Deploy to server ─────────────────────────────────────────────────────
-      - name: Write SSH key
+      - name: Set up SSH key
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy.pem
-          chmod 600 ~/.ssh/deploy.pem
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Upload dashboard static files
+      - name: Sync dashboard
         run: |
           rsync -az --delete \
-            -e "ssh -i ~/.ssh/deploy.pem -o StrictHostKeyChecking=no -o ConnectTimeout=30" \
+            -e "ssh -i ~/.ssh/deploy_key" \
             src/Djehuti.Dashboard/dist/ \
             ubuntu@${{ secrets.DEPLOY_HOST }}:/var/www/djehuti/
 
-      - name: Upload API binary
+      - name: Sync API
         run: |
           rsync -az \
-            -e "ssh -i ~/.ssh/deploy.pem -o StrictHostKeyChecking=no -o ConnectTimeout=30" \
+            -e "ssh -i ~/.ssh/deploy_key" \
             artifacts/api/ \
             ubuntu@${{ secrets.DEPLOY_HOST }}:/opt/djehuti-api/
 
       - name: Restart API service
         run: |
-          ssh -i ~/.ssh/deploy.pem \
-            -o StrictHostKeyChecking=no \
-            -o ConnectTimeout=30 \
-            ubuntu@${{ secrets.DEPLOY_HOST }} \
-            'chmod +x /opt/djehuti-api/Djehuti.Api && sudo systemctl daemon-reload && sudo systemctl enable djehuti-api && sudo systemctl restart djehuti-api && sleep 2 && sudo systemctl status djehuti-api --no-pager'
+          ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.DEPLOY_HOST }} bash -s << 'EOF'
+          set -e
+          chmod +x /opt/djehuti-api/Djehuti.Api
+          sudo systemctl daemon-reload
+          sudo systemctl enable djehuti-api
+          sudo systemctl restart djehuti-api
+          sleep 3
+          sudo systemctl is-active djehuti-api
+          EOF
