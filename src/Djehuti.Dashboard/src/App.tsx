@@ -13,9 +13,6 @@ import { MetricTimelines } from './components/charts/MetricTimelines'
 import { PhaseSpace3D } from './components/charts/PhaseSpace3D'
 import { VelocityChart } from './components/charts/VelocityChart'
 import { MetricTile } from './components/MetricTile'
-import { LoginModal } from './components/auth/LoginModal'
-import { SignupModal } from './components/auth/SignupModal'
-import { ForgotPasswordModal } from './components/auth/ForgotPasswordModal'
 import { UserMenu } from './components/auth/UserMenu'
 import {
   Activity,
@@ -28,8 +25,6 @@ import {
   FileText,
   FileJson,
   Gauge,
-  GraduationCap,
-  KeyRound,
   Menu,
   MessageSquare,
   Moon,
@@ -68,16 +63,6 @@ import type {
   MlmceTurnMode,
   TurnMetricDto,
 } from './types'
-import ForumPage from './pages/ForumPage'
-import ForumForumPage from './pages/ForumForumPage'
-import ForumThreadPage from './pages/ForumThreadPage'
-import BlogPage from './pages/BlogPage'
-import BlogArticlePage from './pages/BlogArticlePage'
-import BlogEditorPage from './pages/BlogEditorPage'
-import ProfilePage from './pages/ProfilePage'
-import PapersListPage from './pages/PapersListPage'
-import PaperWorkspacePage from './pages/PaperWorkspacePage'
-import AdminPage from './pages/AdminPage'
 import './App.css'
 
 const sampleJson = `{
@@ -169,11 +154,6 @@ const modeItems = [
   { id: 'analyze', label: 'Analyze', icon: Gauge },
   { id: 'live', label: 'Live Lab', icon: MessageSquare },
   { id: 'mlmce', label: 'MLMCE', icon: Users },
-  { id: 'forum', label: 'Forum', icon: MessageSquare },
-  { id: 'blog', label: 'Blog', icon: FileText },
-  { id: 'papers', label: 'Papers', icon: GraduationCap },
-  { id: 'profile', label: 'Profile', icon: Users },
-  { id: 'admin', label: 'Admin', icon: KeyRound },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'settings', label: 'Settings', icon: Settings },
 ] satisfies Array<{ id: AppMode; label: string; icon: typeof Gauge }>
@@ -189,9 +169,6 @@ const analyzeNavItems = [
 
 
 function App() {
-  const [showLoginModal, setShowLoginModal] = useState(false)
-  const [showSignupModal, setShowSignupModal] = useState(false)
-  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false)
   const [datasetJson, setDatasetJson] = useState(sampleJson)
   const [catalog, setCatalog] = useState<DataSetCatalogItem[]>([])
   const [theme, setTheme] = useState<'light' | 'dark' | 'midnight'>(
@@ -253,9 +230,6 @@ function App() {
   const [mlmceSeedPrompt, setMlmceSeedPrompt] = useState(
     'Discuss whether measurement changes observable model behavior.',
   )
-  const [forumView, setForumView] = useState<{ page: 'home' | 'forum' | 'thread'; id?: string }>({ page: 'home' })
-  const [blogView, setBlogView] = useState<{ page: 'list' | 'article' | 'editor'; slug?: string; articleId?: string }>({ page: 'list' })
-  const [papersView, setPapersView] = useState<{ page: 'list' | 'workspace'; paperId?: string }>({ page: 'list' })
 
   const [mlmceThresholds, setMlmceThresholds] = useState<MlmceThresholdConfig>({
     stabilityCriterionMargin: 0.1,
@@ -1371,64 +1345,12 @@ function App() {
     }
   }
 
-  const renderForumView = () => {
-    switch (forumView.page) {
-      case 'forum':
-        return <ForumForumPage forumId={forumView.id!} onNavigateThread={id => setForumView({ page: 'thread', id })} onNavigateHome={() => setForumView({ page: 'home' })} />
-      case 'thread':
-        return <ForumThreadPage threadId={forumView.id!} onNavigateHome={() => setForumView({ page: 'home' })} onNavigateForum={id => setForumView({ page: 'forum', id })} />
-      case 'home':
-      default:
-        return <ForumPage onNavigateForum={id => setForumView({ page: 'forum', id })} />
-    }
-  }
-
-  const renderBlogView = () => {
-    switch (blogView.page) {
-      case 'article':
-        return <BlogArticlePage
-          slug={blogView.slug!}
-          onNavigateBack={() => setBlogView({ page: 'list' })}
-          onNavigateEditor={id => setBlogView({ page: 'editor', articleId: id })}
-        />
-      case 'editor':
-        return <BlogEditorPage
-          articleId={blogView.articleId}
-          onSaved={slug => setBlogView({ page: 'article', slug })}
-          onCancel={() => setBlogView({ page: 'list' })}
-        />
-      case 'list':
-      default:
-        return <BlogPage
-          onNavigateArticle={slug => setBlogView({ page: 'article', slug })}
-          onNavigateEditor={() => setBlogView({ page: 'editor' })}
-        />
-    }
-  }
-
-  const renderPapersView = () => {
-    if (papersView.page === 'workspace' && papersView.paperId) {
-      return <PaperWorkspacePage paperId={papersView.paperId} onBack={() => setPapersView({ page: 'list' })} />
-    }
-    return <PapersListPage onOpen={id => setPapersView({ page: 'workspace', paperId: id })} />
-  }
-
   const renderMainView = () => {
     switch (activeMode) {
       case 'live':
         return renderLiveLab()
       case 'mlmce':
         return renderMlmceWorkspace()
-      case 'forum':
-        return renderForumView()
-      case 'blog':
-        return renderBlogView()
-      case 'papers':
-        return renderPapersView()
-      case 'profile':
-        return <ProfilePage />
-      case 'admin':
-        return <AdminPage />
       case 'reports':
         return renderReportsWorkspace()
       case 'settings':
@@ -1526,7 +1448,7 @@ function App() {
               <p className="eyebrow">Djehuti Cyberscope AI+</p>
               <h1>{pageTitle}</h1>
             </div>
-            <UserMenu onOpenLogin={() => setShowLoginModal(true)} />
+            <UserMenu onOpenLogin={() => { window.location.href = '/?signin=1' }} />
             <button
               className="icon-button theme-toggle"
               type="button"
@@ -1887,36 +1809,6 @@ function App() {
         )}
       </main>
 
-      <LoginModal
-        open={showLoginModal}
-        onClose={() => setShowLoginModal(false)}
-        onSwitchToSignup={() => {
-          setShowLoginModal(false)
-          setShowSignupModal(true)
-        }}
-        onSwitchToForgotPassword={() => {
-          setShowLoginModal(false)
-          setShowForgotPasswordModal(true)
-        }}
-      />
-
-      <SignupModal
-        open={showSignupModal}
-        onClose={() => setShowSignupModal(false)}
-        onSwitchToLogin={() => {
-          setShowSignupModal(false)
-          setShowLoginModal(true)
-        }}
-      />
-
-      <ForgotPasswordModal
-        open={showForgotPasswordModal}
-        onClose={() => setShowForgotPasswordModal(false)}
-        onSwitchToLogin={() => {
-          setShowForgotPasswordModal(false)
-          setShowLoginModal(true)
-        }}
-      />
     </div>
   )
 }

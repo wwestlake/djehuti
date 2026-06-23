@@ -1,22 +1,69 @@
 import { useState } from 'react'
 import './App.css'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { UserMenu } from './components/auth/UserMenu'
+import { LoginModal } from './components/auth/LoginModal'
+import { SignupModal } from './components/auth/SignupModal'
+import { ForgotPasswordModal } from './components/auth/ForgotPasswordModal'
+import ForumPage from './pages/community/ForumPage'
+import ForumForumPage from './pages/community/ForumForumPage'
+import ForumThreadPage from './pages/community/ForumThreadPage'
+import BlogPage from './pages/community/BlogPage'
+import BlogArticlePage from './pages/community/BlogArticlePage'
+import BlogEditorPage from './pages/community/BlogEditorPage'
+import PapersListPage from './pages/community/PapersListPage'
+import PaperWorkspacePage from './pages/community/PaperWorkspacePage'
+import ProfilePage from './pages/community/ProfilePage'
+import AdminPage from './pages/community/AdminPage'
 
-function Nav() {
+type Section = 'home' | 'forum' | 'blog' | 'papers' | 'profile' | 'admin'
+type ForumView = { page: 'list' } | { page: 'forum'; forumId: string } | { page: 'thread'; threadId: string }
+type BlogView = { page: 'list' } | { page: 'article'; slug: string } | { page: 'editor'; articleId?: string }
+type PapersView = { page: 'list' } | { page: 'workspace'; paperId: string }
+
+// ── Nav ───────────────────────────────────────────────────────────────────────
+
+type NavProps = {
+  section: Section
+  onSection: (s: Section) => void
+  onOpenLogin: () => void
+}
+
+function Nav({ section, onSection, onOpenLogin }: NavProps) {
+  const { user } = useAuth()
   return (
     <header className="nav">
-      <a className="nav-logo" href="#top">
+      <a className="nav-logo" href="#" onClick={e => { e.preventDefault(); onSection('home') }}>
         <img src="/logo.png" alt="Lag Daemon" />
       </a>
       <nav>
-        <a href="#research">Research</a>
-        <a href="#instrument">Instrument</a>
-        <a href="#papers">Papers</a>
-        <a href="#about">About</a>
+        {section === 'home' ? (
+          <>
+            <a href="#research">Research</a>
+            <a href="#instrument">Instrument</a>
+            <a href="#papers">Papers</a>
+            <a href="#about">About</a>
+          </>
+        ) : (
+          <button className="nav-section-back breadcrumb-link" onClick={() => onSection('home')}>← Home</button>
+        )}
+        <button className={`nav-community-link${section === 'forum' ? ' active' : ''}`} onClick={() => onSection('forum')}>Forum</button>
+        <button className={`nav-community-link${section === 'blog' ? ' active' : ''}`} onClick={() => onSection('blog')}>Blog</button>
+        <button className={`nav-community-link${section === 'papers' ? ' active' : ''}`} onClick={() => onSection('papers')}>Papers</button>
+        {user && (
+          <button className={`nav-community-link${section === 'profile' ? ' active' : ''}`} onClick={() => onSection('profile')}>Profile</button>
+        )}
+        {user?.role === 'admin' && (
+          <button className={`nav-community-link${section === 'admin' ? ' active' : ''}`} onClick={() => onSection('admin')}>Admin</button>
+        )}
         <a className="nav-cta" href="/djehuti/">Open Djehuti ↗</a>
+        <UserMenu onOpenLogin={onOpenLogin} />
       </nav>
     </header>
   )
 }
+
+// ── Marketing sections (home) ─────────────────────────────────────────────────
 
 function Hero() {
   return (
@@ -132,7 +179,7 @@ function Screenshots() {
   )
 }
 
-function Papers() {
+function PapersSection() {
   return (
     <section className="papers" id="papers">
       <div className="papers-inner">
@@ -223,31 +270,21 @@ function About() {
 }
 
 type ModalProps = {
-  open: boolean
-  onClose: () => void
-  title: string
-  effective: string
+  open: boolean; onClose: () => void; title: string; effective: string
   items: { strong: string; body: string }[]
 }
 
 function Modal({ open, onClose, title, effective, items }: ModalProps) {
   if (!open) return null
   return (
-    <div
-      className="modal-overlay open"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
-    >
+    <div className="modal-overlay open" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
         <button className="modal-close" onClick={onClose} aria-label="Close">&times;</button>
         <h2>{title}</h2>
         <div className="modal-date">{effective}</div>
         <ul>
           {items.map((item, i) => (
-            <li key={i}>
-              <strong>{item.strong}</strong>
-              {item.body ? ' — ' : ''}
-              {item.body}
-            </li>
+            <li key={i}><strong>{item.strong}</strong>{item.body ? ' — ' : ''}{item.body}</li>
           ))}
         </ul>
       </div>
@@ -286,34 +323,116 @@ function Footer({ onPrivacy, onAup }: { onPrivacy: () => void; onAup: () => void
   )
 }
 
-function App() {
+// ── Root app ──────────────────────────────────────────────────────────────────
+
+function AppInner() {
+  const [section, setSection] = useState<Section>('home')
+  const [forumView, setForumView] = useState<ForumView>({ page: 'list' })
+  const [blogView, setBlogView] = useState<BlogView>({ page: 'list' })
+  const [papersView, setPapersView] = useState<PapersView>({ page: 'list' })
+
   const [privacyOpen, setPrivacyOpen] = useState(false)
   const [aupOpen, setAupOpen] = useState(false)
+  const [showLogin, setShowLogin] = useState(false)
+  const [showSignup, setShowSignup] = useState(false)
+  const [showForgotPassword, setShowForgotPassword] = useState(false)
+
+  const goSection = (s: Section) => {
+    setSection(s)
+    if (s === 'forum') setForumView({ page: 'list' })
+    if (s === 'blog') setBlogView({ page: 'list' })
+    if (s === 'papers') setPapersView({ page: 'list' })
+    window.scrollTo(0, 0)
+  }
+
+  const renderCommunity = () => {
+    switch (section) {
+      case 'forum':
+        if (forumView.page === 'forum') {
+          return <ForumForumPage forumId={forumView.forumId}
+            onNavigateThread={threadId => setForumView({ page: 'thread', threadId })}
+            onNavigateHome={() => setForumView({ page: 'list' })} />
+        }
+        if (forumView.page === 'thread') {
+          return <ForumThreadPage threadId={forumView.threadId}
+            onNavigateHome={() => setForumView({ page: 'list' })}
+            onNavigateForum={forumId => setForumView({ page: 'forum', forumId })} />
+        }
+        return <ForumPage onNavigateForum={forumId => setForumView({ page: 'forum', forumId })} />
+
+      case 'blog':
+        if (blogView.page === 'article') {
+          return <BlogArticlePage slug={blogView.slug}
+            onNavigateBack={() => setBlogView({ page: 'list' })}
+            onNavigateEditor={articleId => setBlogView({ page: 'editor', articleId })} />
+        }
+        if (blogView.page === 'editor') {
+          return <BlogEditorPage articleId={blogView.articleId}
+            onSaved={slug => setBlogView({ page: 'article', slug })}
+            onCancel={() => setBlogView({ page: 'list' })} />
+        }
+        return <BlogPage
+          onNavigateArticle={slug => setBlogView({ page: 'article', slug })}
+          onNavigateEditor={articleId => setBlogView({ page: 'editor', articleId })} />
+
+      case 'papers':
+        if (papersView.page === 'workspace') {
+          return <PaperWorkspacePage paperId={papersView.paperId}
+            onBack={() => setPapersView({ page: 'list' })} />
+        }
+        return <PapersListPage onOpen={paperId => setPapersView({ page: 'workspace', paperId })} />
+
+      case 'profile':
+        return <ProfilePage />
+
+      case 'admin':
+        return <AdminPage />
+
+      default:
+        return null
+    }
+  }
 
   return (
     <>
-      <Nav />
-      <Hero />
-      <Pitch />
-      <Screenshots />
-      <Papers />
-      <About />
-      <Footer onPrivacy={() => setPrivacyOpen(true)} onAup={() => setAupOpen(true)} />
-      <Modal
-        open={privacyOpen}
-        onClose={() => setPrivacyOpen(false)}
-        title="Privacy Policy — Djehuti Cyberscope AI+"
-        effective="Effective Date: June 23, 2026"
-        items={PRIVACY_ITEMS}
-      />
-      <Modal
-        open={aupOpen}
-        onClose={() => setAupOpen(false)}
-        title="Acceptable Use Policy — Djehuti Cyberscope AI+"
-        effective="Effective Date: June 23, 2026"
-        items={AUP_ITEMS}
-      />
+      <Nav section={section} onSection={goSection} onOpenLogin={() => setShowLogin(true)} />
+
+      {section === 'home' ? (
+        <>
+          <Hero />
+          <Pitch />
+          <Screenshots />
+          <PapersSection />
+          <About />
+          <Footer onPrivacy={() => setPrivacyOpen(true)} onAup={() => setAupOpen(true)} />
+        </>
+      ) : (
+        <main className="community-main">
+          {renderCommunity()}
+        </main>
+      )}
+
+      <Modal open={privacyOpen} onClose={() => setPrivacyOpen(false)}
+        title="Privacy Policy — Djehuti Cyberscope AI+" effective="Effective Date: June 23, 2026" items={PRIVACY_ITEMS} />
+      <Modal open={aupOpen} onClose={() => setAupOpen(false)}
+        title="Acceptable Use Policy — Djehuti Cyberscope AI+" effective="Effective Date: June 23, 2026" items={AUP_ITEMS} />
+
+      <LoginModal open={showLogin} onClose={() => setShowLogin(false)}
+        onSwitchToSignup={() => { setShowLogin(false); setShowSignup(true) }}
+        onSwitchToForgotPassword={() => { setShowLogin(false); setShowForgotPassword(true) }} />
+      <SignupModal open={showSignup} onClose={() => setShowSignup(false)}
+        onSwitchToLogin={() => { setShowSignup(false); setShowLogin(true) }} />
+      <ForgotPasswordModal open={showForgotPassword} onClose={() => setShowForgotPassword(false)}
+        onSwitchToLogin={() => { setShowForgotPassword(false); setShowLogin(true) }} />
     </>
+  )
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppInner />
+    </AuthProvider>
   )
 }
 
