@@ -1179,12 +1179,72 @@ let main args =
     )
     |> ignore
 
-    // ── Forum: helper ─────────────────────────────────────────────────────────
+    // ── Auth helper (used by media, forum, and all subsequent endpoints) ─────
 
     let tryGetAuthClaims (ctx: HttpContext) =
         match ctx.Request.Cookies.TryGetValue("djehuti_auth") with
         | true, token -> Auth.verifyToken token
         | _ -> None
+
+    // ── Media ─────────────────────────────────────────────────────────────────
+    // Returns a presigned S3 PUT URL so the client can upload directly to S3.
+    // After upload the client calls /api/media/confirm to record the DB entry.
+
+    app.MapPost(
+        "/api/media/upload-url",
+        Func<HttpContext, {| filename: string; contentType: string; ``module``: string; contextId: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    if not (MediaService.isAllowedContentType body.contentType) then
+                        return Results.BadRequest("Content type not allowed")
+                    else
+                        let ext = System.IO.Path.GetExtension(body.filename)
+                        let s3Key = $"{body.``module``}/{Guid.NewGuid()}{ext}"
+                        let presignedUrl = MediaService.generatePresignedUploadUrl s3Key body.contentType 15
+                        return Results.Ok({| presignedUrl = presignedUrl; s3Key = s3Key |})
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/media/confirm",
+        Func<HttpContext, {| s3Key: string; filename: string; contentType: string; ``module``: string; contextId: string; sizeBytes: int64 |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        use conn = Database.openConnection()
+                        let ctxId = match Guid.TryParse(body.contextId) with | true, g -> Some g | _ -> None
+                        let size = if body.sizeBytes > 0L then Some body.sizeBytes else None
+                        let media = MediaService.recordMedia conn userId body.``module`` ctxId body.s3Key body.filename body.contentType size
+                        return match media with
+                               | Some m -> Results.Ok(m)
+                               | None   -> Results.Problem(detail = "Failed to record media", statusCode = 500, title = "Error")
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/media/{mediaId}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun mediaId ctx ->
+            async {
+                match Guid.TryParse(mediaId) with
+                | false, _ -> return Results.BadRequest("Invalid media id")
+                | true, mid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            let deleted = MediaService.deleteMedia conn mid userId (Permissions.isAdmin claims.Role)
+                            return if deleted then Results.Ok() else Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
 
     // ── Forum: Categories (read=anonymous, write=admin) ───────────────────────
 

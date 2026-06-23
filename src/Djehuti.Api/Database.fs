@@ -248,6 +248,24 @@ let private migrations : (int * string) list =
 
         CREATE INDEX IF NOT EXISTS idx_forum_post_votes_post_id ON forum_post_votes(post_id);
         """
+
+        10, """
+        CREATE TABLE IF NOT EXISTS media (
+            id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            uploader_id  UUID NOT NULL REFERENCES users(id),
+            module       TEXT NOT NULL,
+            context_id   UUID,
+            s3_key       TEXT NOT NULL UNIQUE,
+            url          TEXT NOT NULL,
+            filename     TEXT NOT NULL,
+            content_type TEXT NOT NULL,
+            size_bytes   BIGINT,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_media_uploader_id ON media(uploader_id);
+        CREATE INDEX IF NOT EXISTS idx_media_module_context ON media(module, context_id);
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
