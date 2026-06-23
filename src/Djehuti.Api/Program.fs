@@ -1020,5 +1020,40 @@ let main args =
     )
     |> ignore
 
+    // ── OAuth Endpoints ──────────────────────────────────────────────────────────
+    app.MapGet(
+        "/api/auth/oauth/google/callback",
+        Func<string, string, System.Threading.Tasks.Task<IResult>>(fun code state ->
+            async {
+                if String.IsNullOrWhiteSpace code then
+                    return Results.BadRequest("code is required")
+                else
+                    // TODO: Exchange code for token with Google OAuth endpoint
+                    // TODO: Parse token to get user info (email, name, picture)
+                    // TODO: Check if user exists by email or create new user
+                    // TODO: Create/link user_identity record
+                    // TODO: Set JWT cookie and redirect to app
+                    return Results.StatusCode(501)
+            } |> Async.StartAsTask)
+    )
+    |> ignore
+
+    app.MapGet(
+        "/api/auth/oauth/github/callback",
+        Func<string, string, System.Threading.Tasks.Task<IResult>>(fun code state ->
+            async {
+                if String.IsNullOrWhiteSpace code then
+                    return Results.BadRequest("code is required")
+                else
+                    // TODO: Exchange code for token with GitHub OAuth endpoint
+                    // TODO: Parse token to get user info (email, name, avatar_url)
+                    // TODO: Check if user exists by email or create new user
+                    // TODO: Create/link user_identity record
+                    // TODO: Set JWT cookie and redirect to app
+                    return Results.StatusCode(501)
+            } |> Async.StartAsTask)
+    )
+    |> ignore
+
     app.Run()
     0

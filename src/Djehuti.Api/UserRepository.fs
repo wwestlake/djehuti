@@ -322,3 +322,87 @@ let deletePasswordResetToken (token: string) : Async<bool> =
         with _ ->
             return false
     }
+
+// ── OAuth Identity Management ───────────────────────────────────────────────
+
+type UserIdentity =
+    { Id: Guid
+      UserId: Guid
+      Provider: string
+      ProviderId: string
+      Email: string option
+      DisplayName: string option
+      AvatarUrl: string option
+      CreatedAt: DateTime }
+
+let createUserIdentity (userId: Guid) (provider: string) (providerId: string) (email: string option) (displayName: string option) (avatarUrl: string option) : Async<UserIdentity option> =
+    async {
+        try
+            use conn = openConn ()
+            use cmd = new NpgsqlCommand(
+                """INSERT INTO user_identities (user_id, provider, provider_id, email, display_name, avatar_url)
+                   VALUES (@user_id, @provider, @provider_id, @email, @display_name, @avatar_url)
+                   RETURNING id, user_id, provider, provider_id, email, display_name, avatar_url, created_at""", conn)
+            cmd.Parameters.AddWithValue("user_id", userId) |> ignore
+            cmd.Parameters.AddWithValue("provider", provider) |> ignore
+            cmd.Parameters.AddWithValue("provider_id", providerId) |> ignore
+            cmd.Parameters.AddWithValue("email", if email.IsSome then box email.Value else box DBNull.Value) |> ignore
+            cmd.Parameters.AddWithValue("display_name", if displayName.IsSome then box displayName.Value else box DBNull.Value) |> ignore
+            cmd.Parameters.AddWithValue("avatar_url", if avatarUrl.IsSome then box avatarUrl.Value else box DBNull.Value) |> ignore
+
+            use reader = cmd.ExecuteReader()
+            if reader.Read() then
+                let identity = {
+                    Id = reader.GetGuid(0)
+                    UserId = reader.GetGuid(1)
+                    Provider = reader.GetString(2)
+                    ProviderId = reader.GetString(3)
+                    Email = if reader.IsDBNull(4) then None else Some (reader.GetString(4))
+                    DisplayName = if reader.IsDBNull(5) then None else Some (reader.GetString(5))
+                    AvatarUrl = if reader.IsDBNull(6) then None else Some (reader.GetString(6))
+                    CreatedAt = reader.GetFieldValue<DateTime>(7)
+                }
+                return Some identity
+            else
+                return None
+        with _ ->
+            return None
+    }
+
+let tryGetUserByIdentity (provider: string) (providerId: string) : Async<User option> =
+    async {
+        try
+            use conn = openConn ()
+            use cmd = new NpgsqlCommand(
+                """SELECT u.id, u.email, u.email_verified_at, u.password_hash, u.display_name, u.avatar_url, u.bio, u.pronouns, u.location,
+                         u.notify_by_email, u.role, u.status, u.created_at, u.updated_at
+                   FROM users u
+                   INNER JOIN user_identities ui ON u.id = ui.user_id
+                   WHERE ui.provider = @provider AND ui.provider_id = @provider_id""", conn)
+            cmd.Parameters.AddWithValue("provider", provider) |> ignore
+            cmd.Parameters.AddWithValue("provider_id", providerId) |> ignore
+
+            use reader = cmd.ExecuteReader()
+            if reader.Read() then
+                let user = {
+                    Id = reader.GetGuid(0)
+                    Email = reader.GetString(1)
+                    EmailVerifiedAt = if reader.IsDBNull(2) then None else Some (reader.GetFieldValue<DateTime>(2))
+                    PasswordHash = if reader.IsDBNull(3) then None else Some (reader.GetString(3))
+                    DisplayName = if reader.IsDBNull(4) then None else Some (reader.GetString(4))
+                    AvatarUrl = if reader.IsDBNull(5) then None else Some (reader.GetString(5))
+                    Bio = if reader.IsDBNull(6) then None else Some (reader.GetString(6))
+                    Pronouns = if reader.IsDBNull(7) then None else Some (reader.GetString(7))
+                    Location = if reader.IsDBNull(8) then None else Some (reader.GetString(8))
+                    NotifyByEmail = reader.GetBoolean(9)
+                    Role = reader.GetString(10)
+                    Status = reader.GetString(11)
+                    CreatedAt = reader.GetFieldValue<DateTime>(12)
+                    UpdatedAt = reader.GetFieldValue<DateTime>(13)
+                }
+                return Some user
+            else
+                return None
+        with _ ->
+            return None
+    }
