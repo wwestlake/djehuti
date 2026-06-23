@@ -23,9 +23,11 @@ let sendEmail (message: EmailMessage) : Async<bool> =
     async {
         try
             use client = getClient ()
+            let toAddresses = new System.Collections.Generic.List<string>()
+            toAddresses.Add(message.To)
             let request = SendEmailRequest(
                 Source = getSenderEmail (),
-                Destination = new Destination(ToAddresses = [message.To]),
+                Destination = new Destination(ToAddresses = toAddresses),
                 Message = new Message(
                     Subject = new Content(message.Subject),
                     Body = new Body(Html = new Content(message.HtmlBody))

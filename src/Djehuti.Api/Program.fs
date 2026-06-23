@@ -131,6 +131,60 @@ type AnalysisRun =
 
 // DataSetCatalogItem and DataLibrary are now in DataLibrary.fs (PostgreSQL-backed)
 
+// ── Auth DTOs ────────────────────────────────────────────────────────────────
+
+[<CLIMutable>]
+type RegisterRequest =
+    { Email: string
+      Password: string
+      HCaptchaToken: string }
+
+[<CLIMutable>]
+type LoginRequest =
+    { Email: string
+      Password: string }
+
+[<CLIMutable>]
+type VerifyEmailRequest =
+    { Token: string }
+
+[<CLIMutable>]
+type PasswordResetRequest =
+    { Email: string }
+
+[<CLIMutable>]
+type PasswordResetConfirmRequest =
+    { Token: string
+      Password: string }
+
+[<CLIMutable>]
+type UpdateProfileRequest =
+    { DisplayName: string option
+      Bio: string option
+      Pronouns: string option
+      Location: string option
+      NotifyByEmail: bool }
+
+type UserDto =
+    { Id: string
+      Email: string
+      DisplayName: string option
+      AvatarUrl: string option
+      Bio: string option
+      Pronouns: string option
+      Location: string option
+      Role: string
+      Status: string
+      CreatedAt: DateTime }
+
+type PublicProfileDto =
+    { Id: string
+      DisplayName: string option
+      AvatarUrl: string option
+      Bio: string option
+      Pronouns: string option
+      Location: string option }
+
 module Dto =
     let private unwrapSessionId (SessionId value) = value
     let private unwrapModelId (ModelId value) = value
@@ -742,6 +796,82 @@ let main args =
     app.MapPost(
         "/api/analyst/ask",
         Func<AnalystRequest, IResult>(AnalystApi.ask)
+    )
+    |> ignore
+
+    // ── Auth Endpoints ───────────────────────────────────────────────────────────
+    app.MapPost(
+        "/api/auth/register",
+        Func<RegisterRequest, System.Threading.Tasks.Task<IResult>>(fun request ->
+            async {
+                if String.IsNullOrWhiteSpace request.Email || String.IsNullOrWhiteSpace request.Password then
+                    return Results.BadRequest("email and password are required")
+                elif request.Password.Length < 8 then
+                    return Results.BadRequest("password must be at least 8 characters")
+                else
+                    let! hcaptchaValid = Auth.verifyHCaptcha request.HCaptchaToken
+                    if not hcaptchaValid then
+                        return Results.BadRequest("hCaptcha verification failed")
+                    else
+                        let! existingUser = UserRepository.tryGetByEmail request.Email
+                        if existingUser.IsSome then
+                            return Results.BadRequest("email already registered")
+                        else
+                            let passwordHash = Auth.hashPassword request.Password
+                            let! newUser = UserRepository.createUser request.Email (Some passwordHash)
+                            match newUser with
+                            | Some user ->
+                                let _verifyToken = Auth.generateSecureToken ()
+                                // TODO: Store verification token in DB and send email
+                                return Results.Ok({ Id = user.Id.ToString(); Email = user.Email; DisplayName = user.DisplayName; AvatarUrl = user.AvatarUrl; Bio = user.Bio; Pronouns = user.Pronouns; Location = user.Location; Role = user.Role; Status = user.Status; CreatedAt = user.CreatedAt })
+                            | None ->
+                                return Results.Problem(detail = "Failed to create user", statusCode = 500, title = "Registration failed")
+            } |> Async.StartAsTask)
+    )
+    |> ignore
+
+    app.MapPost(
+        "/api/auth/login",
+        Func<LoginRequest, System.Threading.Tasks.Task<IResult>>(fun request ->
+            async {
+                if String.IsNullOrWhiteSpace request.Email || String.IsNullOrWhiteSpace request.Password then
+                    return Results.BadRequest("email and password are required")
+                else
+                    let! user = UserRepository.tryGetByEmail request.Email
+                    match user with
+                    | Some u when u.PasswordHash.IsSome && Auth.verifyPassword request.Password u.PasswordHash.Value ->
+                        if u.Status <> "active" then
+                            return Results.Problem(detail = $"Account is {u.Status}", statusCode = 403, title = "Login failed")
+                        else
+                            let _token = Auth.generateToken {
+                                UserId = u.Id.ToString()
+                                Email = u.Email
+                                DisplayName = u.DisplayName
+                                Role = u.Role
+                                IssuedAt = DateTime.UtcNow
+                                ExpiresAt = DateTime.UtcNow.AddHours(1.0)
+                            }
+                            // TODO: Set HttpOnly cookie with JWT
+                            return Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt })
+                    | _ ->
+                        return Results.BadRequest("invalid email or password")
+            } |> Async.StartAsTask)
+    )
+    |> ignore
+
+    app.MapGet(
+        "/api/users/{id}",
+        Func<string, System.Threading.Tasks.Task<IResult>>(fun id ->
+            async {
+                match Guid.TryParse(id) with
+                | true, userId ->
+                    let! profile = UserRepository.getPublicProfile userId
+                    return match profile with
+                           | Some p -> Results.Ok({ Id = p.Id.ToString(); DisplayName = p.DisplayName; AvatarUrl = p.AvatarUrl; Bio = p.Bio; Pronouns = p.Pronouns; Location = p.Location })
+                           | None -> Results.NotFound()
+                | _ ->
+                    return Results.BadRequest("invalid user id")
+            } |> Async.StartAsTask)
     )
     |> ignore
 

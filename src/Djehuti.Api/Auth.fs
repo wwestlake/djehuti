@@ -5,6 +5,7 @@ open System.Security.Cryptography
 open System.Text
 open System.IdentityModel.Tokens.Jwt
 open Microsoft.IdentityModel.Tokens
+open System.Security.Claims
 
 // ── JWT ──────────────────────────────────────────────────────────────────────
 
@@ -27,23 +28,25 @@ let generateToken (claims: JwtClaims) : string =
     let key = getSigningKey ()
     let credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256)
 
-    let handler = new JwtSecurityTokenHandler()
-    let token = handler.CreateJwtToken(
-        issuer = "djehuti",
-        audience = "djehuti-client",
-        subject =
-            let identity = System.Security.Claims.ClaimsIdentity()
-            identity.AddClaim(new System.Security.Claims.Claim("sub", claims.UserId))
-            identity.AddClaim(new System.Security.Claims.Claim("email", claims.Email))
-            if claims.DisplayName.IsSome then
-                identity.AddClaim(new System.Security.Claims.Claim("display_name", claims.DisplayName.Value))
-            identity.AddClaim(new System.Security.Claims.Claim("role", claims.Role))
-            identity,
-        expires = claims.ExpiresAt,
-        issuedAt = claims.IssuedAt,
-        notBefore = claims.IssuedAt,
-        signingCredentials = credentials
+    let claimsIdentity = new ClaimsIdentity()
+    claimsIdentity.AddClaim(new Claim("sub", claims.UserId))
+    claimsIdentity.AddClaim(new Claim("email", claims.Email))
+    if claims.DisplayName.IsSome then
+        claimsIdentity.AddClaim(new Claim("display_name", claims.DisplayName.Value))
+    claimsIdentity.AddClaim(new Claim("role", claims.Role))
+
+    let tokenDescriptor = SecurityTokenDescriptor(
+        Subject = claimsIdentity,
+        Expires = claims.ExpiresAt,
+        IssuedAt = claims.IssuedAt,
+        NotBefore = claims.IssuedAt,
+        Issuer = "djehuti",
+        Audience = "djehuti-client",
+        SigningCredentials = credentials
     )
+
+    let handler = new JwtSecurityTokenHandler()
+    let token = handler.CreateToken(tokenDescriptor)
     handler.WriteToken(token)
 
 let verifyToken (token: string) : JwtClaims option =
@@ -61,12 +64,12 @@ let verifyToken (token: string) : JwtClaims option =
             ClockSkew = TimeSpan.Zero
         )
 
-        let principal = handler.ValidateToken(token, validationParameters)
+        let mutable validatedToken: SecurityToken = null
+        let principal: ClaimsPrincipal = handler.ValidateToken(token, validationParameters, &validatedToken)
 
-        let getClaim name =
-            principal.FindFirst(name) |> function
-            | null -> None
-            | c -> Some c.Value
+        let getClaim (name: string) : string option =
+            let claim = principal.FindFirst(name)
+            if claim <> null then Some claim.Value else None
 
         match getClaim "sub", getClaim "email", getClaim "role" with
         | Some userId, Some email, Some role ->
@@ -116,22 +119,22 @@ let verifyHCaptcha (token: string) : Async<bool> =
             let secret = Environment.GetEnvironmentVariable("HCAPTCHA_SECRET_KEY")
             if String.IsNullOrWhiteSpace(secret) then
                 return false
-
-            use client = new System.Net.Http.HttpClient()
-            let content = new System.Net.Http.FormUrlEncodedContent([
-                new System.Collections.Generic.KeyValuePair<string, string>("secret", secret)
-                new System.Collections.Generic.KeyValuePair<string, string>("response", token)
-            ])
-
-            let! response = client.PostAsync("https://hcaptcha.com/siteverify", content) |> Async.AwaitTask
-            if response.IsSuccessStatusCode then
-                let! body = response.Content.ReadAsStringAsync() |> Async.AwaitTask
-                let json = System.Text.Json.JsonDocument.Parse(body)
-                match json.RootElement.TryGetProperty("success") with
-                | true, prop -> return prop.GetBoolean()
-                | _ -> return false
             else
-                return false
+                use client = new System.Net.Http.HttpClient()
+                let content = new System.Net.Http.FormUrlEncodedContent([
+                    new System.Collections.Generic.KeyValuePair<string, string>("secret", secret)
+                    new System.Collections.Generic.KeyValuePair<string, string>("response", token)
+                ])
+
+                let! response = client.PostAsync("https://hcaptcha.com/siteverify", content) |> Async.AwaitTask
+                if response.IsSuccessStatusCode then
+                    let! body = response.Content.ReadAsStringAsync() |> Async.AwaitTask
+                    let json = System.Text.Json.JsonDocument.Parse(body)
+                    match json.RootElement.TryGetProperty("success") with
+                    | true, prop -> return prop.GetBoolean()
+                    | _ -> return false
+                else
+                    return false
         with _ ->
             return false
     }
