@@ -226,3 +226,99 @@ let updateProfile (id: Guid) (displayName: string option) (bio: string option) (
             printfn "[UserRepository] UpdateProfile failed: %s" ex.Message
             return None
     }
+
+// ── Email Verification Tokens ───────────────────────────────────────────────
+
+let createEmailVerificationToken (userId: Guid) (token: string) : Async<bool> =
+    async {
+        try
+            use conn = openConn ()
+            use cmd = new NpgsqlCommand(
+                """INSERT INTO email_verification_tokens (user_id, token, expires_at)
+                   VALUES (@user_id, @token, now() + interval '24 hours')""", conn)
+            cmd.Parameters.AddWithValue("user_id", userId) |> ignore
+            cmd.Parameters.AddWithValue("token", token) |> ignore
+            let rows = cmd.ExecuteNonQuery()
+            return rows > 0
+        with _ ->
+            return false
+    }
+
+let verifyEmailToken (token: string) : Async<Guid option> =
+    async {
+        try
+            use conn = openConn ()
+            use cmd = new NpgsqlCommand(
+                """SELECT user_id FROM email_verification_tokens
+                   WHERE token = @token AND expires_at > now()
+                   LIMIT 1""", conn)
+            cmd.Parameters.AddWithValue("token", token) |> ignore
+
+            use reader = cmd.ExecuteReader()
+            if reader.Read() then
+                return Some (reader.GetGuid(0))
+            else
+                return None
+        with _ ->
+            return None
+    }
+
+let deleteEmailVerificationToken (token: string) : Async<bool> =
+    async {
+        try
+            use conn = openConn ()
+            use cmd = new NpgsqlCommand("DELETE FROM email_verification_tokens WHERE token = @token", conn)
+            cmd.Parameters.AddWithValue("token", token) |> ignore
+            let rows = cmd.ExecuteNonQuery()
+            return rows > 0
+        with _ ->
+            return false
+    }
+
+// ── Password Reset Tokens ───────────────────────────────────────────────────
+
+let createPasswordResetToken (userId: Guid) (token: string) : Async<bool> =
+    async {
+        try
+            use conn = openConn ()
+            use cmd = new NpgsqlCommand(
+                """INSERT INTO password_reset_tokens (user_id, token, expires_at)
+                   VALUES (@user_id, @token, now() + interval '1 hour')""", conn)
+            cmd.Parameters.AddWithValue("user_id", userId) |> ignore
+            cmd.Parameters.AddWithValue("token", token) |> ignore
+            let rows = cmd.ExecuteNonQuery()
+            return rows > 0
+        with _ ->
+            return false
+    }
+
+let verifyPasswordResetToken (token: string) : Async<Guid option> =
+    async {
+        try
+            use conn = openConn ()
+            use cmd = new NpgsqlCommand(
+                """SELECT user_id FROM password_reset_tokens
+                   WHERE token = @token AND expires_at > now()
+                   LIMIT 1""", conn)
+            cmd.Parameters.AddWithValue("token", token) |> ignore
+
+            use reader = cmd.ExecuteReader()
+            if reader.Read() then
+                return Some (reader.GetGuid(0))
+            else
+                return None
+        with _ ->
+            return None
+    }
+
+let deletePasswordResetToken (token: string) : Async<bool> =
+    async {
+        try
+            use conn = openConn ()
+            use cmd = new NpgsqlCommand("DELETE FROM password_reset_tokens WHERE token = @token", conn)
+            cmd.Parameters.AddWithValue("token", token) |> ignore
+            let rows = cmd.ExecuteNonQuery()
+            return rows > 0
+        with _ ->
+            return false
+    }
