@@ -129,137 +129,7 @@ type AnalysisRun =
     { Response: AnalyzeResponse
       Context: DjehutiAnalysisContext }
 
-[<CLIMutable>]
-type DataSetCatalogItem =
-    { Id: string
-      Name: string
-      Description: string
-      File: string
-      SourceKind: string
-      TurnCount: int
-      DeclaredTurnCount: Nullable<int>
-      Status: string }
-
-module DataLibrary =
-    let private serializerOptions =
-        JsonSerializerOptions(PropertyNameCaseInsensitive = true)
-
-    let private normalizePath (path: string) =
-        Path.GetFullPath(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
-
-    let private candidateRoots (contentRoot: string) =
-        [ Path.Combine(contentRoot, "data", "datasets")
-          Path.Combine(contentRoot, "..", "..", "data", "datasets")
-          Path.Combine(contentRoot, "..", "..", "..", "data", "datasets")
-          Path.Combine(AppContext.BaseDirectory, "data", "datasets")
-          Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "data", "datasets") ]
-        |> List.map normalizePath
-        |> List.distinct
-
-    let private tryRoot contentRoot =
-        candidateRoots contentRoot
-        |> List.tryFind Directory.Exists
-
-    let catalog contentRoot =
-        match tryRoot contentRoot with
-        | None -> []
-        | Some root ->
-            let manifestPath = Path.Combine(root, "manifest.json")
-            if File.Exists manifestPath then
-                File.ReadAllText manifestPath
-                |> fun json -> JsonSerializer.Deserialize<DataSetCatalogItem array>(json, serializerOptions)
-                |> Option.ofObj
-                |> Option.map Array.toList
-                |> Option.defaultValue []
-            else
-                []
-
-    let private slugify (text: string) =
-        text.ToLowerInvariant()
-        |> Seq.map (fun ch -> if Char.IsLetterOrDigit ch then ch else '-')
-        |> Seq.toArray
-        |> String
-        |> fun s -> System.Text.RegularExpressions.Regex.Replace(s, "-{2,}", "-").Trim('-')
-
-    let saveDataSet contentRoot (name: string) (description: string) (sourceKind: string) (turnCount: int) (datasetJson: string) =
-        match tryRoot contentRoot with
-        | None -> Error "Data library folder was not found."
-        | Some root ->
-            let slug = slugify name
-            let timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss")
-            let id = $"{slug}-{timestamp}"
-            let fileName = $"{id}.json"
-            let filePath = Path.Combine(root, fileName)
-
-            let existing = catalog contentRoot
-            let newItem =
-                { Id = id
-                  Name = name
-                  Description = description
-                  File = fileName
-                  SourceKind = sourceKind
-                  TurnCount = turnCount
-                  DeclaredTurnCount = Nullable()
-                  Status = "complete" }
-
-            let updated = existing @ [ newItem ]
-            let manifestPath = Path.Combine(root, "manifest.json")
-            let writeOptions = JsonSerializerOptions(WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
-
-            File.WriteAllText(filePath, datasetJson)
-            File.WriteAllText(manifestPath, JsonSerializer.Serialize(updated, writeOptions))
-            Ok newItem
-
-    let renameDataSet contentRoot id (name: string) (description: string) =
-        match tryRoot contentRoot with
-        | None -> Error "Data library folder was not found."
-        | Some root ->
-            let existing = catalog contentRoot
-            match existing |> List.tryFindIndex (fun item -> String.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase)) with
-            | None -> Error $"Dataset '{id}' was not found."
-            | Some index ->
-                let updated =
-                    existing |> List.mapi (fun i item ->
-                        if i = index then { item with Name = name.Trim(); Description = description.Trim() }
-                        else item)
-                let manifestPath = Path.Combine(root, "manifest.json")
-                let writeOptions = JsonSerializerOptions(WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
-                File.WriteAllText(manifestPath, JsonSerializer.Serialize(updated, writeOptions))
-                Ok updated.[index]
-
-    let deleteDataSet contentRoot id =
-        match tryRoot contentRoot with
-        | None -> Error "Data library folder was not found."
-        | Some root ->
-            let existing = catalog contentRoot
-            match existing |> List.tryFind (fun item -> String.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase)) with
-            | None -> Error $"Dataset '{id}' was not found."
-            | Some item ->
-                let filePath = Path.Combine(root, item.File)
-                let updated = existing |> List.filter (fun i -> not (String.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase)))
-                let manifestPath = Path.Combine(root, "manifest.json")
-                let writeOptions = JsonSerializerOptions(WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
-                if File.Exists filePath then File.Delete filePath
-                File.WriteAllText(manifestPath, JsonSerializer.Serialize(updated, writeOptions))
-                Ok()
-
-    let tryReadDataSet contentRoot id =
-        match tryRoot contentRoot with
-        | None -> Error "Data library folder was not found."
-        | Some root ->
-            catalog contentRoot
-            |> List.tryFind (fun item -> String.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase))
-            |> function
-                | None -> Error $"Dataset '{id}' was not found."
-                | Some item ->
-                    let rootPath = normalizePath root
-                    let datasetPath = normalizePath (Path.Combine(rootPath, item.File))
-                    if not (datasetPath.StartsWith(rootPath, StringComparison.OrdinalIgnoreCase)) then
-                        Error "Dataset path is outside the data library."
-                    elif not (File.Exists datasetPath) then
-                        Error $"Dataset file '{item.File}' was not found."
-                    else
-                        Ok(File.ReadAllText datasetPath)
+// DataSetCatalogItem and DataLibrary are now in DataLibrary.fs (PostgreSQL-backed)
 
 module Dto =
     let private unwrapSessionId (SessionId value) = value
@@ -784,16 +654,16 @@ let main args =
 
     app.MapGet(
         "/api/datasets",
-        Func<IWebHostEnvironment, IResult>(fun environment ->
-            DataLibrary.catalog environment.ContentRootPath
+        Func<IResult>(fun () ->
+            DataLibrary.catalog ()
             |> Results.Ok)
     )
     |> ignore
 
     app.MapGet(
         "/api/datasets/{id}",
-        Func<string, IWebHostEnvironment, IResult>(fun id environment ->
-            match DataLibrary.tryReadDataSet environment.ContentRootPath id with
+        Func<string, IResult>(fun id ->
+            match DataLibrary.tryReadDataSet id with
             | Ok json -> Results.Text(json, "application/json")
             | Error error -> Results.NotFound(error))
     )
@@ -801,7 +671,7 @@ let main args =
 
     app.MapPost(
         "/api/datasets",
-        Func<SaveDataSetRequest, IWebHostEnvironment, IResult>(fun request environment ->
+        Func<SaveDataSetRequest, IResult>(fun request ->
             if String.IsNullOrWhiteSpace request.Name then
                 Results.BadRequest("name is required")
             elif String.IsNullOrWhiteSpace request.DatasetJson then
@@ -811,7 +681,7 @@ let main args =
                     let name = request.Name.Trim()
                     let description = if String.IsNullOrWhiteSpace request.Description then $"Live Lab run: {name}" else request.Description.Trim()
                     let sourceKind = if String.IsNullOrWhiteSpace request.SourceKind then "live-lab" else request.SourceKind.Trim()
-                    match DataLibrary.saveDataSet environment.ContentRootPath name description sourceKind request.TurnCount request.DatasetJson with
+                    match DataLibrary.saveDataSet name description sourceKind request.TurnCount request.DatasetJson with
                     | Ok item -> Results.Ok(item)
                     | Error message -> Results.Problem(detail = message, statusCode = 500, title = "Save failed")
                 with ex ->
@@ -821,12 +691,12 @@ let main args =
 
     app.MapPatch(
         "/api/datasets/{id}",
-        Func<string, RenameDataSetRequest, IWebHostEnvironment, IResult>(fun id request environment ->
+        Func<string, RenameDataSetRequest, IResult>(fun id request ->
             if String.IsNullOrWhiteSpace request.Name then
                 Results.BadRequest("name is required")
             else
                 try
-                    match DataLibrary.renameDataSet environment.ContentRootPath id request.Name request.Description with
+                    match DataLibrary.renameDataSet id request.Name request.Description with
                     | Ok item -> Results.Ok(item)
                     | Error message -> Results.NotFound(message)
                 with ex ->
@@ -836,9 +706,9 @@ let main args =
 
     app.MapDelete(
         "/api/datasets/{id}",
-        Func<string, IWebHostEnvironment, IResult>(fun id environment ->
+        Func<string, IResult>(fun id ->
             try
-                match DataLibrary.deleteDataSet environment.ContentRootPath id with
+                match DataLibrary.deleteDataSet id with
                 | Ok () -> Results.NoContent()
                 | Error message -> Results.NotFound(message)
             with ex ->
