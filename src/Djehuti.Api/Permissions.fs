@@ -90,6 +90,36 @@ let revokeContextRole (conn: NpgsqlConnection) (userId: Guid) (mdl: string) (rol
         cmd.Parameters.AddWithValue("scopeId", scopeId.Value) |> ignore
     cmd.ExecuteNonQuery() |> ignore
 
+type ContextRoleAdmin = {
+    Id:        Guid
+    UserId:    Guid
+    Module:    string
+    Role:      string
+    ScopeId:   Guid option
+    GrantedBy: Guid
+    GrantedAt: DateTime
+}
+
+let getAllContextRoles (conn: NpgsqlConnection) : ContextRoleAdmin list =
+    use cmd = new NpgsqlCommand(
+        "SELECT id, user_id, module, role, scope_id, granted_by, granted_at FROM user_roles ORDER BY granted_at DESC", conn)
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do
+        yield {
+            Id        = reader.GetGuid(reader.GetOrdinal("id"))
+            UserId    = reader.GetGuid(reader.GetOrdinal("user_id"))
+            Module    = reader.GetString(reader.GetOrdinal("module"))
+            Role      = reader.GetString(reader.GetOrdinal("role"))
+            ScopeId   = if reader.IsDBNull(reader.GetOrdinal("scope_id")) then None else Some(reader.GetGuid(reader.GetOrdinal("scope_id")))
+            GrantedBy = reader.GetGuid(reader.GetOrdinal("granted_by"))
+            GrantedAt = reader.GetDateTime(reader.GetOrdinal("granted_at"))
+        } ]
+
+let revokeContextRoleById (conn: NpgsqlConnection) (id: Guid) : bool =
+    use cmd = new NpgsqlCommand("DELETE FROM user_roles WHERE id = @id", conn)
+    cmd.Parameters.AddWithValue("id", id) |> ignore
+    cmd.ExecuteNonQuery() > 0
+
 // ── Well-known module/role constants ─────────────────────────────────────────
 
 [<Literal>]

@@ -205,6 +205,13 @@ let deleteArticle (id: Guid) (authorId: Guid) (isAdmin: bool) =
     if not isAdmin then cmd.Parameters.AddWithValue("aid", authorId) |> ignore
     cmd.ExecuteNonQuery() > 0
 
+let getSubmittedArticles () =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        "SELECT * FROM blog_articles WHERE status = 'submitted' ORDER BY created_at ASC", conn)
+    use r = cmd.ExecuteReader()
+    [ while r.Read() do yield readArticle r ]
+
 // ── Comments ──────────────────────────────────────────────────────────────────
 
 let getComments (articleId: Guid) =
