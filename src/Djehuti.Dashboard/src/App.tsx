@@ -1,4 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from 'react'
+import logoUrl from '/logo.png'
 import {
   flexRender,
   getCoreRowModel,
@@ -1442,7 +1443,7 @@ function App() {
             >
               <Menu size={20} />
             </button>
-            <img src="/logo.png" alt="Djehuti Cyberscope AI+" className="topbar-logo" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+            <img src={logoUrl} alt="Djehuti Cyberscope AI+" className="topbar-logo" />
             <div>
               <p className="eyebrow">Djehuti Cyberscope AI+</p>
               <h1>{pageTitle}</h1>

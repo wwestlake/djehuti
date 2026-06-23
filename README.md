@@ -282,6 +282,18 @@ Known near-term work:
 - add persistent analyst conversations and richer analyst permission controls
 - add more live-provider protocols and browser-compatible connection options
 
+## Contributing
+
+Contributions that advance Djehuti's measurement capabilities, visualizations, or tooling are welcome.
+
+See the wiki for full details:
+
+- [Contributing Guide](https://github.com/wwestlake/djehuti/wiki/Contributing) — setup, what we accept, code style
+- [Branching Strategy](https://github.com/wwestlake/djehuti/wiki/Branching-Strategy) — branch naming, the `develop` → `main` release flow, hotfix process
+- [Pull Request Guidelines](https://github.com/wwestlake/djehuti/wiki/Pull-Request-Guidelines) — PR title format, body template, review process
+
+All work targets the `develop` branch. Releases to production are gated by a PR into `main`.
+
 ## License
 
 See [LICENSE](LICENSE).
