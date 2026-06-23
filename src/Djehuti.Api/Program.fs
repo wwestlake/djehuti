@@ -809,6 +809,10 @@ let main args =
                 elif request.Password.Length < 8 then
                     return Results.BadRequest("password must be at least 8 characters")
                 else
+                    let rateLimitConfig = { RateLimiter.MaxAttempts = 5; RateLimiter.WindowSeconds = 3600 }
+                    if not (RateLimiter.checkRateLimit request.Email rateLimitConfig) then
+                        return Results.StatusCode(429)
+                    else
                     let! hcaptchaValid = Auth.verifyHCaptcha request.HCaptchaToken
                     if not hcaptchaValid then
                         return Results.BadRequest("hCaptcha verification failed")
@@ -846,6 +850,10 @@ let main args =
                 if String.IsNullOrWhiteSpace request.Email || String.IsNullOrWhiteSpace request.Password then
                     return Results.BadRequest("email and password are required")
                 else
+                    let rateLimitConfig = { RateLimiter.MaxAttempts = 10; RateLimiter.WindowSeconds = 900 }
+                    if not (RateLimiter.checkRateLimit request.Email rateLimitConfig) then
+                        return Results.StatusCode(429)
+                    else
                     let! user = UserRepository.tryGetByEmail request.Email
                     match user with
                     | Some u when u.PasswordHash.IsSome && Auth.verifyPassword request.Password u.PasswordHash.Value ->
@@ -858,7 +866,7 @@ let main args =
                                 DisplayName = u.DisplayName
                                 Role = u.Role
                                 IssuedAt = DateTime.UtcNow
-                                ExpiresAt = DateTime.UtcNow.AddHours(1.0)
+                                ExpiresAt = DateTime.UtcNow.AddHours(24.0)
                             }
                             ctx.Response.Cookies.Append(
                                 "djehuti_auth",
@@ -867,7 +875,7 @@ let main args =
                                     HttpOnly = true,
                                     Secure = true,
                                     SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
-                                    Expires = DateTimeOffset.UtcNow.AddHours(1.0)
+                                    Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                 )
                             )
                             return Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt })
@@ -1048,7 +1056,7 @@ let main args =
                                         DisplayName = user.DisplayName
                                         Role = user.Role
                                         IssuedAt = DateTime.UtcNow
-                                        ExpiresAt = DateTime.UtcNow.AddHours(1.0)
+                                        ExpiresAt = DateTime.UtcNow.AddHours(24.0)
                                     }
                                     ctx.Response.Cookies.Append(
                                         "djehuti_auth",
@@ -1057,7 +1065,7 @@ let main args =
                                             HttpOnly = true,
                                             Secure = true,
                                             SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
-                                            Expires = DateTimeOffset.UtcNow.AddHours(1.0)
+                                            Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                         )
                                     )
                                     return Results.Redirect("/djehuti/")
@@ -1072,7 +1080,7 @@ let main args =
                                             DisplayName = user.DisplayName
                                             Role = user.Role
                                             IssuedAt = DateTime.UtcNow
-                                            ExpiresAt = DateTime.UtcNow.AddHours(1.0)
+                                            ExpiresAt = DateTime.UtcNow.AddHours(24.0)
                                         }
                                         ctx.Response.Cookies.Append(
                                             "djehuti_auth",
@@ -1081,7 +1089,7 @@ let main args =
                                                 HttpOnly = true,
                                                 Secure = true,
                                                 SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
-                                                Expires = DateTimeOffset.UtcNow.AddHours(1.0)
+                                                Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                             )
                                         )
                                         return Results.Redirect("/djehuti/")
@@ -1123,7 +1131,7 @@ let main args =
                                         DisplayName = user.DisplayName
                                         Role = user.Role
                                         IssuedAt = DateTime.UtcNow
-                                        ExpiresAt = DateTime.UtcNow.AddHours(1.0)
+                                        ExpiresAt = DateTime.UtcNow.AddHours(24.0)
                                     }
                                     ctx.Response.Cookies.Append(
                                         "djehuti_auth",
@@ -1132,7 +1140,7 @@ let main args =
                                             HttpOnly = true,
                                             Secure = true,
                                             SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
-                                            Expires = DateTimeOffset.UtcNow.AddHours(1.0)
+                                            Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                         )
                                     )
                                     return Results.Redirect("/djehuti/")
@@ -1148,7 +1156,7 @@ let main args =
                                             DisplayName = user.DisplayName
                                             Role = user.Role
                                             IssuedAt = DateTime.UtcNow
-                                            ExpiresAt = DateTime.UtcNow.AddHours(1.0)
+                                            ExpiresAt = DateTime.UtcNow.AddHours(24.0)
                                         }
                                         ctx.Response.Cookies.Append(
                                             "djehuti_auth",
@@ -1157,7 +1165,7 @@ let main args =
                                                 HttpOnly = true,
                                                 Secure = true,
                                                 SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
-                                                Expires = DateTimeOffset.UtcNow.AddHours(1.0)
+                                                Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                             )
                                         )
                                         return Results.Redirect("/djehuti/")
