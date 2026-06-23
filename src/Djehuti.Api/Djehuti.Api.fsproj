@@ -6,11 +6,16 @@
 
   <ItemGroup>
     <Compile Include="OpenAiResponses.fs" />
+    <Compile Include="Database.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Djehuti.Core\Djehuti.Core.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="9.0.3" />
   </ItemGroup>
 
 </Project>

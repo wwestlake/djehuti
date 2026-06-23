@@ -776,6 +776,8 @@ let main args =
 
     let app = builder.Build()
 
+    Database.runMigrations ()
+
     app.UseCors() |> ignore
 
     app.MapGet("/api/health", Func<string>(fun () -> "ok")) |> ignore
