@@ -67,11 +67,12 @@ jobs:
             artifacts/api/ \
             ubuntu@${{ secrets.DEPLOY_HOST }}:/opt/djehuti-api/
 
-      - name: Restart API service
+      - name: Relink and restart API service
         run: |
           ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.DEPLOY_HOST }} bash -s << 'EOF'
           set -e
           chmod +x /opt/djehuti-api/Djehuti.Api
+          sudo ln -sfn /var/www/djehuti /var/www/kwestkarz/djehuti
           sudo systemctl daemon-reload
           sudo systemctl enable djehuti-api
           sudo systemctl restart djehuti-api
