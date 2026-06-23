@@ -1103,8 +1103,8 @@ let main args =
                 if String.IsNullOrWhiteSpace code then
                     return Results.BadRequest("code is required")
                 else
-                    let githubClientId = Environment.GetEnvironmentVariable("GITHUB_OAUTH_CLIENT_ID")
-                    let githubClientSecret = Environment.GetEnvironmentVariable("GITHUB_OAUTH_CLIENT_SECRET")
+                    let githubClientId = Environment.GetEnvironmentVariable("GH_OAUTH_CLIENT_ID")
+                    let githubClientSecret = Environment.GetEnvironmentVariable("GH_OAUTH_CLIENT_SECRET")
 
                     if String.IsNullOrWhiteSpace githubClientId || String.IsNullOrWhiteSpace githubClientSecret then
                         return Results.Problem(detail = "GitHub OAuth not configured", statusCode = 500, title = "OAuth configuration error")
