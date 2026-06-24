@@ -340,9 +340,9 @@ let createUserIdentity (userId: Guid) (provider: string) (providerId: string) (e
         try
             use conn = openConn ()
             use cmd = new NpgsqlCommand(
-                """INSERT INTO user_identities (user_id, provider, provider_id, email, display_name, avatar_url)
+                """INSERT INTO user_identities (user_id, provider, subject_id, email, display_name, avatar_url)
                    VALUES (@user_id, @provider, @provider_id, @email, @display_name, @avatar_url)
-                   RETURNING id, user_id, provider, provider_id, email, display_name, avatar_url, created_at""", conn)
+                   RETURNING id, user_id, provider, subject_id, email, display_name, avatar_url, linked_at""", conn)
             cmd.Parameters.AddWithValue("user_id", userId) |> ignore
             cmd.Parameters.AddWithValue("provider", provider) |> ignore
             cmd.Parameters.AddWithValue("provider_id", providerId) |> ignore
@@ -378,7 +378,7 @@ let tryGetUserByIdentity (provider: string) (providerId: string) : Async<User op
                          u.notify_by_email, u.role, u.status, u.created_at, u.updated_at
                    FROM users u
                    INNER JOIN user_identities ui ON u.id = ui.user_id
-                   WHERE ui.provider = @provider AND ui.provider_id = @provider_id""", conn)
+                   WHERE ui.provider = @provider AND ui.subject_id = @provider_id""", conn)
             cmd.Parameters.AddWithValue("provider", provider) |> ignore
             cmd.Parameters.AddWithValue("provider_id", providerId) |> ignore
 
