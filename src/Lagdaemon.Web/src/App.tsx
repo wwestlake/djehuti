@@ -41,7 +41,6 @@ function Nav({ section, onSection, onOpenLogin }: NavProps) {
           <>
             <a href="#research">Research</a>
             <a href="#instrument">Instrument</a>
-            <a href="#papers">Papers</a>
             <a href="#about">About</a>
           </>
         ) : (
