@@ -94,10 +94,25 @@ jobs:
             data/datasets/ \
             ubuntu@${{ secrets.DEPLOY_HOST }}:/opt/djehuti-api/data/datasets/
 
+      - name: Write API environment file
+        env:
+          DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          GH_OAUTH_CLIENT_ID: ${{ secrets.GH_OAUTH_CLIENT_ID }}
+          GH_OAUTH_CLIENT_SECRET: ${{ secrets.GH_OAUTH_CLIENT_SECRET }}
+        run: |
+          printf 'ASPNETCORE_URLS=http://localhost:5008\nASPNETCORE_ENVIRONMENT=Production\nDB_CONNECTION_STRING=%s\nDB_PASSWORD=%s\nGOOGLE_OAUTH_CLIENT_ID=%s\nGOOGLE_OAUTH_CLIENT_SECRET=%s\nGH_OAUTH_CLIENT_ID=%s\nGH_OAUTH_CLIENT_SECRET=%s\n' \
+            "$DB_CONNECTION_STRING" "$DB_PASSWORD" "$GOOGLE_OAUTH_CLIENT_ID" "$GOOGLE_OAUTH_CLIENT_SECRET" "$GH_OAUTH_CLIENT_ID" "$GH_OAUTH_CLIENT_SECRET" \
+            | ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.DEPLOY_HOST }} 'cat > /opt/djehuti-api/api.env && chmod 600 /opt/djehuti-api/api.env'
+
       - name: Relink and restart API service
         run: |
+          scp -i ~/.ssh/deploy_key docs/deploy/djehuti-api.service ubuntu@${{ secrets.DEPLOY_HOST }}:/tmp/djehuti-api.service
           ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.DEPLOY_HOST }} bash -s << 'EOF'
           set -e
+          sudo mv /tmp/djehuti-api.service /etc/systemd/system/djehuti-api.service
           chmod +x /opt/djehuti-api/Djehuti.Api
           sudo ln -sfn /var/www/djehuti /var/www/kwestkarz/djehuti
           sudo systemctl daemon-reload
