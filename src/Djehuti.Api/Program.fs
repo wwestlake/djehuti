@@ -1070,15 +1070,20 @@ let main args =
                                     )
                                     return Results.Redirect("/djehuti/")
                                 | None ->
-                                    let! newUser = UserRepository.createUser info.email None
-                                    match newUser with
-                                    | Some user ->
-                                        let! _identity = UserRepository.createUserIdentity user.Id "google" info.id (Some info.email) info.name info.picture
+                                    // Link to existing account by email, or create new
+                                    let! existingByEmail = UserRepository.tryGetByEmail info.email
+                                    let! user =
+                                        match existingByEmail with
+                                        | Some u -> async { return Some u }
+                                        | None -> UserRepository.createUser info.email None
+                                    match user with
+                                    | Some u ->
+                                        let! _identity = UserRepository.createUserIdentity u.Id "google" info.id (Some info.email) info.name info.picture
                                         let token = Auth.generateToken {
-                                            UserId = user.Id.ToString()
-                                            Email = user.Email
-                                            DisplayName = user.DisplayName
-                                            Role = user.Role
+                                            UserId = u.Id.ToString()
+                                            Email = u.Email
+                                            DisplayName = u.DisplayName
+                                            Role = u.Role
                                             IssuedAt = DateTime.UtcNow
                                             ExpiresAt = DateTime.UtcNow.AddHours(24.0)
                                         }
@@ -1092,7 +1097,7 @@ let main args =
                                                 Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                             )
                                         )
-                                        return Results.Redirect("/djehuti/")
+                                        return Results.Redirect("/")
                                     | None ->
                                         return Results.Problem(detail = "Failed to create user", statusCode = 500, title = "OAuth login failed")
                             | None ->
