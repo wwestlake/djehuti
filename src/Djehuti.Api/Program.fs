@@ -874,7 +874,7 @@ let main args =
                                 Microsoft.AspNetCore.Http.CookieOptions(
                                     HttpOnly = true,
                                     Secure = true,
-                                    SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
+                                    SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax, Path = "/",
                                     Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                 )
                             )
@@ -1064,11 +1064,11 @@ let main args =
                                         Microsoft.AspNetCore.Http.CookieOptions(
                                             HttpOnly = true,
                                             Secure = true,
-                                            SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
+                                            SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax, Path = "/",
                                             Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                         )
                                     )
-                                    return Results.Redirect("/djehuti/")
+                                    return Results.Redirect("/")
                                 | None ->
                                     // Link to existing account by email, or create new
                                     let! existingByEmail = UserRepository.tryGetByEmail info.email
@@ -1093,7 +1093,7 @@ let main args =
                                             Microsoft.AspNetCore.Http.CookieOptions(
                                                 HttpOnly = true,
                                                 Secure = true,
-                                                SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
+                                                SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax, Path = "/",
                                                 Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                             )
                                         )
@@ -1144,11 +1144,11 @@ let main args =
                                         Microsoft.AspNetCore.Http.CookieOptions(
                                             HttpOnly = true,
                                             Secure = true,
-                                            SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
+                                            SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax, Path = "/",
                                             Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                         )
                                     )
-                                    return Results.Redirect("/djehuti/")
+                                    return Results.Redirect("/")
                                 | None ->
                                     let email = info.email |> Option.defaultValue $"{info.login}@github.local"
                                     let! newUser = UserRepository.createUser email None
@@ -1169,11 +1169,11 @@ let main args =
                                             Microsoft.AspNetCore.Http.CookieOptions(
                                                 HttpOnly = true,
                                                 Secure = true,
-                                                SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
+                                                SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax, Path = "/",
                                                 Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                             )
                                         )
-                                        return Results.Redirect("/djehuti/")
+                                        return Results.Redirect("/")
                                     | None ->
                                         return Results.Problem(detail = "Failed to create user", statusCode = 500, title = "OAuth login failed")
                             | None ->
