@@ -25,6 +25,8 @@ import {
   FileText,
   FileJson,
   Gauge,
+  GraduationCap,
+  KeyRound,
   Menu,
   MessageSquare,
   Moon,
