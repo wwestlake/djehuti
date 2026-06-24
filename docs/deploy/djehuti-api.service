@@ -9,10 +9,7 @@ WorkingDirectory=/opt/djehuti-api
 ExecStart=/opt/djehuti-api/Djehuti.Api
 Restart=on-failure
 RestartSec=5
-Environment=ASPNETCORE_URLS=http://localhost:5008
-Environment=ASPNETCORE_ENVIRONMENT=Production
-# Add your Anthropic API key here:
-# Environment=ANTHROPIC_API_KEY=sk-ant-...
+EnvironmentFile=/opt/djehuti-api/api.env
 
 [Install]
 WantedBy=multi-user.target
