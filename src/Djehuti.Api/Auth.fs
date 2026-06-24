@@ -53,6 +53,9 @@ let verifyToken (token: string) : JwtClaims option =
     try
         let key = getSigningKey ()
         let handler = new JwtSecurityTokenHandler()
+        // Keep original JWT claim names ("sub", "email", "role") instead of
+        // remapping them to long schema URIs, so FindFirst below works.
+        handler.MapInboundClaims <- false
         let validationParameters = TokenValidationParameters(
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = key,
