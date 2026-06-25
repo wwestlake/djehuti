@@ -84,7 +84,7 @@ export default function AdminPage() {
 
   const toggleTrusted = async (a: BlogAuthor) => {
     try {
-      const updated = await blogApi.upsertAuthor(a.userId, { ...a, trusted: !a.Trusted })
+      const updated = await blogApi.upsertAuthor(a.userId, { ...a, trusted: !a.trusted })
       setAuthors(prev => prev.map(x => x.userId === a.userId ? updated : x))
     } catch { setError('Failed to update author.') }
   }

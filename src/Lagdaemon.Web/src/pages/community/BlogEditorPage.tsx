@@ -54,6 +54,7 @@ export default function BlogEditorPage({ articleId, onSaved, onCancel }: Props) 
   const [showLinkInput, setShowLinkInput] = useState(false)
   const [imageUrl, setImageUrl] = useState('')
   const [showImageInput, setShowImageInput] = useState(false)
+  const [showUpload, setShowUpload] = useState(false)
 
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savedArticleId = useRef<string | null>(articleId ?? null)
@@ -204,6 +205,9 @@ export default function BlogEditorPage({ articleId, onSaved, onCancel }: Props) 
               Saved {lastSaved.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
+          <button className="tiptap-toolbar-btn icon-only" onClick={() => setShowUpload(true)} title="Import document">
+            <Upload size={16} />
+          </button>
           <button className="tiptap-toolbar-btn icon-only" onClick={() => setPreview(v => !v)}
             title={preview ? 'Edit' : 'Preview'}>
             {preview ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -443,6 +447,18 @@ export default function BlogEditorPage({ articleId, onSaved, onCancel }: Props) 
           )}
         </aside>
       </div>
+
+      {/* ── Upload modal ── */}
+      {showUpload && (
+        <BlogUploadModal
+          onClose={() => setShowUpload(false)}
+          onContentReady={(html, filename) => {
+            editor?.commands.setContent(html)
+            if (!title.trim()) setTitle(filename.replace(/\.[^.]+$/, ''))
+            setShowUpload(false)
+          }}
+        />
+      )}
 
       {/* ── Submit confirmation modal ── */}
       {submitConfirm && (
