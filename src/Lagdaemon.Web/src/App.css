@@ -1088,3 +1088,74 @@ footer a:hover { text-decoration: underline; }
 .config-table input { width: 100%; background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 4px 6px; color: var(--text); font-size: 0.875rem; transition: border-color 0.15s; box-sizing: border-box; }
 .config-table input:focus { outline: none; border-color: var(--accent); background: var(--surface); }
 .config-scope-badge { display: inline-block; padding: 1px 7px; border-radius: 8px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+
+/* ── Mobile / Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  /* Nav */
+  .nav { padding: 0.7rem 1rem; }
+  .nav nav { gap: 0.8rem; }
+  .nav nav a { font-size: 0.8rem; }
+  .nav-cta { padding: 0.4rem 0.7rem; font-size: 0.8rem; }
+  .user-display-name { max-width: 80px; }
+
+  /* Auth modal */
+  .auth-modal { width: 95vw; padding: 20px 16px; }
+  .auth-modal-header h2 { font-size: 17px; }
+  .oauth-btn { font-size: 0.85rem; padding: 10px 12px; }
+
+  /* Hero */
+  .hero { padding: 2rem 1rem; gap: 1.5rem; }
+  .hero h1 { font-size: clamp(1.6rem, 6vw, 2.4rem); }
+  .hero p { font-size: 0.95rem; }
+  .hero-actions { flex-direction: column; gap: 10px; }
+  .hero-actions a, .hero-actions button { width: 100%; text-align: center; }
+
+  /* Community layout */
+  .community-layout { flex-direction: column; }
+  .community-sidebar { width: 100%; min-width: unset; border-right: none; border-bottom: 1px solid var(--border); padding: 10px; }
+  .community-sidebar-nav { flex-direction: row; flex-wrap: wrap; gap: 4px; }
+  .community-sidebar-link { padding: 6px 12px; font-size: 0.82rem; }
+  .community-main { padding: 12px; }
+
+  /* Blog feed */
+  .blog-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .blog-featured-row { grid-template-columns: 1fr; }
+  .blog-card-cover { height: 140px; }
+
+  /* Blog reader */
+  .blog-reader-layout { padding: 12px 10px; }
+  .blog-reader-title { font-size: 1.4rem; }
+  .blog-reader-subtitle { font-size: 0.95rem; }
+  .blog-article-meta { font-size: 0.75rem; gap: 8px; }
+  .blog-share-row { flex-wrap: wrap; gap: 8px; }
+
+  /* Blog editor */
+  .blog-editor-shell { flex-direction: column; }
+  .blog-editor-sidebar { width: 100%; min-width: unset; border-left: none; border-top: 1px solid var(--border); }
+  .tiptap-toolbar { flex-wrap: wrap; gap: 2px; }
+  .tiptap-top-bar { flex-wrap: wrap; gap: 6px; padding: 8px 10px; }
+
+  /* Forum */
+  .forum-thread-list { gap: 8px; }
+  .thread-card { padding: 12px; }
+  .forum-forum-header { flex-direction: column; align-items: flex-start; }
+
+  /* Admin */
+  .admin-tabs { flex-wrap: wrap; gap: 4px; }
+  .admin-table { font-size: 0.78rem; }
+  .admin-table th, .admin-table td { padding: 7px 8px; }
+  .mod-queue-actions { flex-direction: column; align-items: flex-start; }
+
+  /* General */
+  .community-page { padding: 12px 10px; }
+  .community-page-title { font-size: 1.3rem; }
+  .page-section { padding: 2rem 1rem; }
+  .section-title { font-size: 1.4rem; }
+  .container { padding: 0 1rem; }
+}
+
+@media (max-width: 420px) {
+  .nav nav a:not(.nav-cta):not([class*="community"]) { display: none; }
+  .blog-reader-title { font-size: 1.2rem; }
+  .tiptap-toolbar-btn { min-width: 26px; height: 26px; }
+}

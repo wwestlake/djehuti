@@ -434,7 +434,7 @@ let getArticlesByAuthor (authorId: Guid) (page: int) (pageSize: int) =
 let getModerationQueue () =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
-        $"SELECT {articleCols} FROM blog_articles WHERE status IN ('submitted','under_review') AND deleted_at IS NULL ORDER BY created_at ASC", conn)
+        $"SELECT {articleCols} FROM blog_articles WHERE status IN ('submitted','under_review','approved') AND deleted_at IS NULL ORDER BY created_at ASC", conn)
     use r = cmd.ExecuteReader()
     [ while r.Read() do yield readArticle r ]
 
