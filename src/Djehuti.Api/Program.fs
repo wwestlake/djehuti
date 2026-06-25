@@ -2133,7 +2133,7 @@ let main args =
                                 let unsubUrl = $"{baseUrl}/api/announcements/unsubscribe?token={sub.UnsubscribeToken}"
                                 let html = Email.announcementEmailTemplate a.Title a.Body unsubUrl
                                 Email.sendEmail { To = sub.Email; Subject = a.Title; HtmlBody = html }
-                                |> Async.Start
+                                |> Async.Ignore |> Async.Start
                             return Results.Ok(a)
                     | Some _ -> return Results.Forbid()
                     | None   -> return Results.Unauthorized()
@@ -2195,7 +2195,7 @@ let main args =
                             let confirmUrl = $"{baseUrl}/api/announcements/confirm?token={sub.UnsubscribeToken}"
                             let html = Email.confirmSubscriptionEmailTemplate confirmUrl
                             Email.sendEmail { To = email; Subject = "Confirm your subscription"; HtmlBody = html }
-                            |> Async.Start
+                            |> Async.Ignore |> Async.Start
                         return Results.Ok({| subscribed = true; confirmed = sub.Confirmed |}) :> IResult
             } |> Async.StartAsTask)
     ) |> ignore
