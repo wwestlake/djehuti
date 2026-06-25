@@ -1538,15 +1538,72 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // ── Blog: Tags ────────────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/blog/tags",
+        Func<IResult>(fun () -> Results.Ok(BlogRepository.getTags()))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/blog/tags",
+        Func<HttpContext, {| name: string; description: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    let desc = if String.IsNullOrWhiteSpace body.description then None else Some body.description
+                    return match BlogRepository.createTag body.name desc with
+                           | Some t -> Results.Created($"/api/blog/tags/{t.Id}", t)
+                           | None   -> Results.Conflict("Tag with that name already exists")
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPut(
+        "/api/blog/tags/{id}",
+        Func<string, HttpContext, {| name: string; description: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid tag id")
+                | true, tid ->
+                    match tryGetAuthClaims ctx with
+                    | Some claims when Permissions.isAdmin claims.Role ->
+                        let desc = if String.IsNullOrWhiteSpace body.description then None else Some body.description
+                        return match BlogRepository.updateTag tid body.name desc with
+                               | Some t -> Results.Ok(t)
+                               | None   -> Results.NotFound()
+                    | Some _ -> return Results.Forbid()
+                    | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/blog/tags/{id}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid tag id")
+                | true, tid ->
+                    match tryGetAuthClaims ctx with
+                    | Some claims when Permissions.isAdmin claims.Role ->
+                        return if BlogRepository.deleteTag tid then Results.Ok() else Results.NotFound()
+                    | Some _ -> return Results.Forbid()
+                    | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     // ── Blog: Articles ────────────────────────────────────────────────────────
 
     app.MapGet(
         "/api/blog/articles",
-        Func<string, int, int, IResult>(fun sectionId page pageSize ->
+        Func<string, string, string, int, int, IResult>(fun sectionId search tag page pageSize ->
             let sid = match Guid.TryParse(sectionId) with | true, g -> Some g | _ -> None
-            let p  = if page < 1 then 1 else page
-            let ps = if pageSize < 1 || pageSize > 50 then 20 else pageSize
-            Results.Ok(BlogRepository.getPublishedArticles sid p ps))
+            let q   = if String.IsNullOrWhiteSpace search then None else Some search
+            let t   = if String.IsNullOrWhiteSpace tag    then None else Some tag
+            let p   = if page < 1 then 1 else page
+            let ps  = if pageSize < 1 || pageSize > 50 then 20 else pageSize
+            Results.Ok(BlogRepository.getPublishedArticles sid q t p ps))
     ) |> ignore
 
     app.MapGet(
@@ -1555,6 +1612,14 @@ let main args =
             match BlogRepository.getArticleBySlug slug with
             | Some a -> Results.Ok(a)
             | None   -> Results.NotFound())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/blog/articles/{id}/tags",
+        Func<string, IResult>(fun id ->
+            match Guid.TryParse(id) with
+            | true, aid -> Results.Ok(BlogRepository.getTagsForArticle aid)
+            | _ -> Results.BadRequest("Invalid article id"))
     ) |> ignore
 
     app.MapGet(
@@ -1575,15 +1640,18 @@ let main args =
 
     app.MapPost(
         "/api/blog/articles",
-        Func<HttpContext, {| sectionId: string; title: string; content: string; excerpt: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+        Func<HttpContext, {| sectionId: string; title: string; subtitle: string; content: string; bodyJson: string; excerpt: string; visibility: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
             async {
                 match tryGetAuthClaims ctx with
                 | None -> return Results.Unauthorized()
                 | Some claims ->
                     match Guid.TryParse(claims.UserId), Guid.TryParse(body.sectionId) with
                     | (true, userId), (true, sectionId) ->
-                        let excerpt = if String.IsNullOrWhiteSpace body.excerpt then None else Some body.excerpt
-                        return match BlogRepository.createArticle sectionId userId body.title body.content excerpt with
+                        let subtitle    = if String.IsNullOrWhiteSpace body.subtitle  then None else Some body.subtitle
+                        let excerpt     = if String.IsNullOrWhiteSpace body.excerpt   then None else Some body.excerpt
+                        let bodyJson    = if String.IsNullOrWhiteSpace body.bodyJson  then None else Some body.bodyJson
+                        let visibility  = if String.IsNullOrWhiteSpace body.visibility then "public" else body.visibility
+                        return match BlogRepository.createArticle sectionId userId body.title subtitle body.content bodyJson excerpt visibility with
                                | Some a -> Results.Created($"/api/blog/articles/{a.Slug}", a)
                                | None   -> Results.Problem(detail = "Failed to create article", statusCode = 500, title = "Error")
                     | _ -> return Results.BadRequest("Invalid userId or sectionId")
@@ -1592,7 +1660,7 @@ let main args =
 
     app.MapPut(
         "/api/blog/articles/{id}",
-        Func<string, HttpContext, {| title: string; content: string; excerpt: string; coverUrl: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+        Func<string, HttpContext, {| title: string; subtitle: string; content: string; bodyJson: string; excerpt: string; coverUrl: string; visibility: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
             async {
                 match Guid.TryParse(id) with
                 | false, _ -> return Results.BadRequest("Invalid article id")
@@ -1603,9 +1671,13 @@ let main args =
                         match Guid.TryParse(claims.UserId) with
                         | false, _ -> return Results.Unauthorized()
                         | true, userId ->
-                            let excerpt  = if String.IsNullOrWhiteSpace body.excerpt then None else Some body.excerpt
-                            let coverUrl = if String.IsNullOrWhiteSpace body.coverUrl then None else Some body.coverUrl
-                            return match BlogRepository.updateArticle aid userId body.title body.content excerpt coverUrl with
+                            let isAdmin  = Permissions.isAdmin claims.Role
+                            let subtitle = if String.IsNullOrWhiteSpace body.subtitle  then None else Some body.subtitle
+                            let excerpt  = if String.IsNullOrWhiteSpace body.excerpt   then None else Some body.excerpt
+                            let bodyJson = if String.IsNullOrWhiteSpace body.bodyJson  then None else Some body.bodyJson
+                            let coverUrl = if String.IsNullOrWhiteSpace body.coverUrl  then None else Some body.coverUrl
+                            let vis      = if String.IsNullOrWhiteSpace body.visibility then "public" else body.visibility
+                            return match BlogRepository.updateArticle aid userId isAdmin body.title subtitle body.content bodyJson excerpt coverUrl vis with
                                    | Some a -> Results.Ok(a)
                                    | None   -> Results.NotFound()
             } |> Async.StartAsTask)
@@ -1613,7 +1685,7 @@ let main args =
 
     app.MapPatch(
         "/api/blog/articles/{id}/status",
-        Func<string, HttpContext, {| status: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+        Func<string, HttpContext, {| status: string; note: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
             async {
                 match Guid.TryParse(id) with
                 | false, _ -> return Results.BadRequest("Invalid article id")
@@ -1621,17 +1693,39 @@ let main args =
                     match tryGetAuthClaims ctx with
                     | None -> return Results.Unauthorized()
                     | Some claims ->
-                        let allowed =
-                            match body.status with
-                            | "submitted" -> true
-                            | "published" | "rejected" -> Permissions.isAdmin claims.Role
-                            | "draft" -> true
-                            | _ -> false
-                        if not allowed then return Results.Forbid()
-                        else
-                            return match BlogRepository.setArticleStatus aid body.status with
-                                   | Some a -> Results.Ok(a)
-                                   | None   -> Results.NotFound()
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            let isAdmin = Permissions.isAdmin claims.Role
+                            let allowed =
+                                match body.status with
+                                | "submitted" | "draft" -> true
+                                | "approved" | "published" | "rejected" | "under_review" | "needs_revision" -> isAdmin
+                                | _ -> false
+                            if not allowed then return Results.Forbid()
+                            else
+                                match BlogRepository.setArticleStatus aid body.status with
+                                | None -> return Results.NotFound()
+                                | Some a ->
+                                    let note = if String.IsNullOrWhiteSpace body.note then None else Some body.note
+                                    BlogRepository.logModerationAction aid (Some userId) body.status note |> ignore
+                                    return Results.Ok(a)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPut(
+        "/api/blog/articles/{id}/tags",
+        Func<string, HttpContext, {| tagIds: string[] |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid article id")
+                | true, aid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some _ ->
+                        let tagIds = body.tagIds |> Array.choose (fun s -> match Guid.TryParse(s) with | true, g -> Some g | _ -> None) |> Array.toList
+                        BlogRepository.setArticleTags aid tagIds
+                        return Results.Ok()
             } |> Async.StartAsTask)
     ) |> ignore
 
@@ -1650,6 +1744,225 @@ let main args =
                         | true, userId ->
                             let deleted = BlogRepository.deleteArticle aid userId (Permissions.isAdmin claims.Role)
                             return if deleted then Results.Ok() else Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // ── Blog: Authors ─────────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/blog/authors",
+        Func<IResult>(fun () -> Results.Ok(BlogRepository.listAuthors()))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/blog/authors/{userId}",
+        Func<string, IResult>(fun userId ->
+            match Guid.TryParse(userId) with
+            | false, _ -> Results.BadRequest("Invalid user id")
+            | true, uid ->
+                match BlogRepository.getAuthor uid with
+                | Some a -> Results.Ok(a)
+                | None   -> Results.NotFound())
+    ) |> ignore
+
+    app.MapPost(
+        "/api/blog/authors",
+        Func<HttpContext, {| userId: string; bio: string; displayName: string; avatarUrl: string; socialLinks: string; trusted: bool |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    match Guid.TryParse(body.userId) with
+                    | false, _ -> return Results.BadRequest("Invalid userId")
+                    | true, uid ->
+                        let bio     = if String.IsNullOrWhiteSpace body.bio         then None else Some body.bio
+                        let dn      = if String.IsNullOrWhiteSpace body.displayName then None else Some body.displayName
+                        let av      = if String.IsNullOrWhiteSpace body.avatarUrl   then None else Some body.avatarUrl
+                        let sl      = if String.IsNullOrWhiteSpace body.socialLinks then "[]" else body.socialLinks
+                        return match BlogRepository.upsertAuthor uid bio dn av sl body.trusted with
+                               | Some a -> Results.Created($"/api/blog/authors/{uid}", a)
+                               | None   -> Results.Problem(detail = "Failed to create author", statusCode = 500, title = "Error")
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPut(
+        "/api/blog/authors/{userId}",
+        Func<string, HttpContext, {| bio: string; displayName: string; avatarUrl: string; socialLinks: string; trusted: bool |}, System.Threading.Tasks.Task<IResult>>(fun userId ctx body ->
+            async {
+                match Guid.TryParse(userId) with
+                | false, _ -> return Results.BadRequest("Invalid user id")
+                | true, uid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, requesterId ->
+                            let isAdmin = Permissions.isAdmin claims.Role
+                            if requesterId <> uid && not isAdmin then return Results.Forbid()
+                            else
+                                let bio     = if String.IsNullOrWhiteSpace body.bio         then None else Some body.bio
+                                let dn      = if String.IsNullOrWhiteSpace body.displayName then None else Some body.displayName
+                                let av      = if String.IsNullOrWhiteSpace body.avatarUrl   then None else Some body.avatarUrl
+                                let sl      = if String.IsNullOrWhiteSpace body.socialLinks then "[]" else body.socialLinks
+                                let trusted = if isAdmin then body.trusted else
+                                                  (BlogRepository.getAuthor uid |> Option.map (fun a -> a.Trusted) |> Option.defaultValue false)
+                                return match BlogRepository.upsertAuthor uid bio dn av sl trusted with
+                                       | Some a -> Results.Ok(a)
+                                       | None   -> Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/blog/authors/{userId}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun userId ctx ->
+            async {
+                match Guid.TryParse(userId) with
+                | false, _ -> return Results.BadRequest("Invalid user id")
+                | true, uid ->
+                    match tryGetAuthClaims ctx with
+                    | Some claims when Permissions.isAdmin claims.Role ->
+                        return if BlogRepository.deleteAuthor uid then Results.Ok() else Results.NotFound()
+                    | Some _ -> return Results.Forbid()
+                    | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // ── Blog: Uploads ─────────────────────────────────────────────────────────
+
+    // Client flow: call /api/media/upload-url to get S3 presigned URL, upload file
+    // directly to S3, then POST here to register the upload and trigger conversion.
+    app.MapPost(
+        "/api/blog/uploads",
+        Func<HttpContext, {| originalFilename: string; mimeType: string; format: string; storageKey: string; sizeBytes: int64; conversionOption: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        let validFormats = Set.ofList ["docx";"pdf";"md";"html";"txt"]
+                        let validOptions = Set.ofList ["as-is";"convert";"reformat"]
+                        if not (Set.contains body.format validFormats) then
+                            return Results.BadRequest($"Invalid format. Allowed: {String.concat \", \" validFormats}")
+                        if not (Set.contains body.conversionOption validOptions) then
+                            return Results.BadRequest($"Invalid conversionOption. Allowed: {String.concat \", \" validOptions}")
+                        let size = if body.sizeBytes > 0L then Some body.sizeBytes else None
+                        match BlogRepository.createUpload userId body.originalFilename body.mimeType body.format body.storageKey size body.conversionOption with
+                        | None -> return Results.Problem(detail = "Failed to create upload record", statusCode = 500, title = "Error")
+                        | Some upload ->
+                            // For text-based formats, attempt inline conversion immediately
+                            let s3BaseUrl = Environment.GetEnvironmentVariable("S3_BUCKET")
+                            let s3Region  = Environment.GetEnvironmentVariable("S3_REGION")
+                            let fileUrl = $"https://{s3BaseUrl}.s3.{s3Region}.amazonaws.com/{body.storageKey}"
+                            let converted =
+                                match body.format, body.conversionOption with
+                                | ("html" | "md" | "txt"), "convert" ->
+                                    // Conversion happens client-side by passing the S3 URL;
+                                    // for server-side conversion we mark done with the URL
+                                    BlogRepository.updateUploadConversion upload.Id "done" (Some $"<p>Content loaded from: <a href=\"{fileUrl}\">{body.originalFilename}</a></p>") None
+                                | _ ->
+                                    // docx/pdf served as-is via embedded viewer; mark done
+                                    BlogRepository.updateUploadConversion upload.Id "done" None None
+                            return match converted with
+                                   | Some u -> Results.Created($"/api/blog/uploads/{u.Id}", u)
+                                   | None   -> Results.Ok(upload)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapGet(
+        "/api/blog/uploads/{id}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid upload id")
+                | true, uid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some _ ->
+                        return match BlogRepository.getUpload uid with
+                               | Some u -> Results.Ok(u)
+                               | None   -> Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/blog/uploads/{id}/attach",
+        Func<string, HttpContext, {| articleId: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id), Guid.TryParse(body.articleId) with
+                | (true, uid), (true, aid) ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some _ ->
+                        return match BlogRepository.attachUploadToArticle uid aid with
+                               | Some u -> Results.Ok(u)
+                               | None   -> Results.NotFound()
+                | _ -> return Results.BadRequest("Invalid upload or article id")
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // ── Blog: Moderation ──────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/blog/articles/{id}/moderation-log",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid article id")
+                | true, aid ->
+                    match tryGetAuthClaims ctx with
+                    | Some claims when Permissions.isAdmin claims.Role ->
+                        return Results.Ok(BlogRepository.getModerationLog aid)
+                    | Some _ -> return Results.Forbid()
+                    | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/blog/articles/{id}/feature",
+        Func<string, HttpContext, {| featured: bool; position: int |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid article id")
+                | true, aid ->
+                    match tryGetAuthClaims ctx with
+                    | Some claims when Permissions.isAdmin claims.Role ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            let pos = if body.position > 0 then Some body.position else None
+                            let action = if body.featured then "featured" else "unfeatured"
+                            BlogRepository.logModerationAction aid (Some userId) action None |> ignore
+                            return match BlogRepository.setArticleFeatured aid body.featured pos with
+                                   | Some a -> Results.Ok(a)
+                                   | None   -> Results.NotFound()
+                    | Some _ -> return Results.Forbid()
+                    | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/blog/articles/{id}/pin",
+        Func<string, HttpContext, {| pinned: bool |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid article id")
+                | true, aid ->
+                    match tryGetAuthClaims ctx with
+                    | Some claims when Permissions.isAdmin claims.Role ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            let action = if body.pinned then "pinned" else "unpinned"
+                            BlogRepository.logModerationAction aid (Some userId) action None |> ignore
+                            return match BlogRepository.setArticlePinned aid body.pinned with
+                                   | Some a -> Results.Ok(a)
+                                   | None   -> Results.NotFound()
+                    | Some _ -> return Results.Forbid()
+                    | None   -> return Results.Unauthorized()
             } |> Async.StartAsTask)
     ) |> ignore
 
@@ -1694,6 +2007,38 @@ let main args =
                     | Some _ ->
                         let deleted = BlogRepository.deleteComment cid
                         return if deleted then Results.Ok() else Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // ── Site Config ───────────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/config",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun scope ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    let s = if String.IsNullOrWhiteSpace scope then None else Some scope
+                    return Results.Ok(BlogRepository.getConfig s)
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPut(
+        "/api/config/{scope}/{key}",
+        Func<string, string, HttpContext, {| value: string |}, System.Threading.Tasks.Task<IResult>>(fun scope key ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        return match BlogRepository.setConfig scope key body.value userId with
+                               | Some c -> Results.Ok(c)
+                               | None   -> Results.Problem(detail = "Failed to save config", statusCode = 500, title = "Error")
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
             } |> Async.StartAsTask)
     ) |> ignore
 
@@ -1987,7 +2332,7 @@ let main args =
             async {
                 match tryGetAuthClaims ctx with
                 | Some claims when Permissions.isAdmin claims.Role ->
-                    return Results.Ok(BlogRepository.getSubmittedArticles ())
+                    return Results.Ok(BlogRepository.getModerationQueue ())
                 | Some _ -> return Results.Forbid()
                 | None   -> return Results.Unauthorized()
             } |> Async.StartAsTask)

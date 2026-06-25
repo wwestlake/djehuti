@@ -1,19 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
+import { blogApi } from '../../api/blogApi'
+import type { BlogArticle, BlogTag, BlogAuthor, SiteConfigEntry } from '../../api/blogApi'
 
 const BASE = '/djehuti'
 
 interface AdminUser {
   id: string; email: string; role: string; displayName: string | null; createdAt: string; emailVerified: boolean
 }
-interface BlogArticleSummary {
-  id: string; title: string; slug: string; status: string; createdAt: string
-}
 interface ContextRole {
   id: string; userId: string; module: string; role: string; scopeId: string | null; grantedAt: string
 }
 
-type Tab = 'users' | 'blog-queue' | 'roles'
+type Tab = 'users' | 'blog-queue' | 'blog-authors' | 'tags' | 'config' | 'roles'
 
 async function apiFetch(url: string, opts?: RequestInit) {
   const res = await fetch(url, { credentials: 'include', ...opts })
@@ -24,46 +23,102 @@ async function apiFetch(url: string, opts?: RequestInit) {
 export default function AdminPage() {
   const { user } = useAuth()
   const [tab, setTab] = useState<Tab>('users')
-  const [users, setUsers] = useState<AdminUser[]>([])
-  const [queue, setQueue] = useState<BlogArticleSummary[]>([])
-  const [roles, setRoles] = useState<ContextRole[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Users
+  const [users, setUsers] = useState<AdminUser[]>([])
+
+  // Blog queue
+  const [queue, setQueue] = useState<BlogArticle[]>([])
+  const [reviewingId, setReviewingId] = useState<string | null>(null)
+  const [modNote, setModNote] = useState('')
+
+  // Blog authors
+  const [authors, setAuthors] = useState<BlogAuthor[]>([])
+
+  // Tags
+  const [tags, setTags] = useState<BlogTag[]>([])
+  const [newTagName, setNewTagName] = useState('')
+  const [newTagDesc, setNewTagDesc] = useState('')
+
+  // Config
+  const [config, setConfig] = useState<SiteConfigEntry[]>([])
+  const [editingConfig, setEditingConfig] = useState<Record<string, string>>({})
+
+  // Roles
+  const [roles, setRoles] = useState<ContextRole[]>([])
   const [grantForm, setGrantForm] = useState({ userId: '', module: 'forum', role: 'moderator', scopeId: '' })
   const [granting, setGranting] = useState(false)
 
   useEffect(() => {
     if (!user || user.role !== 'admin') return
-    setLoading(true)
-    setError(null)
-    const loads: Promise<void>[] = []
-    if (tab === 'users') {
-      loads.push(apiFetch(`${BASE}/api/admin/users`).then(setUsers).catch(() => setError('Failed to load users')))
-    } else if (tab === 'blog-queue') {
-      loads.push(apiFetch(`${BASE}/api/admin/blog/queue`).then(setQueue).catch(() => setError('Failed to load queue')))
-    } else if (tab === 'roles') {
-      loads.push(apiFetch(`${BASE}/api/admin/context-roles`).then(setRoles).catch(() => setError('Failed to load roles')))
+    setLoading(true); setError(null)
+    const loaders: Record<Tab, () => Promise<void>> = {
+      users: () => apiFetch(`${BASE}/api/admin/users`).then(setUsers),
+      'blog-queue': () => apiFetch(`${BASE}/api/admin/blog/queue`).then(setQueue),
+      'blog-authors': () => blogApi.getAuthors().then(setAuthors),
+      tags: () => blogApi.getTags().then(setTags),
+      config: () => blogApi.getConfig().then(entries => {
+        setConfig(entries)
+        const map: Record<string, string> = {}
+        entries.forEach(e => { map[`${e.scope}:${e.key}`] = e.value.replace(/^"|"$/g, '') })
+        setEditingConfig(map)
+      }),
+      roles: () => apiFetch(`${BASE}/api/admin/context-roles`).then(setRoles),
     }
-    Promise.all(loads).finally(() => setLoading(false))
+    loaders[tab]().catch(() => setError('Failed to load data')).finally(() => setLoading(false))
   }, [tab, user])
 
-  const setUserRole = async (id: string, role: string) => {
-    try {
-      await apiFetch(`${BASE}/api/admin/users/${id}/role`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }),
-      })
-      setUsers(prev => prev.map(u => u.id === id ? { ...u, role } : u))
-    } catch { setError('Failed to update role.') }
-  }
+  // ── Moderation ──────────────────────────────────────────────────────────────
 
-  const setArticleStatus = async (id: string, status: string) => {
+  const doModAction = async (id: string, status: string) => {
     try {
-      await apiFetch(`${BASE}/api/blog/articles/${id}/status`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
-      })
+      await blogApi.setStatus(id, status, modNote || undefined)
       setQueue(prev => prev.filter(a => a.id !== id))
+      setReviewingId(null); setModNote('')
     } catch { setError('Failed to update article.') }
   }
+
+  // ── Authors ─────────────────────────────────────────────────────────────────
+
+  const toggleTrusted = async (a: BlogAuthor) => {
+    try {
+      const updated = await blogApi.upsertAuthor(a.userId, { ...a, trusted: !a.Trusted })
+      setAuthors(prev => prev.map(x => x.userId === a.userId ? updated : x))
+    } catch { setError('Failed to update author.') }
+  }
+
+  // ── Tags ────────────────────────────────────────────────────────────────────
+
+  const createTag = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newTagName.trim()) return
+    try {
+      const t = await blogApi.createTag(newTagName.trim(), newTagDesc.trim() || undefined)
+      if (t) setTags(prev => [...prev, t])
+      setNewTagName(''); setNewTagDesc('')
+    } catch { setError('Failed to create tag.') }
+  }
+
+  const deleteTag = async (id: string) => {
+    if (!confirm('Delete tag? This removes it from all articles.')) return
+    try { await blogApi.deleteTag(id); setTags(prev => prev.filter(t => t.id !== id)) }
+    catch { setError('Failed to delete tag.') }
+  }
+
+  // ── Config ──────────────────────────────────────────────────────────────────
+
+  const saveConfig = async (scope: string, key: string) => {
+    const val = editingConfig[`${scope}:${key}`] ?? ''
+    try {
+      // Wrap string values in quotes for JSON storage
+      const jsonVal = `"${val}"`
+      await blogApi.setConfig(scope, key, jsonVal)
+    } catch { setError('Failed to save config.') }
+  }
+
+  // ── Roles ───────────────────────────────────────────────────────────────────
 
   const grantRole = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -74,36 +129,46 @@ export default function AdminPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: grantForm.userId, module: grantForm.module, role: grantForm.role, scopeId: grantForm.scopeId || null }),
       })
-      const updated = await apiFetch(`${BASE}/api/admin/context-roles`)
-      setRoles(updated)
+      setRoles(await apiFetch(`${BASE}/api/admin/context-roles`))
       setGrantForm(f => ({ ...f, userId: '', scopeId: '' }))
     } catch { setError('Failed to grant role.') } finally { setGranting(false) }
   }
 
   const revokeRole = async (id: string) => {
+    try { await apiFetch(`${BASE}/api/admin/context-roles/${id}`, { method: 'DELETE' }); setRoles(prev => prev.filter(r => r.id !== id)) }
+    catch { setError('Failed to revoke role.') }
+  }
+
+  const setUserRole = async (id: string, role: string) => {
     try {
-      await apiFetch(`${BASE}/api/admin/context-roles/${id}`, { method: 'DELETE' })
-      setRoles(prev => prev.filter(r => r.id !== id))
-    } catch { setError('Failed to revoke role.') }
+      await apiFetch(`${BASE}/api/admin/users/${id}/role`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }) })
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, role } : u))
+    } catch { setError('Failed to update role.') }
   }
 
   if (!user || user.role !== 'admin') return <p className="forum-login-prompt">Admin access required.</p>
+
+  const TAB_LABELS: Record<Tab, string> = {
+    users: 'Users', 'blog-queue': 'Review Queue', 'blog-authors': 'Authors', tags: 'Tags', config: 'Config', roles: 'Roles',
+  }
 
   return (
     <div className="community-page admin-page">
       <h2 className="community-page-title">Admin Console</h2>
 
       <div className="blog-section-tabs">
-        {(['users', 'blog-queue', 'roles'] as Tab[]).map(t => (
+        {(Object.keys(TAB_LABELS) as Tab[]).map(t => (
           <button key={t} className={`blog-tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
-            {t === 'users' ? 'Users' : t === 'blog-queue' ? 'Blog Queue' : 'Context Roles'}
+            {TAB_LABELS[t]}
+            {t === 'blog-queue' && queue.length > 0 && <span className="admin-badge">{queue.length}</span>}
           </button>
         ))}
       </div>
 
-      {error && <p className="auth-error">{error}</p>}
+      {error && <p className="auth-error">{error} <button onClick={() => setError(null)}>✕</button></p>}
       {loading && <div className="forum-loading">Loading…</div>}
 
+      {/* ── Users ── */}
       {tab === 'users' && !loading && (
         <div className="admin-table-wrap">
           <table className="admin-table">
@@ -128,21 +193,67 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* ── Blog review queue ── */}
       {tab === 'blog-queue' && !loading && (
-        <div className="admin-table-wrap">
+        <div>
           {queue.length === 0 ? <p className="forum-empty">No articles pending review.</p> : (
+            <div className="mod-queue">
+              {queue.map(a => (
+                <div key={a.id} className={`mod-queue-item${reviewingId === a.id ? ' expanded' : ''}`}>
+                  <div className="mod-queue-header" onClick={() => setReviewingId(reviewingId === a.id ? null : a.id)}>
+                    <div>
+                      <div className="mod-queue-title">{a.title}</div>
+                      <div className="mod-queue-meta">
+                        <span className={`blog-status-badge ${a.status}`}>{a.status}</span>
+                        <span>{new Date(a.createdAt).toLocaleDateString()}</span>
+                        {a.subtitle && <span>{a.subtitle}</span>}
+                      </div>
+                    </div>
+                    <span className="mod-queue-chevron">{reviewingId === a.id ? '▲' : '▼'}</span>
+                  </div>
+
+                  {reviewingId === a.id && (
+                    <div className="mod-queue-body">
+                      <div className="blog-article-content mod-article-preview"
+                        dangerouslySetInnerHTML={{ __html: a.content }} />
+                      <div className="mod-actions">
+                        <textarea className="mod-note-input" rows={2} value={modNote}
+                          onChange={e => setModNote(e.target.value)}
+                          placeholder="Optional note to author (required for rejection / revision request)…" />
+                        <div className="mod-action-buttons">
+                          <button className="tiptap-action-btn primary" onClick={() => doModAction(a.id, 'approved')}>Approve</button>
+                          <button className="tiptap-action-btn primary" onClick={() => doModAction(a.id, 'published')}>Approve &amp; Publish</button>
+                          <button className="tiptap-action-btn secondary" onClick={() => doModAction(a.id, 'needs_revision')}>Request Revision</button>
+                          <button className="tiptap-action-btn secondary" onClick={() => doModAction(a.id, 'rejected')}>Reject</button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Blog authors ── */}
+      {tab === 'blog-authors' && !loading && (
+        <div className="admin-table-wrap">
+          {authors.length === 0 ? <p className="forum-empty">No authors yet.</p> : (
             <table className="admin-table">
-              <thead><tr><th>Title</th><th>Submitted</th><th>Actions</th></tr></thead>
+              <thead><tr><th>User ID</th><th>Display Name</th><th>Trusted</th><th>Joined</th></tr></thead>
               <tbody>
-                {queue.map(a => (
-                  <tr key={a.id}>
-                    <td>{a.title}</td>
-                    <td>{new Date(a.createdAt).toLocaleDateString()}</td>
+                {authors.map(a => (
+                  <tr key={a.userId}>
+                    <td className="admin-id-cell">{a.userId.slice(0, 8)}…</td>
+                    <td>{a.displayName ?? '—'}</td>
                     <td>
-                      <button className="primary-action" onClick={() => setArticleStatus(a.id, 'published')}>Publish</button>
-                      {' '}
-                      <button onClick={() => setArticleStatus(a.id, 'rejected')}>Reject</button>
+                      <button className={`admin-trust-btn${a.trusted ? ' trusted' : ''}`}
+                        onClick={() => toggleTrusted(a)}>
+                        {a.trusted ? '✓ Trusted' : 'Set Trusted'}
+                      </button>
                     </td>
+                    <td>{new Date(a.createdAt).toLocaleDateString()}</td>
                   </tr>
                 ))}
               </tbody>
@@ -151,8 +262,63 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* ── Tags ── */}
+      {tab === 'tags' && !loading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <form className="admin-grant-form" onSubmit={createTag}>
+            <h4 style={{ margin: 0 }}>Create Tag</h4>
+            <div className="admin-grant-fields">
+              <input placeholder="Tag name" value={newTagName} onChange={e => setNewTagName(e.target.value)} className="papers-new-input" />
+              <input placeholder="Description (optional)" value={newTagDesc} onChange={e => setNewTagDesc(e.target.value)} className="papers-new-input" style={{ flex: 2 }} />
+              <button type="submit" className="tiptap-action-btn primary" disabled={!newTagName.trim()}>Create</button>
+            </div>
+          </form>
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead><tr><th>Name</th><th>Slug</th><th>Description</th><th></th></tr></thead>
+              <tbody>
+                {tags.map(t => (
+                  <tr key={t.id}>
+                    <td>{t.name}</td>
+                    <td className="admin-id-cell">{t.slug}</td>
+                    <td>{t.description ?? '—'}</td>
+                    <td><button className="post-action post-action-delete" onClick={() => deleteTag(t.id)}>Delete</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Config ── */}
+      {tab === 'config' && !loading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          {['global', 'blog'].map(scope => (
+            <div key={scope}>
+              <h4 style={{ margin: '0 0 10px', textTransform: 'capitalize' }}>{scope} settings</h4>
+              <div className="config-table">
+                {config.filter(c => c.scope === scope).map(c => {
+                  const k = `${c.scope}:${c.key}`
+                  return (
+                    <div key={k} className="config-row">
+                      <div className="config-key">{c.key}</div>
+                      <input className="config-value-input" value={editingConfig[k] ?? ''}
+                        onChange={e => setEditingConfig(prev => ({ ...prev, [k]: e.target.value }))} />
+                      <button className="tiptap-action-btn secondary small"
+                        onClick={() => saveConfig(c.scope, c.key)}>Save</button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Roles ── */}
       {tab === 'roles' && !loading && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <form className="admin-grant-form" onSubmit={grantRole}>
             <h4 style={{ margin: 0 }}>Grant Context Role</h4>
             <div className="admin-grant-fields">
@@ -170,11 +336,10 @@ export default function AdminPage() {
                 <option value="author">author</option>
                 <option value="editor">editor</option>
                 <option value="contributor">contributor</option>
-                <option value="viewer">viewer</option>
               </select>
               <input placeholder="Scope ID (optional)" value={grantForm.scopeId}
                 onChange={e => setGrantForm(f => ({ ...f, scopeId: e.target.value }))} className="papers-new-input" />
-              <button type="submit" className="primary-action" disabled={granting || !grantForm.userId.trim()}>
+              <button type="submit" className="tiptap-action-btn primary" disabled={granting || !grantForm.userId.trim()}>
                 {granting ? 'Granting…' : 'Grant'}
               </button>
             </div>

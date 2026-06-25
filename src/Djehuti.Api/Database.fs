@@ -374,6 +374,115 @@ let private migrations : (int * string) list =
             updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
         );
         """
+
+        14, """
+        -- ── Blog enhancements ────────────────────────────────────────────────
+
+        -- Extend article status set and add new columns
+        ALTER TABLE blog_articles DROP CONSTRAINT IF EXISTS blog_articles_status_check;
+        ALTER TABLE blog_articles ADD CONSTRAINT blog_articles_status_check
+            CHECK (status IN ('draft','submitted','under_review','approved','published','rejected','needs_revision'));
+
+        ALTER TABLE blog_articles ADD COLUMN IF NOT EXISTS subtitle      TEXT;
+        ALTER TABLE blog_articles ADD COLUMN IF NOT EXISTS body_json     JSONB;
+        ALTER TABLE blog_articles ADD COLUMN IF NOT EXISTS visibility    TEXT NOT NULL DEFAULT 'public'
+            CHECK (visibility IN ('public','unlisted','private'));
+        ALTER TABLE blog_articles ADD COLUMN IF NOT EXISTS featured      BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE blog_articles ADD COLUMN IF NOT EXISTS featured_position INT;
+        ALTER TABLE blog_articles ADD COLUMN IF NOT EXISTS pinned        BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE blog_articles ADD COLUMN IF NOT EXISTS deleted_at    TIMESTAMPTZ;
+
+        CREATE INDEX IF NOT EXISTS idx_blog_articles_featured ON blog_articles(featured, featured_position)
+            WHERE featured = TRUE;
+        CREATE INDEX IF NOT EXISTS idx_blog_articles_pinned ON blog_articles(pinned, published_at DESC)
+            WHERE pinned = TRUE;
+        CREATE INDEX IF NOT EXISTS idx_blog_articles_fts
+            ON blog_articles USING gin(to_tsvector('english', title || ' ' || coalesce(excerpt,'') || ' ' || coalesce(content,'')));
+
+        -- Add description to tags
+        ALTER TABLE blog_tags ADD COLUMN IF NOT EXISTS description TEXT;
+
+        -- Author profiles: extended bio and trusted-author flag
+        CREATE TABLE IF NOT EXISTS blog_authors (
+            user_id             UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            bio                 TEXT,
+            display_name        TEXT,
+            avatar_url          TEXT,
+            social_links        JSONB NOT NULL DEFAULT '[]'::jsonb,
+            trusted             BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        -- Upload ingestion: stores uploaded files and their conversion state
+        CREATE TABLE IF NOT EXISTS blog_uploads (
+            id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            article_id          UUID REFERENCES blog_articles(id) ON DELETE SET NULL,
+            uploader_user_id    UUID NOT NULL REFERENCES users(id),
+            original_filename   TEXT NOT NULL,
+            mime_type           TEXT NOT NULL,
+            format              TEXT NOT NULL
+                                CHECK (format IN ('docx','pdf','md','html','txt')),
+            storage_key         TEXT NOT NULL,
+            size_bytes          BIGINT,
+            conversion_status   TEXT NOT NULL DEFAULT 'pending'
+                                CHECK (conversion_status IN ('pending','processing','done','failed')),
+            conversion_option   TEXT NOT NULL DEFAULT 'convert'
+                                CHECK (conversion_option IN ('as-is','convert','reformat')),
+            converted_html      TEXT,
+            error_message       TEXT,
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_blog_uploads_article_id       ON blog_uploads(article_id);
+        CREATE INDEX IF NOT EXISTS idx_blog_uploads_uploader_user_id ON blog_uploads(uploader_user_id);
+        CREATE INDEX IF NOT EXISTS idx_blog_uploads_conversion_status ON blog_uploads(conversion_status);
+
+        -- Moderation audit log
+        CREATE TABLE IF NOT EXISTS blog_moderation_log (
+            id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            article_id          UUID NOT NULL REFERENCES blog_articles(id) ON DELETE CASCADE,
+            moderator_user_id   UUID REFERENCES users(id),
+            action              TEXT NOT NULL
+                                CHECK (action IN ('submitted','approved','rejected','needs_revision',
+                                                  'published','unpublished','featured','unfeatured',
+                                                  'pinned','unpinned','deleted')),
+            note                TEXT,
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_blog_moderation_log_article_id ON blog_moderation_log(article_id);
+        CREATE INDEX IF NOT EXISTS idx_blog_moderation_log_moderator  ON blog_moderation_log(moderator_user_id);
+
+        -- Global + subsystem configuration store
+        CREATE TABLE IF NOT EXISTS site_config (
+            key             TEXT NOT NULL,
+            scope           TEXT NOT NULL DEFAULT 'global'
+                            CHECK (scope IN ('global','blog','forum','papers')),
+            value           JSONB NOT NULL,
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_by      UUID REFERENCES users(id),
+            PRIMARY KEY (scope, key)
+        );
+
+        -- Seed default blog config
+        INSERT INTO site_config (scope, key, value) VALUES
+            ('global', 'site_name',               '"Lagdaemon"'),
+            ('global', 'contact_email',            '"wwestlake@lagdaemon.com"'),
+            ('global', 'mail_from_address',        '"noreply@lagdaemon.com"'),
+            ('global', 'moderation_policy',        '"review_all"'),
+            ('global', 'notify_on_submission',     'true'),
+            ('global', 'notify_on_approval',       'true'),
+            ('global', 'notify_on_rejection',      'true'),
+            ('blog',   'allowed_upload_formats',   '["docx","pdf","md","html","txt"]'),
+            ('blog',   'max_upload_mb',            '20'),
+            ('blog',   'default_visibility',       '"public"'),
+            ('blog',   'comments_enabled',         'true'),
+            ('blog',   'rss_enabled',              'true'),
+            ('blog',   'featured_count',           '3')
+        ON CONFLICT (scope, key) DO NOTHING;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
