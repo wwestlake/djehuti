@@ -118,6 +118,6 @@ jobs:
           sudo systemctl daemon-reload
           sudo systemctl enable djehuti-api
           sudo systemctl restart djehuti-api
-          sleep 3
-          sudo systemctl is-active djehuti-api
+          sleep 10
+          sudo systemctl is-active djehuti-api || (sudo journalctl -u djehuti-api -n 30 && exit 1)
           EOF
