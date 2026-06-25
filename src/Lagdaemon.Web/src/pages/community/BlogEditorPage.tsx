@@ -374,6 +374,7 @@ export default function BlogEditorPage({ articleId, onSaved, onCancel }: Props) 
           <div className="blog-editor-sidebar-section">
             <label className="blog-editor-sidebar-label">Section</label>
             <select value={sectionId} onChange={e => setSectionId(e.target.value)} disabled={isReadOnly}>
+              {sections.length === 0 && <option value="">General (default)</option>}
               {sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>

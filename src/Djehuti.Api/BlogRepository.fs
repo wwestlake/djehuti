@@ -297,7 +297,13 @@ let createSection (name: string) (description: string option) =
     use r = cmd.ExecuteReader()
     if r.Read() then Some (readSection r) else None
 
-// ── Tags ──────────────────────────────────────────────────────────────────────
+let getOrCreateDefaultSection () =
+    match getSections () with
+    | s :: _ -> s
+    | [] ->
+        createSection "General" (Some "General articles")
+        |> Option.defaultWith (fun () -> failwith "Could not create default blog section")
+
 
 let getTags () =
     use conn = openConnection ()

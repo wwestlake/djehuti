@@ -1645,8 +1645,13 @@ let main args =
                 match tryGetAuthClaims ctx with
                 | None -> return Results.Unauthorized()
                 | Some claims ->
-                    match Guid.TryParse(claims.UserId), Guid.TryParse(body.sectionId) with
-                    | (true, userId), (true, sectionId) ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        let sectionId =
+                            match Guid.TryParse(body.sectionId) with
+                            | true, g -> g
+                            | _       -> (BlogRepository.getOrCreateDefaultSection ()).Id
                         let subtitle    = if String.IsNullOrWhiteSpace body.subtitle  then None else Some body.subtitle
                         let excerpt     = if String.IsNullOrWhiteSpace body.excerpt   then None else Some body.excerpt
                         let bodyJson    = if String.IsNullOrWhiteSpace body.bodyJson  then None else Some body.bodyJson
@@ -1654,7 +1659,6 @@ let main args =
                         return match BlogRepository.createArticle sectionId userId body.title subtitle body.content bodyJson excerpt visibility with
                                | Some a -> Results.Created($"/api/blog/articles/{a.Slug}", a)
                                | None   -> Results.Problem(detail = "Failed to create article", statusCode = 500, title = "Error")
-                    | _ -> return Results.BadRequest("Invalid userId or sectionId")
             } |> Async.StartAsTask)
     ) |> ignore
 
