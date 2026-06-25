@@ -1845,10 +1845,12 @@ let main args =
                     | true, userId ->
                         let validFormats = Set.ofList ["docx";"pdf";"md";"html";"txt"]
                         let validOptions = Set.ofList ["as-is";"convert";"reformat"]
+                        let allowedFormats  = String.concat ", " validFormats
+                        let allowedOptions  = String.concat ", " validOptions
                         if not (Set.contains body.format validFormats) then
-                            return Results.BadRequest($"Invalid format. Allowed: {String.concat \", \" validFormats}")
+                            return Results.BadRequest($"Invalid format. Allowed: {allowedFormats}")
                         if not (Set.contains body.conversionOption validOptions) then
-                            return Results.BadRequest($"Invalid conversionOption. Allowed: {String.concat \", \" validOptions}")
+                            return Results.BadRequest($"Invalid conversionOption. Allowed: {allowedOptions}")
                         let size = if body.sizeBytes > 0L then Some body.sizeBytes else None
                         match BlogRepository.createUpload userId body.originalFilename body.mimeType body.format body.storageKey size body.conversionOption with
                         | None -> return Results.Problem(detail = "Failed to create upload record", statusCode = 500, title = "Error")
@@ -1862,7 +1864,8 @@ let main args =
                                 | ("html" | "md" | "txt"), "convert" ->
                                     // Conversion happens client-side by passing the S3 URL;
                                     // for server-side conversion we mark done with the URL
-                                    BlogRepository.updateUploadConversion upload.Id "done" (Some $"<p>Content loaded from: <a href=\"{fileUrl}\">{body.originalFilename}</a></p>") None
+                                    let convHtml = $"""<p>Content loaded from: <a href="{fileUrl}">{body.originalFilename}</a></p>"""
+                                    BlogRepository.updateUploadConversion upload.Id "done" (Some convHtml) None
                                 | _ ->
                                     // docx/pdf served as-is via embedded viewer; mark done
                                     BlogRepository.updateUploadConversion upload.Id "done" None None
