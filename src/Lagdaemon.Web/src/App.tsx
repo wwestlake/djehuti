@@ -15,8 +15,10 @@ import PapersListPage from './pages/community/PapersListPage'
 import PaperWorkspacePage from './pages/community/PaperWorkspacePage'
 import ProfilePage from './pages/community/ProfilePage'
 import AdminPage from './pages/community/AdminPage'
+import AnnouncementsPage from './pages/community/AnnouncementsPage'
+import AnnouncementBanner from './pages/community/AnnouncementBanner'
 
-type Section = 'home' | 'forum' | 'blog' | 'papers' | 'profile' | 'admin'
+type Section = 'home' | 'forum' | 'blog' | 'papers' | 'profile' | 'admin' | 'announcements'
 type ForumView = { page: 'list' } | { page: 'forum'; forumId: string } | { page: 'thread'; threadId: string }
 type BlogView = { page: 'list' } | { page: 'article'; slug: string } | { page: 'editor'; articleId?: string }
 type PapersView = { page: 'list' } | { page: 'workspace'; paperId: string }
@@ -46,6 +48,7 @@ function Nav({ section, onSection, onOpenLogin }: NavProps) {
         ) : (
           <button className="nav-section-back breadcrumb-link" onClick={() => onSection('home')}>← Home</button>
         )}
+        <button className={`nav-community-link${section === 'announcements' ? ' active' : ''}`} onClick={() => onSection('announcements')}>Announcements</button>
         <button className={`nav-community-link${section === 'forum' ? ' active' : ''}`} onClick={() => onSection('forum')}>Forum</button>
         <button className={`nav-community-link${section === 'blog' ? ' active' : ''}`} onClick={() => onSection('blog')}>Blog</button>
         <button className={`nav-community-link${section === 'papers' ? ' active' : ''}`} onClick={() => onSection('papers')}>Papers</button>
@@ -344,6 +347,8 @@ function AppInner() {
     window.scrollTo(0, 0)
   }
 
+  const goAnnouncements = () => goSection('announcements')
+
   const renderCommunity = () => {
     switch (section) {
       case 'forum':
@@ -387,6 +392,9 @@ function AppInner() {
       case 'admin':
         return <AdminPage />
 
+      case 'announcements':
+        return <AnnouncementsPage />
+
       default:
         return null
     }
@@ -407,6 +415,7 @@ function AppInner() {
         </>
       ) : (
         <main className="community-main">
+          {section !== 'announcements' && <AnnouncementBanner onViewAll={goAnnouncements} />}
           {renderCommunity()}
         </main>
       )}
