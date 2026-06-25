@@ -224,9 +224,9 @@ let private readAuthor (r: DbDataReader) : BlogAuthor = {
     DisplayName = if r.IsDBNull(2) then None else Some (r.GetString(2))
     AvatarUrl   = if r.IsDBNull(3) then None else Some (r.GetString(3))
     SocialLinks = if r.IsDBNull(4) then "[]" else r.GetString(4)
-    Trusted     = r.GetBoolean(5)
+    Trusted     = if r.IsDBNull(5) then false else r.GetBoolean(5)
     CreatedAt   = r.GetFieldValue<DateTime>(6)
-    UpdatedAt   = r.GetFieldValue<DateTime>(7)
+    UpdatedAt   = if r.IsDBNull(7) then r.GetFieldValue<DateTime>(6) else r.GetFieldValue<DateTime>(7)
 }
 
 let private readUpload (r: DbDataReader) : BlogUpload = {
@@ -538,7 +538,13 @@ let getAuthor (userId: Guid) =
 
 let listAuthors () =
     use conn = openConnection ()
-    use cmd = new NpgsqlCommand($"SELECT {authorCols} FROM blog_authors ORDER BY created_at DESC", conn)
+    // Return all users, joined with blog_authors for bio/trusted status
+    use cmd = new NpgsqlCommand(
+        """SELECT u.id, a.bio, COALESCE(a.display_name, u.display_name), a.avatar_url,
+                  a.social_links, a.trusted, u.created_at, a.updated_at
+           FROM users u
+           LEFT JOIN blog_authors a ON a.user_id = u.id
+           ORDER BY u.created_at DESC""", conn)
     use r = cmd.ExecuteReader()
     [ while r.Read() do yield readAuthor r ]
 

@@ -1656,6 +1656,8 @@ let main args =
                         let excerpt     = if String.IsNullOrWhiteSpace body.excerpt   then None else Some body.excerpt
                         let bodyJson    = if String.IsNullOrWhiteSpace body.bodyJson  then None else Some body.bodyJson
                         let visibility  = if String.IsNullOrWhiteSpace body.visibility then "public" else body.visibility
+                        // Auto-register user as author on first article
+                        BlogRepository.upsertAuthor userId None None None "[]" false |> ignore
                         return match BlogRepository.createArticle sectionId userId body.title subtitle body.content bodyJson excerpt visibility with
                                | Some a -> Results.Created($"/api/blog/articles/{a.Slug}", a)
                                | None   -> Results.Problem(detail = "Failed to create article", statusCode = 500, title = "Error")
@@ -2495,7 +2497,7 @@ let main args =
                 | Some claims when Permissions.isAdmin claims.Role ->
                     use conn = Database.openConnection()
                     use cmd = new Npgsql.NpgsqlCommand(
-                        "SELECT id, email, role, display_name, created_at, email_verified FROM users ORDER BY created_at DESC", conn)
+                        "SELECT id, email, role, display_name, created_at, email_verified_at IS NOT NULL FROM users ORDER BY created_at DESC", conn)
                     use reader = cmd.ExecuteReader()
                     let mutable rows = []
                     while reader.Read() do
