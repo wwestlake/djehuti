@@ -152,7 +152,8 @@ let convertMarkdownToHtml (md: string) : string =
             sb.AppendLine($"<li>{applyInline (line.Substring(2))}</li>") |> ignore
         elif Regex.IsMatch(line, @"^\d+\. ") then
             if inList then sb.AppendLine("</ul>") |> ignore; inList <- false
-            sb.AppendLine($"<ol><li>{applyInline (Regex.Replace(line, @"^\d+\. ", ""))}</li></ol>") |> ignore
+            let stripped = Regex.Replace(line, @"^\d+\. ", "")
+            sb.AppendLine($"<ol><li>{applyInline stripped}</li></ol>") |> ignore
         elif line.StartsWith("---") || line.StartsWith("***") then
             if inList then sb.AppendLine("</ul>") |> ignore; inList <- false
             sb.AppendLine("<hr/>") |> ignore
