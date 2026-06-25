@@ -33,35 +33,62 @@ type NavProps = {
 
 function Nav({ section, onSection, onOpenLogin }: NavProps) {
   const { user } = useAuth()
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
+  const go = (s: Section) => { setDrawerOpen(false); onSection(s) }
+
+  const links = (
+    <>
+      {section === 'home' ? (
+        <>
+          <a href="#research" onClick={() => setDrawerOpen(false)}>Research</a>
+          <a href="#instrument" onClick={() => setDrawerOpen(false)}>Instrument</a>
+          <a href="#about" onClick={() => setDrawerOpen(false)}>About</a>
+        </>
+      ) : (
+        <button className="nav-section-back breadcrumb-link" onClick={() => go('home')}>← Home</button>
+      )}
+      <button className={`nav-community-link${section === 'announcements' ? ' active' : ''}`} onClick={() => go('announcements')}>Announcements</button>
+      <button className={`nav-community-link${section === 'forum' ? ' active' : ''}`} onClick={() => go('forum')}>Forum</button>
+      <button className={`nav-community-link${section === 'blog' ? ' active' : ''}`} onClick={() => go('blog')}>Blog</button>
+      <button className={`nav-community-link${section === 'papers' ? ' active' : ''}`} onClick={() => go('papers')}>Papers</button>
+      {user && (
+        <button className={`nav-community-link${section === 'profile' ? ' active' : ''}`} onClick={() => go('profile')}>Profile</button>
+      )}
+      {user?.role === 'admin' && (
+        <button className={`nav-community-link${section === 'admin' ? ' active' : ''}`} onClick={() => go('admin')}>Admin</button>
+      )}
+      <a className="nav-cta" href="/djehuti/" onClick={() => setDrawerOpen(false)}>Open Djehuti ↗</a>
+    </>
+  )
+
   return (
-    <header className="nav">
-      <a className="nav-logo" href="#" onClick={e => { e.preventDefault(); onSection('home') }}>
-        <img src="/logo.png" alt="Lag Daemon" />
-      </a>
-      <nav>
-        {section === 'home' ? (
-          <>
-            <a href="#research">Research</a>
-            <a href="#instrument">Instrument</a>
-            <a href="#about">About</a>
-          </>
-        ) : (
-          <button className="nav-section-back breadcrumb-link" onClick={() => onSection('home')}>← Home</button>
-        )}
-        <button className={`nav-community-link${section === 'announcements' ? ' active' : ''}`} onClick={() => onSection('announcements')}>Announcements</button>
-        <button className={`nav-community-link${section === 'forum' ? ' active' : ''}`} onClick={() => onSection('forum')}>Forum</button>
-        <button className={`nav-community-link${section === 'blog' ? ' active' : ''}`} onClick={() => onSection('blog')}>Blog</button>
-        <button className={`nav-community-link${section === 'papers' ? ' active' : ''}`} onClick={() => onSection('papers')}>Papers</button>
-        {user && (
-          <button className={`nav-community-link${section === 'profile' ? ' active' : ''}`} onClick={() => onSection('profile')}>Profile</button>
-        )}
-        {user?.role === 'admin' && (
-          <button className={`nav-community-link${section === 'admin' ? ' active' : ''}`} onClick={() => onSection('admin')}>Admin</button>
-        )}
-        <a className="nav-cta" href="/djehuti/">Open Djehuti ↗</a>
-        <UserMenu onOpenLogin={onOpenLogin} />
+    <>
+      <header className="nav">
+        <a className="nav-logo" href="#" onClick={e => { e.preventDefault(); go('home') }}>
+          <img src="/logo.png" alt="Lag Daemon" />
+        </a>
+        {/* Desktop nav */}
+        <nav className="nav-desktop">
+          {links}
+          <UserMenu onOpenLogin={onOpenLogin} />
+        </nav>
+        {/* Mobile: UserMenu + hamburger */}
+        <div className="nav-mobile-bar">
+          <UserMenu onOpenLogin={onOpenLogin} />
+          <button className="nav-hamburger" onClick={() => setDrawerOpen(o => !o)} aria-label="Menu">
+            <span /><span /><span />
+          </button>
+        </div>
+      </header>
+
+      {/* Drawer overlay */}
+      {drawerOpen && <div className="nav-drawer-overlay" onClick={() => setDrawerOpen(false)} />}
+      <nav className={`nav-drawer${drawerOpen ? ' open' : ''}`}>
+        <button className="nav-drawer-close" onClick={() => setDrawerOpen(false)} aria-label="Close">✕</button>
+        {links}
       </nav>
-    </header>
+    </>
   )
 }
 
