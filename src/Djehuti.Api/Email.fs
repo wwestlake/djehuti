@@ -67,6 +67,47 @@ let verificationEmailTemplate (userName: string) (token: string) : string =
     </html>
     """ userName verifyLink verifyLink
 
+let announcementEmailTemplate (title: string) (bodyHtml: string) (unsubscribeUrl: string) : string =
+    sprintf """
+    <html>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #333; background: #f5f5f5;">
+        <div style="max-width: 600px; margin: 0 auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+            <div style="background: #0d1117; padding: 24px 32px;">
+                <h1 style="color: #58a6ff; margin: 0; font-size: 20px;">Lagdaemon Announcement</h1>
+            </div>
+            <div style="padding: 32px;">
+                <h2 style="margin-top: 0; color: #0d1117;">%s</h2>
+                <div style="color: #444; font-size: 15px;">%s</div>
+                <div style="margin-top: 32px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #999;">
+                    You received this because you subscribed to announcements from lagdaemon.com.<br/>
+                    <a href="%s" style="color: #999;">Unsubscribe</a>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """ title bodyHtml unsubscribeUrl
+
+let confirmSubscriptionEmailTemplate (confirmUrl: string) : string =
+    sprintf """
+    <html>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #333;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2>Confirm your announcement subscription</h2>
+            <p>Click the link below to start receiving announcements from lagdaemon.com:</p>
+            <p style="margin: 30px 0;">
+                <a href="%s" style="background-color: #58a6ff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                    Confirm Subscription
+                </a>
+            </p>
+            <p style="color: #999; font-size: 12px; margin-top: 40px;">
+                If you didn't request this, you can safely ignore this email.
+            </p>
+        </div>
+    </body>
+    </html>
+    """ confirmUrl
+
 let passwordResetEmailTemplate (userName: string) (resetLink: string) : string =
     sprintf """
     <html>

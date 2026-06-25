@@ -483,6 +483,39 @@ let private migrations : (int * string) list =
             ('blog',   'featured_count',           '3')
         ON CONFLICT (scope, key) DO NOTHING;
         """
+
+    15, """
+        -- Announcements
+        CREATE TABLE IF NOT EXISTS announcements (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            title           TEXT NOT NULL,
+            body            TEXT NOT NULL DEFAULT '',
+            priority        INT  NOT NULL DEFAULT 0,
+            author_id       UUID REFERENCES users(id),
+            published_at    TIMESTAMPTZ,
+            expires_at      TIMESTAMPTZ,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_announcements_published ON announcements(published_at DESC)
+            WHERE published_at IS NOT NULL;
+
+        -- Announcement subscriptions
+        CREATE TABLE IF NOT EXISTS announcement_subscriptions (
+            id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id             UUID REFERENCES users(id) ON DELETE CASCADE,
+            email               TEXT NOT NULL,
+            confirmed           BOOLEAN NOT NULL DEFAULT false,
+            confirm_token       TEXT NOT NULL DEFAULT encode(gen_random_bytes(24), 'hex'),
+            unsubscribe_token   TEXT NOT NULL DEFAULT encode(gen_random_bytes(24), 'hex'),
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (email)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_announcement_subscriptions_email ON announcement_subscriptions(email);
+        CREATE INDEX IF NOT EXISTS idx_announcement_subscriptions_user  ON announcement_subscriptions(user_id);
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
