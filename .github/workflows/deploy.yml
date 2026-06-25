@@ -115,7 +115,6 @@ jobs:
           set -e
           sudo mv /tmp/djehuti-api.service /etc/systemd/system/djehuti-api.service
           chmod +x /opt/djehuti-api/Djehuti.Api
-          sudo ln -sfn /var/www/djehuti /var/www/kwestkarz/djehuti
           sudo systemctl daemon-reload
           sudo systemctl enable djehuti-api
           sudo systemctl restart djehuti-api
