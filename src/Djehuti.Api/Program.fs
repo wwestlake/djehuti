@@ -1848,30 +1848,27 @@ let main args =
                         let allowedFormats  = String.concat ", " validFormats
                         let allowedOptions  = String.concat ", " validOptions
                         if not (Set.contains body.format validFormats) then
-                            return Results.BadRequest($"Invalid format. Allowed: {allowedFormats}")
-                        if not (Set.contains body.conversionOption validOptions) then
-                            return Results.BadRequest($"Invalid conversionOption. Allowed: {allowedOptions}")
-                        let size = if body.sizeBytes > 0L then Some body.sizeBytes else None
-                        match BlogRepository.createUpload userId body.originalFilename body.mimeType body.format body.storageKey size body.conversionOption with
-                        | None -> return Results.Problem(detail = "Failed to create upload record", statusCode = 500, title = "Error")
-                        | Some upload ->
-                            // For text-based formats, attempt inline conversion immediately
-                            let s3BaseUrl = Environment.GetEnvironmentVariable("S3_BUCKET")
-                            let s3Region  = Environment.GetEnvironmentVariable("S3_REGION")
-                            let fileUrl = $"https://{s3BaseUrl}.s3.{s3Region}.amazonaws.com/{body.storageKey}"
-                            let converted =
-                                match body.format, body.conversionOption with
-                                | ("html" | "md" | "txt"), "convert" ->
-                                    // Conversion happens client-side by passing the S3 URL;
-                                    // for server-side conversion we mark done with the URL
-                                    let convHtml = $"""<p>Content loaded from: <a href="{fileUrl}">{body.originalFilename}</a></p>"""
-                                    BlogRepository.updateUploadConversion upload.Id "done" (Some convHtml) None
-                                | _ ->
-                                    // docx/pdf served as-is via embedded viewer; mark done
-                                    BlogRepository.updateUploadConversion upload.Id "done" None None
-                            return match converted with
-                                   | Some u -> Results.Created($"/api/blog/uploads/{u.Id}", u)
-                                   | None   -> Results.Ok(upload)
+                            return Results.BadRequest($"Invalid format. Allowed: {allowedFormats}") :> IResult
+                        elif not (Set.contains body.conversionOption validOptions) then
+                            return Results.BadRequest($"Invalid conversionOption. Allowed: {allowedOptions}") :> IResult
+                        else
+                            let size = if body.sizeBytes > 0L then Some body.sizeBytes else None
+                            match BlogRepository.createUpload userId body.originalFilename body.mimeType body.format body.storageKey size body.conversionOption with
+                            | None -> return Results.Problem(detail = "Failed to create upload record", statusCode = 500, title = "Error") :> IResult
+                            | Some upload ->
+                                let s3BaseUrl = Environment.GetEnvironmentVariable("S3_BUCKET")
+                                let s3Region  = Environment.GetEnvironmentVariable("S3_REGION")
+                                let fileUrl = $"https://{s3BaseUrl}.s3.{s3Region}.amazonaws.com/{body.storageKey}"
+                                let converted =
+                                    match body.format, body.conversionOption with
+                                    | ("html" | "md" | "txt"), "convert" ->
+                                        let convHtml = $"""<p>Content loaded from: <a href="{fileUrl}">{body.originalFilename}</a></p>"""
+                                        BlogRepository.updateUploadConversion upload.Id "done" (Some convHtml) None
+                                    | _ ->
+                                        BlogRepository.updateUploadConversion upload.Id "done" None None
+                                return match converted with
+                                       | Some u -> Results.Created($"/api/blog/uploads/{u.Id}", u) :> IResult
+                                       | None   -> Results.Ok(upload) :> IResult
             } |> Async.StartAsTask)
     ) |> ignore
 
