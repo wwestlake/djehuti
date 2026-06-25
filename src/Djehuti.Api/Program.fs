@@ -2046,6 +2046,210 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // ── Announcements ─────────────────────────────────────────────────────────
+
+    // Public: get recent published announcements
+    app.MapGet(
+        "/api/announcements",
+        Func<int, IResult>(fun limit ->
+            let lim = if limit < 1 || limit > 50 then 10 else limit
+            Results.Ok(AnnouncementRepository.getPublished lim))
+    ) |> ignore
+
+    // Admin: get all (including drafts)
+    app.MapGet(
+        "/api/admin/announcements",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    return Results.Ok(AnnouncementRepository.getAll ())
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // Admin: create announcement
+    app.MapPost(
+        "/api/admin/announcements",
+        Func<HttpContext, {| title: string; body: string; priority: int; expiresAt: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        let expiresAt =
+                            match DateTime.TryParse(body.expiresAt) with
+                            | true, dt -> Some dt
+                            | _        -> None
+                        return match AnnouncementRepository.create userId body.title body.body body.priority expiresAt with
+                               | Some a -> Results.Created($"/api/admin/announcements/{a.Id}", a)
+                               | None   -> Results.Problem(detail = "Failed to create announcement", statusCode = 500, title = "Error")
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // Admin: update announcement
+    app.MapPut(
+        "/api/admin/announcements/{id}",
+        Func<string, HttpContext, {| title: string; body: string; priority: int; expiresAt: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid id")
+                | true, aid ->
+                    match tryGetAuthClaims ctx with
+                    | Some claims when Permissions.isAdmin claims.Role ->
+                        let expiresAt =
+                            match DateTime.TryParse(body.expiresAt) with
+                            | true, dt -> Some dt
+                            | _        -> None
+                        return match AnnouncementRepository.update aid body.title body.body body.priority expiresAt with
+                               | Some a -> Results.Ok(a)
+                               | None   -> Results.NotFound()
+                    | Some _ -> return Results.Forbid()
+                    | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // Admin: publish and email all confirmed subscribers
+    app.MapPost(
+        "/api/admin/announcements/{id}/publish",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid id")
+                | true, aid ->
+                    match tryGetAuthClaims ctx with
+                    | Some claims when Permissions.isAdmin claims.Role ->
+                        match AnnouncementRepository.publish aid with
+                        | None -> return Results.NotFound()
+                        | Some a ->
+                            // Fire-and-forget email blast to confirmed subscribers
+                            let subs = AnnouncementRepository.getConfirmedSubscribers ()
+                            let baseUrl = "https://lagdaemon.com"
+                            for sub in subs do
+                                let unsubUrl = $"{baseUrl}/api/announcements/unsubscribe?token={sub.UnsubscribeToken}"
+                                let html = Email.announcementEmailTemplate a.Title a.Body unsubUrl
+                                Email.sendEmail { To = sub.Email; Subject = a.Title; HtmlBody = html }
+                                |> Async.Start
+                            return Results.Ok(a)
+                    | Some _ -> return Results.Forbid()
+                    | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // Admin: unpublish
+    app.MapPost(
+        "/api/admin/announcements/{id}/unpublish",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid id")
+                | true, aid ->
+                    match tryGetAuthClaims ctx with
+                    | Some claims when Permissions.isAdmin claims.Role ->
+                        return match AnnouncementRepository.unpublish aid with
+                               | Some a -> Results.Ok(a)
+                               | None   -> Results.NotFound()
+                    | Some _ -> return Results.Forbid()
+                    | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // Admin: delete announcement
+    app.MapDelete(
+        "/api/admin/announcements/{id}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid id")
+                | true, aid ->
+                    match tryGetAuthClaims ctx with
+                    | Some claims when Permissions.isAdmin claims.Role ->
+                        return if AnnouncementRepository.delete aid then Results.Ok() else Results.NotFound()
+                    | Some _ -> return Results.Forbid()
+                    | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // Public: subscribe (logged-in users auto-confirm)
+    app.MapPost(
+        "/api/announcements/subscribe",
+        Func<HttpContext, {| email: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                let email = body.email.Trim().ToLowerInvariant()
+                if String.IsNullOrWhiteSpace(email) then
+                    return Results.BadRequest("Email required") :> IResult
+                else
+                    let claims = tryGetAuthClaims ctx
+                    let userId = claims |> Option.bind (fun c -> match Guid.TryParse(c.UserId) with | true, g -> Some g | _ -> None)
+                    let autoConfirm = claims.IsSome
+                    match AnnouncementRepository.subscribe userId email autoConfirm with
+                    | None -> return Results.Problem(detail = "Failed to subscribe", statusCode = 500, title = "Error") :> IResult
+                    | Some sub ->
+                        if not autoConfirm then
+                            // Send confirmation email
+                            let baseUrl = "https://lagdaemon.com"
+                            let confirmUrl = $"{baseUrl}/api/announcements/confirm?token={sub.UnsubscribeToken}"
+                            let html = Email.confirmSubscriptionEmailTemplate confirmUrl
+                            Email.sendEmail { To = email; Subject = "Confirm your subscription"; HtmlBody = html }
+                            |> Async.Start
+                        return Results.Ok({| subscribed = true; confirmed = sub.Confirmed |}) :> IResult
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // Public: check subscription status
+    app.MapGet(
+        "/api/announcements/subscribed",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Ok({| subscribed = false; confirmed = false |})
+                | Some claims ->
+                    let email =
+                        match AnnouncementRepository.getSubscriptionByEmail claims.Email with
+                        | Some s -> Some s
+                        | None   -> None
+                    return match email with
+                           | Some s -> Results.Ok({| subscribed = true; confirmed = s.Confirmed |})
+                           | None   -> Results.Ok({| subscribed = false; confirmed = false |})
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // Public: unsubscribe via token (from email link)
+    app.MapGet(
+        "/api/announcements/unsubscribe",
+        Func<string, IResult>(fun token ->
+            if AnnouncementRepository.unsubscribeByToken token then
+                Results.Ok({| message = "You have been unsubscribed." |})
+            else
+                Results.NotFound())
+    ) |> ignore
+
+    // Public: confirm subscription
+    app.MapGet(
+        "/api/announcements/confirm",
+        Func<string, IResult>(fun token ->
+            match AnnouncementRepository.confirmSubscription token with
+            | Some _ -> Results.Ok({| message = "Subscription confirmed!" |})
+            | None   -> Results.NotFound())
+    ) |> ignore
+
+    // Public: unsubscribe by email (for logged-in users)
+    app.MapDelete(
+        "/api/announcements/subscribe",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    AnnouncementRepository.unsubscribeByEmail claims.Email |> ignore
+                    return Results.Ok()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     // ── Papers ────────────────────────────────────────────────────────────────
 
     app.MapGet(

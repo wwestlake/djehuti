@@ -19,6 +19,7 @@
     <Compile Include="UserProfileRepository.fs" />
     <Compile Include="PaperRepository.fs" />
     <Compile Include="BlogRepository.fs" />
+    <Compile Include="AnnouncementRepository.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
