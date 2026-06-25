@@ -507,8 +507,8 @@ let private migrations : (int * string) list =
             user_id             UUID REFERENCES users(id) ON DELETE CASCADE,
             email               TEXT NOT NULL,
             confirmed           BOOLEAN NOT NULL DEFAULT false,
-            confirm_token       TEXT NOT NULL DEFAULT encode(gen_random_bytes(24), 'hex'),
-            unsubscribe_token   TEXT NOT NULL DEFAULT encode(gen_random_bytes(24), 'hex'),
+            confirm_token       TEXT NOT NULL DEFAULT replace(gen_random_uuid()::text, '-', ''),
+            unsubscribe_token   TEXT NOT NULL DEFAULT replace(gen_random_uuid()::text, '-', ''),
             created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
             UNIQUE (email)
         );
