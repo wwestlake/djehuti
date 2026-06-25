@@ -9,10 +9,11 @@ import CharacterCount from '@tiptap/extension-character-count'
 import {
   Bold, Italic, UnderlineIcon, Strikethrough, Code, Link2, Image as ImageIcon,
   Heading1, Heading2, Heading3, List, ListOrdered, Quote, Minus,
-  Eye, EyeOff, Send, Save, ChevronLeft, X, Tag, Check,
+  Eye, EyeOff, Send, Save, ChevronLeft, X, Tag, Check, Upload,
 } from 'lucide-react'
 import { blogApi } from '../../api/blogApi'
 import type { BlogArticle, BlogSection, BlogTag } from '../../api/blogApi'
+import BlogUploadModal from './BlogUploadModal'
 
 interface Props {
   articleId?: string
