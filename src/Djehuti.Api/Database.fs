@@ -484,7 +484,7 @@ let private migrations : (int * string) list =
         ON CONFLICT (scope, key) DO NOTHING;
         """
 
-    15, """
+        15, """
         -- Announcements
         CREATE TABLE IF NOT EXISTS announcements (
             id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
