@@ -6,7 +6,8 @@ import type { BlogArticle, BlogTag, BlogAuthor, SiteConfigEntry } from '../../ap
 const BASE = '/djehuti'
 
 interface AdminUser {
-  id: string; email: string; role: string; displayName: string | null; createdAt: string; emailVerified: boolean
+  id: string; email: string; role: string; status: string; displayName: string | null
+  createdAt: string; lastLoginAt: string | null; emailVerified: boolean
 }
 interface ContextRole {
   id: string; userId: string; module: string; role: string; scopeId: string | null; grantedAt: string
@@ -18,6 +19,8 @@ interface Announcement {
 }
 
 type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'config' | 'roles' | 'announcements'
+
+const PAGE_SIZE = 25
 
 async function apiFetch(url: string, opts?: RequestInit) {
   const res = await fetch(url, { credentials: 'include', ...opts })
@@ -31,8 +34,27 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Users
+  // Users list state
   const [users, setUsers] = useState<AdminUser[]>([])
+  const [usersTotal, setUsersTotal] = useState(0)
+  const [usersPage, setUsersPage] = useState(1)
+  const [userSearch, setUserSearch] = useState('')
+  const [userSearchInput, setUserSearchInput] = useState('')
+  const [userFilterRole, setUserFilterRole] = useState('')
+  const [userFilterStatus, setUserFilterStatus] = useState('')
+
+  // Edit modal
+  const [userModal, setUserModal] = useState<AdminUser | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editRole, setEditRole] = useState('')
+  const [editStatus, setEditStatus] = useState('')
+  const [modalSaving, setModalSaving] = useState(false)
+
+  // Invite modal
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState('user')
+  const [inviting, setInviting] = useState(false)
 
   // Blog queue
   const [queue, setQueue] = useState<BlogArticle[]>([])
@@ -65,11 +87,32 @@ export default function AdminPage() {
   const [editingAnn, setEditingAnn] = useState<Announcement | null>(null)
   const [annSaving, setAnnSaving] = useState(false)
 
+  const loadUsers = async (p = usersPage, s = userSearch, r = userFilterRole, st = userFilterStatus) => {
+    setLoading(true); setError(null)
+    try {
+      const params = new URLSearchParams({ page: String(p), pageSize: String(PAGE_SIZE) })
+      if (s) params.set('search', s)
+      if (r) params.set('role', r)
+      if (st) params.set('status', st)
+      const res = await apiFetch(`${BASE}/api/admin/users?${params}`)
+      setUsers(Array.isArray(res) ? res : (res.data ?? []))
+      setUsersTotal(res.total ?? 0)
+    } catch { setError('Failed to load users') }
+    finally { setLoading(false) }
+  }
+
   useEffect(() => {
     if (!user || user.role !== 'admin') return
+    if (tab === 'users') { loadUsers(1, '', '', ''); setUsersPage(1); setUserSearch(''); setUserSearchInput(''); setUserFilterRole(''); setUserFilterStatus('') }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, user])
+
+  useEffect(() => {
+    if (!user || user.role !== 'admin') return
+    if (tab === 'users') return
     setLoading(true); setError(null)
     const loaders: Record<Tab, () => Promise<void>> = {
-      users: () => apiFetch(`${BASE}/api/admin/users`).then(r => setUsers(Array.isArray(r) ? r : (r.data ?? []))),
+      users: async () => { /* handled above */ },
       'blog-queue': () => apiFetch(`${BASE}/api/admin/blog/queue`).then(setQueue),
       'blog-all': () => apiFetch(`${BASE}/api/admin/blog/articles`).then(setAllArticles),
       'blog-authors': () => blogApi.getAuthors().then(setAuthors),
@@ -162,6 +205,76 @@ export default function AdminPage() {
     } catch { setError('Failed to update role.') }
   }
 
+  const openUserModal = (u: AdminUser) => {
+    setUserModal(u); setEditName(u.displayName ?? ''); setEditRole(u.role); setEditStatus(u.status)
+  }
+
+  const saveUserModal = async () => {
+    if (!userModal) return
+    setModalSaving(true)
+    try {
+      await fetch(`${BASE}/api/admin/users/${userModal.id}/display-name`, {
+        method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: editName }),
+      })
+      await fetch(`${BASE}/api/admin/users/${userModal.id}/role`, {
+        method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: editRole }),
+      })
+      if (editStatus !== userModal.status) {
+        await fetch(`${BASE}/api/admin/users/${userModal.id}/suspend`, {
+          method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ suspend: editStatus === 'suspended' }),
+        })
+      }
+      setUsers(prev => prev.map(u => u.id === userModal.id
+        ? { ...u, displayName: editName || null, role: editRole, status: editStatus } : u))
+      setUserModal(null)
+    } catch { setError('Failed to save changes.') }
+    finally { setModalSaving(false) }
+  }
+
+  const verifyUserEmail = async (id: string) => {
+    try {
+      await fetch(`${BASE}/api/admin/users/${id}/verify`, { method: 'PATCH', credentials: 'include' })
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, emailVerified: true } : u))
+      setUserModal(prev => prev?.id === id ? { ...prev, emailVerified: true } : prev)
+    } catch { setError('Failed to verify email.') }
+  }
+
+  const sendPasswordReset = async (id: string) => {
+    try {
+      await fetch(`${BASE}/api/admin/users/${id}/reset-password`, { method: 'POST', credentials: 'include' })
+      alert('Password reset email sent.')
+    } catch { setError('Failed to send reset email.') }
+  }
+
+  const deleteUser = async (id: string, email: string) => {
+    if (!confirm(`Permanently delete ${email}? This cannot be undone.`)) return
+    try {
+      await fetch(`${BASE}/api/admin/users/${id}`, { method: 'DELETE', credentials: 'include' })
+      setUsers(prev => prev.filter(u => u.id !== id))
+      setUsersTotal(t => t - 1)
+      setUserModal(null)
+    } catch { setError('Failed to delete user.') }
+  }
+
+  const sendInvite = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!inviteEmail.trim()) return
+    setInviting(true)
+    try {
+      await apiFetch(`${BASE}/api/admin/users/invite`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
+      })
+      alert(`Invite sent to ${inviteEmail}`)
+      setInviteEmail(''); setInviteOpen(false)
+      loadUsers(1, userSearch, userFilterRole, userFilterStatus)
+    } catch { setError('Failed to send invite.') }
+    finally { setInviting(false) }
+  }
+
   // ── Announcements ────────────────────────────────────────────────────────────
 
   const saveAnn = async (e: React.FormEvent) => {
@@ -243,27 +356,101 @@ export default function AdminPage() {
       {loading && <div className="forum-loading">Loading…</div>}
 
       {/* ── Users ── */}
-      {tab === 'users' && !loading && (
-        <div className="admin-table-wrap">
-          <table className="admin-table">
-            <thead><tr><th>Email</th><th>Display Name</th><th>Role</th><th>Verified</th><th>Joined</th></tr></thead>
-            <tbody>
-              {users.map(u => (
-                <tr key={u.id}>
-                  <td>{u.email}</td>
-                  <td>{u.displayName ?? '—'}</td>
-                  <td>
-                    <select value={u.role} onChange={e => setUserRole(u.id, e.target.value)} className="admin-role-select">
-                      <option value="user">user</option>
-                      <option value="admin">admin</option>
-                    </select>
-                  </td>
-                  <td>{u.emailVerified ? '✓' : '✗'}</td>
-                  <td>{new Date(u.createdAt).toLocaleDateString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {tab === 'users' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          <div className="admin-toolbar">
+            <div className="admin-search-row">
+              <input
+                className="admin-search-input"
+                placeholder="Search email or display name…"
+                value={userSearchInput}
+                onChange={e => setUserSearchInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    setUserSearch(userSearchInput); setUsersPage(1)
+                    loadUsers(1, userSearchInput, userFilterRole, userFilterStatus)
+                  }
+                }}
+              />
+              <button className="admin-action-btn" onClick={() => {
+                setUserSearch(userSearchInput); setUsersPage(1)
+                loadUsers(1, userSearchInput, userFilterRole, userFilterStatus)
+              }}>Search</button>
+            </div>
+            <div className="admin-filter-row">
+              <select className="admin-role-select" value={userFilterRole} onChange={e => {
+                setUserFilterRole(e.target.value); setUsersPage(1)
+                loadUsers(1, userSearch, e.target.value, userFilterStatus)
+              }}>
+                <option value="">All roles</option>
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+                <option value="moderator">moderator</option>
+                <option value="author">author</option>
+              </select>
+              <select className="admin-role-select" value={userFilterStatus} onChange={e => {
+                setUserFilterStatus(e.target.value); setUsersPage(1)
+                loadUsers(1, userSearch, userFilterRole, e.target.value)
+              }}>
+                <option value="">All statuses</option>
+                <option value="active">active</option>
+                <option value="pending">pending</option>
+                <option value="suspended">suspended</option>
+              </select>
+              <button className="btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setInviteOpen(true)}>+ Invite User</button>
+            </div>
+          </div>
+
+          {!loading && (
+            <>
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Email / Display Name</th>
+                      <th>Role</th>
+                      <th>Status</th>
+                      <th>Verified</th>
+                      <th>Joined</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map(u => (
+                      <tr key={u.id} style={{ opacity: u.status === 'suspended' ? 0.6 : 1 }}>
+                        <td>
+                          <button className="admin-email-btn" onClick={() => openUserModal(u)}>{u.email}</button>
+                          {u.displayName && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{u.displayName}</div>}
+                        </td>
+                        <td>{u.role}</td>
+                        <td>
+                          <span style={{ color: u.status === 'suspended' ? '#f85149' : u.status === 'active' ? '#3fb950' : '#8b949e' }}>
+                            {u.status}
+                          </span>
+                        </td>
+                        <td>{u.emailVerified ? '✓' : '✗'}</td>
+                        <td>{new Date(u.createdAt).toLocaleDateString()}</td>
+                      </tr>
+                    ))}
+                    {users.length === 0 && (
+                      <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 24 }}>No users found.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {usersTotal > PAGE_SIZE && (
+                <div className="admin-pagination">
+                  <button className="admin-action-btn" disabled={usersPage <= 1} onClick={() => {
+                    const p = usersPage - 1; setUsersPage(p); loadUsers(p)
+                  }}>← Prev</button>
+                  <span>Page {usersPage} of {Math.ceil(usersTotal / PAGE_SIZE)} ({usersTotal} users)</span>
+                  <button className="admin-action-btn" disabled={usersPage >= Math.ceil(usersTotal / PAGE_SIZE)} onClick={() => {
+                    const p = usersPage + 1; setUsersPage(p); loadUsers(p)
+                  }}>Next →</button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -526,6 +713,82 @@ export default function AdminPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+      {/* ── Edit User Modal ── */}
+      {userModal && (
+        <div className="admin-modal-backdrop" onClick={() => setUserModal(null)}>
+          <div className="admin-modal" onClick={e => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3 style={{ margin: 0 }}>Edit User</h3>
+              <button className="admin-modal-close" onClick={() => setUserModal(null)}>✕</button>
+            </div>
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              {userModal.email} · Joined {new Date(userModal.createdAt).toLocaleDateString()}
+              {userModal.lastLoginAt && ` · Last login ${new Date(userModal.lastLoginAt).toLocaleDateString()}`}
+            </p>
+            <div className="admin-detail-field">
+              <label>Display Name</label>
+              <input className="admin-inline-input" value={editName} onChange={e => setEditName(e.target.value)} placeholder="None set" />
+            </div>
+            <div className="admin-detail-field">
+              <label>Role</label>
+              <select className="admin-role-select" value={editRole} onChange={e => setEditRole(e.target.value)}>
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+                <option value="moderator">moderator</option>
+                <option value="author">author</option>
+              </select>
+            </div>
+            <div className="admin-detail-field">
+              <label>Account Status</label>
+              <select className="admin-role-select" value={editStatus} onChange={e => setEditStatus(e.target.value)}>
+                <option value="active">active</option>
+                <option value="pending">pending</option>
+                <option value="suspended">suspended</option>
+              </select>
+            </div>
+            <div className="admin-modal-actions">
+              <button className="btn-primary" onClick={saveUserModal} disabled={modalSaving}>{modalSaving ? 'Saving…' : 'Save Changes'}</button>
+              {!userModal.emailVerified && (
+                <button className="admin-action-btn" onClick={() => verifyUserEmail(userModal.id)}>Mark Verified</button>
+              )}
+              <button className="admin-action-btn" onClick={() => sendPasswordReset(userModal.id)}>Send Password Reset</button>
+              <button className="admin-action-btn danger" style={{ marginLeft: 'auto' }} onClick={() => deleteUser(userModal.id, userModal.email)}>Delete User</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Invite User Modal ── */}
+      {inviteOpen && (
+        <div className="admin-modal-backdrop" onClick={() => setInviteOpen(false)}>
+          <div className="admin-modal" onClick={e => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3 style={{ margin: 0 }}>Invite User</h3>
+              <button className="admin-modal-close" onClick={() => setInviteOpen(false)}>✕</button>
+            </div>
+            <form onSubmit={sendInvite} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="admin-detail-field">
+                <label>Email Address</label>
+                <input className="admin-inline-input" type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} placeholder="user@example.com" required />
+              </div>
+              <div className="admin-detail-field">
+                <label>Role</label>
+                <select className="admin-role-select" value={inviteRole} onChange={e => setInviteRole(e.target.value)}>
+                  <option value="user">user</option>
+                  <option value="author">author</option>
+                  <option value="moderator">moderator</option>
+                  <option value="admin">admin</option>
+                </select>
+              </div>
+              <div className="admin-modal-actions">
+                <button type="submit" className="btn-primary" disabled={inviting || !inviteEmail.trim()}>
+                  {inviting ? 'Sending…' : 'Send Invite'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
