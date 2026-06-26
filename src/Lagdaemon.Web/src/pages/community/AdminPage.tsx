@@ -17,7 +17,7 @@ interface Announcement {
   createdAt: string; updatedAt: string
 }
 
-type Tab = 'users' | 'blog-queue' | 'blog-authors' | 'tags' | 'config' | 'roles' | 'announcements'
+type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'config' | 'roles' | 'announcements'
 
 async function apiFetch(url: string, opts?: RequestInit) {
   const res = await fetch(url, { credentials: 'include', ...opts })
@@ -38,6 +38,9 @@ export default function AdminPage() {
   const [queue, setQueue] = useState<BlogArticle[]>([])
   const [reviewingId, setReviewingId] = useState<string | null>(null)
   const [modNote, setModNote] = useState('')
+
+  // All articles (admin view)
+  const [allArticles, setAllArticles] = useState<BlogArticle[]>([])
 
   // Blog authors
   const [authors, setAuthors] = useState<BlogAuthor[]>([])
@@ -68,6 +71,7 @@ export default function AdminPage() {
     const loaders: Record<Tab, () => Promise<void>> = {
       users: () => apiFetch(`${BASE}/api/admin/users`).then(setUsers),
       'blog-queue': () => apiFetch(`${BASE}/api/admin/blog/queue`).then(setQueue),
+      'blog-all': () => apiFetch(`${BASE}/api/admin/blog/articles`).then(setAllArticles),
       'blog-authors': () => blogApi.getAuthors().then(setAuthors),
       tags: () => blogApi.getTags().then(setTags),
       config: () => blogApi.getConfig().then(entries => {
@@ -219,7 +223,7 @@ export default function AdminPage() {
   if (!user || user.role !== 'admin') return <p className="forum-login-prompt">Admin access required.</p>
 
   const TAB_LABELS: Record<Tab, string> = {
-    users: 'Users', 'blog-queue': 'Review Queue', 'blog-authors': 'Authors', tags: 'Tags', config: 'Config', roles: 'Roles', announcements: 'Announcements',
+    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Tags', config: 'Config', roles: 'Roles', announcements: 'Announcements',
   }
 
   return (
@@ -302,6 +306,29 @@ export default function AdminPage() {
                 </div>
               ))}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ── All Articles (admin) ── */}
+      {tab === 'blog-all' && !loading && (
+        <div className="admin-table-wrap">
+          {allArticles.length === 0 ? <p className="forum-empty">No articles in database.</p> : (
+            <table className="admin-table">
+              <thead><tr><th>Title</th><th>Status</th><th>Visibility</th><th>Author ID</th><th>Created</th><th>Published</th></tr></thead>
+              <tbody>
+                {allArticles.map(a => (
+                  <tr key={a.id}>
+                    <td>{a.title}</td>
+                    <td><span className={`blog-status-badge ${a.status}`}>{a.status}</span></td>
+                    <td>{a.visibility}</td>
+                    <td className="admin-id-cell">{a.authorId.slice(0, 8)}…</td>
+                    <td>{new Date(a.createdAt).toLocaleDateString()}</td>
+                    <td>{a.publishedAt ? new Date(a.publishedAt).toLocaleDateString() : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       )}
