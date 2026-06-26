@@ -152,7 +152,7 @@ a { color: var(--accent); }
 }
 
 @media (max-width: 640px) {
-  .nav-desktop { display: none; }
+  .nav .nav-desktop { display: none !important; }
   .nav-mobile-bar { display: flex; }
 }
 
