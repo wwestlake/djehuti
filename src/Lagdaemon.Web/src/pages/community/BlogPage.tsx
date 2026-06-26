@@ -24,6 +24,7 @@ export default function BlogPage({ onNavigateArticle, onNavigateEditor }: Props)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -40,8 +41,10 @@ export default function BlogPage({ onNavigateArticle, onNavigateEditor }: Props)
 
   useEffect(() => {
     setLoading(true)
+    setFetchError(null)
     blogApi.getArticles({ sectionId: activeSection, search: debouncedSearch || undefined, tag: activeTag })
       .then(setArticles)
+      .catch(e => setFetchError(String(e)))
       .finally(() => setLoading(false))
   }, [activeSection, debouncedSearch, activeTag])
 
@@ -96,6 +99,7 @@ export default function BlogPage({ onNavigateArticle, onNavigateEditor }: Props)
         </div>
       )}
 
+      {fetchError && <p className="auth-error">Failed to load articles: {fetchError}</p>}
       {loading ? (
         <div className="forum-loading">Loading articles…</div>
       ) : articles.length === 0 ? (

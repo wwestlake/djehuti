@@ -438,6 +438,13 @@ let getModerationQueue () =
     use r = cmd.ExecuteReader()
     [ while r.Read() do yield readArticle r ]
 
+let getAllArticlesAdmin () =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        $"SELECT {articleCols} FROM blog_articles ORDER BY created_at DESC LIMIT 100", conn)
+    use r = cmd.ExecuteReader()
+    [ while r.Read() do yield readArticle r ]
+
 let createArticle (sectionId: Guid) (authorId: Guid) (title: string) (subtitle: string option) (content: string) (bodyJson: string option) (excerpt: string option) (visibility: string) =
     use conn = openConnection ()
     let shortId = Guid.NewGuid().ToString("N")[..7]

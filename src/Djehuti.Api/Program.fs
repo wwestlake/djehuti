@@ -2639,6 +2639,18 @@ let main args =
     ) |> ignore
 
     app.MapGet(
+        "/api/admin/blog/articles",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    return Results.Ok(BlogRepository.getAllArticlesAdmin ())
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapGet(
         "/api/admin/context-roles",
         Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
             async {
