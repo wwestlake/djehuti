@@ -14,10 +14,16 @@ All files — HTML, config, static assets, scripts — must live in this reposit
 
 ## Branching & PRs
 
-- Feature branches merge directly to `develop` — no PR required.
-- Only `develop → main` requires a PR. Claude opens the PR with a full write-up; the user approves and merges using **"Merge without waiting for requirements to be met (bypass rules)"** in the GitHub UI.
-- Never attempt `gh pr merge --admin` or `gh pr review --approve` — GitHub blocks PR authors from approving their own PRs. The bypass button is the correct mechanism.
-- The `gh` CLI is authenticated as the repo owner (wwestlake), so every PR Claude opens is authored by the user. Self-approval is always blocked by GitHub. This is by design.
+Step-by-step — follow this exactly every time, no exceptions:
+
+1. **New feature or fix**: create a new branch from `develop`. Branch names must be descriptive and unique. Never reuse a branch that had a failed build or was already merged.
+2. **Do the work** on that branch.
+3. **Merge the branch into `develop`** directly — no PR needed for this step.
+4. **To deploy**: create a PR from `develop → main`. Post the PR link to the user with "Action needed: please merge [URL]". Wait for the user to merge it.
+5. **If the build fails after a merge to main**: create a new branch from `develop`, fix it, merge back to `develop`, then create a new `develop → main` PR.
+6. **Never reuse a broken branch.** If a branch had a build failure or mistake, it is dead. Create a new one.
+7. **Never merge your own PRs.** Never attempt `gh pr merge --admin` or `gh pr review --approve`. The user merges all PRs via the GitHub UI.
+8. **Never push directly to `main`.**
 
 ---
 
