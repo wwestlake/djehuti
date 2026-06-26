@@ -69,7 +69,7 @@ export default function AdminPage() {
     if (!user || user.role !== 'admin') return
     setLoading(true); setError(null)
     const loaders: Record<Tab, () => Promise<void>> = {
-      users: () => apiFetch(`${BASE}/api/admin/users`).then(setUsers),
+      users: () => apiFetch(`${BASE}/api/admin/users`).then(r => setUsers(Array.isArray(r) ? r : (r.data ?? []))),
       'blog-queue': () => apiFetch(`${BASE}/api/admin/blog/queue`).then(setQueue),
       'blog-all': () => apiFetch(`${BASE}/api/admin/blog/articles`).then(setAllArticles),
       'blog-authors': () => blogApi.getAuthors().then(setAuthors),
