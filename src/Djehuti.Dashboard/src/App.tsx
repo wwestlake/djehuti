@@ -22,6 +22,7 @@ import {
   Braces,
   ChevronRight,
   Database,
+  ExternalLink,
   FileText,
   FileJson,
   Gauge,
@@ -1450,6 +1451,14 @@ function App() {
               <p className="eyebrow">Djehuti Cyberscope AI+</p>
               <h1>{pageTitle}</h1>
             </div>
+            <a
+              className="icon-button topbar-home-link"
+              href="https://lagdaemon.com"
+              title="Back to lagdaemon.com"
+              aria-label="Back to lagdaemon.com"
+            >
+              <ExternalLink size={18} />
+            </a>
             <UserMenu onOpenLogin={() => { window.location.href = '/?signin=1' }} />
             <button
               className="icon-button theme-toggle"
