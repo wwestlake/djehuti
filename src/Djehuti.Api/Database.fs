@@ -569,6 +569,31 @@ let private migrations : (int * string) list =
 
         CREATE INDEX IF NOT EXISTS idx_forum_post_reactions_post ON forum_post_reactions(post_id);
         """
+
+        19, """
+        -- Moderation: user restricted status + reporting workflow
+
+        ALTER TABLE users DROP CONSTRAINT IF EXISTS users_status_check;
+        ALTER TABLE users ADD CONSTRAINT users_status_check
+            CHECK (status IN ('pending', 'active', 'suspended', 'restricted'));
+
+        CREATE TABLE IF NOT EXISTS forum_reports (
+            id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+            reporter_id UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            target_type TEXT        NOT NULL CHECK (target_type IN ('post', 'thread')),
+            target_id   UUID        NOT NULL,
+            reason      TEXT        NOT NULL,
+            status      TEXT        NOT NULL DEFAULT 'open'
+                                    CHECK (status IN ('open', 'dismissed', 'warned', 'deleted')),
+            resolved_by UUID        REFERENCES users(id),
+            resolved_at TIMESTAMPTZ,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_forum_reports_status     ON forum_reports(status);
+        CREATE INDEX IF NOT EXISTS idx_forum_reports_target     ON forum_reports(target_type, target_id);
+        CREATE INDEX IF NOT EXISTS idx_forum_reports_reporter   ON forum_reports(reporter_id);
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

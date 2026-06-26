@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { forumApi } from '../../api/forumApi'
 import type { ForumThread, ForumPost } from '../../api/forumApi'
+import ReportModal from '../../components/forum/ReportModal'
 import { useAuth } from '../../contexts/AuthContext'
 import ForumEditor from '../../components/ForumEditor'
 
@@ -72,6 +73,7 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
   const [submitting, setSubmitting] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editHtml, setEditHtml] = useState('')
+  const [reportTarget, setReportTarget] = useState<{ type: 'post' | 'thread'; id: string } | null>(null)
   const replyEditorKey = useRef(0)
 
   useEffect(() => {
@@ -205,6 +207,9 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
                 {(user?.id === post.authorId || isAdmin) && (
                   <button className="post-action post-action-delete" onClick={() => handleDelete(post.id)}>Delete</button>
                 )}
+                {user && user.id !== post.authorId && (
+                  <button className="post-action post-action-report" onClick={() => setReportTarget({ type: 'post', id: post.id })}>Report</button>
+                )}
               </div>
             </div>
           </div>
@@ -228,6 +233,13 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
       )}
       {!user && <p className="forum-login-prompt">Sign in to reply.</p>}
       {thread.isLocked && <p className="forum-locked-notice">This thread is locked.</p>}
+      {reportTarget && (
+        <ReportModal
+          targetType={reportTarget.type}
+          targetId={reportTarget.id}
+          onClose={() => setReportTarget(null)}
+        />
+      )}
     </div>
   )
 }

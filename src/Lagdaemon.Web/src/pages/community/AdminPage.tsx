@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { blogApi } from '../../api/blogApi'
 import type { BlogArticle, BlogTag, BlogAuthor, SiteConfigEntry } from '../../api/blogApi'
 import { forumApi } from '../../api/forumApi'
-import type { ForumTag } from '../../api/forumApi'
+import type { ForumTag, ForumReport } from '../../api/forumApi'
 
 const BASE = '/djehuti'
 
@@ -20,7 +20,7 @@ interface Announcement {
   createdAt: string; updatedAt: string
 }
 
-type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'config' | 'roles' | 'announcements'
+type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements'
 
 const PAGE_SIZE = 25
 
@@ -78,6 +78,8 @@ export default function AdminPage() {
   const [newForumTagName, setNewForumTagName] = useState('')
   const [newForumTagDesc, setNewForumTagDesc] = useState('')
 
+  const [forumReports, setForumReports] = useState<ForumReport[]>([])
+
   // Config
   const [config, setConfig] = useState<SiteConfigEntry[]>([])
   const [editingConfig, setEditingConfig] = useState<Record<string, string>>({})
@@ -124,6 +126,7 @@ export default function AdminPage() {
       'blog-authors': () => blogApi.getAuthors().then(setAuthors),
       tags: () => blogApi.getTags().then(setTags),
       'forum-tags': () => forumApi.getTags().then(setForumTags),
+      'forum-reports': () => forumApi.getAdminReports('open').then(setForumReports),
       config: () => blogApi.getConfig().then(entries => {
         setConfig(entries)
         const map: Record<string, string> = {}
@@ -239,10 +242,17 @@ export default function AdminPage() {
         body: JSON.stringify({ role: editRole }),
       })
       if (editStatus !== userModal.status) {
-        await fetch(`${BASE}/api/admin/users/${userModal.id}/suspend`, {
-          method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ suspend: editStatus === 'suspended' }),
-        })
+        if (editStatus === 'restricted' || userModal.status === 'restricted') {
+          await fetch(`${BASE}/api/admin/users/${userModal.id}/restrict`, {
+            method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ restrict: editStatus === 'restricted' }),
+          })
+        } else {
+          await fetch(`${BASE}/api/admin/users/${userModal.id}/suspend`, {
+            method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ suspend: editStatus === 'suspended' }),
+          })
+        }
       }
       setUsers(prev => prev.map(u => u.id === userModal.id
         ? { ...u, displayName: editName || null, role: editRole, status: editStatus } : u))
@@ -353,7 +363,7 @@ export default function AdminPage() {
   if (!user || user.role !== 'admin') return <p className="forum-login-prompt">Admin access required.</p>
 
   const TAB_LABELS: Record<Tab, string> = {
-    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', config: 'Config', roles: 'Roles', announcements: 'Announcements',
+    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements',
   }
 
   return (
@@ -365,6 +375,7 @@ export default function AdminPage() {
           <button key={t} className={`blog-tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
             {TAB_LABELS[t]}
             {t === 'blog-queue' && queue.length > 0 && <span className="admin-badge">{queue.length}</span>}
+            {t === 'forum-reports' && forumReports.length > 0 && <span className="admin-badge">{forumReports.length}</span>}
           </button>
         ))}
       </div>
@@ -413,6 +424,7 @@ export default function AdminPage() {
                 <option value="active">active</option>
                 <option value="pending">pending</option>
                 <option value="suspended">suspended</option>
+                <option value="restricted">restricted</option>
               </select>
               <button className="btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setInviteOpen(true)}>+ Invite User</button>
             </div>
@@ -622,6 +634,54 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* ── Forum Reports ── */}
+      {tab === 'forum-reports' && !loading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Reason</th>
+                  <th>Target ID</th>
+                  <th>Reported</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {forumReports.map(r => (
+                  <tr key={r.id}>
+                    <td><span className="admin-badge">{r.targetType}</span></td>
+                    <td>{r.reason}</td>
+                    <td className="admin-id-cell">{r.targetId}</td>
+                    <td>{new Date(r.createdAt).toLocaleDateString()}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="tiptap-action-btn secondary small" onClick={async () => {
+                          await forumApi.resolveReport(r.id, 'dismissed')
+                          setForumReports(prev => prev.filter(x => x.id !== r.id))
+                        }}>Dismiss</button>
+                        <button className="tiptap-action-btn secondary small" onClick={async () => {
+                          await forumApi.resolveReport(r.id, 'warned')
+                          setForumReports(prev => prev.filter(x => x.id !== r.id))
+                        }}>Warn</button>
+                        <button className="post-action post-action-delete" onClick={async () => {
+                          await forumApi.resolveReport(r.id, 'deleted')
+                          setForumReports(prev => prev.filter(x => x.id !== r.id))
+                        }}>Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {forumReports.length === 0 && (
+                  <tr><td colSpan={5} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No open reports.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* ── Config ── */}
       {tab === 'config' && !loading && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -794,6 +854,7 @@ export default function AdminPage() {
                 <option value="active">active</option>
                 <option value="pending">pending</option>
                 <option value="suspended">suspended</option>
+                <option value="restricted">restricted (read-only)</option>
               </select>
             </div>
             <div className="admin-modal-actions">

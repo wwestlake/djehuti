@@ -150,4 +150,33 @@ export const forumApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tagIds }),
     }).then(r => r.json()),
+
+  reportContent: (targetType: 'post' | 'thread', targetId: string, reason: string): Promise<void> =>
+    fetch(`${API}/forum/reports`, {
+      ...opts, method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetType, targetId, reason }),
+    }).then(() => {}),
+
+  getAdminReports: (status = 'open', page = 1, pageSize = 25): Promise<ForumReport[]> =>
+    fetch(`/djehuti/api/admin/forum/reports?status=${status}&page=${page}&pageSize=${pageSize}`, opts).then(r => r.json()),
+
+  resolveReport: (reportId: string, status: 'dismissed' | 'warned' | 'deleted'): Promise<void> =>
+    fetch(`/djehuti/api/admin/forum/reports/${reportId}`, {
+      ...opts, method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    }).then(() => {}),
+}
+
+export interface ForumReport {
+  id: string
+  reporterId: string
+  targetType: 'post' | 'thread'
+  targetId: string
+  reason: string
+  status: string
+  resolvedBy?: string
+  resolvedAt?: string
+  createdAt: string
 }
