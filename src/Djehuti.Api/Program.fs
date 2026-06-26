@@ -2615,12 +2615,11 @@ let main args =
                         | Some u ->
                             let token = Auth.generateSecureToken()
                             let! _ = UserRepository.createPasswordResetToken uid token
-                            let resetUrl = $"https://lagdaemon.com/djehuti/#/reset-password?token={token}"
-                            let subject = "Password Reset — Lag Daemon"
-                            let body = $"""<p>An admin has initiated a password reset for your account.</p>
-<p><a href="{resetUrl}">Click here to set your password</a></p>
-<p>This link expires in 1 hour.</p>"""
-                            Email.sendEmail u.Email subject body |> Async.Ignore |> Async.Start
+                            let resetUrl = "https://lagdaemon.com/djehuti/#/reset-password?token=" + token
+                            let msg = { Email.To = u.Email
+                                        Email.Subject = "Password Reset - Lag Daemon"
+                                        Email.HtmlBody = "<p>An admin has initiated a password reset for your account.</p><p><a href=\"" + resetUrl + "\">Click here to set your password</a></p><p>This link expires in 1 hour.</p>" }
+                            Email.sendEmail msg |> Async.Ignore |> Async.Start
                             return Results.Ok()
                 | Some _ -> return Results.Forbid()
                 | None   -> return Results.Unauthorized()
