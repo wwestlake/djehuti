@@ -429,6 +429,13 @@ let private readAdminRow (r: System.Data.Common.DbDataReader) : AdminUserRow =
       CreatedAt    = r.GetFieldValue<DateTime>(6)
       LastLoginAt  = if r.IsDBNull(7) then None else Some (r.GetFieldValue<DateTime>(7)) }
 
+let getUserStatus (id: Guid) : string option =
+    use conn = openConn ()
+    use cmd = new NpgsqlCommand("SELECT status FROM users WHERE id = @id", conn)
+    cmd.Parameters.AddWithValue("id", id) |> ignore
+    let result = cmd.ExecuteScalar()
+    if result = null || result = box DBNull.Value then None else Some (result :?> string)
+
 let getAdminUsers (search: string option) (role: string option) (status: string option) (page: int) (pageSize: int) =
     use conn = openConn ()
     let conds = ResizeArray<string>()

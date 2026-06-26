@@ -474,3 +474,67 @@ let toggleReaction (postId: Guid) (userId: Guid) (emoji: string) : bool =
         insCmd.ExecuteNonQuery() |> ignore
     txn.Commit()
     not exists
+
+// ── Reports ───────────────────────────────────────────────────────────────────
+
+type ForumReport = {
+    Id:         Guid
+    ReporterId: Guid
+    TargetType: string
+    TargetId:   Guid
+    Reason:     string
+    Status:     string
+    ResolvedBy: Guid option
+    ResolvedAt: DateTime option
+    CreatedAt:  DateTime
+}
+
+let private readReport (r: DbDataReader) : ForumReport = {
+    Id         = r.GetGuid(0)
+    ReporterId = r.GetGuid(1)
+    TargetType = r.GetString(2)
+    TargetId   = r.GetGuid(3)
+    Reason     = r.GetString(4)
+    Status     = r.GetString(5)
+    ResolvedBy = if r.IsDBNull(6) then None else Some (r.GetGuid(6))
+    ResolvedAt = if r.IsDBNull(7) then None else Some (r.GetFieldValue<DateTime>(7))
+    CreatedAt  = r.GetFieldValue<DateTime>(8)
+}
+
+let createReport (reporterId: Guid) (targetType: string) (targetId: Guid) (reason: string) : ForumReport option =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """INSERT INTO forum_reports (reporter_id, target_type, target_id, reason)
+           VALUES (@rid, @tt, @tid, @reason)
+           RETURNING id, reporter_id, target_type, target_id, reason, status, resolved_by, resolved_at, created_at""", conn)
+    cmd.Parameters.AddWithValue("rid",    reporterId)  |> ignore
+    cmd.Parameters.AddWithValue("tt",     targetType)  |> ignore
+    cmd.Parameters.AddWithValue("tid",    targetId)    |> ignore
+    cmd.Parameters.AddWithValue("reason", reason)      |> ignore
+    use r = cmd.ExecuteReader()
+    if r.Read() then Some (readReport r) else None
+
+let getReports (status: string option) (page: int) (pageSize: int) : ForumReport list =
+    use conn = openConnection ()
+    let where = match status with Some s -> "WHERE status = @status" | None -> "WHERE status = 'open'"
+    use cmd = new NpgsqlCommand(
+        $"""SELECT id, reporter_id, target_type, target_id, reason, status, resolved_by, resolved_at, created_at
+            FROM forum_reports {where}
+            ORDER BY created_at DESC
+            LIMIT @ps OFFSET @off""", conn)
+    match status with Some s -> cmd.Parameters.AddWithValue("status", s) |> ignore | None -> ()
+    cmd.Parameters.AddWithValue("ps",  pageSize)          |> ignore
+    cmd.Parameters.AddWithValue("off", (page - 1) * pageSize) |> ignore
+    use r = cmd.ExecuteReader()
+    [ while r.Read() do yield readReport r ]
+
+let resolveReport (reportId: Guid) (resolverId: Guid) (newStatus: string) : bool =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """UPDATE forum_reports
+           SET status = @status, resolved_by = @resolver, resolved_at = now()
+           WHERE id = @id""", conn)
+    cmd.Parameters.AddWithValue("status",   newStatus)  |> ignore
+    cmd.Parameters.AddWithValue("resolver", resolverId) |> ignore
+    cmd.Parameters.AddWithValue("id",       reportId)   |> ignore
+    cmd.ExecuteNonQuery() > 0

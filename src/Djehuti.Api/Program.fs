@@ -1358,6 +1358,9 @@ let main args =
                         match Guid.TryParse(claims.UserId) with
                         | false, _ -> return Results.Unauthorized()
                         | true, userId ->
+                            match UserRepository.getUserStatus userId with
+                            | Some "restricted" -> return Results.Problem(detail = "Your account is restricted from posting", statusCode = 403, title = "Restricted")
+                            | _ ->
                             return match ForumRepository.createThread fid userId body.title body.content with
                                    | Some t -> Results.Created($"/api/forum/threads/{t.Id}", t)
                                    | None   -> Results.Problem(detail = "Failed to create thread", statusCode = 500, title = "Error")
@@ -1437,6 +1440,9 @@ let main args =
                             match Guid.TryParse(claims.UserId) with
                             | false, _ -> return Results.Unauthorized()
                             | true, userId ->
+                                match UserRepository.getUserStatus userId with
+                                | Some "restricted" -> return Results.Problem(detail = "Your account is restricted from posting", statusCode = 403, title = "Restricted")
+                                | _ ->
                                 return match ForumRepository.createPost tid userId body.content with
                                        | Some p -> Results.Created($"/api/forum/posts/{p.Id}", p)
                                        | None   -> Results.Problem(detail = "Failed to create post", statusCode = 500, title = "Error")
@@ -1543,6 +1549,49 @@ let main args =
                 let added   = ForumRepository.toggleReaction postId userId body.emoji
                 Results.Ok({| added = added; emoji = body.emoji |})
             | None -> Results.Unauthorized())
+    ) |> ignore
+
+    // ── Forum: Reports ───────────────────────────────────────────────────────
+
+    app.MapPost(
+        "/api/forum/reports",
+        Func<HttpContext, {| targetType: string; targetId: System.Guid; reason: string |}, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                let reporterId = System.Guid.Parse(claims.UserId)
+                match ForumRepository.createReport reporterId body.targetType body.targetId body.reason with
+                | Some r -> Results.Created($"/api/forum/reports/{r.Id}", r)
+                | None   -> Results.Problem(detail = "Failed to create report", statusCode = 500, title = "Error")
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/forum/reports",
+        Func<HttpContext, string, int, int, IResult>(fun ctx status page pageSize ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role || Permissions.hasContextRole (Database.openConnection()) (System.Guid.Parse(claims.UserId)) Permissions.ModuleForum Permissions.RoleModerator None ->
+                let p  = if page < 1 then 1 else page
+                let ps = if pageSize < 1 || pageSize > 100 then 25 else pageSize
+                let s  = if System.String.IsNullOrWhiteSpace(status) then None else Some status
+                Results.Ok(ForumRepository.getReports s p ps)
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/admin/forum/reports/{id}",
+        Func<System.Guid, HttpContext, {| status: string |}, IResult>(fun id ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role || Permissions.hasContextRole (Database.openConnection()) (System.Guid.Parse(claims.UserId)) Permissions.ModuleForum Permissions.RoleModerator None ->
+                let resolverId = System.Guid.Parse(claims.UserId)
+                let validStatuses = [ "dismissed"; "warned"; "deleted" ]
+                if not (List.contains body.status validStatuses) then
+                    Results.BadRequest("status must be one of: dismissed, warned, deleted")
+                else
+                    let ok = ForumRepository.resolveReport id resolverId body.status
+                    if ok then Results.Ok() else Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
     ) |> ignore
 
     // ── Forum: Tags ───────────────────────────────────────────────────────────
@@ -2664,6 +2713,30 @@ let main args =
                     match Guid.TryParse(id), Guid.TryParse(claims.UserId) with
                     | (true, uid), (true, adminId) ->
                         let newStatus = if body.suspend then "suspended" else "active"
+                        use conn = Database.openConnection()
+                        use cmd = new Npgsql.NpgsqlCommand(
+                            "UPDATE users SET status = @status, updated_at = now() WHERE id = @id", conn)
+                        cmd.Parameters.AddWithValue("status", newStatus) |> ignore
+                        cmd.Parameters.AddWithValue("id", uid) |> ignore
+                        let affected = cmd.ExecuteNonQuery()
+                        if affected > 0 then
+                            UserRepository.logAdminAudit adminId uid "update" (Some "status") None (Some newStatus)
+                        return if affected > 0 then Results.Ok() else Results.NotFound()
+                    | _ -> return Results.BadRequest("Invalid id")
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/admin/users/{id}/restrict",
+        Func<string, HttpContext, {| restrict: bool |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    match Guid.TryParse(id), Guid.TryParse(claims.UserId) with
+                    | (true, uid), (true, adminId) ->
+                        let newStatus = if body.restrict then "restricted" else "active"
                         use conn = Database.openConnection()
                         use cmd = new Npgsql.NpgsqlCommand(
                             "UPDATE users SET status = @status, updated_at = now() WHERE id = @id", conn)
