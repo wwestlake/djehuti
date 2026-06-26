@@ -339,7 +339,7 @@ export default function BlogEditorPage({ articleId, onSaved, onCancel }: Props) 
 
           {/* Bubble menu on text selection */}
           {editor && !preview && (
-            <BubbleMenu editor={editor} tippyOptions={{ duration: 100 }}>
+            <BubbleMenu editor={editor}>
               <div className="tiptap-bubble-menu">
                 <button className={`tiptap-toolbar-btn small${editor.isActive('bold') ? ' active' : ''}`}
                   onMouseDown={e => { e.preventDefault(); editor.chain().focus().toggleBold().run() }}><Bold size={13} /></button>

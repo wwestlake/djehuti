@@ -82,7 +82,7 @@ export default function ForumEditor({ placeholder, initialContent, onChange, min
       </div>
 
       {editor && (
-        <BubbleMenu editor={editor} tippyOptions={{ duration: 100 }}>
+        <BubbleMenu editor={editor}>
           <div className="tiptap-bubble-menu">
             <button type="button" className={`tiptap-action-btn${editor.isActive('bold') ? ' active' : ''}`}
               onClick={() => editor.chain().focus().toggleBold().run()}><Bold size={12} /></button>
