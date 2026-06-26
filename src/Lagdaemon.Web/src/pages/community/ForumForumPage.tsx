@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { forumApi } from '../../api/forumApi'
 import type { ForumForum, ForumThread, ForumTag } from '../../api/forumApi'
 import { useAuth } from '../../contexts/AuthContext'
+import ForumEditor from '../../components/ForumEditor'
 
 interface Props {
   forumId: string
@@ -16,7 +17,7 @@ function NewThreadModal({ forumId, allTags, onCreated, onClose }: {
   onClose: () => void
 }) {
   const [title, setTitle] = useState('')
-  const [content, setContent] = useState('')
+  const [contentHtml, setContentHtml] = useState('')
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -26,11 +27,12 @@ function NewThreadModal({ forumId, allTags, onCreated, onClose }: {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!title.trim() || !content.trim()) return
+    const bodyText = contentHtml.replace(/<[^>]+>/g, '').trim()
+    if (!title.trim() || !bodyText) return
     setSubmitting(true)
     setError(null)
     try {
-      const thread = await forumApi.createThread(forumId, title.trim(), content.trim())
+      const thread = await forumApi.createThread(forumId, title.trim(), contentHtml)
       if (selectedTagIds.length > 0) {
         await forumApi.setThreadTags(thread.id, selectedTagIds)
       }
@@ -41,6 +43,8 @@ function NewThreadModal({ forumId, allTags, onCreated, onClose }: {
       setSubmitting(false)
     }
   }
+
+  const contentIsEmpty = !contentHtml.replace(/<[^>]+>/g, '').trim()
 
   return (
     <div className="modal-overlay open" onClick={onClose}>
@@ -53,12 +57,10 @@ function NewThreadModal({ forumId, allTags, onCreated, onClose }: {
             <input type="text" value={title} onChange={e => setTitle(e.target.value)}
               placeholder="Thread title" required maxLength={200} />
           </label>
-          <label>
-            <span>Post</span>
-            <textarea value={content} onChange={e => setContent(e.target.value)}
-              placeholder="Write your post (Markdown supported)" required rows={8}
-              style={{ resize: 'vertical', fontFamily: 'inherit' }} />
-          </label>
+          <div>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Post</span>
+            <ForumEditor placeholder="Write your post…" onChange={setContentHtml} minHeight={180} />
+          </div>
           {allTags.length > 0 && (
             <div>
               <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Tags</span>
@@ -76,7 +78,7 @@ function NewThreadModal({ forumId, allTags, onCreated, onClose }: {
           {error && <p className="auth-error">{error}</p>}
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} disabled={submitting}>Cancel</button>
-            <button type="submit" className="primary-action" disabled={submitting || !title.trim() || !content.trim()}>
+            <button type="submit" className="primary-action" disabled={submitting || !title.trim() || contentIsEmpty}>
               {submitting ? 'Posting…' : 'Post Thread'}
             </button>
           </div>
