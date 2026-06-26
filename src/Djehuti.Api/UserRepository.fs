@@ -406,3 +406,75 @@ let tryGetUserByIdentity (provider: string) (providerId: string) : Async<User op
         with _ ->
             return None
     }
+
+// ── Admin User Management ─────────────────────────────────────────────────────
+
+type AdminUserRow =
+    { Id: Guid
+      Email: string
+      DisplayName: string option
+      Role: string
+      Status: string
+      EmailVerified: bool
+      CreatedAt: DateTime
+      LastLoginAt: DateTime option }
+
+let private readAdminRow (r: Npgsql.NpgsqlDataReader) : AdminUserRow =
+    { Id           = r.GetGuid(0)
+      Email        = r.GetString(1)
+      DisplayName  = if r.IsDBNull(2) then None else Some (r.GetString(2))
+      Role         = r.GetString(3)
+      Status       = r.GetString(4)
+      EmailVerified = not (r.IsDBNull(5))
+      CreatedAt    = r.GetFieldValue<DateTime>(6)
+      LastLoginAt  = if r.IsDBNull(7) then None else Some (r.GetFieldValue<DateTime>(7)) }
+
+let getAdminUsers (search: string option) (role: string option) (status: string option) (page: int) (pageSize: int) =
+    use conn = openConn ()
+    let conds = ResizeArray<string>()
+    if search.IsSome then conds.Add("(email ILIKE @search OR display_name ILIKE @search)")
+    if role.IsSome   then conds.Add("role = @role")
+    if status.IsSome then conds.Add("status = @status")
+    let where = if conds.Count = 0 then "" else "WHERE " + String.concat " AND " conds
+    use cmd = new NpgsqlCommand(
+        $"SELECT id, email, display_name, role, status, email_verified_at, created_at, last_login_at FROM users {where} ORDER BY created_at DESC LIMIT @limit OFFSET @offset", conn)
+    if search.IsSome then cmd.Parameters.AddWithValue("search", "%" + search.Value + "%") |> ignore
+    if role.IsSome   then cmd.Parameters.AddWithValue("role",   role.Value)               |> ignore
+    if status.IsSome then cmd.Parameters.AddWithValue("status", status.Value)             |> ignore
+    cmd.Parameters.AddWithValue("limit",  pageSize)              |> ignore
+    cmd.Parameters.AddWithValue("offset", (page - 1) * pageSize) |> ignore
+    use r = cmd.ExecuteReader()
+    [ while r.Read() do yield readAdminRow r ]
+
+let countAdminUsers (search: string option) (role: string option) (status: string option) =
+    use conn = openConn ()
+    let conds = ResizeArray<string>()
+    if search.IsSome then conds.Add("(email ILIKE @search OR display_name ILIKE @search)")
+    if role.IsSome   then conds.Add("role = @role")
+    if status.IsSome then conds.Add("status = @status")
+    let where = if conds.Count = 0 then "" else "WHERE " + String.concat " AND " conds
+    use cmd = new NpgsqlCommand($"SELECT COUNT(*) FROM users {where}", conn)
+    if search.IsSome then cmd.Parameters.AddWithValue("search", "%" + search.Value + "%") |> ignore
+    if role.IsSome   then cmd.Parameters.AddWithValue("role",   role.Value)               |> ignore
+    if status.IsSome then cmd.Parameters.AddWithValue("status", status.Value)             |> ignore
+    cmd.ExecuteScalar() :?> int64 |> int
+
+let hardDeleteUser (id: Guid) =
+    use conn = openConn ()
+    use cmd = new NpgsqlCommand("DELETE FROM users WHERE id = @id", conn)
+    cmd.Parameters.AddWithValue("id", id) |> ignore
+    cmd.ExecuteNonQuery() > 0
+
+let logAdminAudit (adminId: Guid) (targetId: Guid) (action: string) (field: string option) (oldValue: string option) (newValue: string option) =
+    use conn = openConn ()
+    use cmd = new NpgsqlCommand(
+        """INSERT INTO admin_user_audit_log (admin_id, target_user_id, action, field, old_value, new_value)
+           VALUES (@admin, @target, @action, @field, @old, @new)""", conn)
+    let opt (v: string option) = if v.IsSome then box v.Value else box DBNull.Value
+    cmd.Parameters.AddWithValue("admin",  adminId)       |> ignore
+    cmd.Parameters.AddWithValue("target", targetId)      |> ignore
+    cmd.Parameters.AddWithValue("action", action)        |> ignore
+    cmd.Parameters.AddWithValue("field",  opt field)     |> ignore
+    cmd.Parameters.AddWithValue("old",    opt oldValue)  |> ignore
+    cmd.Parameters.AddWithValue("new",    opt newValue)  |> ignore
+    cmd.ExecuteNonQuery() |> ignore

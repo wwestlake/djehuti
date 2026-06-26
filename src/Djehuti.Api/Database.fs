@@ -516,6 +516,26 @@ let private migrations : (int * string) list =
         CREATE INDEX IF NOT EXISTS idx_announcement_subscriptions_email ON announcement_subscriptions(email);
         CREATE INDEX IF NOT EXISTS idx_announcement_subscriptions_user  ON announcement_subscriptions(user_id);
         """
+
+        16, """
+        -- User management enhancements
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+
+        -- Admin audit log for user management actions
+        CREATE TABLE IF NOT EXISTS admin_user_audit_log (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            admin_id        UUID NOT NULL REFERENCES users(id),
+            target_user_id  UUID NOT NULL REFERENCES users(id),
+            action          TEXT NOT NULL,
+            field           TEXT,
+            old_value       TEXT,
+            new_value       TEXT,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_admin_audit_target ON admin_user_audit_log(target_user_id);
+        CREATE INDEX IF NOT EXISTS idx_admin_audit_admin  ON admin_user_audit_log(admin_id);
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
