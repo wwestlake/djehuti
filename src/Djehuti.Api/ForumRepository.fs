@@ -365,7 +365,7 @@ type ForumTag = {
     CreatedAt   : DateTime
 }
 
-let private readTag (r: NpgsqlDataReader) : ForumTag = {
+let private readTag (r: DbDataReader) : ForumTag = {
     Id          = r.GetGuid(0)
     Name        = r.GetString(1)
     Slug        = r.GetString(2)
