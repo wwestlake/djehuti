@@ -354,3 +354,75 @@ let votePost (postId: Guid) (userId: Guid) =
         countCmd.ExecuteNonQuery() |> ignore
     txn.Commit()
     inserted > 0
+
+// ── Forum Tags ────────────────────────────────────────────────────────────────
+
+type ForumTag = {
+    Id          : Guid
+    Name        : string
+    Slug        : string
+    Description : string option
+    CreatedAt   : DateTime
+}
+
+let private readTag (r: NpgsqlDataReader) : ForumTag = {
+    Id          = r.GetGuid(0)
+    Name        = r.GetString(1)
+    Slug        = r.GetString(2)
+    Description = if r.IsDBNull(3) then None else Some(r.GetString(3))
+    CreatedAt   = r.GetDateTime(4)
+}
+
+let getTags () : ForumTag list =
+    use conn = openConnection ()
+    use cmd  = new NpgsqlCommand(
+        "SELECT id, name, slug, description, created_at FROM forum_tags ORDER BY name", conn)
+    use r = cmd.ExecuteReader()
+    [ while r.Read() do yield readTag r ]
+
+let createTag (name: string) (slug: string) (description: string option) : ForumTag =
+    use conn = openConnection ()
+    use cmd  = new NpgsqlCommand(
+        """INSERT INTO forum_tags (name, slug, description)
+           VALUES (@name, @slug, @desc)
+           RETURNING id, name, slug, description, created_at""", conn)
+    cmd.Parameters.AddWithValue("name", name) |> ignore
+    cmd.Parameters.AddWithValue("slug", slug) |> ignore
+    cmd.Parameters.AddWithValue("desc", if description.IsSome then box description.Value else box DBNull.Value) |> ignore
+    use r = cmd.ExecuteReader()
+    r.Read() |> ignore
+    readTag r
+
+let deleteTag (tagId: Guid) : bool =
+    use conn = openConnection ()
+    use cmd  = new NpgsqlCommand("DELETE FROM forum_tags WHERE id = @id", conn)
+    cmd.Parameters.AddWithValue("id", tagId) |> ignore
+    cmd.ExecuteNonQuery() > 0
+
+let getTagsForThread (threadId: Guid) : ForumTag list =
+    use conn = openConnection ()
+    use cmd  = new NpgsqlCommand(
+        """SELECT t.id, t.name, t.slug, t.description, t.created_at
+           FROM forum_tags t
+           JOIN forum_thread_tags tt ON tt.tag_id = t.id
+           WHERE tt.thread_id = @tid
+           ORDER BY t.name""", conn)
+    cmd.Parameters.AddWithValue("tid", threadId) |> ignore
+    use r = cmd.ExecuteReader()
+    [ while r.Read() do yield readTag r ]
+
+let setTagsForThread (threadId: Guid) (tagIds: Guid list) : unit =
+    use conn = openConnection ()
+    use txn  = conn.BeginTransaction()
+    use delCmd = new NpgsqlCommand(
+        "DELETE FROM forum_thread_tags WHERE thread_id = @tid", conn, txn)
+    delCmd.Parameters.AddWithValue("tid", threadId) |> ignore
+    delCmd.ExecuteNonQuery() |> ignore
+    for tagId in tagIds do
+        use insCmd = new NpgsqlCommand(
+            "INSERT INTO forum_thread_tags (thread_id, tag_id) VALUES (@tid, @gid) ON CONFLICT DO NOTHING",
+            conn, txn)
+        insCmd.Parameters.AddWithValue("tid", threadId) |> ignore
+        insCmd.Parameters.AddWithValue("gid", tagId)    |> ignore
+        insCmd.ExecuteNonQuery() |> ignore
+    txn.Commit()
