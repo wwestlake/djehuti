@@ -419,7 +419,7 @@ type AdminUserRow =
       CreatedAt: DateTime
       LastLoginAt: DateTime option }
 
-let private readAdminRow (r: Npgsql.NpgsqlDataReader) : AdminUserRow =
+let private readAdminRow (r: System.Data.Common.DbDataReader) : AdminUserRow =
     { Id           = r.GetGuid(0)
       Email        = r.GetString(1)
       DisplayName  = if r.IsDBNull(2) then None else Some (r.GetString(2))
