@@ -198,13 +198,6 @@ export default function AdminPage() {
     catch { setError('Failed to revoke role.') }
   }
 
-  const setUserRole = async (id: string, role: string) => {
-    try {
-      await apiFetch(`${BASE}/api/admin/users/${id}/role`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }) })
-      setUsers(prev => prev.map(u => u.id === id ? { ...u, role } : u))
-    } catch { setError('Failed to update role.') }
-  }
-
   const openUserModal = (u: AdminUser) => {
     setUserModal(u); setEditName(u.displayName ?? ''); setEditRole(u.role); setEditStatus(u.status)
   }
