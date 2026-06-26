@@ -225,26 +225,30 @@ export default function AdminPage() {
             <tbody>
               {users.map(u => (
                 <tr key={u.id} style={{ opacity: u.status === 'suspended' ? 0.6 : 1 }}>
-                  <td>{u.email}</td>
                   <td>
                     {editingName?.id === u.id ? (
-                      <span style={{ display: 'flex', gap: 4 }}>
-                        <input
-                          value={editingName.value}
-                          onChange={e => setEditingName({ id: u.id, value: e.target.value })}
-                          onKeyDown={e => { if (e.key === 'Enter') saveDisplayName(u.id, editingName.value); if (e.key === 'Escape') setEditingName(null) }}
-                          className="admin-inline-input"
-                          autoFocus
-                        />
-                        <button className="btn-primary" style={{ padding: '2px 8px', fontSize: '0.8rem' }} onClick={() => saveDisplayName(u.id, editingName.value)}>Save</button>
-                        <button style={{ padding: '2px 8px', fontSize: '0.8rem' }} onClick={() => setEditingName(null)}>✕</button>
+                      <span style={{ display: 'flex', gap: 4, flexDirection: 'column' }}>
+                        <small style={{ color: 'var(--text-muted)' }}>{u.email}</small>
+                        <span style={{ display: 'flex', gap: 4 }}>
+                          <input
+                            value={editingName.value}
+                            onChange={e => setEditingName({ id: u.id, value: e.target.value })}
+                            onKeyDown={e => { if (e.key === 'Enter') saveDisplayName(u.id, editingName.value); if (e.key === 'Escape') setEditingName(null) }}
+                            className="admin-inline-input"
+                            placeholder="Display name"
+                            autoFocus
+                          />
+                          <button className="btn-primary" style={{ padding: '2px 8px', fontSize: '0.8rem' }} onClick={() => saveDisplayName(u.id, editingName.value)}>Save</button>
+                          <button style={{ padding: '2px 8px', fontSize: '0.8rem' }} onClick={() => setEditingName(null)}>✕</button>
+                        </span>
                       </span>
                     ) : (
-                      <span style={{ cursor: 'pointer', textDecoration: 'underline dotted' }} onClick={() => setEditingName({ id: u.id, value: u.displayName ?? '' })} title="Click to edit">
-                        {u.displayName ?? '—'}
+                      <span style={{ cursor: 'pointer', textDecoration: 'underline dotted' }} onClick={() => setEditingName({ id: u.id, value: u.displayName ?? '' })} title="Click to set display name">
+                        {u.email}
                       </span>
                     )}
                   </td>
+                  <td>{u.displayName ?? '—'}</td>
                   <td>
                     <select
                       value={u.role}
