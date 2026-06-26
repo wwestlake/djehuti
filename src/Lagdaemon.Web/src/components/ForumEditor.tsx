@@ -3,8 +3,6 @@ import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
-import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
-import { common, createLowlight } from 'lowlight'
 import { Bold, Italic, UnderlineIcon, Strikethrough, Code, Link2, List, ListOrdered, Quote, Code2 } from 'lucide-react'
 import { useState } from 'react'
 
