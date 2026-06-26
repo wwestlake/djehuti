@@ -1,4 +1,5 @@
 const BASE = '/djehuti/api/forum'
+const API  = '/djehuti/api'
 
 export interface ForumCategory {
   id: string
@@ -29,6 +30,14 @@ export interface ForumThread {
   postCount: number
   viewCount: number
   lastPostAt?: string
+  createdAt: string
+}
+
+export interface ForumTag {
+  id: string
+  name: string
+  slug: string
+  description?: string
   createdAt: string
 }
 
@@ -108,4 +117,27 @@ export const forumApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ locked }),
     }).then(() => {}),
+
+  getTags: (): Promise<ForumTag[]> =>
+    fetch(`${API}/forum/tags`, opts).then(r => r.json()),
+
+  createTag: (name: string, slug: string, description?: string): Promise<ForumTag> =>
+    fetch(`${API}/forum/tags`, {
+      ...opts, method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, slug, description: description ?? '' }),
+    }).then(r => r.json()),
+
+  deleteTag: (tagId: string): Promise<void> =>
+    fetch(`${API}/forum/tags/${tagId}`, { ...opts, method: 'DELETE' }).then(() => {}),
+
+  getThreadTags: (threadId: string): Promise<ForumTag[]> =>
+    fetch(`${API}/forum/threads/${threadId}/tags`, opts).then(r => r.json()),
+
+  setThreadTags: (threadId: string, tagIds: string[]): Promise<ForumTag[]> =>
+    fetch(`${API}/forum/threads/${threadId}/tags`, {
+      ...opts, method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tagIds }),
+    }).then(r => r.json()),
 }

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { blogApi } from '../../api/blogApi'
 import type { BlogArticle, BlogTag, BlogAuthor, SiteConfigEntry } from '../../api/blogApi'
+import { forumApi } from '../../api/forumApi'
+import type { ForumTag } from '../../api/forumApi'
 
 const BASE = '/djehuti'
 
@@ -18,7 +20,7 @@ interface Announcement {
   createdAt: string; updatedAt: string
 }
 
-type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'config' | 'roles' | 'announcements'
+type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'config' | 'roles' | 'announcements'
 
 const PAGE_SIZE = 25
 
@@ -72,6 +74,10 @@ export default function AdminPage() {
   const [newTagName, setNewTagName] = useState('')
   const [newTagDesc, setNewTagDesc] = useState('')
 
+  const [forumTags, setForumTags] = useState<ForumTag[]>([])
+  const [newForumTagName, setNewForumTagName] = useState('')
+  const [newForumTagDesc, setNewForumTagDesc] = useState('')
+
   // Config
   const [config, setConfig] = useState<SiteConfigEntry[]>([])
   const [editingConfig, setEditingConfig] = useState<Record<string, string>>({})
@@ -117,6 +123,7 @@ export default function AdminPage() {
       'blog-all': () => apiFetch(`${BASE}/api/admin/blog/articles`).then(setAllArticles),
       'blog-authors': () => blogApi.getAuthors().then(setAuthors),
       tags: () => blogApi.getTags().then(setTags),
+      'forum-tags': () => forumApi.getTags().then(setForumTags),
       config: () => blogApi.getConfig().then(entries => {
         setConfig(entries)
         const map: Record<string, string> = {}
@@ -164,6 +171,23 @@ export default function AdminPage() {
     if (!confirm('Delete tag? This removes it from all articles.')) return
     try { await blogApi.deleteTag(id); setTags(prev => prev.filter(t => t.id !== id)) }
     catch { setError('Failed to delete tag.') }
+  }
+
+  const createForumTag = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newForumTagName.trim()) return
+    const slug = newForumTagName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    try {
+      const t = await forumApi.createTag(newForumTagName.trim(), slug, newForumTagDesc.trim() || undefined)
+      setForumTags(prev => [...prev, t])
+      setNewForumTagName(''); setNewForumTagDesc('')
+    } catch { setError('Failed to create forum tag.') }
+  }
+
+  const deleteForumTag = async (id: string) => {
+    if (!confirm('Delete forum tag? This removes it from all threads.')) return
+    try { await forumApi.deleteTag(id); setForumTags(prev => prev.filter(t => t.id !== id)) }
+    catch { setError('Failed to delete forum tag.') }
   }
 
   // ── Config ──────────────────────────────────────────────────────────────────
@@ -329,7 +353,7 @@ export default function AdminPage() {
   if (!user || user.role !== 'admin') return <p className="forum-login-prompt">Admin access required.</p>
 
   const TAB_LABELS: Record<Tab, string> = {
-    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Tags', config: 'Config', roles: 'Roles', announcements: 'Announcements',
+    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', config: 'Config', roles: 'Roles', announcements: 'Announcements',
   }
 
   return (
@@ -562,6 +586,36 @@ export default function AdminPage() {
                     <td><button className="post-action post-action-delete" onClick={() => deleteTag(t.id)}>Delete</button></td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Forum Tags ── */}
+      {tab === 'forum-tags' && !loading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <form className="admin-grant-form" onSubmit={createForumTag}>
+            <h4 style={{ margin: 0 }}>Create Forum Tag</h4>
+            <div className="admin-grant-fields">
+              <input placeholder="Tag name" value={newForumTagName} onChange={e => setNewForumTagName(e.target.value)} className="papers-new-input" />
+              <input placeholder="Description (optional)" value={newForumTagDesc} onChange={e => setNewForumTagDesc(e.target.value)} className="papers-new-input" style={{ flex: 2 }} />
+              <button type="submit" className="tiptap-action-btn primary" disabled={!newForumTagName.trim()}>Create</button>
+            </div>
+          </form>
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead><tr><th>Name</th><th>Slug</th><th>Description</th><th></th></tr></thead>
+              <tbody>
+                {forumTags.map(t => (
+                  <tr key={t.id}>
+                    <td>{t.name}</td>
+                    <td className="admin-id-cell">{t.slug}</td>
+                    <td>{t.description ?? '—'}</td>
+                    <td><button className="post-action post-action-delete" onClick={() => deleteForumTag(t.id)}>Delete</button></td>
+                  </tr>
+                ))}
+                {forumTags.length === 0 && <tr><td colSpan={4} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No forum tags yet.</td></tr>}
               </tbody>
             </table>
           </div>

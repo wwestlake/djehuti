@@ -843,6 +843,13 @@ footer a:hover { text-decoration: underline; }
 .reply-form textarea { width: 100%; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.9rem; resize: vertical; }
 .forum-empty { color: var(--text-muted); font-size: 0.9rem; padding: 12px 0; }
 .forum-loading { color: var(--text-muted); padding: 24px; text-align: center; }
+.forum-tag-filter { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.forum-tag-row { display: flex; flex-wrap: wrap; gap: 4px; margin: 3px 0; }
+.forum-tag-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.forum-tag-chip { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.78rem; font-weight: 500; background: var(--surface); border: 1px solid var(--border); color: var(--text-muted); cursor: pointer; transition: background 0.12s, border-color 0.12s, color 0.12s; }
+.forum-tag-chip:hover { border-color: var(--accent); color: var(--accent); }
+.forum-tag-chip.selected { background: color-mix(in srgb, var(--accent) 18%, transparent); border-color: var(--accent); color: var(--accent); }
+.forum-tag-chip.small { font-size: 0.72rem; padding: 2px 8px; cursor: default; pointer-events: none; }
 .forum-error-msg { color: var(--danger); padding: 24px; text-align: center; }
 .forum-login-prompt, .forum-locked-notice { color: var(--text-muted); font-size: 0.9rem; text-align: center; padding: 12px; border: 1px solid var(--border); border-radius: 6px; }
 
