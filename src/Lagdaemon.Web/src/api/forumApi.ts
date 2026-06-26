@@ -134,6 +134,16 @@ export const forumApi = {
   getThreadTags: (threadId: string): Promise<ForumTag[]> =>
     fetch(`${API}/forum/threads/${threadId}/tags`, opts).then(r => r.json()),
 
+  getReactions: (postId: string): Promise<{ emoji: string; count: number; userReacted: boolean }[]> =>
+    fetch(`${API}/forum/posts/${postId}/reactions`, opts).then(r => r.json()),
+
+  toggleReaction: (postId: string, emoji: string): Promise<{ added: boolean; emoji: string }> =>
+    fetch(`${API}/forum/posts/${postId}/reactions`, {
+      ...opts, method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emoji }),
+    }).then(r => r.json()),
+
   setThreadTags: (threadId: string, tagIds: string[]): Promise<ForumTag[]> =>
     fetch(`${API}/forum/threads/${threadId}/tags`, {
       ...opts, method: 'PUT',

@@ -426,3 +426,51 @@ let setTagsForThread (threadId: Guid) (tagIds: Guid list) : unit =
         insCmd.Parameters.AddWithValue("gid", tagId)    |> ignore
         insCmd.ExecuteNonQuery() |> ignore
     txn.Commit()
+
+// ── Post Reactions ────────────────────────────────────────────────────────────
+
+type PostReaction = { Emoji: string; Count: int; UserReacted: bool }
+
+let getReactions (postId: Guid) (userId: Guid option) : PostReaction list =
+    use conn = openConnection ()
+    use cmd  = new NpgsqlCommand(
+        """SELECT emoji, COUNT(*) as count,
+                  BOOL_OR(user_id = @uid) as user_reacted
+           FROM forum_post_reactions
+           WHERE post_id = @pid
+           GROUP BY emoji
+           ORDER BY count DESC""", conn)
+    cmd.Parameters.AddWithValue("pid", postId) |> ignore
+    cmd.Parameters.AddWithValue("uid", userId |> Option.defaultValue Guid.Empty |> box) |> ignore
+    use r = cmd.ExecuteReader()
+    [ while r.Read() do
+        yield { Emoji = r.GetString(0); Count = int (r.GetInt64(1)); UserReacted = r.GetBoolean(2) } ]
+
+let toggleReaction (postId: Guid) (userId: Guid) (emoji: string) : bool =
+    use conn = openConnection ()
+    use txn  = conn.BeginTransaction()
+    use checkCmd = new NpgsqlCommand(
+        "SELECT 1 FROM forum_post_reactions WHERE post_id = @pid AND user_id = @uid AND emoji = @emoji",
+        conn, txn)
+    checkCmd.Parameters.AddWithValue("pid",   postId) |> ignore
+    checkCmd.Parameters.AddWithValue("uid",   userId) |> ignore
+    checkCmd.Parameters.AddWithValue("emoji", emoji)  |> ignore
+    let exists = checkCmd.ExecuteScalar() <> null
+    if exists then
+        use delCmd = new NpgsqlCommand(
+            "DELETE FROM forum_post_reactions WHERE post_id = @pid AND user_id = @uid AND emoji = @emoji",
+            conn, txn)
+        delCmd.Parameters.AddWithValue("pid",   postId) |> ignore
+        delCmd.Parameters.AddWithValue("uid",   userId) |> ignore
+        delCmd.Parameters.AddWithValue("emoji", emoji)  |> ignore
+        delCmd.ExecuteNonQuery() |> ignore
+    else
+        use insCmd = new NpgsqlCommand(
+            "INSERT INTO forum_post_reactions (post_id, user_id, emoji) VALUES (@pid, @uid, @emoji) ON CONFLICT DO NOTHING",
+            conn, txn)
+        insCmd.Parameters.AddWithValue("pid",   postId) |> ignore
+        insCmd.Parameters.AddWithValue("uid",   userId) |> ignore
+        insCmd.Parameters.AddWithValue("emoji", emoji)  |> ignore
+        insCmd.ExecuteNonQuery() |> ignore
+    txn.Commit()
+    not exists

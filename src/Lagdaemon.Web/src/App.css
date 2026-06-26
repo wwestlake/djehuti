@@ -843,6 +843,18 @@ footer a:hover { text-decoration: underline; }
 .reply-form textarea { width: 100%; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.9rem; resize: vertical; }
 .forum-empty { color: var(--text-muted); font-size: 0.9rem; padding: 12px 0; }
 .forum-loading { color: var(--text-muted); padding: 24px; text-align: center; }
+.reaction-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 6px 0 2px; }
+.reaction-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 0.85rem; cursor: pointer; transition: border-color 0.12s, background 0.12s; }
+.reaction-chip:hover:not(:disabled) { border-color: var(--accent); }
+.reaction-chip.reacted { background: color-mix(in srgb, var(--accent) 15%, transparent); border-color: var(--accent); }
+.reaction-chip:disabled { cursor: default; }
+.reaction-chip span { font-size: 0.78rem; color: var(--text-muted); }
+.reaction-picker-wrap { position: relative; }
+.reaction-add-btn { width: 26px; height: 26px; border-radius: 50%; border: 1px dashed var(--border); background: transparent; color: var(--text-muted); font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.reaction-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+.reaction-picker { position: absolute; bottom: 32px; left: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px; display: flex; gap: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.35); z-index: 100; }
+.reaction-picker-emoji { background: none; border: none; font-size: 1.3rem; cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.reaction-picker-emoji:hover { background: var(--bg); }
 .forum-tag-filter { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .forum-tag-row { display: flex; flex-wrap: wrap; gap: 4px; margin: 3px 0; }
 .forum-tag-picker { display: flex; flex-wrap: wrap; gap: 6px; }
