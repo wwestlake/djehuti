@@ -45,7 +45,8 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const [editingName, setEditingName] = useState<{ id: string; value: string } | null>(null)
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
+  const [editingDisplayName, setEditingDisplayName] = useState('')
 
   const [grantForm, setGrantForm] = useState({ userId: '', module: 'forum', role: 'moderator', scopeId: '' })
   const [granting, setGranting] = useState(false)
@@ -88,7 +89,6 @@ export default function AdminPage() {
         body: JSON.stringify({ displayName }),
       })
       setUsers(prev => prev.map(u => u.id === id ? { ...u, displayName: displayName || null } : u))
-      setEditingName(null)
     } catch {
       setError('Failed to update display name.')
     }
@@ -208,82 +208,78 @@ export default function AdminPage() {
       {error && <p className="forum-error">{error}</p>}
       {loading && <div className="forum-loading">Loading…</div>}
 
-      {tab === 'users' && !loading && (
-        <div className="admin-table-wrap">
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>Email</th>
-                <th>Display Name</th>
-                <th>Role</th>
-                <th>Verified</th>
-                <th>Status</th>
-                <th>Joined</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+      {tab === 'users' && !loading && (() => {
+        const sel = users.find(u => u.id === selectedUserId) ?? null
+        return (
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div className="admin-user-list">
               {users.map(u => (
-                <tr key={u.id} style={{ opacity: u.status === 'suspended' ? 0.6 : 1 }}>
-                  <td>
-                    {editingName?.id === u.id ? (
-                      <span style={{ display: 'flex', gap: 4, flexDirection: 'column' }}>
-                        <small style={{ color: 'var(--text-muted)' }}>{u.email}</small>
-                        <span style={{ display: 'flex', gap: 4 }}>
-                          <input
-                            value={editingName.value}
-                            onChange={e => setEditingName({ id: u.id, value: e.target.value })}
-                            onKeyDown={e => { if (e.key === 'Enter') saveDisplayName(u.id, editingName.value); if (e.key === 'Escape') setEditingName(null) }}
-                            className="admin-inline-input"
-                            placeholder="Display name"
-                            autoFocus
-                          />
-                          <button className="btn-primary" style={{ padding: '2px 8px', fontSize: '0.8rem' }} onClick={() => saveDisplayName(u.id, editingName.value)}>Save</button>
-                          <button style={{ padding: '2px 8px', fontSize: '0.8rem' }} onClick={() => setEditingName(null)}>✕</button>
-                        </span>
-                      </span>
-                    ) : (
-                      <button className="admin-email-btn" onClick={() => setEditingName({ id: u.id, value: u.displayName ?? '' })} title="Edit display name">
-                        {u.email}
-                      </button>
-                    )}
-                  </td>
-                  <td>{u.displayName ?? '—'}</td>
-                  <td>
-                    <select
-                      value={u.role}
-                      onChange={e => setUserRole(u.id, e.target.value)}
-                      className="admin-role-select"
-                    >
-                      <option value="user">user</option>
-                      <option value="admin">admin</option>
-                    </select>
-                  </td>
-                  <td>
-                    {u.emailVerified ? '✓' : (
-                      <button className="admin-action-btn" onClick={() => verifyUser(u.id)} title="Mark email verified">Verify</button>
-                    )}
-                  </td>
-                  <td>
-                    <span style={{ color: u.status === 'suspended' ? '#f85149' : u.status === 'active' ? '#3fb950' : '#8b949e' }}>
-                      {u.status}
-                    </span>
-                  </td>
-                  <td>{new Date(u.createdAt).toLocaleDateString()}</td>
-                  <td style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    {u.status === 'suspended' ? (
-                      <button className="admin-action-btn" onClick={() => toggleSuspend(u.id, false)}>Unsuspend</button>
-                    ) : (
-                      <button className="admin-action-btn admin-action-danger" onClick={() => toggleSuspend(u.id, true)}>Suspend</button>
-                    )}
-                    <button className="admin-action-btn" onClick={() => sendPasswordReset(u.id)}>Reset PW</button>
-                  </td>
-                </tr>
+                <button
+                  key={u.id}
+                  className={`admin-user-row${selectedUserId === u.id ? ' selected' : ''}`}
+                  onClick={() => { setSelectedUserId(u.id); setEditingDisplayName(u.displayName ?? '') }}
+                >
+                  <span className="admin-user-email">{u.email}</span>
+                  <span className="admin-user-meta">
+                    <span style={{ color: u.status === 'suspended' ? '#f85149' : u.status === 'active' ? '#3fb950' : '#8b949e' }}>{u.status}</span>
+                    {' · '}{u.role}
+                  </span>
+                </button>
               ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+            </div>
+
+            {sel && (
+              <div className="admin-user-detail">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h4 style={{ margin: 0 }}>{sel.email}</h4>
+                  <button onClick={() => setSelectedUserId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }}>✕</button>
+                </div>
+                <p style={{ margin: '4px 0 12px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  Joined {new Date(sel.createdAt).toLocaleDateString()} · {sel.emailVerified ? 'Email verified' : 'Email not verified'}
+                </p>
+
+                <div className="admin-detail-field">
+                  <label>Display Name</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      className="admin-inline-input"
+                      style={{ flex: 1, width: 'auto' }}
+                      value={editingDisplayName}
+                      onChange={e => setEditingDisplayName(e.target.value)}
+                      placeholder="None set"
+                    />
+                    <button className="admin-action-btn" onClick={() => saveDisplayName(sel.id, editingDisplayName)}>Save</button>
+                  </div>
+                </div>
+
+                <div className="admin-detail-field">
+                  <label>Role</label>
+                  <select
+                    value={sel.role}
+                    onChange={e => setUserRole(sel.id, e.target.value)}
+                    className="admin-role-select"
+                  >
+                    <option value="user">user</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </div>
+
+                <div className="admin-detail-actions">
+                  {!sel.emailVerified && (
+                    <button className="admin-action-btn" onClick={() => verifyUser(sel.id)}>Mark Email Verified</button>
+                  )}
+                  {sel.status === 'suspended' ? (
+                    <button className="admin-action-btn" onClick={() => toggleSuspend(sel.id, false)}>Unsuspend</button>
+                  ) : (
+                    <button className="admin-action-btn admin-action-danger" onClick={() => toggleSuspend(sel.id, true)}>Suspend</button>
+                  )}
+                  <button className="admin-action-btn" onClick={() => sendPasswordReset(sel.id)}>Send Password Reset</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {tab === 'blog-queue' && !loading && (
         <div className="admin-table-wrap">
