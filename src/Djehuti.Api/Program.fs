@@ -2495,14 +2495,15 @@ let main args =
 
     app.MapGet(
         "/api/admin/users",
-        Func<string, string, string, int, int, HttpContext, IResult>(fun search role status page pageSize ctx ->
+        Func<HttpContext, IResult>(fun ctx ->
             match tryGetAuthClaims ctx with
             | Some claims when Permissions.isAdmin claims.Role ->
-                let s  = if String.IsNullOrWhiteSpace search then None else Some search
-                let r  = if String.IsNullOrWhiteSpace role   then None else Some role
-                let st = if String.IsNullOrWhiteSpace status then None else Some status
-                let p  = if page < 1 then 1 else page
-                let ps = if pageSize < 1 || pageSize > 100 then 50 else pageSize
+                let q  = ctx.Request.Query
+                let s  = let v = string q["search"] in if String.IsNullOrWhiteSpace v then None else Some v
+                let r  = let v = string q["role"]   in if String.IsNullOrWhiteSpace v then None else Some v
+                let st = let v = string q["status"] in if String.IsNullOrWhiteSpace v then None else Some v
+                let p  = match System.Int32.TryParse(string q["page"])     with | true, v when v > 0 -> v | _ -> 1
+                let ps = match System.Int32.TryParse(string q["pageSize"]) with | true, v when v > 0 && v <= 100 -> v | _ -> 50
                 let rows  = UserRepository.getAdminUsers s r st p ps
                 let total = UserRepository.countAdminUsers s r st
                 Results.Ok({| data = rows; total = total; page = p; pageSize = ps |})
