@@ -53,6 +53,37 @@ export interface ForumPost {
   deletedAt?: string
 }
 
+export interface ForumReport {
+  id: string
+  reporterId: string
+  targetType: string
+  targetId: string
+  reason: string
+  status: string
+  resolvedBy?: string
+  resolvedAt?: string
+  createdAt: string
+}
+
+export interface Notification {
+  id: string
+  userId: string
+  type: string
+  body: string
+  link?: string
+  readAt?: string
+  createdAt: string
+}
+
+export interface Subscription {
+  id: string
+  userId: string
+  targetType: string
+  targetId: string
+  level: string
+  createdAt: string
+}
+
 const opts = { credentials: 'include' as RequestCredentials }
 
 export const forumApi = {
@@ -150,4 +181,50 @@ export const forumApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tagIds }),
     }).then(r => r.json()),
+
+  reportContent: (targetType: string, targetId: string, reason: string): Promise<void> =>
+    fetch(`${API}/forum/reports`, {
+      ...opts, method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetType, targetId, reason }),
+    }).then(() => {}),
+
+  getAdminReports: (status?: string, page = 1, pageSize = 25): Promise<ForumReport[]> => {
+    const q = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+    if (status) q.set('status', status)
+    return fetch(`${API}/admin/forum/reports?${q}`, opts).then(r => r.json())
+  },
+
+  resolveReport: (reportId: string, status: 'dismissed' | 'warned' | 'deleted'): Promise<void> =>
+    fetch(`${API}/admin/forum/reports/${reportId}`, {
+      ...opts, method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    }).then(() => {}),
+
+  subscribeThread: (threadId: string, level: string): Promise<Subscription> =>
+    fetch(`${API}/forum/threads/${threadId}/subscribe`, {
+      ...opts, method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level }),
+    }).then(r => r.json()),
+
+  getThreadSubscription: (threadId: string): Promise<Subscription | null> =>
+    fetch(`${API}/forum/threads/${threadId}/subscribe`, opts).then(r => r.ok ? r.json() : null),
+
+  subscribeCategory: (categoryId: string, level: string): Promise<Subscription> =>
+    fetch(`${API}/forum/categories/${categoryId}/subscribe`, {
+      ...opts, method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level }),
+    }).then(r => r.json()),
+
+  getNotifications: (page = 1, pageSize = 20): Promise<{ items: Notification[]; unreadCount: number }> =>
+    fetch(`${API}/notifications?page=${page}&pageSize=${pageSize}`, opts).then(r => r.json()),
+
+  markNotificationRead: (id: string): Promise<void> =>
+    fetch(`${API}/notifications/${id}/read`, { ...opts, method: 'PATCH' }).then(() => {}),
+
+  markAllNotificationsRead: (): Promise<void> =>
+    fetch(`${API}/notifications/read-all`, { ...opts, method: 'PATCH' }).then(() => {}),
 }

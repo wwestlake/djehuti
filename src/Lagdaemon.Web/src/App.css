@@ -820,6 +820,28 @@ footer a:hover { text-decoration: underline; }
 .thread-header h1 { font-size: 1.4rem; font-weight: 700; }
 .thread-header-badges { display: flex; gap: 6px; }
 .thread-mod-actions { display: flex; gap: 8px; }
+.thread-subscribe { display: flex; align-items: center; }
+.subscribe-select { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 0.82rem; cursor: pointer; }
+.subscribe-select:hover { border-color: var(--accent); }
+
+/* ── Notifications ───────────────────────────────────────────────────────── */
+.notif-wrap { position: relative; display: flex; align-items: center; }
+.notif-bell { background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 4px; display: flex; align-items: center; position: relative; }
+.notif-bell:hover { color: var(--text); }
+.notif-badge { position: absolute; top: 0; right: 0; background: var(--accent); color: #fff; font-size: 0.65rem; font-weight: 700; border-radius: 999px; min-width: 16px; height: 16px; padding: 0 3px; display: flex; align-items: center; justify-content: center; line-height: 1; }
+.notif-dropdown { position: absolute; top: calc(100% + 8px); right: 0; width: 320px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.35); z-index: 200; overflow: hidden; }
+.notif-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 0.85rem; font-weight: 600; }
+.notif-mark-all { background: none; border: none; cursor: pointer; color: var(--accent); font-size: 0.78rem; padding: 0; }
+.notif-mark-all:hover { text-decoration: underline; }
+.notif-list { max-height: 360px; overflow-y: auto; }
+.notif-item { display: block; width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid var(--border); padding: 10px 14px; cursor: pointer; }
+.notif-item:last-child { border-bottom: none; }
+.notif-item:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.notif-unread { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.notif-body { font-size: 0.85rem; color: var(--text); line-height: 1.4; }
+.notif-time { font-size: 0.75rem; color: var(--text-muted); margin-top: 3px; }
+.notif-empty { padding: 20px 14px; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
+
 .post-list { display: flex; flex-direction: column; gap: 12px; }
 .post-item { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .post-answer { border-color: #6ee7a0; }
