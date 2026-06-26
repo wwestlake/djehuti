@@ -3559,6 +3559,56 @@ tbody tr.selected {
   border-top: 1px solid var(--border);
 }
 
+/* ── Admin toolbar & pagination ── */
+.admin-toolbar { display: flex; flex-direction: column; gap: 8px; }
+.admin-search-row { display: flex; gap: 8px; }
+.admin-search-input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  flex: 1;
+  font-size: 0.875rem;
+  padding: 6px 10px;
+}
+.admin-filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.admin-pagination { display: flex; align-items: center; gap: 12px; }
+
+/* ── Admin modal ── */
+.admin-modal-backdrop {
+  background: rgba(0,0,0,0.5);
+  bottom: 0; left: 0; right: 0; top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  position: fixed;
+  z-index: 100;
+}
+.admin-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 480px;
+  padding: 20px;
+  width: 100%;
+}
+.admin-modal-header { display: flex; justify-content: space-between; align-items: center; }
+.admin-modal-close {
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; font-size: 1.1rem; padding: 0;
+}
+.admin-modal-actions {
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 12px;
+}
+
 .admin-inline-input {
   background: var(--surface);
   border: 1px solid var(--border);

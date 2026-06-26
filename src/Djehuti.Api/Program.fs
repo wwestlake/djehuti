@@ -2495,29 +2495,19 @@ let main args =
 
     app.MapGet(
         "/api/admin/users",
-        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
-            async {
-                match tryGetAuthClaims ctx with
-                | Some claims when Permissions.isAdmin claims.Role ->
-                    use conn = Database.openConnection()
-                    use cmd = new Npgsql.NpgsqlCommand(
-                        "SELECT id, email, role, display_name, created_at, email_verified_at IS NOT NULL, status FROM users ORDER BY created_at DESC", conn)
-                    use reader = cmd.ExecuteReader()
-                    let mutable rows = []
-                    while reader.Read() do
-                        rows <- rows @ [
-                            {| Id           = reader.GetGuid(0).ToString()
-                               Email        = reader.GetString(1)
-                               Role         = reader.GetString(2)
-                               DisplayName  = if reader.IsDBNull(3) then null else reader.GetString(3)
-                               CreatedAt    = reader.GetDateTime(4)
-                               EmailVerified= reader.GetBoolean(5)
-                               Status       = reader.GetString(6) |}
-                        ]
-                    return Results.Ok(rows)
-                | Some _ -> return Results.Forbid()
-                | None   -> return Results.Unauthorized()
-            } |> Async.StartAsTask)
+        Func<string, string, string, int, int, HttpContext, IResult>(fun search role status page pageSize ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let s  = if String.IsNullOrWhiteSpace search then None else Some search
+                let r  = if String.IsNullOrWhiteSpace role   then None else Some role
+                let st = if String.IsNullOrWhiteSpace status then None else Some status
+                let p  = if page < 1 then 1 else page
+                let ps = if pageSize < 1 || pageSize > 100 then 50 else pageSize
+                let rows  = UserRepository.getAdminUsers s r st p ps
+                let total = UserRepository.countAdminUsers s r st
+                Results.Ok({| data = rows; total = total; page = p; pageSize = ps |})
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
     ) |> ignore
 
     app.MapPatch(
@@ -2526,16 +2516,18 @@ let main args =
             async {
                 match tryGetAuthClaims ctx with
                 | Some claims when Permissions.isAdmin claims.Role ->
-                    match Guid.TryParse(id) with
-                    | false, _ -> return Results.BadRequest("Invalid user id")
-                    | true, uid ->
+                    match Guid.TryParse(id), Guid.TryParse(claims.UserId) with
+                    | (true, uid), (true, adminId) ->
                         use conn = Database.openConnection()
                         use cmd = new Npgsql.NpgsqlCommand(
                             "UPDATE users SET role = @role WHERE id = @id", conn)
                         cmd.Parameters.AddWithValue("role", body.role) |> ignore
                         cmd.Parameters.AddWithValue("id", uid) |> ignore
                         let affected = cmd.ExecuteNonQuery()
+                        if affected > 0 then
+                            UserRepository.logAdminAudit adminId uid "update" (Some "role") None (Some body.role)
                         return if affected > 0 then Results.Ok() else Results.NotFound()
+                    | _ -> return Results.BadRequest("Invalid id")
                 | Some _ -> return Results.Forbid()
                 | None   -> return Results.Unauthorized()
             } |> Async.StartAsTask)
@@ -2547,16 +2539,19 @@ let main args =
             async {
                 match tryGetAuthClaims ctx with
                 | Some claims when Permissions.isAdmin claims.Role ->
-                    match Guid.TryParse(id) with
-                    | false, _ -> return Results.BadRequest("Invalid user id")
-                    | true, uid ->
+                    match Guid.TryParse(id), Guid.TryParse(claims.UserId) with
+                    | (true, uid), (true, adminId) ->
+                        let dn = if String.IsNullOrWhiteSpace body.displayName then None else Some (body.displayName.Trim())
                         use conn = Database.openConnection()
                         use cmd = new Npgsql.NpgsqlCommand(
                             "UPDATE users SET display_name = @dn, updated_at = now() WHERE id = @id", conn)
-                        cmd.Parameters.AddWithValue("dn", if String.IsNullOrWhiteSpace body.displayName then box DBNull.Value else box (body.displayName.Trim())) |> ignore
+                        cmd.Parameters.AddWithValue("dn", if dn.IsSome then box dn.Value else box DBNull.Value) |> ignore
                         cmd.Parameters.AddWithValue("id", uid) |> ignore
                         let affected = cmd.ExecuteNonQuery()
+                        if affected > 0 then
+                            UserRepository.logAdminAudit adminId uid "update" (Some "display_name") None dn
                         return if affected > 0 then Results.Ok() else Results.NotFound()
+                    | _ -> return Results.BadRequest("Invalid id")
                 | Some _ -> return Results.Forbid()
                 | None   -> return Results.Unauthorized()
             } |> Async.StartAsTask)
@@ -2568,11 +2563,12 @@ let main args =
             async {
                 match tryGetAuthClaims ctx with
                 | Some claims when Permissions.isAdmin claims.Role ->
-                    match Guid.TryParse(id) with
-                    | false, _ -> return Results.BadRequest("Invalid user id")
-                    | true, uid ->
+                    match Guid.TryParse(id), Guid.TryParse(claims.UserId) with
+                    | (true, uid), (true, adminId) ->
                         let! ok = UserRepository.verifyEmail uid
+                        if ok then UserRepository.logAdminAudit adminId uid "verify_email" None None None
                         return if ok then Results.Ok() else Results.NotFound()
+                    | _ -> return Results.BadRequest("Invalid id")
                 | Some _ -> return Results.Forbid()
                 | None   -> return Results.Unauthorized()
             } |> Async.StartAsTask)
@@ -2584,9 +2580,8 @@ let main args =
             async {
                 match tryGetAuthClaims ctx with
                 | Some claims when Permissions.isAdmin claims.Role ->
-                    match Guid.TryParse(id) with
-                    | false, _ -> return Results.BadRequest("Invalid user id")
-                    | true, uid ->
+                    match Guid.TryParse(id), Guid.TryParse(claims.UserId) with
+                    | (true, uid), (true, adminId) ->
                         let newStatus = if body.suspend then "suspended" else "active"
                         use conn = Database.openConnection()
                         use cmd = new Npgsql.NpgsqlCommand(
@@ -2594,7 +2589,10 @@ let main args =
                         cmd.Parameters.AddWithValue("status", newStatus) |> ignore
                         cmd.Parameters.AddWithValue("id", uid) |> ignore
                         let affected = cmd.ExecuteNonQuery()
+                        if affected > 0 then
+                            UserRepository.logAdminAudit adminId uid "update" (Some "status") None (Some newStatus)
                         return if affected > 0 then Results.Ok() else Results.NotFound()
+                    | _ -> return Results.BadRequest("Invalid id")
                 | Some _ -> return Results.Forbid()
                 | None   -> return Results.Unauthorized()
             } |> Async.StartAsTask)
@@ -2621,6 +2619,67 @@ let main args =
                                         Email.HtmlBody = "<p>An admin has initiated a password reset for your account.</p><p><a href=\"" + resetUrl + "\">Click here to set your password</a></p><p>This link expires in 1 hour.</p>" }
                             Email.sendEmail msg |> Async.Ignore |> Async.Start
                             return Results.Ok()
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/admin/users/{id}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    match Guid.TryParse(id), Guid.TryParse(claims.UserId) with
+                    | (true, uid), (true, adminId) ->
+                        if uid = adminId then return Results.BadRequest("Cannot delete your own account")
+                        else
+                            let deleted = UserRepository.hardDeleteUser uid
+                            if deleted then
+                                UserRepository.logAdminAudit adminId uid "hard_delete" None None None
+                                return Results.Ok()
+                            else return Results.NotFound()
+                    | _ -> return Results.BadRequest("Invalid id")
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/users/invite",
+        Func<HttpContext, {| email: string; role: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, adminId ->
+                        let email = body.email.Trim().ToLower()
+                        if String.IsNullOrWhiteSpace email then return Results.BadRequest("Email required")
+                        else
+                            let! existing = UserRepository.tryGetByEmail email
+                            if existing.IsSome then return Results.Conflict("User already exists")
+                            else
+                                let! userOpt = UserRepository.createUser email None
+                                match userOpt with
+                                | None -> return Results.Problem(detail = "Failed to create user", statusCode = 500, title = "Error")
+                                | Some u ->
+                                    let allowedRoles = ["user";"admin";"moderator";"author"]
+                                    let role = if List.contains body.role allowedRoles then body.role else "user"
+                                    use conn = Database.openConnection()
+                                    use cmd = new Npgsql.NpgsqlCommand("UPDATE users SET role = @role, status = 'active' WHERE id = @id", conn)
+                                    cmd.Parameters.AddWithValue("role", role) |> ignore
+                                    cmd.Parameters.AddWithValue("id",   u.Id)  |> ignore
+                                    cmd.ExecuteNonQuery() |> ignore
+                                    let token = Auth.generateSecureToken()
+                                    let! _ = UserRepository.createPasswordResetToken u.Id token
+                                    let inviteUrl = "https://lagdaemon.com/djehuti/#/reset-password?token=" + token
+                                    let msg = { Email.To = email
+                                                Email.Subject = "You have been invited to Lag Daemon"
+                                                Email.HtmlBody = "<p>An administrator has created an account for you on Lag Daemon.</p><p><a href=\"" + inviteUrl + "\">Click here to set your password and get started</a></p><p>This link expires in 1 hour.</p>" }
+                                    Email.sendEmail msg |> Async.Ignore |> Async.Start
+                                    UserRepository.logAdminAudit adminId u.Id "invite" (Some "role") None (Some role)
+                                    return Results.Created("/api/admin/users", {| id = u.Id; email = email; role = role |})
                 | Some _ -> return Results.Forbid()
                 | None   -> return Results.Unauthorized()
             } |> Async.StartAsTask)
