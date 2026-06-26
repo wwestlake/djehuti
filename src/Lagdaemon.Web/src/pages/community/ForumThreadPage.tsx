@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { useEffect, useRef, useState } from 'react'
 import { forumApi } from '../../api/forumApi'
 import type { ForumThread, ForumPost } from '../../api/forumApi'
 import { useAuth } from '../../contexts/AuthContext'
+import ForumEditor from '../../components/ForumEditor'
 
 interface Props {
   threadId: string
@@ -15,10 +15,11 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
   const [thread, setThread] = useState<ForumThread | null>(null)
   const [posts, setPosts] = useState<ForumPost[]>([])
   const [loading, setLoading] = useState(true)
-  const [replyContent, setReplyContent] = useState('')
+  const [replyHtml, setReplyHtml] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editContent, setEditContent] = useState('')
+  const [editHtml, setEditHtml] = useState('')
+  const replyEditorKey = useRef(0)
 
   useEffect(() => {
     Promise.all([
@@ -32,20 +33,23 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
 
   const handleReply = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!replyContent.trim()) return
+    const text = replyHtml.replace(/<[^>]+>/g, '').trim()
+    if (!text) return
     setSubmitting(true)
     try {
-      const post = await forumApi.createPost(threadId, replyContent.trim())
+      const post = await forumApi.createPost(threadId, replyHtml)
       setPosts(prev => [...prev, post])
-      setReplyContent('')
+      setReplyHtml('')
+      replyEditorKey.current += 1
     } finally {
       setSubmitting(false)
     }
   }
 
   const handleEdit = async (postId: string) => {
-    if (!editContent.trim()) return
-    const updated = await forumApi.updatePost(postId, editContent.trim())
+    const text = editHtml.replace(/<[^>]+>/g, '').trim()
+    if (!text) return
+    const updated = await forumApi.updatePost(postId, editHtml)
     setPosts(prev => prev.map(p => p.id === postId ? updated : p))
     setEditingId(null)
   }
@@ -74,6 +78,7 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
 
   const isThreadAuthor = user?.id === thread.authorId
   const isAdmin = user?.role === 'admin'
+  const replyIsEmpty = !replyHtml.replace(/<[^>]+>/g, '').trim()
 
   return (
     <div className="community-page">
@@ -110,17 +115,22 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
             <div className="post-body">
               {editingId === post.id ? (
                 <div className="post-edit">
-                  <textarea value={editContent} onChange={e => setEditContent(e.target.value)} rows={6}
-                    style={{ width: '100%', resize: 'vertical' }} />
+                  <ForumEditor
+                    key={`edit-${post.id}`}
+                    initialContent={post.content}
+                    onChange={setEditHtml}
+                    placeholder="Edit your post…"
+                  />
                   <div className="post-edit-actions">
                     <button onClick={() => setEditingId(null)}>Cancel</button>
                     <button className="primary-action" onClick={() => handleEdit(post.id)}>Save</button>
                   </div>
                 </div>
               ) : (
-                <div className="post-content">
-                  <ReactMarkdown>{post.content}</ReactMarkdown>
-                </div>
+                <div
+                  className="post-content tiptap-render"
+                  dangerouslySetInnerHTML={{ __html: post.content }}
+                />
               )}
             </div>
             <div className="post-footer">
@@ -136,7 +146,7 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
                   <button className="post-action" onClick={() => handleMarkAnswer(post.id)}>Mark Answer</button>
                 )}
                 {user?.id === post.authorId && !thread.isLocked && (
-                  <button className="post-action" onClick={() => { setEditingId(post.id); setEditContent(post.content) }}>Edit</button>
+                  <button className="post-action" onClick={() => { setEditingId(post.id); setEditHtml(post.content) }}>Edit</button>
                 )}
                 {(user?.id === post.authorId || isAdmin) && (
                   <button className="post-action post-action-delete" onClick={() => handleDelete(post.id)}>Delete</button>
@@ -150,10 +160,14 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
       {user && !thread.isLocked && (
         <form className="reply-form" onSubmit={handleReply}>
           <h3>Reply</h3>
-          <textarea value={replyContent} onChange={e => setReplyContent(e.target.value)}
-            placeholder="Write your reply (Markdown supported)" rows={6} required
-            style={{ width: '100%', resize: 'vertical' }} />
-          <button type="submit" className="primary-action" disabled={submitting || !replyContent.trim()}>
+          <ForumEditor
+            key={replyEditorKey.current}
+            placeholder="Write your reply…"
+            onChange={setReplyHtml}
+            minHeight={140}
+          />
+          <button type="submit" className="primary-action" disabled={submitting || replyIsEmpty}
+            style={{ marginTop: 8 }}>
             {submitting ? 'Posting…' : 'Post Reply'}
           </button>
         </form>
