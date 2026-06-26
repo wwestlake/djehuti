@@ -2495,7 +2495,7 @@ let main args =
                 | Some claims when Permissions.isAdmin claims.Role ->
                     use conn = Database.openConnection()
                     use cmd = new Npgsql.NpgsqlCommand(
-                        "SELECT id, email, role, display_name, created_at, email_verified FROM users ORDER BY created_at DESC", conn)
+                        "SELECT id, email, role, display_name, created_at, email_verified_at IS NOT NULL FROM users ORDER BY created_at DESC", conn)
                     use reader = cmd.ExecuteReader()
                     let mutable rows = []
                     while reader.Read() do
