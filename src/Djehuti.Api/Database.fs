@@ -556,6 +556,19 @@ let private migrations : (int * string) list =
         CREATE INDEX IF NOT EXISTS idx_forum_thread_tags_tag    ON forum_thread_tags(tag_id);
         CREATE INDEX IF NOT EXISTS idx_forum_thread_tags_thread ON forum_thread_tags(thread_id);
         """
+
+        18, """
+        -- Forum post emoji reactions
+        CREATE TABLE IF NOT EXISTS forum_post_reactions (
+            post_id    UUID NOT NULL REFERENCES forum_posts(id) ON DELETE CASCADE,
+            user_id    UUID NOT NULL REFERENCES users(id)       ON DELETE CASCADE,
+            emoji      TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (post_id, user_id, emoji)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_forum_post_reactions_post ON forum_post_reactions(post_id);
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

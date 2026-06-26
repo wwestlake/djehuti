@@ -10,6 +10,59 @@ interface Props {
   onNavigateForum: (forumId: string) => void
 }
 
+type Reaction = { emoji: string; count: number; userReacted: boolean }
+
+const QUICK_EMOJIS = ['👍', '❤️', '😂', '🔥', '👀', '✅']
+
+function ReactionBar({ postId, user }: { postId: string; user: { id: string } | null }) {
+  const [reactions, setReactions] = useState<Reaction[]>([])
+  const [showPicker, setShowPicker] = useState(false)
+
+  useEffect(() => {
+    forumApi.getReactions(postId).then(setReactions)
+  }, [postId])
+
+  const toggle = async (emoji: string) => {
+    if (!user) return
+    const result = await forumApi.toggleReaction(postId, emoji)
+    setReactions(prev => {
+      const existing = prev.find(r => r.emoji === emoji)
+      if (existing) {
+        const newCount = result.added ? existing.count + 1 : existing.count - 1
+        if (newCount <= 0) return prev.filter(r => r.emoji !== emoji)
+        return prev.map(r => r.emoji === emoji ? { ...r, count: newCount, userReacted: result.added } : r)
+      }
+      return result.added ? [...prev, { emoji, count: 1, userReacted: true }] : prev
+    })
+    setShowPicker(false)
+  }
+
+  return (
+    <div className="reaction-bar">
+      {reactions.map(r => (
+        <button key={r.emoji}
+          className={`reaction-chip${r.userReacted ? ' reacted' : ''}`}
+          onClick={() => toggle(r.emoji)}
+          disabled={!user}>
+          {r.emoji} <span>{r.count}</span>
+        </button>
+      ))}
+      {user && (
+        <div className="reaction-picker-wrap">
+          <button className="reaction-add-btn" onClick={() => setShowPicker(v => !v)}>+</button>
+          {showPicker && (
+            <div className="reaction-picker">
+              {QUICK_EMOJIS.map(e => (
+                <button key={e} className="reaction-picker-emoji" onClick={() => toggle(e)}>{e}</button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateForum }: Props) {
   const { user } = useAuth()
   const [thread, setThread] = useState<ForumThread | null>(null)
@@ -133,6 +186,7 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
                 />
               )}
             </div>
+            <ReactionBar postId={post.id} user={user} />
             <div className="post-footer">
               <span className="post-meta">
                 {new Date(post.createdAt).toLocaleDateString()}

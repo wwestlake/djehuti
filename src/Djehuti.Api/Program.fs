@@ -1522,6 +1522,29 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // ── Forum: Reactions ─────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/forum/posts/{id}/reactions",
+        Func<HttpContext, Guid, IResult>(fun ctx postId ->
+            let userId =
+                match tryGetAuthClaims ctx with
+                | Some claims -> Some (System.Guid.Parse(claims.UserId))
+                | None -> None
+            Results.Ok(ForumRepository.getReactions postId userId))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/forum/posts/{id}/reactions",
+        Func<HttpContext, Guid, {| emoji: string |}, IResult>(fun ctx postId body ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                let userId  = System.Guid.Parse(claims.UserId)
+                let added   = ForumRepository.toggleReaction postId userId body.emoji
+                Results.Ok({| added = added; emoji = body.emoji |})
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
     // ── Forum: Tags ───────────────────────────────────────────────────────────
 
     app.MapGet(
