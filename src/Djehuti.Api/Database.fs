@@ -536,6 +536,26 @@ let private migrations : (int * string) list =
         CREATE INDEX IF NOT EXISTS idx_admin_audit_target ON admin_user_audit_log(target_user_id);
         CREATE INDEX IF NOT EXISTS idx_admin_audit_admin  ON admin_user_audit_log(admin_id);
         """
+
+        17, """
+        -- Forum tagging engine
+        CREATE TABLE IF NOT EXISTS forum_tags (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name        TEXT NOT NULL UNIQUE,
+            slug        TEXT NOT NULL UNIQUE,
+            description TEXT,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS forum_thread_tags (
+            thread_id UUID NOT NULL REFERENCES forum_threads(id) ON DELETE CASCADE,
+            tag_id    UUID NOT NULL REFERENCES forum_tags(id)    ON DELETE CASCADE,
+            PRIMARY KEY (thread_id, tag_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_forum_thread_tags_tag    ON forum_thread_tags(tag_id);
+        CREATE INDEX IF NOT EXISTS idx_forum_thread_tags_thread ON forum_thread_tags(thread_id);
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

@@ -1522,6 +1522,62 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // ── Forum: Tags ───────────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/forum/tags",
+        Func<IResult>(fun () -> Results.Ok(ForumRepository.getTags()))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/forum/tags",
+        Func<HttpContext, {| name: string; slug: string; description: string |}, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let desc = if String.IsNullOrWhiteSpace body.description then None else Some body.description
+                let tag  = ForumRepository.createTag body.name body.slug desc
+                Results.Created($"/api/forum/tags/{tag.Id}", tag)
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/forum/tags/{id}",
+        Func<HttpContext, Guid, IResult>(fun ctx tagId ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                if ForumRepository.deleteTag tagId then Results.NoContent()
+                else Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/forum/threads/{id}/tags",
+        Func<Guid, IResult>(fun threadId ->
+            Results.Ok(ForumRepository.getTagsForThread threadId))
+    ) |> ignore
+
+    app.MapPut(
+        "/api/forum/threads/{id}/tags",
+        Func<HttpContext, Guid, {| tagIds: Guid list |}, System.Threading.Tasks.Task<IResult>>(fun ctx threadId body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims ->
+                    let thread = ForumRepository.getThreadById threadId
+                    match thread with
+                    | None -> return Results.NotFound()
+                    | Some t ->
+                        let userId = System.Guid.Parse(claims.UserId)
+                        let isMod  = Permissions.isAdmin claims.Role || Permissions.hasContextRole (Database.openConnection()) userId Permissions.ModuleForum Permissions.RoleModerator (Some t.ForumId)
+                        if t.AuthorId = userId || isMod then
+                            ForumRepository.setTagsForThread threadId (body.tagIds |> List.ofSeq)
+                            return Results.Ok(ForumRepository.getTagsForThread threadId)
+                        else return Results.Forbid()
+                | None -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     // ── Blog: Sections ────────────────────────────────────────────────────────
 
     app.MapGet(
