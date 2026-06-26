@@ -3492,6 +3492,18 @@ tbody tr.selected {
 .admin-action-btn.admin-action-danger { border-color: #f85149; color: #f85149; }
 .admin-action-btn.admin-action-danger:hover { background: rgba(248,81,73,0.1); }
 
+.admin-email-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: inherit;
+  padding: 0;
+  text-align: left;
+  text-decoration: underline;
+}
+.admin-email-btn:hover { opacity: 0.75; }
+
 .admin-inline-input {
   background: var(--surface);
   border: 1px solid var(--border);

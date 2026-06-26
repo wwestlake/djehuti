@@ -243,9 +243,9 @@ export default function AdminPage() {
                         </span>
                       </span>
                     ) : (
-                      <span style={{ cursor: 'pointer', textDecoration: 'underline dotted' }} onClick={() => setEditingName({ id: u.id, value: u.displayName ?? '' })} title="Click to set display name">
+                      <button className="admin-email-btn" onClick={() => setEditingName({ id: u.id, value: u.displayName ?? '' })} title="Edit display name">
                         {u.email}
-                      </span>
+                      </button>
                     )}
                   </td>
                   <td>{u.displayName ?? '—'}</td>
