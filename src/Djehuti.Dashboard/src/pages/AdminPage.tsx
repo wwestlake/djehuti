@@ -8,6 +8,7 @@ interface AdminUser {
   displayName: string | null
   createdAt: string
   emailVerified: boolean
+  status: string
 }
 
 interface BlogArticleSummary {
@@ -44,6 +45,8 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const [editingName, setEditingName] = useState<{ id: string; value: string } | null>(null)
+
   const [grantForm, setGrantForm] = useState({ userId: '', module: 'forum', role: 'moderator', scopeId: '' })
   const [granting, setGranting] = useState(false)
 
@@ -73,6 +76,53 @@ export default function AdminPage() {
       setUsers(prev => prev.map(u => u.id === id ? { ...u, role } : u))
     } catch {
       setError('Failed to update role.')
+    }
+  }
+
+  const saveDisplayName = async (id: string, displayName: string) => {
+    try {
+      await fetch(`/api/admin/users/${id}/display-name`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName }),
+      })
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, displayName: displayName || null } : u))
+      setEditingName(null)
+    } catch {
+      setError('Failed to update display name.')
+    }
+  }
+
+  const verifyUser = async (id: string) => {
+    try {
+      await fetch(`/api/admin/users/${id}/verify`, { method: 'PATCH', credentials: 'include' })
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, emailVerified: true } : u))
+    } catch {
+      setError('Failed to verify user.')
+    }
+  }
+
+  const toggleSuspend = async (id: string, suspend: boolean) => {
+    try {
+      await fetch(`/api/admin/users/${id}/suspend`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suspend }),
+      })
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, status: suspend ? 'suspended' : 'active' } : u))
+    } catch {
+      setError('Failed to update suspension.')
+    }
+  }
+
+  const sendPasswordReset = async (id: string) => {
+    try {
+      await fetch(`/api/admin/users/${id}/reset-password`, { method: 'POST', credentials: 'include' })
+      alert('Password reset email sent.')
+    } catch {
+      setError('Failed to send reset email.')
     }
   }
 
@@ -167,15 +217,34 @@ export default function AdminPage() {
                 <th>Display Name</th>
                 <th>Role</th>
                 <th>Verified</th>
+                <th>Status</th>
                 <th>Joined</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {users.map(u => (
-                <tr key={u.id}>
+                <tr key={u.id} style={{ opacity: u.status === 'suspended' ? 0.6 : 1 }}>
                   <td>{u.email}</td>
-                  <td>{u.displayName ?? '—'}</td>
+                  <td>
+                    {editingName?.id === u.id ? (
+                      <span style={{ display: 'flex', gap: 4 }}>
+                        <input
+                          value={editingName.value}
+                          onChange={e => setEditingName({ id: u.id, value: e.target.value })}
+                          onKeyDown={e => { if (e.key === 'Enter') saveDisplayName(u.id, editingName.value); if (e.key === 'Escape') setEditingName(null) }}
+                          className="admin-inline-input"
+                          autoFocus
+                        />
+                        <button className="btn-primary" style={{ padding: '2px 8px', fontSize: '0.8rem' }} onClick={() => saveDisplayName(u.id, editingName.value)}>Save</button>
+                        <button style={{ padding: '2px 8px', fontSize: '0.8rem' }} onClick={() => setEditingName(null)}>✕</button>
+                      </span>
+                    ) : (
+                      <span style={{ cursor: 'pointer', textDecoration: 'underline dotted' }} onClick={() => setEditingName({ id: u.id, value: u.displayName ?? '' })} title="Click to edit">
+                        {u.displayName ?? '—'}
+                      </span>
+                    )}
+                  </td>
                   <td>
                     <select
                       value={u.role}
@@ -186,9 +255,25 @@ export default function AdminPage() {
                       <option value="admin">admin</option>
                     </select>
                   </td>
-                  <td>{u.emailVerified ? '✓' : '✗'}</td>
+                  <td>
+                    {u.emailVerified ? '✓' : (
+                      <button className="admin-action-btn" onClick={() => verifyUser(u.id)} title="Mark email verified">Verify</button>
+                    )}
+                  </td>
+                  <td>
+                    <span style={{ color: u.status === 'suspended' ? '#f85149' : u.status === 'active' ? '#3fb950' : '#8b949e' }}>
+                      {u.status}
+                    </span>
+                  </td>
                   <td>{new Date(u.createdAt).toLocaleDateString()}</td>
-                  <td>—</td>
+                  <td style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {u.status === 'suspended' ? (
+                      <button className="admin-action-btn" onClick={() => toggleSuspend(u.id, false)}>Unsuspend</button>
+                    ) : (
+                      <button className="admin-action-btn admin-action-danger" onClick={() => toggleSuspend(u.id, true)}>Suspend</button>
+                    )}
+                    <button className="admin-action-btn" onClick={() => sendPasswordReset(u.id)}>Reset PW</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
