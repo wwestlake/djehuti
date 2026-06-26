@@ -1682,12 +1682,13 @@ let main args =
 
     app.MapGet(
         "/api/blog/articles",
-        Func<string, string, string, int, int, IResult>(fun sectionId search tag page pageSize ->
-            let sid = match Guid.TryParse(sectionId) with | true, g -> Some g | _ -> None
-            let q   = if String.IsNullOrWhiteSpace search then None else Some search
-            let t   = if String.IsNullOrWhiteSpace tag    then None else Some tag
-            let p   = if page < 1 then 1 else page
-            let ps  = if pageSize < 1 || pageSize > 50 then 20 else pageSize
+        Func<HttpContext, IResult>(fun ctx ->
+            let q2 = ctx.Request.Query
+            let sid = match Guid.TryParse(string q2["sectionId"]) with | true, g -> Some g | _ -> None
+            let q   = let v = string q2["search"]   in if String.IsNullOrWhiteSpace v then None else Some v
+            let t   = let v = string q2["tag"]      in if String.IsNullOrWhiteSpace v then None else Some v
+            let p   = match System.Int32.TryParse(string q2["page"])     with | true, v when v > 0 -> v | _ -> 1
+            let ps  = match System.Int32.TryParse(string q2["pageSize"]) with | true, v when v > 0 && v <= 50 -> v | _ -> 20
             Results.Ok(BlogRepository.getPublishedArticles sid q t p ps))
     ) |> ignore
 
