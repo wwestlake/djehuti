@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Link2, Twitter, Linkedin } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { blogApi } from '../../api/blogApi'
 import type { BlogArticle, BlogComment, BlogTag } from '../../api/blogApi'
 import { useAuth } from '../../contexts/AuthContext'
@@ -8,22 +10,22 @@ import { useAuth } from '../../contexts/AuthContext'
 
 interface TocEntry { id: string; text: string; level: number }
 
-function buildToc(html: string): TocEntry[] {
-  const div = document.createElement('div')
-  div.innerHTML = html
-  const headings = div.querySelectorAll('h1,h2,h3')
+function buildTocFromMarkdown(md: string): TocEntry[] {
   const entries: TocEntry[] = []
-  headings.forEach((h, i) => {
-    const id = `heading-${i}`
-    h.id = id
-    entries.push({ id, text: h.textContent ?? '', level: parseInt(h.tagName[1]) })
-  })
+  let i = 0
+  for (const line of md.split('\n')) {
+    const m = line.match(/^(#{1,3})\s+(.+)/)
+    if (m) entries.push({ id: `heading-${i++}`, text: m[2].trim(), level: m[1].length })
+  }
   return entries
 }
 
-function addHeadingIds(html: string): string {
-  let i = 0
-  return html.replace(/<(h[123])(.*?)>/g, (_, tag, attrs) => `<${tag}${attrs} id="heading-${i++}">`)
+let headingCounter = 0
+function makeHeadingRenderer(level: 1 | 2 | 3) {
+  const Tag = `h${level}` as 'h1' | 'h2' | 'h3'
+  return ({ children }: { children?: React.ReactNode }) => (
+    <Tag id={`heading-${headingCounter++}`}>{children}</Tag>
+  )
 }
 
 function readingTime(content: string) {
@@ -56,9 +58,7 @@ export default function BlogArticlePage() {
     blogApi.getArticle(slug)
       .then(a => {
         setArticle(a)
-        const html = a.bodyJson ? a.content : a.content
-        const entries = buildToc(html)
-        setToc(entries)
+        setToc(buildTocFromMarkdown(a.content || ''))
         return Promise.all([blogApi.getComments(a.id), blogApi.getArticleTags(a.id)])
       })
       .then(([c, t]) => { setComments(c); setTags(t) })
@@ -136,7 +136,7 @@ export default function BlogArticlePage() {
 
   const isAuthor = user?.id === article.authorId
   const isAdmin = user?.role === 'admin'
-  const bodyHtml = addHeadingIds(article.content || '')
+  headingCounter = 0
 
   return (
     <div className="blog-reader-shell">
@@ -230,8 +230,18 @@ export default function BlogArticlePage() {
           </div>
 
           {/* Article body */}
-          <div ref={contentRef} className="blog-article-content"
-            dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+          <div ref={contentRef} className="blog-article-content">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                h1: makeHeadingRenderer(1),
+                h2: makeHeadingRenderer(2),
+                h3: makeHeadingRenderer(3),
+              }}
+            >
+              {article.content || ''}
+            </ReactMarkdown>
+          </div>
 
           {/* Share */}
           <div className="blog-share-row">
