@@ -407,6 +407,13 @@ let getPublishedArticles (sectionId: Guid option) (search: string option) (tagSl
     use r = cmd.ExecuteReader()
     [ while r.Read() do yield readArticle r ]
 
+let getRandomPublishedArticle () =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        $"SELECT {articleCols} FROM blog_articles WHERE status = 'published' AND visibility = 'public' AND deleted_at IS NULL ORDER BY random() LIMIT 1", conn)
+    use r = cmd.ExecuteReader()
+    if r.Read() then Some (readArticle r) else None
+
 let getArticleBySlug (slug: string) =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand($"SELECT {articleCols} FROM blog_articles WHERE slug = @slug AND deleted_at IS NULL", conn)

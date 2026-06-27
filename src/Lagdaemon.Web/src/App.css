@@ -156,6 +156,80 @@ a { color: var(--accent); }
   .nav-mobile-bar { display: flex; }
 }
 
+/* ── Featured Post ───────────────────────────────────────────────────── */
+.featured-post {
+  background: var(--surface-1);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.featured-post-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 3rem 2rem;
+}
+.featured-post-label {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  margin-bottom: 1.25rem;
+}
+.featured-post-card {
+  display: flex;
+  gap: 2rem;
+  align-items: flex-start;
+  cursor: pointer;
+  border-radius: 10px;
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+.featured-post-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.18);
+}
+.featured-post-cover {
+  width: 180px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.featured-post-body { flex: 1; }
+.featured-post-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 0 0 0.4rem;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+.featured-post-subtitle {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin: 0 0 0.5rem;
+}
+.featured-post-excerpt {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0 0 1rem;
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.featured-post-cta {
+  font-size: 0.85rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+@media (max-width: 600px) {
+  .featured-post-card { flex-direction: column; }
+  .featured-post-cover { width: 100%; height: 160px; }
+}
+
 /* ── Hero ────────────────────────────────────────────────────────────── */
 .hero {
   display: grid;
@@ -449,6 +523,57 @@ a { color: var(--accent); }
   line-height: 1;
 }
 .modal-close:hover { color: var(--text); }
+
+/* ── Patreon Badge ───────────────────────────────────────────────────── */
+.patreon-badge-section {
+  background: var(--surface-1);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.patreon-badge-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2.5rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+}
+.patreon-badge-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.patreon-badge-text strong {
+  font-size: 1.1rem;
+  color: var(--text-primary);
+}
+.patreon-badge-text span {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  max-width: 520px;
+  line-height: 1.5;
+}
+.patreon-badge-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: #FF424D;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.patreon-badge-btn:hover { opacity: 0.88; transform: translateY(-1px); }
+.patreon-badge-btn svg { width: 18px; height: 18px; }
+@media (max-width: 600px) {
+  .patreon-badge-inner { flex-direction: column; align-items: flex-start; }
+}
 
 /* ── Footer ──────────────────────────────────────────────────────────── */
 footer {

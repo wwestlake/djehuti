@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import './App.css'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -27,6 +27,9 @@ import AdminPage from './pages/community/AdminPage'
 import AnnouncementsPage from './pages/community/AnnouncementsPage'
 import AnnouncementBanner from './pages/community/AnnouncementBanner'
 import AchievementsPage from './pages/profile/AchievementsPage'
+
+import { blogApi } from './api/blogApi'
+import type { BlogArticle } from './api/blogApi'
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
 
@@ -120,6 +123,34 @@ function Hero() {
       </div>
       <div className="hero-visual">
         <img src="/dashboard-deformation-phase-space.png" alt="Djehuti 3D phase-space view" />
+      </div>
+    </section>
+  )
+}
+
+function FeaturedPost() {
+  const [article, setArticle] = useState<BlogArticle | null>(null)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    blogApi.getRandomArticle().then(a => setArticle(a))
+  }, [])
+
+  if (!article) return null
+
+  return (
+    <section className="featured-post">
+      <div className="featured-post-inner">
+        <div className="featured-post-label">From the Blog</div>
+        <div className="featured-post-card" onClick={() => navigate(`/blog/${article.slug}`)} role="button" tabIndex={0} onKeyDown={e => e.key === 'Enter' && navigate(`/blog/${article.slug}`)}>
+          {article.coverUrl && <img className="featured-post-cover" src={article.coverUrl} alt="" />}
+          <div className="featured-post-body">
+            <h2 className="featured-post-title">{article.title}</h2>
+            {article.subtitle && <p className="featured-post-subtitle">{article.subtitle}</p>}
+            {article.excerpt && <p className="featured-post-excerpt">{article.excerpt}</p>}
+            <span className="featured-post-cta">Read article →</span>
+          </div>
+        </div>
       </div>
     </section>
   )
@@ -311,6 +342,30 @@ type ModalProps = {
   items: { strong: string; body: string }[]
 }
 
+function PatreonBadge() {
+  return (
+    <section className="patreon-badge-section">
+      <div className="patreon-badge-inner">
+        <div className="patreon-badge-text">
+          <strong>Support this research</strong>
+          <span>Djehuti is independent, open research. If it's useful to you, consider backing it on Patreon.</span>
+        </div>
+        <a
+          className="patreon-badge-btn"
+          href="https://www.patreon.com/lagdaemon"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M14.82 2.41C11.57 2.41 8.93 5.05 8.93 8.3c0 3.24 2.64 5.88 5.89 5.88 3.24 0 5.88-2.64 5.88-5.88 0-3.25-2.64-5.89-5.88-5.89zM3.1 21.59h3.16V2.41H3.1v19.18z"/>
+          </svg>
+          Become a Patron
+        </a>
+      </div>
+    </section>
+  )
+}
+
 function Modal({ open, onClose, title, effective, items }: ModalProps) {
   if (!open) return null
   return (
@@ -388,10 +443,12 @@ function AppInner() {
       {isHome ? (
         <>
           <Hero />
+          <FeaturedPost />
           <Pitch />
           <Screenshots />
           <PapersSection />
           <About />
+          <PatreonBadge />
           <Footer onPrivacy={() => setPrivacyOpen(true)} onAup={() => setAupOpen(true)} />
         </>
       ) : (

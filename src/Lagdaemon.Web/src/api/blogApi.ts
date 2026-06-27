@@ -165,6 +165,9 @@ export const blogApi = {
   getArticle: (slug: string): Promise<BlogArticle> =>
     fetch(`${BASE}/articles/${slug}`, opts).then(json),
 
+  getRandomArticle: (): Promise<BlogArticle | null> =>
+    fetch(`${BASE}/articles/random`, opts).then(r => r.ok ? r.json() : null),
+
   getMyArticles: (page = 1, pageSize = 20): Promise<BlogArticle[]> =>
     fetch(`${BASE}/my-articles?page=${page}&pageSize=${pageSize}`, opts).then(json),
 
