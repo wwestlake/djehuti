@@ -1444,7 +1444,7 @@ let main args =
                         | None -> return Results.NotFound()
                         | Some thread when thread.IsLocked ->
                             return Results.Problem(detail = "Thread is locked", statusCode = 403, title = "Locked")
-                        | Some _ ->
+                        | Some thread ->
                             match Guid.TryParse(claims.UserId) with
                             | false, _ -> return Results.Unauthorized()
                             | true, userId ->
@@ -1456,7 +1456,11 @@ let main args =
                                            let link = $"/community/threads/{tid}"
                                            let preview = body.content.Replace("<", "").Replace(">", "")
                                            let preview = if preview.Length > 80 then preview.[..79] + "…" else preview
-                                           NotificationRepository.notifySubscribers tid userId $"New reply in thread: {preview}" link
+                                           let authorName =
+                                               match UserRepository.getUserById userId with
+                                               | Some u -> u.DisplayName |> Option.defaultValue u.Email
+                                               | None   -> "Someone"
+                                           NotificationRepository.notifySubscribers tid userId authorName thread.Title link preview
                                            // Parse @mentions and notify each mentioned user
                                            let mentionRegex = System.Text.RegularExpressions.Regex(@"data-mention=""([^""]+)""")
                                            let mentionedNames =
@@ -1467,8 +1471,7 @@ let main args =
                                                |> Seq.toList
                                            let mentionedIds = UserRepository.getUserIdsByDisplayNames mentionedNames
                                            for mentionedUserId in mentionedIds do
-                                               if mentionedUserId <> userId then
-                                                   NotificationRepository.createNotification mentionedUserId "mention" $"You were mentioned in a thread reply" (Some link) |> ignore
+                                               NotificationRepository.notifyMention mentionedUserId userId authorName thread.Title link preview
                                            Results.Created($"/api/forum/posts/{p.Id}", p)
                                        | None   -> Results.Problem(detail = "Failed to create post", statusCode = 500, title = "Error")
             } |> Async.StartAsTask)
