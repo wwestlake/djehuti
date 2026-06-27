@@ -185,6 +185,27 @@ export const forumApi = {
       body: JSON.stringify({ tagIds }),
     }).then(r => r.json()),
 
+  moveThread: (threadId: string, forumId: string): Promise<void> =>
+    fetch(`${API}/forum/threads/${threadId}/move`, {
+      ...opts, method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ forumId }),
+    }).then(() => {}),
+
+  splitThread: (threadId: string, postIds: string[], title: string): Promise<ForumThread> =>
+    fetch(`${API}/forum/threads/${threadId}/split`, {
+      ...opts, method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ postIds, title }),
+    }).then(r => r.json()),
+
+  mergeThread: (threadId: string, intoThreadId: string): Promise<void> =>
+    fetch(`${API}/forum/threads/${threadId}/merge`, {
+      ...opts, method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ intoThreadId }),
+    }).then(() => {}),
+
   reportContent: (targetType: 'post' | 'thread', targetId: string, reason: string): Promise<void> =>
     fetch(`${API}/forum/reports`, {
       ...opts, method: 'POST',

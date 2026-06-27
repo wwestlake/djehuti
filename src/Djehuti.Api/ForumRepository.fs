@@ -259,6 +259,111 @@ let setThreadLocked (threadId: Guid) (locked: bool) =
     cmd.Parameters.AddWithValue("id", threadId) |> ignore
     cmd.ExecuteNonQuery() |> ignore
 
+let moveThread (threadId: Guid) (targetForumId: Guid) : bool =
+    use conn = openConnection ()
+    use txn = conn.BeginTransaction()
+    try
+        match getThreadById threadId with
+        | None -> false
+        | Some thread ->
+            use moveCmd = new NpgsqlCommand(
+                "UPDATE forum_threads SET forum_id = @fid WHERE id = @id", conn, txn)
+            moveCmd.Parameters.AddWithValue("fid", targetForumId) |> ignore
+            moveCmd.Parameters.AddWithValue("id",  threadId)      |> ignore
+            moveCmd.ExecuteNonQuery() |> ignore
+            // decrement old forum counters
+            use decCmd = new NpgsqlCommand(
+                "UPDATE forum_forums SET thread_count = thread_count - 1, post_count = post_count - @pc WHERE id = @fid", conn, txn)
+            decCmd.Parameters.AddWithValue("pc",  thread.PostCount)  |> ignore
+            decCmd.Parameters.AddWithValue("fid", thread.ForumId)    |> ignore
+            decCmd.ExecuteNonQuery() |> ignore
+            // increment new forum counters
+            use incCmd = new NpgsqlCommand(
+                "UPDATE forum_forums SET thread_count = thread_count + 1, post_count = post_count + @pc WHERE id = @fid", conn, txn)
+            incCmd.Parameters.AddWithValue("pc",  thread.PostCount)  |> ignore
+            incCmd.Parameters.AddWithValue("fid", targetForumId)     |> ignore
+            incCmd.ExecuteNonQuery() |> ignore
+            txn.Commit()
+            true
+    with ex ->
+        txn.Rollback()
+        raise ex
+
+let splitThread (threadId: Guid) (postIds: Guid list) (newTitle: string) (actorId: Guid) : ForumThread option =
+    if postIds.IsEmpty then None
+    else
+    use conn = openConnection ()
+    use txn = conn.BeginTransaction()
+    try
+        match getThreadById threadId with
+        | None -> None
+        | Some srcThread ->
+            use newCmd = new NpgsqlCommand(
+                """INSERT INTO forum_threads (forum_id, author_id, title, post_count, last_post_at, last_post_by)
+                   VALUES (@fid, @aid, @title, 0, now(), @aid)
+                   RETURNING id, forum_id, author_id, title, is_pinned, is_locked, post_count, view_count,
+                             last_post_at, last_post_by, created_at, updated_at""", conn, txn)
+            newCmd.Parameters.AddWithValue("fid",   srcThread.ForumId) |> ignore
+            newCmd.Parameters.AddWithValue("aid",   actorId)           |> ignore
+            newCmd.Parameters.AddWithValue("title", newTitle)          |> ignore
+            use r = newCmd.ExecuteReader()
+            if r.Read() then
+                let newThread = readThread r
+                r.Close()
+                let count = postIds.Length
+                for pid in postIds do
+                    use mvCmd = new NpgsqlCommand(
+                        "UPDATE forum_posts SET thread_id = @tid WHERE id = @pid", conn, txn)
+                    mvCmd.Parameters.AddWithValue("tid", newThread.Id) |> ignore
+                    mvCmd.Parameters.AddWithValue("pid", pid)          |> ignore
+                    mvCmd.ExecuteNonQuery() |> ignore
+                use updateNew = new NpgsqlCommand(
+                    "UPDATE forum_threads SET post_count = @c WHERE id = @id", conn, txn)
+                updateNew.Parameters.AddWithValue("c",  count)        |> ignore
+                updateNew.Parameters.AddWithValue("id", newThread.Id) |> ignore
+                updateNew.ExecuteNonQuery() |> ignore
+                use updateSrc = new NpgsqlCommand(
+                    "UPDATE forum_threads SET post_count = post_count - @c WHERE id = @id", conn, txn)
+                updateSrc.Parameters.AddWithValue("c",  count)         |> ignore
+                updateSrc.Parameters.AddWithValue("id", srcThread.Id)  |> ignore
+                updateSrc.ExecuteNonQuery() |> ignore
+                txn.Commit()
+                Some newThread
+            else
+                txn.Rollback()
+                None
+    with ex ->
+        txn.Rollback()
+        raise ex
+
+let mergeThreads (sourceThreadId: Guid) (targetThreadId: Guid) : bool =
+    use conn = openConnection ()
+    use txn = conn.BeginTransaction()
+    try
+        match getThreadById sourceThreadId with
+        | None -> false
+        | Some src ->
+            use mvCmd = new NpgsqlCommand(
+                "UPDATE forum_posts SET thread_id = @tid WHERE thread_id = @sid", conn, txn)
+            mvCmd.Parameters.AddWithValue("tid", targetThreadId)  |> ignore
+            mvCmd.Parameters.AddWithValue("sid", sourceThreadId)  |> ignore
+            let moved = mvCmd.ExecuteNonQuery()
+            use updateTarget = new NpgsqlCommand(
+                "UPDATE forum_threads SET post_count = post_count + @c, updated_at = now() WHERE id = @id", conn, txn)
+            updateTarget.Parameters.AddWithValue("c",  moved)          |> ignore
+            updateTarget.Parameters.AddWithValue("id", targetThreadId) |> ignore
+            updateTarget.ExecuteNonQuery() |> ignore
+            // soft-delete source thread
+            use delCmd = new NpgsqlCommand(
+                "DELETE FROM forum_threads WHERE id = @id", conn, txn)
+            delCmd.Parameters.AddWithValue("id", sourceThreadId) |> ignore
+            delCmd.ExecuteNonQuery() |> ignore
+            txn.Commit()
+            true
+    with ex ->
+        txn.Rollback()
+        raise ex
+
 // ── Posts ─────────────────────────────────────────────────────────────────────
 
 let getPostsByThread (threadId: Guid) (page: int) (pageSize: int) =

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { forumApi } from '../../api/forumApi'
-import type { ForumThread, ForumPost, Subscription, PollData } from '../../api/forumApi'
+import type { ForumThread, ForumPost, ForumCategory, ForumForum, Subscription, PollData } from '../../api/forumApi'
 import ReportModal from '../../components/forum/ReportModal'
 import PollWidget from '../../components/forum/PollWidget'
 import { useAuth } from '../../contexts/AuthContext'
@@ -74,6 +74,8 @@ function ReactionBar({ postId, user }: { postId: string; user: { id: string } | 
   )
 }
 
+type ModAction = 'move' | 'split' | 'merge' | null
+
 export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateForum }: Props) {
   const { user } = useAuth()
   const [thread, setThread] = useState<ForumThread | null>(null)
@@ -87,6 +89,15 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
   const [subscription, setSubscription] = useState<Subscription | null>(null)
   const [poll, setPoll] = useState<PollData | null>(null)
   const replyEditorKey = useRef(0)
+
+  // mod actions
+  const [modAction, setModAction] = useState<ModAction>(null)
+  const [allForums, setAllForums] = useState<{ forum: ForumForum; categoryName: string }[]>([])
+  const [moveForumId, setMoveForumId] = useState('')
+  const [splitPostIds, setSplitPostIds] = useState<Set<string>>(new Set())
+  const [splitTitle, setSplitTitle] = useState('')
+  const [mergeTargetId, setMergeTargetId] = useState('')
+  const [modBusy, setModBusy] = useState(false)
 
   useEffect(() => {
     const loads: Promise<unknown>[] = [
@@ -145,11 +156,61 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
     setPosts(prev => prev.map(p => ({ ...p, isAnswer: p.id === postId })))
   }
 
+  const openModAction = async (action: ModAction) => {
+    if (action === 'move' && allForums.length === 0) {
+      const cats: ForumCategory[] = await forumApi.getCategories()
+      const forums = await Promise.all(cats.map(c => forumApi.getForums(c.id).then(fs => fs.map(f => ({ forum: f, categoryName: c.name })))))
+      setAllForums(forums.flat())
+    }
+    setSplitPostIds(new Set())
+    setSplitTitle('')
+    setMergeTargetId('')
+    setMoveForumId('')
+    setModAction(action)
+  }
+
+  const handleMove = async () => {
+    if (!thread || !moveForumId) return
+    setModBusy(true)
+    try {
+      await forumApi.moveThread(thread.id, moveForumId)
+      const target = allForums.find(f => f.forum.id === moveForumId)
+      alert(`Thread moved to ${target?.forum.name ?? 'new forum'}.`)
+      setModAction(null)
+      onNavigateForum(moveForumId)
+    } finally { setModBusy(false) }
+  }
+
+  const handleSplit = async () => {
+    if (!thread || splitPostIds.size === 0 || !splitTitle.trim()) return
+    setModBusy(true)
+    try {
+      const newThread = await forumApi.splitThread(thread.id, [...splitPostIds], splitTitle.trim())
+      setPosts(prev => prev.filter(p => !splitPostIds.has(p.id)))
+      setModAction(null)
+      if (confirm(`Split complete. Go to new thread "${newThread.title}"?`)) {
+        window.location.href = `?thread=${newThread.id}`
+      }
+    } finally { setModBusy(false) }
+  }
+
+  const handleMerge = async () => {
+    if (!thread || !mergeTargetId.trim()) return
+    if (!confirm('This will move all posts from this thread into the target thread and delete this thread. Continue?')) return
+    setModBusy(true)
+    try {
+      await forumApi.mergeThread(thread.id, mergeTargetId.trim())
+      setModAction(null)
+      onNavigateForum(thread.forumId)
+    } finally { setModBusy(false) }
+  }
+
   if (loading) return <div className="forum-loading">Loading…</div>
   if (!thread) return <div className="forum-error-msg">Thread not found.</div>
 
   const isThreadAuthor = user?.id === thread.authorId
   const isAdmin = user?.role === 'admin'
+  const isMod = isAdmin || user?.role === 'moderator'
   const replyIsEmpty = !replyHtml.replace(/<[^>]+>/g, '').trim()
 
   const handleSubscribe = async (level: string) => {
@@ -188,7 +249,7 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
             </select>
           </div>
         )}
-        {isAdmin && (
+        {isMod && (
           <div className="thread-mod-actions">
             <button onClick={() => forumApi.pinThread(thread.id, !thread.isPinned).then(() => setThread(t => t ? { ...t, isPinned: !t.isPinned } : t))}>
               {thread.isPinned ? 'Unpin' : 'Pin'}
@@ -196,6 +257,9 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
             <button onClick={() => forumApi.lockThread(thread.id, !thread.isLocked).then(() => setThread(t => t ? { ...t, isLocked: !t.isLocked } : t))}>
               {thread.isLocked ? 'Unlock' : 'Lock'}
             </button>
+            <button onClick={() => openModAction('move')}>Move</button>
+            <button onClick={() => openModAction('split')}>Split</button>
+            <button onClick={() => openModAction('merge')}>Merge</button>
           </div>
         )}
       </div>
@@ -210,7 +274,7 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
 
       <div className="post-list">
         {posts.map((post, idx) => (
-          <div key={post.id} className={`post-item${post.isAnswer ? ' post-answer' : ''}${post.isBot ? ' post-bot' : ''}`}>
+          <div key={post.id} className={`post-item${post.isAnswer ? ' post-answer' : ''}${post.isBot ? ' post-bot' : ''}${modAction === 'split' && splitPostIds.has(post.id) ? ' post-split-selected' : ''}`}>
             {post.isAnswer && <div className="post-answer-badge">✓ Accepted Answer</div>}
             {post.isBot && <div className="post-bot-badge">🤖 AI Persona</div>}
             <div className="post-body">
@@ -244,6 +308,17 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
                 {new Date(post.createdAt).toLocaleDateString()}
                 {post.updatedAt !== post.createdAt && ' (edited)'}
               </span>
+              {modAction === 'split' && idx > 0 && (
+                <label className="split-select-label">
+                  <input type="checkbox" checked={splitPostIds.has(post.id)}
+                    onChange={e => setSplitPostIds(prev => {
+                      const next = new Set(prev)
+                      e.target.checked ? next.add(post.id) : next.delete(post.id)
+                      return next
+                    })} />
+                  {' '}Split to new thread
+                </label>
+              )}
               <div className="post-actions">
                 {user && !post.isBot && (
                   <button className="post-action" onClick={() => handleVote(post.id)}>▲ {post.voteCount}</button>
@@ -289,6 +364,68 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
           targetId={reportTarget.id}
           onClose={() => setReportTarget(null)}
         />
+      )}
+
+      {modAction === 'move' && (
+        <div className="mod-modal-overlay">
+          <div className="mod-modal">
+            <h3>Move Thread</h3>
+            <label>Target Forum
+              <select value={moveForumId} onChange={e => setMoveForumId(e.target.value)}>
+                <option value="">Select a forum…</option>
+                {allForums.map(({ forum, categoryName }) => (
+                  <option key={forum.id} value={forum.id}>{categoryName} › {forum.name}</option>
+                ))}
+              </select>
+            </label>
+            <div className="mod-modal-actions">
+              <button onClick={() => setModAction(null)}>Cancel</button>
+              <button className="primary-action" onClick={handleMove} disabled={!moveForumId || modBusy}>
+                {modBusy ? 'Moving…' : 'Move'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modAction === 'split' && (
+        <div className="mod-modal-overlay">
+          <div className="mod-modal">
+            <h3>Split Thread</h3>
+            <p>Check the posts above to move into the new thread, then enter a title.</p>
+            <label>New Thread Title
+              <input type="text" value={splitTitle} onChange={e => setSplitTitle(e.target.value)} placeholder="Title for new thread" />
+            </label>
+            <p className="mod-modal-hint">{splitPostIds.size} post{splitPostIds.size !== 1 ? 's' : ''} selected</p>
+            <div className="mod-modal-actions">
+              <button onClick={() => setModAction(null)}>Cancel</button>
+              <button className="primary-action" onClick={handleSplit}
+                disabled={splitPostIds.size === 0 || !splitTitle.trim() || modBusy}>
+                {modBusy ? 'Splitting…' : 'Split'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modAction === 'merge' && (
+        <div className="mod-modal-overlay">
+          <div className="mod-modal">
+            <h3>Merge Into Another Thread</h3>
+            <p>All posts from this thread will be moved into the target thread, and this thread will be deleted.</p>
+            <label>Target Thread ID
+              <input type="text" value={mergeTargetId} onChange={e => setMergeTargetId(e.target.value)}
+                placeholder="Paste target thread UUID" />
+            </label>
+            <div className="mod-modal-actions">
+              <button onClick={() => setModAction(null)}>Cancel</button>
+              <button className="primary-action" onClick={handleMerge}
+                disabled={!mergeTargetId.trim() || modBusy}>
+                {modBusy ? 'Merging…' : 'Merge'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
