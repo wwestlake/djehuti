@@ -3611,6 +3611,21 @@ let main args =
         )
     ) |> ignore
 
+    app.MapGet(
+        "/api/users/patreon/status",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                let userId = System.Guid.Parse(claims.UserId)
+                match Djehuti.Api.PatreonService.getTierLimits userId with
+                | None -> Results.NotFound()
+                | Some tier ->
+                    let capacity = Djehuti.Api.PatreonService.getRemainingCapacity userId |> Option.defaultValue 0
+                    Results.Ok({| tierName = tier.tierName; maxTasks = tier.maxConcurrentTasks; remainingCapacity = capacity |})
+        )
+    ) |> ignore
+
     // ── Patreon: Webhook Handler ──────────────────────────────────────────────
 
     app.MapPost(

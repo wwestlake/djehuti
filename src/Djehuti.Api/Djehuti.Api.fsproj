@@ -26,6 +26,7 @@
     <Compile Include="AchievementEngine.fs" />
     <Compile Include="PersonaRepository.fs" />
     <Compile Include="HeartbeatWorker.fs" />
+    <Compile Include="PatreonService.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
