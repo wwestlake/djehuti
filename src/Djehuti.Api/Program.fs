@@ -1720,7 +1720,9 @@ let main args =
             match tryGetAuthClaims ctx with
             | Some claims ->
                 let userId = Guid.Parse(claims.UserId)
-                Results.Ok(NotificationRepository.getSubscription userId "thread" threadId)
+                match NotificationRepository.getSubscription userId "thread" threadId with
+                | Some sub -> Results.Ok(sub)
+                | None     -> Results.NotFound()
             | None -> Results.Unauthorized())
     ) |> ignore
 

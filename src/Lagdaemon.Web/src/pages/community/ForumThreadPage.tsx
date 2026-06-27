@@ -101,21 +101,24 @@ export default function ForumThreadPage() {
 
   useEffect(() => {
     setErrorMsg(null)
-    const loads: Promise<unknown>[] = [
+    Promise.all([
       forumApi.getThread(threadId),
       forumApi.getPosts(threadId),
       forumApi.getPoll(threadId),
-    ]
-    if (user) loads.push(forumApi.getThreadSubscription(threadId))
-    Promise.all(loads).then(([t, p, pollData, sub]) => {
+    ]).then(([t, p, pollData]) => {
       setThread(t as ForumThread | null)
       if (!t) setErrorMsg('Thread not found.')
       setPosts((p as ForumPost[]) ?? [])
       setPoll(pollData as PollData | null)
-      if (sub !== undefined) setSubscription(sub as Subscription | null)
     }).catch(() => {
       setThread(prev => { if (!prev) setErrorMsg('Could not load thread.'); return prev })
     }).finally(() => setLoading(false))
+
+    if (user) {
+      forumApi.getThreadSubscription(threadId)
+        .then(sub => setSubscription(sub))
+        .catch(() => { /* subscription failure never kills thread load */ })
+    }
   }, [threadId, user])
 
   const handleReply = async (e: React.FormEvent) => {
