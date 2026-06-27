@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../../contexts/AuthContext'
 import type { UserPrefs } from '../../../api/preferencesApi'
+import ImageUpload from '../../media/ImageUpload'
 
 const API = '/djehuti/api'
 
@@ -57,9 +58,14 @@ export default function GeneralSection({ }: Props) {
         <input maxLength={80} value={displayName} onChange={e => setDisplayName(e.target.value)} className="settings-input" />
       </div>
       <div className="settings-field">
-        <label>Avatar URL</label>
-        <input value={avatarUrl} onChange={e => setAvatarUrl(e.target.value)} className="settings-input" placeholder="https://…" />
-        {avatarUrl && <img src={avatarUrl} className="settings-avatar-preview" alt="avatar preview" />}
+        <label>Avatar</label>
+        <ImageUpload
+          module="avatar"
+          currentUrl={avatarUrl || undefined}
+          onUploaded={setAvatarUrl}
+          previewShape="circle"
+          label="Upload avatar"
+        />
       </div>
       <div className="settings-field">
         <label>Bio</label>
