@@ -909,10 +909,9 @@ let private migrations : (int * string) list =
             archive_days        INT
         );
 
-        -- Seed tier mappings
+        -- Seed tier mappings (Free tier is implicit for NULL patreon_tier_id)
         INSERT INTO patreon_tiers (tier_id, tier_name, role, max_concurrent_tasks, polling_interval_sec, archive_days)
         VALUES
-          (NULL, 'Free', 'role_free', 1, 300, 0),
           ('standard', 'Collector', 'role_collector', 5, NULL, 30),
           ('premium', 'Compute', 'role_compute', NULL, NULL, NULL)
         ON CONFLICT DO NOTHING;
