@@ -3658,54 +3658,69 @@ let main args =
                                 let json : System.Text.Json.JsonDocument = System.Text.Json.JsonDocument.Parse(bodyStr)
                                 let root = json.RootElement
 
-                                let eventType : string = root.GetProperty("type").GetString()
-                                let data = root.GetProperty("data")
-                                let patreonUuid : string = data.GetProperty("id").GetString()
-                                let tierId : string option =
-                                    try
-                                        let tierData = data.GetProperty("relationships").GetProperty("currently_entitled_tiers").GetProperty("data")
-                                        if tierData.ValueKind = System.Text.Json.JsonValueKind.Array && tierData.GetArrayLength() > 0 then
-                                            Some (tierData.[0].GetProperty("id").GetString())
-                                        else
-                                            None
-                                    with _ -> None
+                                let eventType : string =
+                                    match root.TryGetProperty("type") with
+                                    | true, prop -> prop.GetString()
+                                    | false, _ -> ""
 
-                                match eventType with
-                                | "members:pledge:create" ->
-                                    use conn = Database.openConnection()
-                                    use cmd = new Npgsql.NpgsqlCommand("""
-                                        UPDATE users SET patreon_tier_id = @tier
-                                        WHERE patreon_uuid = @uuid
-                                    """, conn)
-                                    cmd.Parameters.AddWithValue("uuid", patreonUuid) |> ignore
-                                    cmd.Parameters.AddWithValue("tier", (match tierId with Some t -> t :> obj | None -> System.DBNull.Value :> obj)) |> ignore
-                                    cmd.ExecuteNonQuery() |> ignore
-                                    return Results.Ok({| status = "pledge_created" |})
+                                let data =
+                                    match root.TryGetProperty("data") with
+                                    | true, prop -> Some prop
+                                    | false, _ -> None
 
-                                | "members:pledge:update" ->
-                                    use conn = Database.openConnection()
-                                    use cmd = new Npgsql.NpgsqlCommand("""
-                                        UPDATE users SET patreon_tier_id = @tier
-                                        WHERE patreon_uuid = @uuid
-                                    """, conn)
-                                    cmd.Parameters.AddWithValue("uuid", patreonUuid) |> ignore
-                                    cmd.Parameters.AddWithValue("tier", (match tierId with Some t -> t :> obj | None -> System.DBNull.Value :> obj)) |> ignore
-                                    cmd.ExecuteNonQuery() |> ignore
-                                    return Results.Ok({| status = "pledge_updated" |})
+                                match data with
+                                | None -> return Results.BadRequest("Missing data field in webhook payload")
+                                | Some data ->
+                                    let patreonUuid : string =
+                                        match data.TryGetProperty("id") with
+                                        | true, prop -> prop.GetString()
+                                        | false, _ -> ""
 
-                                | "members:pledge:delete" ->
-                                    use conn = Database.openConnection()
-                                    use cmd = new Npgsql.NpgsqlCommand("""
-                                        UPDATE users SET patreon_tier_id = NULL
-                                        WHERE patreon_uuid = @uuid
-                                    """, conn)
-                                    cmd.Parameters.AddWithValue("uuid", patreonUuid) |> ignore
-                                    cmd.ExecuteNonQuery() |> ignore
-                                    return Results.Ok({| status = "pledge_deleted" |})
+                                    if System.String.IsNullOrWhiteSpace(patreonUuid) then
+                                        return Results.BadRequest("Missing member ID in webhook payload")
+                                    else
+                                        let tierId : string option =
+                                            try
+                                                match data.TryGetProperty("relationships") with
+                                                | false, _ -> None
+                                                | true, rels ->
+                                                    match rels.TryGetProperty("currently_entitled_tiers") with
+                                                    | false, _ -> None
+                                                    | true, tiers ->
+                                                        match tiers.TryGetProperty("data") with
+                                                        | false, _ -> None
+                                                        | true, tierData ->
+                                                            if tierData.ValueKind = System.Text.Json.JsonValueKind.Array && tierData.GetArrayLength() > 0 then
+                                                                Some (tierData.[0].GetProperty("id").GetString())
+                                                            else
+                                                                None
+                                            with _ -> None
 
-                                | _ -> return Results.Ok({| status = "unknown_event" |})
+                                        match eventType with
+                                        | "members:pledge:create" | "members:pledge:update" ->
+                                            use conn = Database.openConnection()
+                                            use cmd = new Npgsql.NpgsqlCommand("""
+                                                UPDATE users SET patreon_uuid = @uuid, patreon_tier_id = @tier
+                                                WHERE patreon_uuid = @uuid
+                                            """, conn)
+                                            cmd.Parameters.AddWithValue("uuid", patreonUuid) |> ignore
+                                            cmd.Parameters.AddWithValue("tier", (match tierId with Some t -> t :> obj | None -> System.DBNull.Value :> obj)) |> ignore
+                                            cmd.ExecuteNonQuery() |> ignore
+                                            return Results.Ok({| status = "updated" |})
+
+                                        | "members:pledge:delete" ->
+                                            use conn = Database.openConnection()
+                                            use cmd = new Npgsql.NpgsqlCommand("""
+                                                UPDATE users SET patreon_tier_id = NULL
+                                                WHERE patreon_uuid = @uuid
+                                            """, conn)
+                                            cmd.Parameters.AddWithValue("uuid", patreonUuid) |> ignore
+                                            cmd.ExecuteNonQuery() |> ignore
+                                            return Results.Ok({| status = "deleted" |})
+
+                                        | _ -> return Results.Ok({| status = "received", eventType = eventType |})
                             with ex ->
-                                return Results.Problem(detail = ex.Message, statusCode = 400, title = "Invalid payload")
+                                return Results.Problem(detail = $"Exception: {ex.Message}", statusCode = 400, title = "Invalid payload")
             }
         )
     ) |> ignore
