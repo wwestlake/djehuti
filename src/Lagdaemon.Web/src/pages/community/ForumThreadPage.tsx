@@ -97,8 +97,10 @@ export default function ForumThreadPage() {
   const [splitTitle, setSplitTitle] = useState('')
   const [mergeTargetId, setMergeTargetId] = useState('')
   const [modBusy, setModBusy] = useState(false)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   useEffect(() => {
+    setErrorMsg(null)
     const loads: Promise<unknown>[] = [
       forumApi.getThread(threadId),
       forumApi.getPosts(threadId),
@@ -107,11 +109,12 @@ export default function ForumThreadPage() {
     if (user) loads.push(forumApi.getThreadSubscription(threadId))
     Promise.all(loads).then(([t, p, pollData, sub]) => {
       setThread(t as ForumThread | null)
+      if (!t) setErrorMsg('Thread not found.')
       setPosts((p as ForumPost[]) ?? [])
       setPoll(pollData as PollData | null)
       if (sub !== undefined) setSubscription(sub as Subscription | null)
     }).catch(() => {
-      setThread(null)
+      setErrorMsg('Could not load thread.')
     }).finally(() => setLoading(false))
   }, [threadId, user])
 
@@ -207,9 +210,8 @@ export default function ForumThreadPage() {
   }
 
   if (loading) return <div className="forum-loading">Loading…</div>
-  if (!thread) return <div className="forum-error-msg">Thread not found.</div>
 
-  const isThreadAuthor = user?.id === thread.authorId
+  const isThreadAuthor = user?.id === thread?.authorId
   const isAdmin = user?.role === 'admin'
   const isMod = isAdmin || user?.role === 'moderator'
   const replyIsEmpty = !replyHtml.replace(/<[^>]+>/g, '').trim()
@@ -221,19 +223,25 @@ export default function ForumThreadPage() {
 
   return (
     <div className="community-page">
+      {errorMsg && (
+        <div className="forum-error-banner">
+          <span>{errorMsg}</span>
+          <button className="forum-error-dismiss" onClick={() => setErrorMsg(null)} aria-label="Dismiss">✕</button>
+        </div>
+      )}
       <div className="forum-breadcrumb">
         <button className="breadcrumb-link" onClick={onNavigateHome}>Forum</button>
         {' › '}
-        <button className="breadcrumb-link" onClick={() => onNavigateForum(thread.forumId)}>Back</button>
+        <button className="breadcrumb-link" onClick={() => thread && onNavigateForum(thread.forumId)}>Back</button>
         {' › '}
-        <span>{thread.title}</span>
+        <span>{thread?.title}</span>
       </div>
 
       <div className="thread-header">
-        <h1>{thread.title}</h1>
+        <h1>{thread?.title}</h1>
         <div className="thread-header-badges">
-          {thread.isPinned && <span className="badge badge-pinned">Pinned</span>}
-          {thread.isLocked && <span className="badge badge-locked">Locked</span>}
+          {thread?.isPinned && <span className="badge badge-pinned">Pinned</span>}
+          {thread?.isLocked && <span className="badge badge-locked">Locked</span>}
         </div>
         {user && (
           <div className="thread-subscribe">
@@ -327,7 +335,7 @@ export default function ForumThreadPage() {
                 {isThreadAuthor && idx > 0 && !post.isAnswer && (
                   <button className="post-action" onClick={() => handleMarkAnswer(post.id)}>Mark Answer</button>
                 )}
-                {user?.id === post.authorId && !thread.isLocked && (
+                {user?.id === post.authorId && !thread?.isLocked && (
                   <button className="post-action" onClick={() => { setEditingId(post.id); setEditHtml(post.content) }}>Edit</button>
                 )}
                 {(user?.id === post.authorId || isAdmin) && (
@@ -342,7 +350,7 @@ export default function ForumThreadPage() {
         ))}
       </div>
 
-      {user && !thread.isLocked && (
+      {user && !thread?.isLocked && (
         <form className="reply-form" onSubmit={handleReply}>
           <h3>Reply</h3>
           <ForumEditor
@@ -358,7 +366,7 @@ export default function ForumThreadPage() {
         </form>
       )}
       {!user && <p className="forum-login-prompt">Sign in to reply.</p>}
-      {thread.isLocked && <p className="forum-locked-notice">This thread is locked.</p>}
+      {thread?.isLocked && <p className="forum-locked-notice">This thread is locked.</p>}
       {reportTarget && (
         <ReportModal
           targetType={reportTarget.type}
