@@ -8,8 +8,9 @@ import ForumSection from './sections/ForumSection'
 import BlogSection from './sections/BlogSection'
 import PapersSection from './sections/PapersSection'
 import PrivacySection from './sections/PrivacySection'
+import PatreonSection from './sections/PatreonSection'
 
-export type SettingsSection = 'general' | 'notifications' | 'forum' | 'blog' | 'papers' | 'privacy'
+export type SettingsSection = 'general' | 'notifications' | 'forum' | 'blog' | 'papers' | 'privacy' | 'patreon'
 
 interface Props {
   open: boolean
@@ -23,6 +24,7 @@ const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'forum',         label: 'Forum' },
   { id: 'blog',          label: 'Blog' },
   { id: 'papers',        label: 'Papers' },
+  { id: 'patreon',       label: 'Patreon' },
   { id: 'privacy',       label: 'Privacy & Account' },
 ]
 
@@ -79,6 +81,7 @@ export default function SettingsPanel({ open, initialSection = 'general', onClos
                   {s.id === 'forum'         && <ForumSection prefs={prefs} onSave={saveSection} />}
                   {s.id === 'blog'          && <BlogSection prefs={prefs} onSave={saveSection} />}
                   {s.id === 'papers'        && <PapersSection prefs={prefs} onSave={saveSection} />}
+                  {s.id === 'patreon'       && <PatreonSection />}
                   {s.id === 'privacy'       && <PrivacySection prefs={prefs} onSave={saveSection} />}
                 </div>
               )}

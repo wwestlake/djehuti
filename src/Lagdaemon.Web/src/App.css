@@ -1656,3 +1656,34 @@ footer a:hover { text-decoration: underline; }
 .achievement-badge-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .achievement-badge { display: flex; align-items: center; justify-content: center; border-radius: 50%; background: color-mix(in srgb, var(--badge-color) 15%, #0d1117); border: 2px solid var(--badge-color); box-shadow: 0 0 8px color-mix(in srgb, var(--badge-color) 40%, transparent); }
 .achievement-badge-label { font-size: 0.7rem; font-weight: 600; text-align: center; }
+
+/* ── Public Profile Page ──────────────────────────────────────────────── */
+.public-profile-page { max-width: 800px; margin: 0 auto; padding: 24px 16px; }
+.public-profile-page .error { color: #f85149; padding: 12px; background: #161b22; border-radius: 6px; }
+.profile-header { display: flex; gap: 24px; margin-bottom: 40px; padding-bottom: 32px; border-bottom: 1px solid #30363d; }
+.profile-avatar { flex-shrink: 0; }
+.profile-avatar img { width: 120px; height: 120px; border-radius: 50%; object-fit: cover; border: 2px solid #30363d; }
+.avatar-placeholder { width: 120px; height: 120px; border-radius: 50%; background: linear-gradient(135deg, #58a6ff, #79c0ff); display: flex; align-items: center; justify-content: center; font-size: 3rem; font-weight: 700; color: #0d1117; }
+.profile-info { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.profile-name { font-size: 2rem; font-weight: 700; margin: 0 0 8px 0; color: #e6edf3; }
+.profile-pronouns { font-size: 0.9rem; color: #8b949e; margin-bottom: 12px; }
+.profile-bio { font-size: 1rem; color: #c9d1d9; margin: 12px 0; line-height: 1.5; }
+.profile-meta { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.meta-item { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: #8b949e; }
+.meta-icon { font-size: 1rem; }
+.profile-activity { margin-top: 32px; }
+.profile-activity h2 { font-size: 1.3rem; font-weight: 700; margin-bottom: 16px; color: #e6edf3; }
+.activity-empty { color: #8b949e; font-style: italic; padding: 16px; }
+.activity-list { display: flex; flex-direction: column; gap: 8px; }
+.activity-item { display: flex; align-items: center; gap: 12px; padding: 12px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; }
+.activity-type-badge { font-size: 1.2rem; flex-shrink: 0; }
+.activity-content { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.activity-title { color: #e6edf3; font-size: 0.95rem; word-break: break-word; }
+.activity-date { color: #6e7681; font-size: 0.8rem; }
+
+/* ── Patreon Tier Display ──────────────────────────────────────────────── */
+.settings-tier-display { display: flex; flex-direction: column; gap: 16px; }
+.settings-tier-info { display: flex; gap: 12px; }
+.tier-card { background: linear-gradient(135deg, #1f6feb 0%, #0969da 100%); border-radius: 8px; padding: 16px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.tier-name { font-size: 1.1rem; font-weight: 700; color: #fff; }
+.tier-capacity { font-size: 0.9rem; color: #e8f0fe; }

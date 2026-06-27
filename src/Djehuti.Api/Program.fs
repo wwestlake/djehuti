@@ -10,6 +10,15 @@ open Microsoft.Extensions.Hosting
 open Djehuti.Api
 open Djehuti.Core
 
+// Constant-time string comparison for HMAC verification (prevent timing attacks)
+let compareStringsConstantTime (a: string) (b: string) =
+    if a.Length <> b.Length then false
+    else
+        let mutable result = 0
+        for i = 0 to a.Length - 1 do
+            result <- result ||| (int a.[i] ^^^ int b.[i])
+        result = 0
+
 [<CLIMutable>]
 type RenameDataSetRequest =
     { Name: string
@@ -1831,6 +1840,69 @@ let main args =
             | _ -> Results.Forbid())
     ) |> ignore
 
+    // ── Public profiles ──────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/users/{userId}/public",
+        Func<Guid, IResult>(fun userId ->
+            match UserRepository.getUserById userId with
+            | None -> Results.NotFound()
+            | Some u ->
+                let dn = match u.DisplayName with | Some d -> d | None -> u.Email
+                Results.Ok({| id = u.Id.ToString(); displayName = dn; email = u.Email; bio = u.Bio; avatarUrl = u.AvatarUrl; pronouns = u.Pronouns; location = u.Location; createdAt = u.CreatedAt |})
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/users/{userId}/activity",
+        Func<Guid, System.Threading.Tasks.Task<IResult>>(fun userId ->
+            task {
+                use conn = Database.openConnection()
+                let items = ResizeArray<{| type_: string; id: string; title: string; createdAt: System.DateTime |}>()
+
+                // Recent forum posts
+                use cmd1 = new Npgsql.NpgsqlCommand("""
+                    SELECT id, content, created_at FROM forum_posts
+                    WHERE author_id = @uid AND NOT deleted
+                    ORDER BY created_at DESC LIMIT 15
+                """, conn)
+                cmd1.Parameters.AddWithValue("uid", userId) |> ignore
+                use r1 = cmd1.ExecuteReader()
+                while r1.Read() do
+                    let preview = (r1.GetString(1).Replace("<", "").Replace(">", "")).[..60]
+                    items.Add({| type_ = "post"; id = r1.GetGuid(0).ToString(); title = preview; createdAt = r1.GetDateTime(2) |})
+                r1.Close()
+
+                // Recent forum threads
+                use cmd2 = new Npgsql.NpgsqlCommand("""
+                    SELECT id, title, created_at FROM forum_threads
+                    WHERE author_id = @uid
+                    ORDER BY created_at DESC LIMIT 15
+                """, conn)
+                cmd2.Parameters.AddWithValue("uid", userId) |> ignore
+                use r2 = cmd2.ExecuteReader()
+                while r2.Read() do
+                    items.Add({| type_ = "thread"; id = r2.GetGuid(0).ToString(); title = r2.GetString(1); createdAt = r2.GetDateTime(2) |})
+                r2.Close()
+
+                // Recent blog articles
+                use cmd3 = new Npgsql.NpgsqlCommand("""
+                    SELECT id, title, created_at FROM blog_articles
+                    WHERE author_id = @uid
+                    ORDER BY created_at DESC LIMIT 15
+                """, conn)
+                cmd3.Parameters.AddWithValue("uid", userId) |> ignore
+                use r3 = cmd3.ExecuteReader()
+                while r3.Read() do
+                    items.Add({| type_ = "article"; id = r3.GetGuid(0).ToString(); title = r3.GetString(1); createdAt = r3.GetDateTime(2) |})
+                r3.Close()
+
+                let activity = items |> Seq.sortByDescending (fun a -> a.createdAt) |> Seq.take (min 30 items.Count) |> Seq.toList
+                return Results.Ok({| activity = activity |})
+            }
+        )
+    ) |> ignore
+
     // ── User search (mention autocomplete) ───────────────────────────────────
 
     app.MapGet(
@@ -3505,6 +3577,137 @@ let main args =
                 | None     -> Results.Problem(detail = "Failed to enqueue", statusCode = 500, title = "Error")
             | Some _ -> Results.Forbid()
             | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    // ── Patreon: Link Account (Manual Member ID) ─────────────────────────────
+
+    app.MapPost(
+        "/api/users/patreon/link",
+        Func<HttpContext, {| memberId: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            task {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    let userId = System.Guid.Parse(claims.UserId)
+                    if System.String.IsNullOrWhiteSpace(body.memberId) then
+                        return Results.BadRequest("Member ID required")
+                    else
+                        try
+                            use conn = Database.openConnection()
+                            use cmd = new Npgsql.NpgsqlCommand("""
+                                UPDATE users SET patreon_uuid = @uuid
+                                WHERE id = @userId
+                            """, conn)
+                            cmd.Parameters.AddWithValue("uuid", body.memberId) |> ignore
+                            cmd.Parameters.AddWithValue("userId", userId) |> ignore
+                            let rowsAffected = cmd.ExecuteNonQuery()
+                            if rowsAffected > 0 then
+                                return Results.Ok({| status = "linked"; memberId = body.memberId |})
+                            else
+                                return Results.NotFound()
+                        with ex ->
+                            return Results.Problem(detail = ex.Message, statusCode = 400, title = "Link failed")
+            }
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/users/patreon/status",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                let userId = System.Guid.Parse(claims.UserId)
+                match Djehuti.Api.PatreonService.getTierLimits userId with
+                | None -> Results.NotFound()
+                | Some tier ->
+                    let capacity = Djehuti.Api.PatreonService.getRemainingCapacity userId |> Option.defaultValue 0
+                    Results.Ok({| tierName = tier.tierName; maxTasks = tier.maxConcurrentTasks; remainingCapacity = capacity |})
+        )
+    ) |> ignore
+
+    // ── Patreon: Webhook Handler ──────────────────────────────────────────────
+
+    app.MapPost(
+        "/api/webhooks/patreon",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            task {
+                use memStream = new System.IO.MemoryStream()
+                do! ctx.Request.Body.CopyToAsync(memStream)
+                let body : byte array = memStream.ToArray()
+                let bodyStr = System.Text.Encoding.UTF8.GetString(body)
+
+                match ctx.Request.Headers.TryGetValue("X-Patreon-Signature") with
+                | false, _ -> return Results.Unauthorized()
+                | true, headerSigs ->
+                    let headerSig = headerSigs |> Seq.tryHead |> Option.defaultValue ""
+
+                    // Verify HMAC-MD5 signature
+                    let webhookSecret = System.Environment.GetEnvironmentVariable("PATREON_WEBHOOK_SECRET") |> Option.ofObj |> Option.defaultValue ""
+                    if System.String.IsNullOrWhiteSpace(webhookSecret) then
+                        return Results.Problem(detail = "Webhook secret not configured", statusCode = 500, title = "Error")
+                    else
+                        use hmac = new System.Security.Cryptography.HMACMD5(System.Text.Encoding.UTF8.GetBytes(webhookSecret))
+                        let hashBytes : byte array = hmac.ComputeHash(body)
+                        let computedSig : string = System.Convert.ToHexString(hashBytes).ToLower()
+
+                        if not (compareStringsConstantTime computedSig headerSig) then
+                            return Results.Unauthorized()
+                        else
+                            try
+                                let json : System.Text.Json.JsonDocument = System.Text.Json.JsonDocument.Parse(bodyStr)
+                                let root = json.RootElement
+
+                                let eventType : string = root.GetProperty("type").GetString()
+                                let data = root.GetProperty("data")
+                                let patreonUuid : string = data.GetProperty("id").GetString()
+                                let tierId : string option =
+                                    try
+                                        let tierData = data.GetProperty("relationships").GetProperty("currently_entitled_tiers").GetProperty("data")
+                                        if tierData.ValueKind = System.Text.Json.JsonValueKind.Array && tierData.GetArrayLength() > 0 then
+                                            Some (tierData.[0].GetProperty("id").GetString())
+                                        else
+                                            None
+                                    with _ -> None
+
+                                match eventType with
+                                | "members:pledge:create" ->
+                                    use conn = Database.openConnection()
+                                    use cmd = new Npgsql.NpgsqlCommand("""
+                                        UPDATE users SET patreon_tier_id = @tier
+                                        WHERE patreon_uuid = @uuid
+                                    """, conn)
+                                    cmd.Parameters.AddWithValue("uuid", patreonUuid) |> ignore
+                                    cmd.Parameters.AddWithValue("tier", (match tierId with Some t -> t :> obj | None -> System.DBNull.Value :> obj)) |> ignore
+                                    cmd.ExecuteNonQuery() |> ignore
+                                    return Results.Ok({| status = "pledge_created" |})
+
+                                | "members:pledge:update" ->
+                                    use conn = Database.openConnection()
+                                    use cmd = new Npgsql.NpgsqlCommand("""
+                                        UPDATE users SET patreon_tier_id = @tier
+                                        WHERE patreon_uuid = @uuid
+                                    """, conn)
+                                    cmd.Parameters.AddWithValue("uuid", patreonUuid) |> ignore
+                                    cmd.Parameters.AddWithValue("tier", (match tierId with Some t -> t :> obj | None -> System.DBNull.Value :> obj)) |> ignore
+                                    cmd.ExecuteNonQuery() |> ignore
+                                    return Results.Ok({| status = "pledge_updated" |})
+
+                                | "members:pledge:delete" ->
+                                    use conn = Database.openConnection()
+                                    use cmd = new Npgsql.NpgsqlCommand("""
+                                        UPDATE users SET patreon_tier_id = NULL
+                                        WHERE patreon_uuid = @uuid
+                                    """, conn)
+                                    cmd.Parameters.AddWithValue("uuid", patreonUuid) |> ignore
+                                    cmd.ExecuteNonQuery() |> ignore
+                                    return Results.Ok({| status = "pledge_deleted" |})
+
+                                | _ -> return Results.Ok({| status = "unknown_event" |})
+                            with ex ->
+                                return Results.Problem(detail = ex.Message, statusCode = 400, title = "Invalid payload")
+            }
+        )
     ) |> ignore
 
     app.Run()
