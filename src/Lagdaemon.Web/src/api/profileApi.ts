@@ -66,4 +66,13 @@ export const profileApi = {
 
   getActivity: (userId: string): Promise<ActivityFeed> =>
     fetch(`${USERS_BASE}/${userId}/activity`, opts).then(r => { if (!r.ok) throw new Error(r.statusText); return r.json() }),
+
+  linkPatreonAccount: (memberId: string): Promise<{status: string; memberId: string}> => {
+    return fetch(`${USERS_BASE}/patreon/link`, {
+      ...opts,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memberId }),
+    }).then(r => { if (!r.ok) throw new Error(r.statusText); return r.json() })
+  },
 }

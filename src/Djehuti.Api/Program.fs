@@ -3579,6 +3579,38 @@ let main args =
             | None   -> Results.Unauthorized())
     ) |> ignore
 
+    // ── Patreon: Link Account (Manual Member ID) ─────────────────────────────
+
+    app.MapPost(
+        "/api/users/patreon/link",
+        Func<HttpContext, {| memberId: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            task {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    let userId = System.Guid.Parse(claims.UserId)
+                    if System.String.IsNullOrWhiteSpace(body.memberId) then
+                        return Results.BadRequest("Member ID required")
+                    else
+                        try
+                            use conn = Database.openConnection()
+                            use cmd = new Npgsql.NpgsqlCommand("""
+                                UPDATE users SET patreon_uuid = @uuid
+                                WHERE id = @userId
+                            """, conn)
+                            cmd.Parameters.AddWithValue("uuid", body.memberId) |> ignore
+                            cmd.Parameters.AddWithValue("userId", userId) |> ignore
+                            let rowsAffected = cmd.ExecuteNonQuery()
+                            if rowsAffected > 0 then
+                                return Results.Ok({| status = "linked"; memberId = body.memberId |})
+                            else
+                                return Results.NotFound()
+                        with ex ->
+                            return Results.Problem(detail = ex.Message, statusCode = 400, title = "Link failed")
+            }
+        )
+    ) |> ignore
+
     // ── Patreon: Webhook Handler ──────────────────────────────────────────────
 
     app.MapPost(
@@ -3627,7 +3659,7 @@ let main args =
                                 | "members:pledge:create" ->
                                     use conn = Database.openConnection()
                                     use cmd = new Npgsql.NpgsqlCommand("""
-                                        UPDATE users SET patreon_uuid = @uuid, patreon_tier_id = @tier
+                                        UPDATE users SET patreon_tier_id = @tier
                                         WHERE patreon_uuid = @uuid
                                     """, conn)
                                     cmd.Parameters.AddWithValue("uuid", patreonUuid) |> ignore
