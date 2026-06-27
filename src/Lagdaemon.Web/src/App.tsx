@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import './App.css'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { UserPrefsProvider } from './contexts/UserPrefsContext'
 import { UserMenu } from './components/auth/UserMenu'
 import NotificationDropdown from './components/NotificationDropdown'
+import SettingsPanel from './components/settings/SettingsPanel'
+import type { SettingsSection } from './components/settings/SettingsPanel'
 import { LoginModal } from './components/auth/LoginModal'
 import { SignupModal } from './components/auth/SignupModal'
 import { ForgotPasswordModal } from './components/auth/ForgotPasswordModal'
@@ -31,9 +34,10 @@ type NavProps = {
   section: Section
   onSection: (s: Section) => void
   onOpenLogin: () => void
+  onOpenSettings: (section?: SettingsSection) => void
 }
 
-function Nav({ section, onSection, onOpenLogin }: NavProps) {
+function Nav({ section, onSection, onOpenLogin, onOpenSettings }: NavProps) {
   const { user } = useAuth()
   const [drawerOpen, setDrawerOpen] = useState(false)
 
@@ -74,12 +78,12 @@ function Nav({ section, onSection, onOpenLogin }: NavProps) {
         <nav className="nav-desktop">
           {links}
           {user && <NotificationDropdown />}
-          <UserMenu onOpenLogin={onOpenLogin} />
+          <UserMenu onOpenLogin={onOpenLogin} onOpenSettings={onOpenSettings} />
         </nav>
         {/* Mobile: UserMenu + hamburger */}
         <div className="nav-mobile-bar">
           {user && <NotificationDropdown />}
-          <UserMenu onOpenLogin={onOpenLogin} />
+          <UserMenu onOpenLogin={onOpenLogin} onOpenSettings={onOpenSettings} />
           <button className="nav-hamburger" onClick={() => setDrawerOpen(o => !o)} aria-label="Menu">
             <span /><span /><span />
           </button>
@@ -369,6 +373,13 @@ function AppInner() {
   const [showLogin, setShowLogin] = useState(false)
   const [showSignup, setShowSignup] = useState(false)
   const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
+
+  const openSettings = (sec: SettingsSection = 'general') => {
+    setSettingsSection(sec)
+    setSettingsOpen(true)
+  }
 
   const goSection = (s: Section) => {
     setSection(s)
@@ -441,7 +452,7 @@ function AppInner() {
 
   return (
     <>
-      <Nav section={section} onSection={goSection} onOpenLogin={() => setShowLogin(true)} />
+      <Nav section={section} onSection={goSection} onOpenLogin={() => setShowLogin(true)} onOpenSettings={openSettings} />
 
       {section === 'home' ? (
         <>
@@ -464,6 +475,8 @@ function AppInner() {
       <Modal open={aupOpen} onClose={() => setAupOpen(false)}
         title="Acceptable Use Policy — Djehuti Cyberscope AI+" effective="Effective Date: June 23, 2026" items={AUP_ITEMS} />
 
+      <SettingsPanel open={settingsOpen} initialSection={settingsSection} onClose={() => setSettingsOpen(false)} />
+
       <LoginModal open={showLogin} onClose={() => setShowLogin(false)}
         onSwitchToSignup={() => { setShowLogin(false); setShowSignup(true) }}
         onSwitchToForgotPassword={() => { setShowLogin(false); setShowForgotPassword(true) }} />
@@ -478,7 +491,9 @@ function AppInner() {
 function App() {
   return (
     <AuthProvider>
-      <AppInner />
+      <UserPrefsProvider>
+        <AppInner />
+      </UserPrefsProvider>
     </AuthProvider>
   )
 }

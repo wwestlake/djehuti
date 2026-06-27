@@ -227,6 +227,76 @@ let updateProfile (id: Guid) (displayName: string option) (bio: string option) (
             return None
     }
 
+let getUserById (id: Guid) : User option =
+    try
+        use conn = openConn ()
+        use cmd = new NpgsqlCommand(
+            """SELECT id, email, email_verified_at, password_hash, display_name, avatar_url, bio, pronouns, location,
+                      notify_by_email, role, status, created_at, updated_at
+               FROM users WHERE id = @id""", conn)
+        cmd.Parameters.AddWithValue("id", id) |> ignore
+        use r = cmd.ExecuteReader()
+        if r.Read() then
+            Some {
+                Id              = r.GetGuid(0)
+                Email           = r.GetString(1)
+                EmailVerifiedAt = if r.IsDBNull(2) then None else Some (r.GetFieldValue<DateTime>(2))
+                PasswordHash    = if r.IsDBNull(3) then None else Some (r.GetString(3))
+                DisplayName     = if r.IsDBNull(4) then None else Some (r.GetString(4))
+                AvatarUrl       = if r.IsDBNull(5) then None else Some (r.GetString(5))
+                Bio             = if r.IsDBNull(6) then None else Some (r.GetString(6))
+                Pronouns        = if r.IsDBNull(7) then None else Some (r.GetString(7))
+                Location        = if r.IsDBNull(8) then None else Some (r.GetString(8))
+                NotifyByEmail   = r.GetBoolean(9)
+                Role            = r.GetString(10)
+                Status          = r.GetString(11)
+                CreatedAt       = r.GetFieldValue<DateTime>(12)
+                UpdatedAt       = r.GetFieldValue<DateTime>(13)
+            }
+        else None
+    with ex ->
+        printfn "[UserRepository] getUserById failed: %s" ex.Message
+        None
+
+let updateProfileFull (id: Guid) (displayName: string option) (bio: string option) (avatarUrl: string option) (pronouns: string option) (location: string option) : User option =
+    try
+        use conn = openConn ()
+        use cmd = new NpgsqlCommand(
+            """UPDATE users
+               SET display_name = @dn, bio = @bio, avatar_url = @av, pronouns = @pr, location = @loc,
+                   updated_at = now()
+               WHERE id = @id
+               RETURNING id, email, email_verified_at, password_hash, display_name, avatar_url, bio, pronouns, location,
+                         notify_by_email, role, status, created_at, updated_at""", conn)
+        cmd.Parameters.AddWithValue("id", id) |> ignore
+        cmd.Parameters.AddWithValue("dn",  displayName |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+        cmd.Parameters.AddWithValue("bio", bio         |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+        cmd.Parameters.AddWithValue("av",  avatarUrl   |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+        cmd.Parameters.AddWithValue("pr",  pronouns    |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+        cmd.Parameters.AddWithValue("loc", location    |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+        use r = cmd.ExecuteReader()
+        if r.Read() then
+            Some {
+                Id              = r.GetGuid(0)
+                Email           = r.GetString(1)
+                EmailVerifiedAt = if r.IsDBNull(2) then None else Some (r.GetFieldValue<DateTime>(2))
+                PasswordHash    = if r.IsDBNull(3) then None else Some (r.GetString(3))
+                DisplayName     = if r.IsDBNull(4) then None else Some (r.GetString(4))
+                AvatarUrl       = if r.IsDBNull(5) then None else Some (r.GetString(5))
+                Bio             = if r.IsDBNull(6) then None else Some (r.GetString(6))
+                Pronouns        = if r.IsDBNull(7) then None else Some (r.GetString(7))
+                Location        = if r.IsDBNull(8) then None else Some (r.GetString(8))
+                NotifyByEmail   = r.GetBoolean(9)
+                Role            = r.GetString(10)
+                Status          = r.GetString(11)
+                CreatedAt       = r.GetFieldValue<DateTime>(12)
+                UpdatedAt       = r.GetFieldValue<DateTime>(13)
+            }
+        else None
+    with ex ->
+        printfn "[UserRepository] updateProfileFull failed: %s" ex.Message
+        None
+
 // ── Email Verification Tokens ───────────────────────────────────────────────
 
 let createEmailVerificationToken (userId: Guid) (token: string) : Async<bool> =

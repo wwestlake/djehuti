@@ -21,6 +21,7 @@
     <Compile Include="BlogRepository.fs" />
     <Compile Include="AnnouncementRepository.fs" />
     <Compile Include="NotificationRepository.fs" />
+    <Compile Include="PreferencesRepository.fs" />
     <Compile Include="PersonaRepository.fs" />
     <Compile Include="HeartbeatWorker.fs" />
     <Compile Include="Program.fs" />

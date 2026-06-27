@@ -102,24 +102,20 @@ export default function ForumEditor({ placeholder, initialContent, onChange, min
             return (await res.json()) as UserSuggestion[]
           },
           render: () => {
-            let component: { props: SuggestionProps<UserSuggestion> } | null = null
             return {
               onStart: (props: SuggestionProps<UserSuggestion>) => {
-                component = { props }
                 const rect = props.clientRect?.()
                 if (rect) setMentionPos({ top: rect.bottom + window.scrollY, left: rect.left + window.scrollX })
                 setMentionItems(props.items as UserSuggestion[])
                 setMentionCommand(() => props.command as (item: { id: string; label: string }) => void)
               },
               onUpdate: (props: SuggestionProps<UserSuggestion>) => {
-                component = { props }
                 const rect = props.clientRect?.()
                 if (rect) setMentionPos({ top: rect.bottom + window.scrollY, left: rect.left + window.scrollX })
                 setMentionItems(props.items as UserSuggestion[])
                 setMentionCommand(() => props.command as (item: { id: string; label: string }) => void)
               },
               onExit: () => {
-                component = null
                 setMentionPos(null)
                 setMentionItems([])
                 setMentionCommand(null)

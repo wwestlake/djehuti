@@ -113,7 +113,7 @@ export default function AdminPage() {
 
   // Heartbeat
   const [hbJobs, setHbJobs] = useState<HeartbeatJob[]>([])
-  const [hbConfig, setHbConfig] = useState<HeartbeatConfig>({})
+  const [_hbConfig, setHbConfig] = useState<HeartbeatConfig>({})
   const [hbConfigEdit, setHbConfigEdit] = useState<HeartbeatConfig>({})
   const [hbSaving, setHbSaving] = useState(false)
   const [hbTriggering, setHbTriggering] = useState(false)
