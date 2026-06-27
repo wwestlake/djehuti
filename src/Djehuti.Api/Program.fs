@@ -703,6 +703,7 @@ let main args =
     let app = builder.Build()
 
     Database.runMigrations ()
+    AchievementRepository.seedDictionary ()
 
     let datasetDir =
         [ Path.Combine(AppContext.BaseDirectory, "data", "datasets")
@@ -1457,7 +1458,7 @@ let main args =
                                            let preview = if preview.Length > 80 then preview.[..79] + "…" else preview
                                            NotificationRepository.notifySubscribers tid userId $"New reply in thread: {preview}" link
                                            // Parse @mentions and notify each mentioned user
-                                           let mentionRegex = System.Text.RegularExpressions.Regex("""data-mention="([^"]+)"""")
+                                           let mentionRegex = System.Text.RegularExpressions.Regex(@"data-mention=""([^""]+)""")
                                            let mentionedNames =
                                                mentionRegex.Matches(body.content)
                                                |> Seq.cast<System.Text.RegularExpressions.Match>
@@ -1701,7 +1702,10 @@ let main args =
             match tryGetAuthClaims ctx with
             | None -> Results.Unauthorized()
             | Some claims ->
-                match UserRepository.getUserById claims.UserId with
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                match UserRepository.getUserById uid with
                 | None -> Results.NotFound()
                 | Some u ->
                     Results.Ok({|
@@ -1719,12 +1723,15 @@ let main args =
             match tryGetAuthClaims ctx with
             | None -> Results.Unauthorized()
             | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
                 let dn  = if String.IsNullOrWhiteSpace body.displayName then None else Some (body.displayName.Trim())
                 let bio = if String.IsNullOrWhiteSpace body.bio         then None else Some (body.bio.Trim())
                 let av  = if String.IsNullOrWhiteSpace body.avatarUrl   then None else Some (body.avatarUrl.Trim())
                 let pr  = if String.IsNullOrWhiteSpace body.pronouns    then None else Some (body.pronouns.Trim())
                 let loc = if String.IsNullOrWhiteSpace body.location    then None else Some (body.location.Trim())
-                match UserRepository.updateProfileFull claims.UserId dn bio av pr loc with
+                match UserRepository.updateProfileFull uid dn bio av pr loc with
                 | Some u -> Results.Ok({| displayName = u.DisplayName; avatarUrl = u.AvatarUrl; bio = u.Bio; pronouns = u.Pronouns; location = u.Location |})
                 | None   -> Results.Problem(detail = "Update failed", statusCode = 500, title = "Error"))
     ) |> ignore
@@ -1737,7 +1744,10 @@ let main args =
             match tryGetAuthClaims ctx with
             | None -> Results.Unauthorized()
             | Some claims ->
-                let prefs = PreferencesRepository.getPreferences claims.UserId
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                let prefs = PreferencesRepository.getPreferences uid
                 Results.Ok(prefs |> Map.toSeq |> dict))
     ) |> ignore
 
@@ -1758,8 +1768,64 @@ let main args =
                             | _ -> box (p.Value.GetString())
                         p.Name, v)
                     |> Map.ofSeq
-                let updated = PreferencesRepository.patchPreferences claims.UserId patch
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                let updated = PreferencesRepository.patchPreferences uid patch
                 Results.Ok(updated |> Map.toSeq |> dict))
+    ) |> ignore
+
+    // ── Achievements ─────────────────────────────────────────────────────────
+
+    // GET /api/achievements — full dictionary (admin sees hidden)
+    app.MapGet(
+        "/api/achievements",
+        Func<HttpContext, IResult>(fun ctx ->
+            let isAdmin = tryGetAuthClaims ctx |> Option.map (fun c -> c.Role = "admin") |> Option.defaultValue false
+            Results.Ok(AchievementRepository.getAllAchievements isAdmin))
+    ) |> ignore
+
+    // GET /api/users/me/achievements
+    app.MapGet(
+        "/api/users/me/achievements",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid -> Results.Ok(AchievementRepository.getUserAchievements uid))
+    ) |> ignore
+
+    // GET /api/users/{userId}/achievements
+    app.MapGet(
+        "/api/users/{userId}/achievements",
+        Func<Guid, IResult>(fun userId ->
+            Results.Ok(AchievementRepository.getUserAchievements userId))
+    ) |> ignore
+
+    // GET /api/users/me/metrics
+    app.MapGet(
+        "/api/users/me/metrics",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid -> Results.Ok(AchievementRepository.getMetrics uid))
+    ) |> ignore
+
+    // POST /api/admin/achievements/recompute — force full batch recompute
+    app.MapPost(
+        "/api/admin/achievements/recompute",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some c when c.Role = "admin" ->
+                AchievementEngine.runBatch()
+                AchievementEngine.dispatchNotifications()
+                Results.Ok({| message = "Recompute complete" |})
+            | _ -> Results.Forbid())
     ) |> ignore
 
     // ── User search (mention autocomplete) ───────────────────────────────────
@@ -1907,7 +1973,7 @@ let main args =
                 cr.Close()
                 match authorId with
                 | None -> Results.NotFound() :> IResult
-                | Some aid when aid <> claims.UserId && not (Permissions.isAdmin claims.Role) ->
+                | Some aid when (match Guid.TryParse(claims.UserId) with true, uid -> aid <> uid | _ -> true) && not (Permissions.isAdmin claims.Role) ->
                     Results.Forbid() :> IResult
                 | _ ->
                     let closesAt =

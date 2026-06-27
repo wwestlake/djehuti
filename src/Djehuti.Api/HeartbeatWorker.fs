@@ -269,6 +269,16 @@ Return ONLY a JSON array with this exact schema per item:
                     let moderateOn  = config |> Map.tryFind "moderation_phase_active" |> Option.defaultValue "true" = "true"
                     let cleanupOn   = config |> Map.tryFind "cleanup_phase_active"    |> Option.defaultValue "true" = "true"
 
+                    // Phase A: Achievements (no API key required)
+                    let achieveOn = config |> Map.tryFind "achievement_phase_active" |> Option.defaultValue "true" = "true"
+                    if achieveOn then
+                        try
+                            AchievementEngine.runBatch()
+                            AchievementEngine.dispatchNotifications()
+                            logger.LogInformation("Achievement phase complete")
+                        with ex ->
+                            logger.LogError(ex, "Achievement phase error")
+
                     match anthropicKey() with
                     | None ->
                         logger.LogWarning("ANTHROPIC_API_KEY not set — skipping heartbeat phases")

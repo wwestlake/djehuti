@@ -22,8 +22,9 @@ import ProfilePage from './pages/community/ProfilePage'
 import AdminPage from './pages/community/AdminPage'
 import AnnouncementsPage from './pages/community/AnnouncementsPage'
 import AnnouncementBanner from './pages/community/AnnouncementBanner'
+import AchievementsPage from './pages/profile/AchievementsPage'
 
-type Section = 'home' | 'forum' | 'blog' | 'papers' | 'profile' | 'admin' | 'announcements'
+type Section = 'home' | 'forum' | 'blog' | 'papers' | 'profile' | 'achievements' | 'admin' | 'announcements'
 type ForumView = { page: 'list' } | { page: 'forum'; forumId: string } | { page: 'thread'; threadId: string } | { page: 'search'; query?: string }
 type BlogView = { page: 'list' } | { page: 'article'; slug: string } | { page: 'editor'; articleId?: string }
 type PapersView = { page: 'list' } | { page: 'workspace'; paperId: string }
@@ -35,9 +36,10 @@ type NavProps = {
   onSection: (s: Section) => void
   onOpenLogin: () => void
   onOpenSettings: (section?: SettingsSection) => void
+  onOpenAchievements: () => void
 }
 
-function Nav({ section, onSection, onOpenLogin, onOpenSettings }: NavProps) {
+function Nav({ section, onSection, onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
   const { user } = useAuth()
   const [drawerOpen, setDrawerOpen] = useState(false)
 
@@ -78,12 +80,12 @@ function Nav({ section, onSection, onOpenLogin, onOpenSettings }: NavProps) {
         <nav className="nav-desktop">
           {links}
           {user && <NotificationDropdown />}
-          <UserMenu onOpenLogin={onOpenLogin} onOpenSettings={onOpenSettings} />
+          <UserMenu onOpenLogin={onOpenLogin} onOpenSettings={onOpenSettings} onOpenAchievements={onOpenAchievements} />
         </nav>
         {/* Mobile: UserMenu + hamburger */}
         <div className="nav-mobile-bar">
           {user && <NotificationDropdown />}
-          <UserMenu onOpenLogin={onOpenLogin} onOpenSettings={onOpenSettings} />
+          <UserMenu onOpenLogin={onOpenLogin} onOpenSettings={onOpenSettings} onOpenAchievements={onOpenAchievements} />
           <button className="nav-hamburger" onClick={() => setDrawerOpen(o => !o)} aria-label="Menu">
             <span /><span /><span />
           </button>
@@ -439,6 +441,9 @@ function AppInner() {
       case 'profile':
         return <ProfilePage />
 
+      case 'achievements':
+        return <AchievementsPage />
+
       case 'admin':
         return <AdminPage />
 
@@ -452,7 +457,7 @@ function AppInner() {
 
   return (
     <>
-      <Nav section={section} onSection={goSection} onOpenLogin={() => setShowLogin(true)} onOpenSettings={openSettings} />
+      <Nav section={section} onSection={goSection} onOpenLogin={() => setShowLogin(true)} onOpenSettings={openSettings} onOpenAchievements={() => goSection('achievements')} />
 
       {section === 'home' ? (
         <>
