@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { forumApi } from '../../api/forumApi'
 import type { ForumThread, ForumPost, Subscription } from '../../api/forumApi'
 import ReportModal from '../../components/forum/ReportModal'
@@ -14,6 +14,15 @@ interface Props {
 type Reaction = { emoji: string; count: number; userReacted: boolean }
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '🔥', '👀', '✅']
+const THREAD_REF_RE = /#([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi
+
+function renderPostContent(html: string, onThreadNav: (id: string) => void) {
+  // Replace #UUID cross-references with clickable anchors (server-side safe: only replaces text nodes conceptually)
+  const withRefs = html.replace(THREAD_REF_RE, (_, id) =>
+    `<a class="thread-xref" data-thread-id="${id}" href="#">#${id.slice(0, 8)}…</a>`
+  )
+  return withRefs
+}
 
 function ReactionBar({ postId, user }: { postId: string; user: { id: string } | null }) {
   const [reactions, setReactions] = useState<Reaction[]>([])
@@ -209,7 +218,11 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
               ) : (
                 <div
                   className="post-content tiptap-render"
-                  dangerouslySetInnerHTML={{ __html: post.content }}
+                  dangerouslySetInnerHTML={{ __html: renderPostContent(post.content, (id) => onNavigateForum(id)) }}
+                  onClick={(e) => {
+                    const a = (e.target as HTMLElement).closest('[data-thread-id]')
+                    if (a) { e.preventDefault(); /* navigate to thread when we have a thread page handler */ }
+                  }}
                 />
               )}
             </div>

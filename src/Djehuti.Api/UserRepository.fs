@@ -485,3 +485,30 @@ let logAdminAudit (adminId: Guid) (targetId: Guid) (action: string) (field: stri
     cmd.Parameters.AddWithValue("old",    opt oldValue)  |> ignore
     cmd.Parameters.AddWithValue("new",    opt newValue)  |> ignore
     cmd.ExecuteNonQuery() |> ignore
+
+let searchUsersByName (query: string) (limit: int) =
+    use conn = openConn ()
+    use cmd = new NpgsqlCommand(
+        """SELECT id, display_name, avatar_url
+           FROM users
+           WHERE is_bot = false AND status = 'active'
+             AND (display_name ILIKE @q OR email ILIKE @q)
+           ORDER BY display_name
+           LIMIT @limit""", conn)
+    cmd.Parameters.AddWithValue("q",     "%" + query + "%") |> ignore
+    cmd.Parameters.AddWithValue("limit", limit)             |> ignore
+    use r = cmd.ExecuteReader()
+    [ while r.Read() do
+        yield {| id          = r.GetGuid(0)
+                 displayName = if r.IsDBNull(1) then "" else r.GetString(1)
+                 avatarUrl   = if r.IsDBNull(2) then None else Some (r.GetString(2)) |} ]
+
+let getUserIdsByDisplayNames (names: string list) =
+    if names.IsEmpty then []
+    else
+        use conn = openConn ()
+        use cmd = new NpgsqlCommand(
+            "SELECT id, display_name FROM users WHERE display_name = ANY(@names)", conn)
+        cmd.Parameters.AddWithValue("names", names |> Array.ofList) |> ignore
+        use r = cmd.ExecuteReader()
+        [ while r.Read() do yield r.GetGuid(0) ]
