@@ -230,4 +230,37 @@ export const forumApi = {
 
   markAllNotificationsRead: (): Promise<void> =>
     fetch(`${API}/notifications/read-all`, { ...opts, method: 'PATCH' }).then(() => {}),
+
+  getPoll: (threadId: string): Promise<PollData | null> =>
+    fetch(`${API}/forum/threads/${threadId}/poll`, opts).then(r => r.ok ? r.json() : null),
+
+  createPoll: (threadId: string, data: { question: string; options: string[]; closesAt: string; allowMultiple: boolean }): Promise<{ id: string }> =>
+    fetch(`${API}/forum/threads/${threadId}/poll`, {
+      ...opts, method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then(r => r.json()),
+
+  votePoll: (pollId: string, optionIds: string[]): Promise<{ voted: boolean }> =>
+    fetch(`${API}/forum/polls/${pollId}/vote`, {
+      ...opts, method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ optionIds }),
+    }).then(r => r.json()),
+}
+
+export interface PollOption {
+  id: string
+  text: string
+  position: number
+  voteCount: number
+}
+
+export interface PollData {
+  id: string
+  question: string
+  closesAt?: string
+  allowMultiple: boolean
+  options: PollOption[]
+  userVotes: string[]
 }

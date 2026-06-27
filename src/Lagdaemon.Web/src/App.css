@@ -890,6 +890,25 @@ footer a:hover { text-decoration: underline; }
 .forum-subcategory { margin-left: 24px; border-left: 2px solid var(--border); padding-left: 16px; margin-top: 16px; }
 .forum-subcategory-name { font-size: 1rem; font-weight: 600; color: var(--text-muted); }
 
+/* Polls */
+.poll-widget { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+.poll-question { font-weight: 700; font-size: 1.05rem; margin-bottom: 12px; }
+.poll-closed-badge { display: inline-block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; margin-bottom: 10px; }
+.poll-closes { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 10px; }
+.poll-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.poll-option { position: relative; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; min-height: 40px; }
+.poll-option-clickable { cursor: pointer; }
+.poll-option-clickable:hover { border-color: var(--accent); }
+.poll-option-selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.poll-option-bar { position: absolute; left: 0; top: 0; height: 100%; background: color-mix(in srgb, var(--accent) 18%, transparent); transition: width 0.4s ease; z-index: 0; }
+.poll-option-content { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 8px 14px; }
+.poll-option-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border); flex-shrink: 0; }
+.poll-option-dot.selected { background: var(--accent); border-color: var(--accent); }
+.poll-option-text { flex: 1; font-size: 0.9rem; }
+.poll-option-pct { font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; }
+.poll-vote-btn { margin-bottom: 10px; }
+.poll-total { font-size: 0.8rem; color: var(--text-muted); }
+
 .post-body { padding: 16px; }
 .post-content { color: var(--text); font-size: 0.9rem; line-height: 1.6; }
 .post-content p { margin: 0 0 10px; }

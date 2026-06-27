@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { forumApi } from '../../api/forumApi'
-import type { ForumThread, ForumPost, Subscription } from '../../api/forumApi'
+import type { ForumThread, ForumPost, Subscription, PollData } from '../../api/forumApi'
 import ReportModal from '../../components/forum/ReportModal'
+import PollWidget from '../../components/forum/PollWidget'
 import { useAuth } from '../../contexts/AuthContext'
 import ForumEditor from '../../components/ForumEditor'
 
@@ -84,17 +85,20 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
   const [editHtml, setEditHtml] = useState('')
   const [reportTarget, setReportTarget] = useState<{ type: 'post' | 'thread'; id: string } | null>(null)
   const [subscription, setSubscription] = useState<Subscription | null>(null)
+  const [poll, setPoll] = useState<PollData | null>(null)
   const replyEditorKey = useRef(0)
 
   useEffect(() => {
     const loads: Promise<unknown>[] = [
       forumApi.getThread(threadId),
       forumApi.getPosts(threadId),
+      forumApi.getPoll(threadId),
     ]
     if (user) loads.push(forumApi.getThreadSubscription(threadId))
-    Promise.all(loads).then(([t, p, sub]) => {
+    Promise.all(loads).then(([t, p, pollData, sub]) => {
       setThread(t as ForumThread)
       setPosts(p as ForumPost[])
+      setPoll(pollData as PollData | null)
       if (sub !== undefined) setSubscription(sub as Subscription | null)
     }).finally(() => setLoading(false))
   }, [threadId, user])
@@ -195,6 +199,15 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
           </div>
         )}
       </div>
+
+      {poll && (
+        <PollWidget
+          poll={poll}
+          threadId={threadId}
+          userId={user?.id}
+          onRefresh={() => forumApi.getPoll(threadId).then(p => setPoll(p))}
+        />
+      )}
 
       <div className="post-list">
         {posts.map((post, idx) => (
