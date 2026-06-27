@@ -1,8 +1,11 @@
 import { useState } from 'react'
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import './App.css'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { UserPrefsProvider } from './contexts/UserPrefsContext'
 import { UserMenu } from './components/auth/UserMenu'
+import { ProtectedRoute } from './components/auth/ProtectedRoute'
+import { ScrollToTop } from './components/ScrollToTop'
 import NotificationDropdown from './components/NotificationDropdown'
 import SettingsPanel from './components/settings/SettingsPanel'
 import type { SettingsSection } from './components/settings/SettingsPanel'
@@ -24,47 +27,44 @@ import AnnouncementsPage from './pages/community/AnnouncementsPage'
 import AnnouncementBanner from './pages/community/AnnouncementBanner'
 import AchievementsPage from './pages/profile/AchievementsPage'
 
-type Section = 'home' | 'forum' | 'blog' | 'papers' | 'profile' | 'achievements' | 'admin' | 'announcements'
-type ForumView = { page: 'list' } | { page: 'forum'; forumId: string } | { page: 'thread'; threadId: string } | { page: 'search'; query?: string }
-type BlogView = { page: 'list' } | { page: 'article'; slug: string } | { page: 'editor'; articleId?: string }
-type PapersView = { page: 'list' } | { page: 'workspace'; paperId: string }
-
 // ── Nav ───────────────────────────────────────────────────────────────────────
 
 type NavProps = {
-  section: Section
-  onSection: (s: Section) => void
   onOpenLogin: () => void
   onOpenSettings: (section?: SettingsSection) => void
   onOpenAchievements: () => void
 }
 
-function Nav({ section, onSection, onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
+function Nav({ onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
   const { user } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
   const [drawerOpen, setDrawerOpen] = useState(false)
 
-  const go = (s: Section) => { setDrawerOpen(false); onSection(s) }
+  const go = (path: string) => { setDrawerOpen(false); navigate(path) }
+  const isHome = location.pathname === '/'
+  const active = (path: string) => location.pathname.startsWith(path)
 
   const links = (
     <>
-      {section === 'home' ? (
+      {isHome ? (
         <>
           <a href="#research" onClick={() => setDrawerOpen(false)}>Research</a>
           <a href="#instrument" onClick={() => setDrawerOpen(false)}>Instrument</a>
           <a href="#about" onClick={() => setDrawerOpen(false)}>About</a>
         </>
       ) : (
-        <button className="nav-section-back breadcrumb-link" onClick={() => go('home')}>← Home</button>
+        <button className="nav-section-back breadcrumb-link" onClick={() => go('/')}>← Home</button>
       )}
-      <button className={`nav-community-link${section === 'announcements' ? ' active' : ''}`} onClick={() => go('announcements')}>Announcements</button>
-      <button className={`nav-community-link${section === 'forum' ? ' active' : ''}`} onClick={() => go('forum')}>Forum</button>
-      <button className={`nav-community-link${section === 'blog' ? ' active' : ''}`} onClick={() => go('blog')}>Blog</button>
-      <button className={`nav-community-link${section === 'papers' ? ' active' : ''}`} onClick={() => go('papers')}>Papers</button>
+      <button className={`nav-community-link${active('/announcements') ? ' active' : ''}`} onClick={() => go('/announcements')}>Announcements</button>
+      <button className={`nav-community-link${active('/forum') ? ' active' : ''}`} onClick={() => go('/forum')}>Forum</button>
+      <button className={`nav-community-link${active('/blog') ? ' active' : ''}`} onClick={() => go('/blog')}>Blog</button>
+      <button className={`nav-community-link${active('/papers') ? ' active' : ''}`} onClick={() => go('/papers')}>Papers</button>
       {user && (
-        <button className={`nav-community-link${section === 'profile' ? ' active' : ''}`} onClick={() => go('profile')}>Profile</button>
+        <button className={`nav-community-link${active('/profile') ? ' active' : ''}`} onClick={() => go('/profile')}>Profile</button>
       )}
       {user?.role === 'admin' && (
-        <button className={`nav-community-link${section === 'admin' ? ' active' : ''}`} onClick={() => go('admin')}>Admin</button>
+        <button className={`nav-community-link${active('/admin') ? ' active' : ''}`} onClick={() => go('/admin')}>Admin</button>
       )}
       <a className="nav-cta" href="/djehuti/" onClick={() => setDrawerOpen(false)}>Open Djehuti ↗</a>
     </>
@@ -73,16 +73,14 @@ function Nav({ section, onSection, onOpenLogin, onOpenSettings, onOpenAchievemen
   return (
     <>
       <header className="nav">
-        <a className="nav-logo" href="#" onClick={e => { e.preventDefault(); go('home') }}>
+        <a className="nav-logo" href="/" onClick={e => { e.preventDefault(); go('/') }}>
           <img src="/logo.png" alt="Lag Daemon" />
         </a>
-        {/* Desktop nav */}
         <nav className="nav-desktop">
           {links}
           {user && <NotificationDropdown />}
           <UserMenu onOpenLogin={onOpenLogin} onOpenSettings={onOpenSettings} onOpenAchievements={onOpenAchievements} />
         </nav>
-        {/* Mobile: UserMenu + hamburger */}
         <div className="nav-mobile-bar">
           {user && <NotificationDropdown />}
           <UserMenu onOpenLogin={onOpenLogin} onOpenSettings={onOpenSettings} onOpenAchievements={onOpenAchievements} />
@@ -92,7 +90,6 @@ function Nav({ section, onSection, onOpenLogin, onOpenSettings, onOpenAchievemen
         </div>
       </header>
 
-      {/* Drawer overlay */}
       {drawerOpen && <div className="nav-drawer-overlay" onClick={() => setDrawerOpen(false)} />}
       <nav className={`nav-drawer${drawerOpen ? ' open' : ''}`}>
         <button className="nav-drawer-close" onClick={() => setDrawerOpen(false)} aria-label="Close">✕</button>
@@ -365,10 +362,9 @@ function Footer({ onPrivacy, onAup }: { onPrivacy: () => void; onAup: () => void
 // ── Root app ──────────────────────────────────────────────────────────────────
 
 function AppInner() {
-  const [section, setSection] = useState<Section>('home')
-  const [forumView, setForumView] = useState<ForumView>({ page: 'list' })
-  const [blogView, setBlogView] = useState<BlogView>({ page: 'list' })
-  const [papersView, setPapersView] = useState<PapersView>({ page: 'list' })
+  const location = useLocation()
+  const navigate = useNavigate()
+  const isHome = location.pathname === '/'
 
   const [privacyOpen, setPrivacyOpen] = useState(false)
   const [aupOpen, setAupOpen] = useState(false)
@@ -383,83 +379,12 @@ function AppInner() {
     setSettingsOpen(true)
   }
 
-  const goSection = (s: Section) => {
-    setSection(s)
-    if (s === 'forum') setForumView({ page: 'list' })
-    if (s === 'blog') setBlogView({ page: 'list' })
-    if (s === 'papers') setPapersView({ page: 'list' })
-    window.scrollTo(0, 0)
-  }
-
-  const goAnnouncements = () => goSection('announcements')
-
-  const renderCommunity = () => {
-    switch (section) {
-      case 'forum':
-        if (forumView.page === 'forum') {
-          return <ForumForumPage forumId={forumView.forumId}
-            onNavigateThread={threadId => setForumView({ page: 'thread', threadId })}
-            onNavigateHome={() => setForumView({ page: 'list' })} />
-        }
-        if (forumView.page === 'thread') {
-          return <ForumThreadPage threadId={forumView.threadId}
-            onNavigateHome={() => setForumView({ page: 'list' })}
-            onNavigateForum={forumId => setForumView({ page: 'forum', forumId })} />
-        }
-        if (forumView.page === 'search') {
-          return <ForumSearchPage
-            initialQuery={forumView.query}
-            onNavigateThread={threadId => setForumView({ page: 'thread', threadId })}
-            onNavigateForum={forumId => setForumView({ page: 'forum', forumId })} />
-        }
-        return <ForumPage
-          onNavigateForum={forumId => setForumView({ page: 'forum', forumId })}
-          onNavigateSearch={() => setForumView({ page: 'search' })} />
-
-      case 'blog':
-        if (blogView.page === 'article') {
-          return <BlogArticlePage slug={blogView.slug}
-            onNavigateBack={() => setBlogView({ page: 'list' })}
-            onNavigateEditor={articleId => setBlogView({ page: 'editor', articleId })} />
-        }
-        if (blogView.page === 'editor') {
-          return <BlogEditorPage articleId={blogView.articleId}
-            onSaved={slug => setBlogView({ page: 'article', slug })}
-            onCancel={() => setBlogView({ page: 'list' })} />
-        }
-        return <BlogPage
-          onNavigateArticle={slug => setBlogView({ page: 'article', slug })}
-          onNavigateEditor={articleId => setBlogView({ page: 'editor', articleId })} />
-
-      case 'papers':
-        if (papersView.page === 'workspace') {
-          return <PaperWorkspacePage paperId={papersView.paperId}
-            onBack={() => setPapersView({ page: 'list' })} />
-        }
-        return <PapersListPage onOpen={paperId => setPapersView({ page: 'workspace', paperId })} />
-
-      case 'profile':
-        return <ProfilePage />
-
-      case 'achievements':
-        return <AchievementsPage />
-
-      case 'admin':
-        return <AdminPage />
-
-      case 'announcements':
-        return <AnnouncementsPage />
-
-      default:
-        return null
-    }
-  }
-
   return (
     <>
-      <Nav section={section} onSection={goSection} onOpenLogin={() => setShowLogin(true)} onOpenSettings={openSettings} onOpenAchievements={() => goSection('achievements')} />
+      <ScrollToTop />
+      <Nav onOpenLogin={() => setShowLogin(true)} onOpenSettings={openSettings} onOpenAchievements={() => navigate('/achievements')} />
 
-      {section === 'home' ? (
+      {isHome ? (
         <>
           <Hero />
           <Pitch />
@@ -470,8 +395,23 @@ function AppInner() {
         </>
       ) : (
         <main className="community-main">
-          {section !== 'announcements' && <AnnouncementBanner onViewAll={goAnnouncements} />}
-          {renderCommunity()}
+          {location.pathname !== '/announcements' && <AnnouncementBanner />}
+          <Routes>
+            <Route path="/announcements" element={<AnnouncementsPage />} />
+            <Route path="/forum" element={<ForumPage />} />
+            <Route path="/forum/search" element={<ForumSearchPage />} />
+            <Route path="/forum/:forumId" element={<ForumForumPage />} />
+            <Route path="/forum/thread/:threadId" element={<ForumThreadPage />} />
+            <Route path="/blog" element={<BlogPage />} />
+            <Route path="/blog/editor" element={<ProtectedRoute><BlogEditorPage /></ProtectedRoute>} />
+            <Route path="/blog/editor/:articleId" element={<ProtectedRoute><BlogEditorPage /></ProtectedRoute>} />
+            <Route path="/blog/:slug" element={<BlogArticlePage />} />
+            <Route path="/papers" element={<PapersListPage />} />
+            <Route path="/papers/:paperId" element={<PaperWorkspacePage />} />
+            <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+            <Route path="/achievements" element={<ProtectedRoute><AchievementsPage /></ProtectedRoute>} />
+            <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPage /></ProtectedRoute>} />
+          </Routes>
         </main>
       )}
 

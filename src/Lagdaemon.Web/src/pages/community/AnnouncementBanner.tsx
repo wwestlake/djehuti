@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 const BASE = '/djehuti'
 const DISMISSED_KEY = 'ann_dismissed'
@@ -21,11 +22,9 @@ function addDismissed(id: string) {
   sessionStorage.setItem(DISMISSED_KEY, JSON.stringify([...s]))
 }
 
-interface Props {
-  onViewAll: () => void
-}
-
-export default function AnnouncementBanner({ onViewAll }: Props) {
+export default function AnnouncementBanner() {
+  const navigate = useNavigate()
+  const onViewAll = () => navigate('/announcements')
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [dismissed, setDismissed] = useState<Set<string>>(getDismissed)
 

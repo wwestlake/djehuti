@@ -1,20 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Search, Pin, Star, Upload } from 'lucide-react'
 import { blogApi } from '../../api/blogApi'
 import type { BlogSection, BlogArticle, BlogTag } from '../../api/blogApi'
 import { useAuth } from '../../contexts/AuthContext'
 
-interface Props {
-  onNavigateArticle: (slug: string) => void
-  onNavigateEditor: (articleId?: string) => void
-}
 
 function readingTime(content: string) {
   const words = (content || '').trim().split(/\s+/).length
   return `${Math.max(1, Math.round(words / 200))} min read`
 }
 
-export default function BlogPage({ onNavigateArticle, onNavigateEditor }: Props) {
+export default function BlogPage() {
+  const navigate = useNavigate()
+  const onNavigateArticle = (slug: string) => navigate('/blog/' + slug)
+  const onNavigateEditor = (articleId?: string) => navigate(articleId ? '/blog/editor/' + articleId : '/blog/editor')
   const { user } = useAuth()
   const [sections, setSections] = useState<BlogSection[]>([])
   const [tags, setTags] = useState<BlogTag[]>([])

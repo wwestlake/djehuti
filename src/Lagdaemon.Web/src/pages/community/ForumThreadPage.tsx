@@ -1,16 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { forumApi } from '../../api/forumApi'
 import type { ForumThread, ForumPost, ForumCategory, ForumForum, Subscription, PollData } from '../../api/forumApi'
 import ReportModal from '../../components/forum/ReportModal'
 import PollWidget from '../../components/forum/PollWidget'
 import { useAuth } from '../../contexts/AuthContext'
 import ForumEditor from '../../components/ForumEditor'
-
-interface Props {
-  threadId: string
-  onNavigateHome: () => void
-  onNavigateForum: (forumId: string) => void
-}
 
 type Reaction = { emoji: string; count: number; userReacted: boolean }
 
@@ -76,7 +71,11 @@ function ReactionBar({ postId, user }: { postId: string; user: { id: string } | 
 
 type ModAction = 'move' | 'split' | 'merge' | null
 
-export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateForum }: Props) {
+export default function ForumThreadPage() {
+  const { threadId = '' } = useParams<{ threadId: string }>()
+  const navigate = useNavigate()
+  const onNavigateHome = () => navigate('/forum')
+  const onNavigateForum = (forumId: string) => navigate('/forum/' + forumId)
   const { user } = useAuth()
   const [thread, setThread] = useState<ForumThread | null>(null)
   const [posts, setPosts] = useState<ForumPost[]>([])
@@ -189,7 +188,7 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
       setPosts(prev => prev.filter(p => !splitPostIds.has(p.id)))
       setModAction(null)
       if (confirm(`Split complete. Go to new thread "${newThread.title}"?`)) {
-        window.location.href = `?thread=${newThread.id}`
+        navigate('/forum/thread/' + newThread.id)
       }
     } finally { setModBusy(false) }
   }

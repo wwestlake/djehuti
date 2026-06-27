@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { papersApi } from '../../api/papersApi'
 import type { Paper } from '../../api/papersApi'
 import { useAuth } from '../../contexts/AuthContext'
 
-interface Props {
-  onOpen: (paperId: string) => void
-}
 
 const STATUS_LABELS: Record<string, string> = {
   draft: 'Draft', in_progress: 'In Progress', review: 'Review',
   published: 'Published', archived: 'Archived',
 }
 
-export default function PapersListPage({ onOpen }: Props) {
+export default function PapersListPage() {
+  const navigate = useNavigate()
+  const onOpen = (paperId: string) => navigate('/papers/' + paperId)
   const { user } = useAuth()
   const [papers, setPapers] = useState<Paper[]>([])
   const [loading, setLoading] = useState(true)

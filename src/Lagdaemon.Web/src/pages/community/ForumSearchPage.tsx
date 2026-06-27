@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 interface SearchHit {
   hitType: 'thread' | 'post'
@@ -12,14 +13,12 @@ interface SearchHit {
   rank: number
 }
 
-interface Props {
-  onNavigateThread: (threadId: string) => void
-  onNavigateForum: (forumId: string) => void
-  initialQuery?: string
-}
-
-export default function ForumSearchPage({ onNavigateThread, onNavigateForum, initialQuery = '' }: Props) {
-  const [query, setQuery] = useState(initialQuery)
+export default function ForumSearchPage() {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const onNavigateThread = (threadId: string) => navigate('/forum/thread/' + threadId)
+  const onNavigateForum = (forumId: string) => navigate('/forum/' + forumId)
+  const [query, setQuery] = useState(searchParams.get('q') ?? '')
   const [author, setAuthor] = useState('')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')

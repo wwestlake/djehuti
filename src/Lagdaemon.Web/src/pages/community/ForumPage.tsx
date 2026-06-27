@@ -1,11 +1,7 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { forumApi } from '../../api/forumApi'
 import type { ForumCategory, ForumForum } from '../../api/forumApi'
-
-interface Props {
-  onNavigateForum: (forumId: string) => void
-  onNavigateSearch?: () => void
-}
 
 function ForumCategoryList({ category, forums, subCategories, subForums, onNavigateForum, depth = 0 }: {
   category: ForumCategory
@@ -51,7 +47,10 @@ function ForumCategoryList({ category, forums, subCategories, subForums, onNavig
   )
 }
 
-export default function ForumPage({ onNavigateForum, onNavigateSearch }: Props) {
+export default function ForumPage() {
+  const navigate = useNavigate()
+  const onNavigateForum = (forumId: string) => navigate('/forum/' + forumId)
+  const onNavigateSearch = () => navigate('/forum/search')
   const [categories, setCategories] = useState<ForumCategory[]>([])
   const [forums, setForums] = useState<Record<string, ForumForum[]>>({})
   const [loading, setLoading] = useState(true)

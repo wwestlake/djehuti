@@ -1,14 +1,9 @@
 import { useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { forumApi } from '../../api/forumApi'
 import type { ForumForum, ForumThread, ForumTag } from '../../api/forumApi'
 import { useAuth } from '../../contexts/AuthContext'
 import ForumEditor from '../../components/ForumEditor'
-
-interface Props {
-  forumId: string
-  onNavigateThread: (threadId: string) => void
-  onNavigateHome: () => void
-}
 
 function NewThreadModal({ forumId, allTags, onCreated, onClose }: {
   forumId: string
@@ -88,7 +83,11 @@ function NewThreadModal({ forumId, allTags, onCreated, onClose }: {
   )
 }
 
-export default function ForumForumPage({ forumId, onNavigateThread, onNavigateHome }: Props) {
+export default function ForumForumPage() {
+  const { forumId = '' } = useParams<{ forumId: string }>()
+  const navigate = useNavigate()
+  const onNavigateThread = (threadId: string) => navigate('/forum/thread/' + threadId)
+  const onNavigateHome = () => navigate('/forum')
   const { user } = useAuth()
   const [forum, setForum] = useState<ForumForum | null>(null)
   const [threads, setThreads] = useState<ForumThread[]>([])
