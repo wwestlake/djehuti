@@ -726,6 +726,13 @@ let private migrations : (int * string) list =
         CREATE TRIGGER trig_forum_post_search BEFORE INSERT OR UPDATE OF content
             ON forum_posts FOR EACH ROW EXECUTE FUNCTION forum_post_search_update();
         """
+
+        23, """
+        -- Sub-categories: nullable self-referential FK on forum_categories
+        ALTER TABLE forum_categories
+            ADD COLUMN IF NOT EXISTS parent_category_id UUID REFERENCES forum_categories(id) ON DELETE SET NULL;
+        CREATE INDEX IF NOT EXISTS idx_forum_categories_parent ON forum_categories(parent_category_id);
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

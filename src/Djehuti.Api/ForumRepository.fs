@@ -8,11 +8,12 @@ open Database
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type ForumCategory = {
-    Id:          Guid
-    Name:        string
-    Description: string option
-    Position:    int
-    CreatedAt:   DateTime
+    Id:               Guid
+    Name:             string
+    Description:      string option
+    Position:         int
+    ParentCategoryId: Guid option
+    CreatedAt:        DateTime
 }
 
 type ForumForum = {
@@ -60,11 +61,12 @@ type ForumPost = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 let private readCategory (r: DbDataReader) = {
-    Id          = r.GetGuid(0)
-    Name        = r.GetString(1)
-    Description = if r.IsDBNull(2) then None else Some (r.GetString(2))
-    Position    = r.GetInt32(3)
-    CreatedAt   = r.GetFieldValue<DateTime>(4)
+    Id               = r.GetGuid(0)
+    Name             = r.GetString(1)
+    Description      = if r.IsDBNull(2) then None else Some (r.GetString(2))
+    Position         = r.GetInt32(3)
+    CreatedAt        = r.GetFieldValue<DateTime>(4)
+    ParentCategoryId = if r.IsDBNull(5) then None else Some (r.GetGuid(5))
 }
 
 let private readForum (r: DbDataReader) = {
@@ -114,18 +116,19 @@ let private readPost (r: DbDataReader) = {
 let getCategories () =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
-        "SELECT id, name, description, position, created_at FROM forum_categories ORDER BY position, name", conn)
+        "SELECT id, name, description, position, created_at, parent_category_id FROM forum_categories ORDER BY position, name", conn)
     use r = cmd.ExecuteReader()
     [ while r.Read() do yield readCategory r ]
 
-let createCategory (name: string) (description: string option) =
+let createCategory (name: string) (description: string option) (parentCategoryId: Guid option) =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
-        """INSERT INTO forum_categories (name, description)
-           VALUES (@name, @desc)
-           RETURNING id, name, description, position, created_at""", conn)
+        """INSERT INTO forum_categories (name, description, parent_category_id)
+           VALUES (@name, @desc, @parent)
+           RETURNING id, name, description, position, created_at, parent_category_id""", conn)
     cmd.Parameters.AddWithValue("name", name) |> ignore
     cmd.Parameters.AddWithValue("desc", description |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("parent", parentCategoryId |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
     use r = cmd.ExecuteReader()
     if r.Read() then Some (readCategory r) else None
 

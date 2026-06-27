@@ -6,6 +6,7 @@ export interface ForumCategory {
   name: string
   description?: string
   position: number
+  parentCategoryId?: string
   createdAt: string
 }
 

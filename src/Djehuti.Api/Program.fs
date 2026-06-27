@@ -1270,12 +1270,17 @@ let main args =
 
     app.MapPost(
         "/api/forum/categories",
-        Func<HttpContext, {| name: string; description: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+        Func<HttpContext, {| name: string; description: string; parentCategoryId: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
             async {
                 match tryGetAuthClaims ctx with
                 | Some claims when Permissions.isAdmin claims.Role ->
                     let desc = if String.IsNullOrWhiteSpace body.description then None else Some body.description
-                    return match ForumRepository.createCategory body.name desc with
+                    let parentId =
+                        if String.IsNullOrWhiteSpace body.parentCategoryId then None
+                        else match System.Guid.TryParse(body.parentCategoryId) with
+                             | true, g -> Some g
+                             | _ -> None
+                    return match ForumRepository.createCategory body.name desc parentId with
                            | Some cat -> Results.Created($"/api/forum/categories/{cat.Id}", cat)
                            | None     -> Results.Problem(detail = "Failed to create category", statusCode = 500, title = "Error")
                 | Some _ -> return Results.Forbid()
