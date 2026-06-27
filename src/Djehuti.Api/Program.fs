@@ -1451,6 +1451,18 @@ let main args =
                                            let preview = body.content.Replace("<", "").Replace(">", "")
                                            let preview = if preview.Length > 80 then preview.[..79] + "…" else preview
                                            NotificationRepository.notifySubscribers tid userId $"New reply in thread: {preview}" link
+                                           // Parse @mentions and notify each mentioned user
+                                           let mentionRegex = System.Text.RegularExpressions.Regex("""data-mention="([^"]+)"""")
+                                           let mentionedNames =
+                                               mentionRegex.Matches(body.content)
+                                               |> Seq.cast<System.Text.RegularExpressions.Match>
+                                               |> Seq.map (fun m -> m.Groups.[1].Value)
+                                               |> Seq.distinct
+                                               |> Seq.toList
+                                           let mentionedIds = UserRepository.getUserIdsByDisplayNames mentionedNames
+                                           for mentionedUserId in mentionedIds do
+                                               if mentionedUserId <> userId then
+                                                   NotificationRepository.createNotification mentionedUserId "mention" $"You were mentioned in a thread reply" (Some link) |> ignore
                                            Results.Created($"/api/forum/posts/{p.Id}", p)
                                        | None   -> Results.Problem(detail = "Failed to create post", statusCode = 500, title = "Error")
             } |> Async.StartAsTask)
@@ -1674,6 +1686,18 @@ let main args =
                 NotificationRepository.markAllRead (Guid.Parse(claims.UserId))
                 Results.Ok()
             | None -> Results.Unauthorized())
+    ) |> ignore
+
+    // ── User search (mention autocomplete) ───────────────────────────────────
+
+    app.MapGet(
+        "/api/users/search",
+        Func<string, int, IResult>(fun q limit ->
+            let query = if String.IsNullOrWhiteSpace(q) then "" else q.Trim()
+            if query.Length < 1 then Results.Ok([])
+            else
+                let l = if limit < 1 || limit > 20 then 8 else limit
+                Results.Ok(UserRepository.searchUsersByName query l))
     ) |> ignore
 
     // ── Forum: Tags ───────────────────────────────────────────────────────────

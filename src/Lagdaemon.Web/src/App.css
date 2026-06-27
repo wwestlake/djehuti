@@ -848,6 +848,18 @@ footer a:hover { text-decoration: underline; }
 .post-bot { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .post-bot-badge { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-size: 0.75rem; font-weight: 600; padding: 3px 12px; letter-spacing: 0.02em; }
 .post-answer-badge { background: color-mix(in srgb, #6ee7a0 20%, transparent); color: #6ee7a0; font-size: 0.8rem; font-weight: 600; padding: 4px 14px; }
+
+/* Mentions */
+.mention { color: var(--accent); font-weight: 600; cursor: default; }
+.mention-popup { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 24px rgba(0,0,0,0.25); min-width: 180px; overflow: hidden; }
+.mention-list { display: flex; flex-direction: column; }
+.mention-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: none; border: none; color: var(--text); cursor: pointer; text-align: left; font-size: 0.9rem; width: 100%; }
+.mention-item:hover, .mention-item-selected { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.mention-avatar { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
+.mention-avatar-placeholder { display: flex; align-items: center; justify-content: center; background: var(--accent); color: #fff; font-size: 0.7rem; font-weight: 700; }
+.thread-xref { color: var(--accent); text-decoration: none; font-family: monospace; font-size: 0.85em; background: color-mix(in srgb, var(--accent) 10%, transparent); padding: 1px 5px; border-radius: 4px; }
+.thread-xref:hover { text-decoration: underline; }
+
 .post-body { padding: 16px; }
 .post-content { color: var(--text); font-size: 0.9rem; line-height: 1.6; }
 .post-content p { margin: 0 0 10px; }
