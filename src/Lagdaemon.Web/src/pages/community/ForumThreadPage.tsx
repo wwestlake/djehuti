@@ -106,10 +106,12 @@ export default function ForumThreadPage() {
     ]
     if (user) loads.push(forumApi.getThreadSubscription(threadId))
     Promise.all(loads).then(([t, p, pollData, sub]) => {
-      setThread(t as ForumThread)
-      setPosts(p as ForumPost[])
+      setThread(t as ForumThread | null)
+      setPosts((p as ForumPost[]) ?? [])
       setPoll(pollData as PollData | null)
       if (sub !== undefined) setSubscription(sub as Subscription | null)
+    }).catch(() => {
+      setThread(null)
     }).finally(() => setLoading(false))
   }, [threadId, user])
 
