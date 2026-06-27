@@ -1426,6 +1426,74 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    app.MapPatch(
+        "/api/forum/threads/{threadId}/move",
+        Func<string, HttpContext, {| forumId: string |}, System.Threading.Tasks.Task<IResult>>(fun threadId ctx body ->
+            async {
+                match Guid.TryParse(threadId), Guid.TryParse(body.forumId) with
+                | (false, _), _ | _, (false, _) -> return Results.BadRequest("Invalid id")
+                | (true, tid), (true, targetForumId) ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match ForumRepository.getThreadById tid with
+                        | None -> return Results.NotFound()
+                        | Some thread ->
+                            let isMod = Permissions.hasContextRole (Database.openConnection()) (Guid.Parse(claims.UserId)) Permissions.ModuleForum Permissions.RoleModerator (Some thread.ForumId)
+                            if Permissions.isAdmin claims.Role || isMod then
+                                let ok = ForumRepository.moveThread tid targetForumId
+                                return if ok then Results.Ok() else Results.NotFound()
+                            else return Results.Forbid()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/forum/threads/{threadId}/split",
+        Func<string, HttpContext, {| postIds: string[]; title: string |}, System.Threading.Tasks.Task<IResult>>(fun threadId ctx body ->
+            async {
+                match Guid.TryParse(threadId) with
+                | false, _ -> return Results.BadRequest("Invalid thread id")
+                | true, tid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match ForumRepository.getThreadById tid with
+                        | None -> return Results.NotFound()
+                        | Some thread ->
+                            let isMod = Permissions.hasContextRole (Database.openConnection()) (Guid.Parse(claims.UserId)) Permissions.ModuleForum Permissions.RoleModerator (Some thread.ForumId)
+                            if Permissions.isAdmin claims.Role || isMod then
+                                match Guid.TryParse(claims.UserId) with
+                                | false, _ -> return Results.Unauthorized()
+                                | true, actorId ->
+                                    let postGuids = body.postIds |> Array.choose (fun s -> match Guid.TryParse(s) with true, g -> Some g | _ -> None) |> Array.toList
+                                    return match ForumRepository.splitThread tid postGuids body.title actorId with
+                                           | Some newThread -> Results.Ok(newThread)
+                                           | None -> Results.BadRequest("Split failed")
+                            else return Results.Forbid()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/forum/threads/{threadId}/merge",
+        Func<string, HttpContext, {| intoThreadId: string |}, System.Threading.Tasks.Task<IResult>>(fun threadId ctx body ->
+            async {
+                match Guid.TryParse(threadId), Guid.TryParse(body.intoThreadId) with
+                | (false, _), _ | _, (false, _) -> return Results.BadRequest("Invalid id")
+                | (true, tid), (true, targetId) ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match ForumRepository.getThreadById tid with
+                        | None -> return Results.NotFound()
+                        | Some thread ->
+                            let isMod = Permissions.hasContextRole (Database.openConnection()) (Guid.Parse(claims.UserId)) Permissions.ModuleForum Permissions.RoleModerator (Some thread.ForumId)
+                            if Permissions.isAdmin claims.Role || isMod then
+                                let ok = ForumRepository.mergeThreads tid targetId
+                                return if ok then Results.Ok() else Results.NotFound()
+                            else return Results.Forbid()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     // ── Forum: Posts (read=anonymous, create=authenticated) ───────────────────
 
     app.MapGet(
