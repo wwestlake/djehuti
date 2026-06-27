@@ -25,12 +25,13 @@ let getTierLimits (userId: Guid) : TierLimits option =
         cmd.Parameters.AddWithValue("uid", userId) |> ignore
         use r = cmd.ExecuteReader()
         if r.Read() then
+            let tierName = if r.IsDBNull(1) then "Free" else r.GetString(1)
             Some {
                 tierId = if r.IsDBNull(0) then None else Some (r.GetString(0))
-                tierName = r.GetString(1)
-                maxConcurrentTasks = if r.IsDBNull(2) then None else Some (r.GetInt32(2))
-                pollingIntervalSec = if r.IsDBNull(3) then None else Some (r.GetInt32(3))
-                archiveDays = if r.IsDBNull(4) then None else Some (r.GetInt32(4))
+                tierName = tierName
+                maxConcurrentTasks = if r.IsDBNull(2) then (if tierName = "Free" then Some 1 else None) else Some (r.GetInt32(2))
+                pollingIntervalSec = if r.IsDBNull(3) then (if tierName = "Free" then Some 300 else None) else Some (r.GetInt32(3))
+                archiveDays = if r.IsDBNull(4) then (if tierName = "Free" then Some 0 else None) else Some (r.GetInt32(4))
             }
         else
             None
