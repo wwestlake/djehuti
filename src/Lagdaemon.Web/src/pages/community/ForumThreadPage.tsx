@@ -114,7 +114,7 @@ export default function ForumThreadPage() {
       setPoll(pollData as PollData | null)
       if (sub !== undefined) setSubscription(sub as Subscription | null)
     }).catch(() => {
-      setErrorMsg('Could not load thread.')
+      setThread(prev => { if (!prev) setErrorMsg('Could not load thread.'); return prev })
     }).finally(() => setLoading(false))
   }, [threadId, user])
 
