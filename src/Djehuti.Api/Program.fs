@@ -10,6 +10,15 @@ open Microsoft.Extensions.Hosting
 open Djehuti.Api
 open Djehuti.Core
 
+// Constant-time string comparison for HMAC verification (prevent timing attacks)
+let compareStringsConstantTime (a: string) (b: string) =
+    if a.Length <> b.Length then false
+    else
+        let mutable result = 0
+        for i = 0 to a.Length - 1 do
+            result <- result ||| (int a.[i] ^^^ int b.[i])
+        result = 0
+
 [<CLIMutable>]
 type RenameDataSetRequest =
     { Name: string
@@ -3568,6 +3577,90 @@ let main args =
                 | None     -> Results.Problem(detail = "Failed to enqueue", statusCode = 500, title = "Error")
             | Some _ -> Results.Forbid()
             | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    // ── Patreon: Webhook Handler ──────────────────────────────────────────────
+
+    app.MapPost(
+        "/api/webhooks/patreon",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            task {
+                use memStream = new System.IO.MemoryStream()
+                do! ctx.Request.Body.CopyToAsync(memStream)
+                let body : byte array = memStream.ToArray()
+                let bodyStr = System.Text.Encoding.UTF8.GetString(body)
+
+                match ctx.Request.Headers.TryGetValue("X-Patreon-Signature") with
+                | false, _ -> return Results.Unauthorized()
+                | true, headerSigs ->
+                    let headerSig = headerSigs |> Seq.tryHead |> Option.defaultValue ""
+
+                    // Verify HMAC-MD5 signature
+                    let webhookSecret = System.Environment.GetEnvironmentVariable("PATREON_WEBHOOK_SECRET") |> Option.ofObj |> Option.defaultValue ""
+                    if System.String.IsNullOrWhiteSpace(webhookSecret) then
+                        return Results.Problem(detail = "Webhook secret not configured", statusCode = 500, title = "Error")
+                    else
+                        use hmac = new System.Security.Cryptography.HMACMD5(System.Text.Encoding.UTF8.GetBytes(webhookSecret))
+                        let hashBytes : byte array = hmac.ComputeHash(body)
+                        let computedSig : string = System.Convert.ToHexString(hashBytes).ToLower()
+
+                        if not (compareStringsConstantTime computedSig headerSig) then
+                            return Results.Unauthorized()
+                        else
+                            try
+                                let json : System.Text.Json.JsonDocument = System.Text.Json.JsonDocument.Parse(bodyStr)
+                                let root = json.RootElement
+
+                                let eventType : string = root.GetProperty("type").GetString()
+                                let data = root.GetProperty("data")
+                                let patreonUuid : string = data.GetProperty("id").GetString()
+                                let tierId : string option =
+                                    try
+                                        let tierData = data.GetProperty("relationships").GetProperty("currently_entitled_tiers").GetProperty("data")
+                                        if tierData.ValueKind = System.Text.Json.JsonValueKind.Array && tierData.GetArrayLength() > 0 then
+                                            Some (tierData.[0].GetProperty("id").GetString())
+                                        else
+                                            None
+                                    with _ -> None
+
+                                match eventType with
+                                | "members:pledge:create" ->
+                                    use conn = Database.openConnection()
+                                    use cmd = new Npgsql.NpgsqlCommand("""
+                                        UPDATE users SET patreon_uuid = @uuid, patreon_tier_id = @tier
+                                        WHERE patreon_uuid = @uuid
+                                    """, conn)
+                                    cmd.Parameters.AddWithValue("uuid", patreonUuid) |> ignore
+                                    cmd.Parameters.AddWithValue("tier", (match tierId with Some t -> t :> obj | None -> System.DBNull.Value :> obj)) |> ignore
+                                    cmd.ExecuteNonQuery() |> ignore
+                                    return Results.Ok({| status = "pledge_created" |})
+
+                                | "members:pledge:update" ->
+                                    use conn = Database.openConnection()
+                                    use cmd = new Npgsql.NpgsqlCommand("""
+                                        UPDATE users SET patreon_tier_id = @tier
+                                        WHERE patreon_uuid = @uuid
+                                    """, conn)
+                                    cmd.Parameters.AddWithValue("uuid", patreonUuid) |> ignore
+                                    cmd.Parameters.AddWithValue("tier", (match tierId with Some t -> t :> obj | None -> System.DBNull.Value :> obj)) |> ignore
+                                    cmd.ExecuteNonQuery() |> ignore
+                                    return Results.Ok({| status = "pledge_updated" |})
+
+                                | "members:pledge:delete" ->
+                                    use conn = Database.openConnection()
+                                    use cmd = new Npgsql.NpgsqlCommand("""
+                                        UPDATE users SET patreon_tier_id = NULL
+                                        WHERE patreon_uuid = @uuid
+                                    """, conn)
+                                    cmd.Parameters.AddWithValue("uuid", patreonUuid) |> ignore
+                                    cmd.ExecuteNonQuery() |> ignore
+                                    return Results.Ok({| status = "pledge_deleted" |})
+
+                                | _ -> return Results.Ok({| status = "unknown_event" |})
+                            with ex ->
+                                return Results.Problem(detail = ex.Message, statusCode = 400, title = "Invalid payload")
+            }
+        )
     ) |> ignore
 
     app.Run()

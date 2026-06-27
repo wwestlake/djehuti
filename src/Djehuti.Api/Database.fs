@@ -891,6 +891,32 @@ let private migrations : (int * string) list =
            'claude-sonnet-4-6', 'always', true, null)
         ON CONFLICT DO NOTHING;
         """
+
+        30, """
+        -- Add Patreon integration columns to users
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS patreon_uuid TEXT UNIQUE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS patreon_tier_id TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS patreon_access_token TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS patreon_refresh_token TEXT;
+
+        -- Create patreon_tiers lookup table
+        CREATE TABLE IF NOT EXISTS patreon_tiers (
+            tier_id             TEXT PRIMARY KEY,
+            tier_name           TEXT NOT NULL,
+            role                TEXT NOT NULL,
+            max_concurrent_tasks INT,
+            polling_interval_sec INT,
+            archive_days        INT
+        );
+
+        -- Seed tier mappings
+        INSERT INTO patreon_tiers (tier_id, tier_name, role, max_concurrent_tasks, polling_interval_sec, archive_days)
+        VALUES
+          (NULL, 'Free', 'role_free', 1, 300, 0),
+          ('standard', 'Collector', 'role_collector', 5, NULL, 30),
+          ('premium', 'Compute', 'role_compute', NULL, NULL, NULL)
+        ON CONFLICT DO NOTHING;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
