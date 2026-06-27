@@ -2327,6 +2327,14 @@ let main args =
     ) |> ignore
 
     app.MapGet(
+        "/api/blog/articles/random",
+        Func<IResult>(fun () ->
+            match BlogRepository.getRandomPublishedArticle () with
+            | Some a -> Results.Ok(a)
+            | None   -> Results.NotFound())
+    ) |> ignore
+
+    app.MapGet(
         "/api/blog/articles/{slug}",
         Func<string, IResult>(fun slug ->
             match BlogRepository.getArticleBySlug slug with

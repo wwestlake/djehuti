@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import './App.css'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -27,6 +27,9 @@ import AdminPage from './pages/community/AdminPage'
 import AnnouncementsPage from './pages/community/AnnouncementsPage'
 import AnnouncementBanner from './pages/community/AnnouncementBanner'
 import AchievementsPage from './pages/profile/AchievementsPage'
+
+import { blogApi } from './api/blogApi'
+import type { BlogArticle } from './api/blogApi'
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
 
@@ -120,6 +123,34 @@ function Hero() {
       </div>
       <div className="hero-visual">
         <img src="/dashboard-deformation-phase-space.png" alt="Djehuti 3D phase-space view" />
+      </div>
+    </section>
+  )
+}
+
+function FeaturedPost() {
+  const [article, setArticle] = useState<BlogArticle | null>(null)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    blogApi.getRandomArticle().then(a => setArticle(a))
+  }, [])
+
+  if (!article) return null
+
+  return (
+    <section className="featured-post">
+      <div className="featured-post-inner">
+        <div className="featured-post-label">From the Blog</div>
+        <div className="featured-post-card" onClick={() => navigate(`/blog/${article.slug}`)} role="button" tabIndex={0} onKeyDown={e => e.key === 'Enter' && navigate(`/blog/${article.slug}`)}>
+          {article.coverUrl && <img className="featured-post-cover" src={article.coverUrl} alt="" />}
+          <div className="featured-post-body">
+            <h2 className="featured-post-title">{article.title}</h2>
+            {article.subtitle && <p className="featured-post-subtitle">{article.subtitle}</p>}
+            {article.excerpt && <p className="featured-post-excerpt">{article.excerpt}</p>}
+            <span className="featured-post-cta">Read article →</span>
+          </div>
+        </div>
       </div>
     </section>
   )
@@ -388,6 +419,7 @@ function AppInner() {
       {isHome ? (
         <>
           <Hero />
+          <FeaturedPost />
           <Pitch />
           <Screenshots />
           <PapersSection />
