@@ -1773,6 +1773,132 @@ let main args =
                 Results.Ok(results) :> IResult)
     ) |> ignore
 
+    // ── Forum: Polls ─────────────────────────────────────────────────────────
+
+    // GET /api/forum/threads/{threadId}/poll — fetch poll with options + vote counts + user's votes
+    app.MapGet(
+        "/api/forum/threads/{threadId}/poll",
+        Func<HttpContext, Guid, IResult>(fun ctx threadId ->
+            use conn = Database.openConnection()
+            use cmd = new Npgsql.NpgsqlCommand(
+                """SELECT p.id, p.question, p.closes_at, p.allow_multiple,
+                          o.id, o.text, o.position,
+                          COUNT(v.id) AS vote_count
+                   FROM forum_polls p
+                   JOIN forum_poll_options o ON o.poll_id = p.id
+                   LEFT JOIN forum_poll_votes v ON v.option_id = o.id
+                   WHERE p.thread_id = @tid
+                   GROUP BY p.id, p.question, p.closes_at, p.allow_multiple, o.id, o.text, o.position
+                   ORDER BY o.position""", conn)
+            cmd.Parameters.AddWithValue("tid", threadId) |> ignore
+            use r = cmd.ExecuteReader()
+            let mutable pollId = Guid.Empty
+            let mutable question = ""
+            let mutable closesAt : DateTime option = None
+            let mutable allowMultiple = false
+            let options = System.Collections.Generic.List<{| id: Guid; text: string; position: int; voteCount: int64 |}>()
+            while r.Read() do
+                if pollId = Guid.Empty then
+                    pollId        <- r.GetGuid(0)
+                    question      <- r.GetString(1)
+                    closesAt      <- if r.IsDBNull(2) then None else Some (r.GetDateTime(2))
+                    allowMultiple <- r.GetBoolean(3)
+                options.Add({| id = r.GetGuid(4); text = r.GetString(5); position = r.GetInt32(6); voteCount = r.GetInt64(7) |})
+            if pollId = Guid.Empty then Results.NotFound() :> IResult
+            else
+                let userVotes =
+                    match tryGetAuthClaims ctx with
+                    | Some claims ->
+                        use cmd2 = new Npgsql.NpgsqlCommand(
+                            "SELECT option_id FROM forum_poll_votes WHERE poll_id = @pid AND user_id = @uid", conn)
+                        cmd2.Parameters.AddWithValue("pid", pollId) |> ignore
+                        cmd2.Parameters.AddWithValue("uid", claims.UserId) |> ignore
+                        use r2 = cmd2.ExecuteReader()
+                        [ while r2.Read() do yield r2.GetGuid(0) ]
+                    | None -> []
+                Results.Ok({|
+                    id = pollId; question = question; closesAt = closesAt
+                    allowMultiple = allowMultiple; options = options
+                    userVotes = userVotes
+                |}) :> IResult)
+    ) |> ignore
+
+    // POST /api/forum/threads/{threadId}/poll — create poll (thread author or admin)
+    app.MapPost(
+        "/api/forum/threads/{threadId}/poll",
+        Func<HttpContext, Guid, {| question: string; options: string[]; closesAt: string; allowMultiple: bool |}, IResult>(fun ctx threadId body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized() :> IResult
+            | Some claims ->
+                use conn = Database.openConnection()
+                use check = new Npgsql.NpgsqlCommand("SELECT author_id FROM forum_threads WHERE id = @tid", conn)
+                check.Parameters.AddWithValue("tid", threadId) |> ignore
+                use cr = check.ExecuteReader()
+                let authorId = if cr.Read() then Some (cr.GetGuid(0)) else None
+                cr.Close()
+                match authorId with
+                | None -> Results.NotFound() :> IResult
+                | Some aid when aid <> claims.UserId && not (Permissions.isAdmin claims.Role) ->
+                    Results.Forbid() :> IResult
+                | _ ->
+                    let closesAt =
+                        if String.IsNullOrWhiteSpace body.closesAt then None
+                        else match System.DateTime.TryParse(body.closesAt) with
+                             | true, d -> Some d
+                             | _ -> None
+                    use ins = new Npgsql.NpgsqlCommand(
+                        """INSERT INTO forum_polls (thread_id, question, closes_at, allow_multiple)
+                           VALUES (@tid, @q, @closes, @multi) RETURNING id""", conn)
+                    ins.Parameters.AddWithValue("tid", threadId) |> ignore
+                    ins.Parameters.AddWithValue("q", body.question) |> ignore
+                    ins.Parameters.AddWithValue("closes", closesAt |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+                    ins.Parameters.AddWithValue("multi", body.allowMultiple) |> ignore
+                    let pollId = ins.ExecuteScalar() :?> Guid
+                    for i, opt in body.options |> Array.indexed do
+                        use oins = new Npgsql.NpgsqlCommand(
+                            "INSERT INTO forum_poll_options (poll_id, text, position) VALUES (@pid, @t, @pos)", conn)
+                        oins.Parameters.AddWithValue("pid", pollId) |> ignore
+                        oins.Parameters.AddWithValue("t", opt) |> ignore
+                        oins.Parameters.AddWithValue("pos", i) |> ignore
+                        oins.ExecuteNonQuery() |> ignore
+                    Results.Created($"/api/forum/threads/{threadId}/poll", {| id = pollId |}) :> IResult)
+    ) |> ignore
+
+    // POST /api/forum/polls/{pollId}/vote — cast vote
+    app.MapPost(
+        "/api/forum/polls/{pollId}/vote",
+        Func<HttpContext, Guid, {| optionIds: Guid[] |}, IResult>(fun ctx pollId body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized() :> IResult
+            | Some claims ->
+                use conn = Database.openConnection()
+                use pc = new Npgsql.NpgsqlCommand("SELECT allow_multiple, closes_at FROM forum_polls WHERE id = @pid", conn)
+                pc.Parameters.AddWithValue("pid", pollId) |> ignore
+                use pr = pc.ExecuteReader()
+                if not (pr.Read()) then pr.Close(); Results.NotFound() :> IResult
+                else
+                    let allowMultiple = pr.GetBoolean(0)
+                    let closesAt = if pr.IsDBNull(1) then None else Some (pr.GetDateTime(1))
+                    pr.Close()
+                    match closesAt with
+                    | Some d when d < DateTime.UtcNow -> Results.BadRequest("Poll is closed") :> IResult
+                    | _ ->
+                        let optIds = if allowMultiple then body.optionIds else body.optionIds |> Array.truncate 1
+                        use del = new Npgsql.NpgsqlCommand(
+                            "DELETE FROM forum_poll_votes WHERE poll_id = @pid AND user_id = @uid", conn)
+                        del.Parameters.AddWithValue("pid", pollId) |> ignore
+                        del.Parameters.AddWithValue("uid", claims.UserId) |> ignore
+                        del.ExecuteNonQuery() |> ignore
+                        for optId in optIds do
+                            use vi = new Npgsql.NpgsqlCommand(
+                                "INSERT INTO forum_poll_votes (poll_id, option_id, user_id) VALUES (@pid, @oid, @uid) ON CONFLICT DO NOTHING", conn)
+                            vi.Parameters.AddWithValue("pid", pollId) |> ignore
+                            vi.Parameters.AddWithValue("oid", optId) |> ignore
+                            vi.Parameters.AddWithValue("uid", claims.UserId) |> ignore
+                            vi.ExecuteNonQuery() |> ignore
+                        Results.Ok({| voted = true |}) :> IResult)
+    ) |> ignore
+
     // ── Forum: Tags ───────────────────────────────────────────────────────────
 
     app.MapGet(

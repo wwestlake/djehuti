@@ -733,6 +733,32 @@ let private migrations : (int * string) list =
             ADD COLUMN IF NOT EXISTS parent_category_id UUID REFERENCES forum_categories(id) ON DELETE SET NULL;
         CREATE INDEX IF NOT EXISTS idx_forum_categories_parent ON forum_categories(parent_category_id);
         """
+
+        24, """
+        -- Polls
+        CREATE TABLE IF NOT EXISTS forum_polls (
+            id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            thread_id    UUID NOT NULL REFERENCES forum_threads(id) ON DELETE CASCADE,
+            question     TEXT NOT NULL,
+            closes_at    TIMESTAMPTZ,
+            allow_multiple BOOLEAN NOT NULL DEFAULT false,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE TABLE IF NOT EXISTS forum_poll_options (
+            id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            poll_id UUID NOT NULL REFERENCES forum_polls(id) ON DELETE CASCADE,
+            text    TEXT NOT NULL,
+            position INT NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS forum_poll_votes (
+            id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            poll_id   UUID NOT NULL REFERENCES forum_polls(id) ON DELETE CASCADE,
+            option_id UUID NOT NULL REFERENCES forum_poll_options(id) ON DELETE CASCADE,
+            user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (poll_id, option_id, user_id)
+        );
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
