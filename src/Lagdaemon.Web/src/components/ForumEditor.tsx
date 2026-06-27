@@ -7,9 +7,11 @@ import Placeholder from '@tiptap/extension-placeholder'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import Mention from '@tiptap/extension-mention'
 import { common, createLowlight } from 'lowlight'
-import { Bold, Italic, UnderlineIcon, Strikethrough, Code, Link2, List, ListOrdered, Quote, Code2 } from 'lucide-react'
+import { Bold, Italic, UnderlineIcon, Strikethrough, Code, Link2, List, ListOrdered, Quote, Code2, Upload } from 'lucide-react'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { SuggestionProps, SuggestionKeyDownProps } from '@tiptap/suggestion'
+import Image from '@tiptap/extension-image'
+import { uploadToS3 } from '../api/mediaApi'
 
 const lowlight = createLowlight(common)
 
@@ -77,14 +79,17 @@ interface Props {
 export default function ForumEditor({ placeholder, initialContent, onChange, minHeight = 160 }: Props) {
   const [linkUrl, setLinkUrl] = useState('')
   const [showLinkInput, setShowLinkInput] = useState(false)
+  const [imageUploading, setImageUploading] = useState(false)
   const [mentionItems, setMentionItems] = useState<UserSuggestion[]>([])
   const [mentionCommand, setMentionCommand] = useState<((item: { id: string; label: string }) => void) | null>(null)
   const [mentionPos, setMentionPos] = useState<{ top: number; left: number } | null>(null)
   const popupRef = useRef<HTMLDivElement>(null)
+  const imageFileRef = useRef<HTMLInputElement>(null)
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
+      Image.configure({ HTMLAttributes: { class: 'tiptap-image' } }),
       Underline,
       Link.configure({ openOnClick: false, HTMLAttributes: { rel: 'noopener noreferrer' } }),
       CodeBlockLowlight.configure({ lowlight }),
@@ -141,6 +146,19 @@ export default function ForumEditor({ placeholder, initialContent, onChange, min
     setLinkUrl(''); setShowLinkInput(false)
   }
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImageUploading(true)
+    try {
+      const record = await uploadToS3(file, 'forum')
+      editor.chain().focus().setImage({ src: record.url }).run()
+    } catch { /* silent */ } finally {
+      setImageUploading(false)
+      if (imageFileRef.current) imageFileRef.current.value = ''
+    }
+  }
+
   return (
     <div className="forum-editor-wrap">
       <div className="tiptap-toolbar forum-toolbar">
@@ -167,6 +185,11 @@ export default function ForumEditor({ placeholder, initialContent, onChange, min
         <span className="tiptap-divider" />
         <button type="button" title="Link" className={`tiptap-action-btn${editor.isActive('link') ? ' active' : ''}`}
           onClick={() => setShowLinkInput(v => !v)}><Link2 size={14} /></button>
+        <button type="button" title="Upload image" className={`tiptap-action-btn${imageUploading ? ' uploading' : ''}`}
+          onClick={() => imageFileRef.current?.click()} disabled={imageUploading}>
+          {imageUploading ? <span className="tiptap-spinner" /> : <Upload size={14} />}
+        </button>
+        <input ref={imageFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageUpload} />
         {showLinkInput && (
           <span className="tiptap-link-input-row">
             <input value={linkUrl} onChange={e => setLinkUrl(e.target.value)}
