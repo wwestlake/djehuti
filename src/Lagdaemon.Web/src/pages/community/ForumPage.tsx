@@ -4,6 +4,7 @@ import type { ForumCategory, ForumForum } from '../../api/forumApi'
 
 interface Props {
   onNavigateForum: (forumId: string) => void
+  onNavigateSearch?: () => void
 }
 
 function ForumCategoryList({ category, forums, onNavigateForum }: {
@@ -36,7 +37,7 @@ function ForumCategoryList({ category, forums, onNavigateForum }: {
   )
 }
 
-export default function ForumPage({ onNavigateForum }: Props) {
+export default function ForumPage({ onNavigateForum, onNavigateSearch }: Props) {
   const [categories, setCategories] = useState<ForumCategory[]>([])
   const [forums, setForums] = useState<Record<string, ForumForum[]>>({})
   const [loading, setLoading] = useState(true)
@@ -61,7 +62,12 @@ export default function ForumPage({ onNavigateForum }: Props) {
 
   return (
     <div className="community-page">
-      <h1 className="community-page-title">Community Forum</h1>
+      <div className="forum-header-row">
+        <h1 className="community-page-title">Community Forum</h1>
+        {onNavigateSearch && (
+          <button className="forum-search-nav-btn" onClick={onNavigateSearch}>🔍 Search</button>
+        )}
+      </div>
       {categories.length === 0
         ? <p className="forum-empty">No forum categories yet.</p>
         : categories.map(cat => (

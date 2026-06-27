@@ -9,6 +9,7 @@ import { ForgotPasswordModal } from './components/auth/ForgotPasswordModal'
 import ForumPage from './pages/community/ForumPage'
 import ForumForumPage from './pages/community/ForumForumPage'
 import ForumThreadPage from './pages/community/ForumThreadPage'
+import ForumSearchPage from './pages/community/ForumSearchPage'
 import BlogPage from './pages/community/BlogPage'
 import BlogArticlePage from './pages/community/BlogArticlePage'
 import BlogEditorPage from './pages/community/BlogEditorPage'
@@ -20,7 +21,7 @@ import AnnouncementsPage from './pages/community/AnnouncementsPage'
 import AnnouncementBanner from './pages/community/AnnouncementBanner'
 
 type Section = 'home' | 'forum' | 'blog' | 'papers' | 'profile' | 'admin' | 'announcements'
-type ForumView = { page: 'list' } | { page: 'forum'; forumId: string } | { page: 'thread'; threadId: string }
+type ForumView = { page: 'list' } | { page: 'forum'; forumId: string } | { page: 'thread'; threadId: string } | { page: 'search'; query?: string }
 type BlogView = { page: 'list' } | { page: 'article'; slug: string } | { page: 'editor'; articleId?: string }
 type PapersView = { page: 'list' } | { page: 'workspace'; paperId: string }
 
@@ -392,7 +393,15 @@ function AppInner() {
             onNavigateHome={() => setForumView({ page: 'list' })}
             onNavigateForum={forumId => setForumView({ page: 'forum', forumId })} />
         }
-        return <ForumPage onNavigateForum={forumId => setForumView({ page: 'forum', forumId })} />
+        if (forumView.page === 'search') {
+          return <ForumSearchPage
+            initialQuery={forumView.query}
+            onNavigateThread={threadId => setForumView({ page: 'thread', threadId })}
+            onNavigateForum={forumId => setForumView({ page: 'forum', forumId })} />
+        }
+        return <ForumPage
+          onNavigateForum={forumId => setForumView({ page: 'forum', forumId })}
+          onNavigateSearch={() => setForumView({ page: 'search' })} />
 
       case 'blog':
         if (blogView.page === 'article') {
