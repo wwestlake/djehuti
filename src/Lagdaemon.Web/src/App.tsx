@@ -342,6 +342,30 @@ type ModalProps = {
   items: { strong: string; body: string }[]
 }
 
+function PatreonBadge() {
+  return (
+    <section className="patreon-badge-section">
+      <div className="patreon-badge-inner">
+        <div className="patreon-badge-text">
+          <strong>Support this research</strong>
+          <span>Djehuti is independent, open research. If it's useful to you, consider backing it on Patreon.</span>
+        </div>
+        <a
+          className="patreon-badge-btn"
+          href="https://www.patreon.com/lagdaemon"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M14.82 2.41C11.57 2.41 8.93 5.05 8.93 8.3c0 3.24 2.64 5.88 5.89 5.88 3.24 0 5.88-2.64 5.88-5.88 0-3.25-2.64-5.89-5.88-5.89zM3.1 21.59h3.16V2.41H3.1v19.18z"/>
+          </svg>
+          Become a Patron
+        </a>
+      </div>
+    </section>
+  )
+}
+
 function Modal({ open, onClose, title, effective, items }: ModalProps) {
   if (!open) return null
   return (
@@ -424,6 +448,7 @@ function AppInner() {
           <Screenshots />
           <PapersSection />
           <About />
+          <PatreonBadge />
           <Footer onPrivacy={() => setPrivacyOpen(true)} onAup={() => setAupOpen(true)} />
         </>
       ) : (
