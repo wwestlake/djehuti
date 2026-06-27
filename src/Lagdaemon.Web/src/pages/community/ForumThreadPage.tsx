@@ -260,11 +260,11 @@ export default function ForumThreadPage() {
         )}
         {isMod && (
           <div className="thread-mod-actions">
-            <button onClick={() => forumApi.pinThread(thread.id, !thread.isPinned).then(() => setThread(t => t ? { ...t, isPinned: !t.isPinned } : t))}>
-              {thread.isPinned ? 'Unpin' : 'Pin'}
+            <button onClick={() => thread && forumApi.pinThread(thread.id, !thread.isPinned).then(() => setThread(t => t ? { ...t, isPinned: !t.isPinned } : t))}>
+              {thread?.isPinned ? 'Unpin' : 'Pin'}
             </button>
-            <button onClick={() => forumApi.lockThread(thread.id, !thread.isLocked).then(() => setThread(t => t ? { ...t, isLocked: !t.isLocked } : t))}>
-              {thread.isLocked ? 'Unlock' : 'Lock'}
+            <button onClick={() => thread && forumApi.lockThread(thread.id, !thread.isLocked).then(() => setThread(t => t ? { ...t, isLocked: !t.isLocked } : t))}>
+              {thread?.isLocked ? 'Unlock' : 'Lock'}
             </button>
             <button onClick={() => openModAction('move')}>Move</button>
             <button onClick={() => openModAction('split')}>Split</button>
