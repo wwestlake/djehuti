@@ -1,11 +1,34 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { profileApi } from '../../../api/profileApi'
+
+interface TierStatus {
+  tierName: string
+  maxTasks: number | null
+  remainingCapacity: number
+}
 
 export default function PatreonSection() {
   const [memberId, setMemberId] = useState('')
   const [linked, setLinked] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [tierStatus, setTierStatus] = useState<TierStatus | null>(null)
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const response = await fetch('/djehuti/api/users/patreon/status', { credentials: 'include' })
+        if (response.ok) {
+          const data = await response.json()
+          setTierStatus(data)
+          setLinked(true)
+        }
+      } catch (err) {
+        // User not linked or error fetching status
+      }
+    }
+    fetchStatus()
+  }, [])
 
   const handleLink = async () => {
     if (!memberId.trim()) {
@@ -37,8 +60,23 @@ export default function PatreonSection() {
           <p>Connect your Patreon membership to unlock premium features</p>
         </div>
 
-        {linked ? (
-          <div className="settings-success">✓ Account linked</div>
+        {linked && tierStatus ? (
+          <div className="settings-tier-display">
+            <div className="settings-success">✓ Account linked</div>
+            <div className="settings-tier-info">
+              <div className="tier-card">
+                <span className="tier-name">{tierStatus.tierName}</span>
+                {tierStatus.maxTasks && (
+                  <span className="tier-capacity">
+                    {tierStatus.remainingCapacity} / {tierStatus.maxTasks} tasks available
+                  </span>
+                )}
+                {!tierStatus.maxTasks && (
+                  <span className="tier-capacity">Unlimited tasks</span>
+                )}
+              </div>
+            </div>
+          </div>
         ) : (
           <div className="settings-input-group">
             <input

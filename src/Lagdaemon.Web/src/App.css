@@ -1680,3 +1680,10 @@ footer a:hover { text-decoration: underline; }
 .activity-content { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .activity-title { color: #e6edf3; font-size: 0.95rem; word-break: break-word; }
 .activity-date { color: #6e7681; font-size: 0.8rem; }
+
+/* ── Patreon Tier Display ──────────────────────────────────────────────── */
+.settings-tier-display { display: flex; flex-direction: column; gap: 16px; }
+.settings-tier-info { display: flex; gap: 12px; }
+.tier-card { background: linear-gradient(135deg, #1f6feb 0%, #0969da 100%); border-radius: 8px; padding: 16px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.tier-name { font-size: 1.1rem; font-weight: 700; color: #fff; }
+.tier-capacity { font-size: 0.9rem; color: #e8f0fe; }
