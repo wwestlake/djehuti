@@ -189,8 +189,9 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
 
       <div className="post-list">
         {posts.map((post, idx) => (
-          <div key={post.id} className={`post-item${post.isAnswer ? ' post-answer' : ''}`}>
+          <div key={post.id} className={`post-item${post.isAnswer ? ' post-answer' : ''}${post.isBot ? ' post-bot' : ''}`}>
             {post.isAnswer && <div className="post-answer-badge">✓ Accepted Answer</div>}
+            {post.isBot && <div className="post-bot-badge">🤖 AI Persona</div>}
             <div className="post-body">
               {editingId === post.id ? (
                 <div className="post-edit">
@@ -219,7 +220,7 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
                 {post.updatedAt !== post.createdAt && ' (edited)'}
               </span>
               <div className="post-actions">
-                {user && (
+                {user && !post.isBot && (
                   <button className="post-action" onClick={() => handleVote(post.id)}>▲ {post.voteCount}</button>
                 )}
                 {isThreadAuthor && idx > 0 && !post.isAnswer && (
@@ -231,7 +232,7 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
                 {(user?.id === post.authorId || isAdmin) && (
                   <button className="post-action post-action-delete" onClick={() => handleDelete(post.id)}>Delete</button>
                 )}
-                {user && user.id !== post.authorId && (
+                {user && user.id !== post.authorId && !post.isBot && (
                   <button className="post-action post-action-report" onClick={() => setReportTarget({ type: 'post', id: post.id })}>Report</button>
                 )}
               </div>

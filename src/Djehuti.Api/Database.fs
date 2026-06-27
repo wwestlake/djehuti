@@ -623,6 +623,71 @@ let private migrations : (int * string) list =
         CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at)
             WHERE read_at IS NULL;
         """
+
+        21, """
+        -- Post lifecycle state machine
+        ALTER TABLE forum_posts
+            ADD COLUMN IF NOT EXISTS state TEXT NOT NULL DEFAULT 'published'
+            CHECK (state IN ('draft','published','pending','flagged','quarantined','soft_deleted','hard_deleted','locked'));
+
+        CREATE INDEX IF NOT EXISTS idx_forum_posts_state ON forum_posts(state);
+
+        -- Bot flag on users (AI persona accounts)
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_bot BOOLEAN NOT NULL DEFAULT false;
+
+        -- AI Persona registry
+        CREATE TABLE IF NOT EXISTS ai_personas (
+            id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+            name                TEXT        NOT NULL,
+            slug                TEXT        NOT NULL UNIQUE,
+            avatar_url          TEXT,
+            system_prompt       TEXT        NOT NULL,
+            model               TEXT        NOT NULL DEFAULT 'claude-sonnet-4-6',
+            trigger_mode        TEXT        NOT NULL DEFAULT 'mention'
+                                            CHECK (trigger_mode IN ('always','mention','new_thread')),
+            active              BOOLEAN     NOT NULL DEFAULT true,
+            next_scheduled_run  TIMESTAMPTZ,
+            user_id             UUID        REFERENCES users(id),
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        -- Persona forum scope
+        CREATE TABLE IF NOT EXISTS ai_persona_forums (
+            persona_id UUID NOT NULL REFERENCES ai_personas(id) ON DELETE CASCADE,
+            forum_id   UUID NOT NULL REFERENCES forum_forums(id) ON DELETE CASCADE,
+            PRIMARY KEY (persona_id, forum_id)
+        );
+
+        -- Heartbeat job queue
+        CREATE TABLE IF NOT EXISTS heartbeat_jobs (
+            id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+            action_type  TEXT        NOT NULL,
+            payload      JSONB       NOT NULL,
+            status       TEXT        NOT NULL DEFAULT 'Pending'
+                                     CHECK (status IN ('Pending','Processing','Completed','Failed')),
+            retry_count  INT         NOT NULL DEFAULT 0,
+            max_retries  INT         NOT NULL DEFAULT 3,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+            locked_at    TIMESTAMPTZ,
+            completed_at TIMESTAMPTZ,
+            error        TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_heartbeat_jobs_status ON heartbeat_jobs(status, created_at);
+
+        -- Heartbeat config (admin-controlled key-value store)
+        CREATE TABLE IF NOT EXISTS heartbeat_config (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        INSERT INTO heartbeat_config VALUES
+            ('interval_minutes',       '5'),
+            ('batch_limit',            '10'),
+            ('persona_phase_active',   'true'),
+            ('moderation_phase_active','true'),
+            ('cleanup_phase_active',   'true')
+        ON CONFLICT (key) DO NOTHING;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

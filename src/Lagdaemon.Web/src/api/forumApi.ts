@@ -48,6 +48,8 @@ export interface ForumPost {
   content: string
   isAnswer: boolean
   voteCount: number
+  isBot?: boolean
+  state?: string
   createdAt: string
   updatedAt: string
   deletedAt?: string

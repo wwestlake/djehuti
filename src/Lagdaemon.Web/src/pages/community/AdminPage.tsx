@@ -20,7 +20,17 @@ interface Announcement {
   createdAt: string; updatedAt: string
 }
 
-type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements'
+type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'personas' | 'heartbeat'
+
+interface AiPersona {
+  id: string; name: string; slug: string; avatarUrl: string | null; systemPrompt: string
+  model: string; triggerMode: string; active: boolean; createdAt: string
+}
+interface HeartbeatJob {
+  id: string; actionType: string; payload: string; status: string
+  retryCount: number; createdAt: string; completedAt: string | null; error: string | null
+}
+interface HeartbeatConfig { [key: string]: string }
 
 const PAGE_SIZE = 25
 
@@ -95,6 +105,19 @@ export default function AdminPage() {
   const [editingAnn, setEditingAnn] = useState<Announcement | null>(null)
   const [annSaving, setAnnSaving] = useState(false)
 
+  // Personas
+  const [personas, setPersonas] = useState<AiPersona[]>([])
+  const [personaForm, setPersonaForm] = useState({ name: '', slug: '', systemPrompt: '', model: 'claude-sonnet-4-6', triggerMode: 'mention', avatarUrl: '', forumIds: '' })
+  const [editingPersona, setEditingPersona] = useState<AiPersona | null>(null)
+  const [personaSaving, setPersonaSaving] = useState(false)
+
+  // Heartbeat
+  const [hbJobs, setHbJobs] = useState<HeartbeatJob[]>([])
+  const [hbConfig, setHbConfig] = useState<HeartbeatConfig>({})
+  const [hbConfigEdit, setHbConfigEdit] = useState<HeartbeatConfig>({})
+  const [hbSaving, setHbSaving] = useState(false)
+  const [hbTriggering, setHbTriggering] = useState(false)
+
   const loadUsers = async (p = usersPage, s = userSearch, r = userFilterRole, st = userFilterStatus) => {
     setLoading(true); setError(null)
     try {
@@ -135,6 +158,16 @@ export default function AdminPage() {
       }),
       roles: () => apiFetch(`${BASE}/api/admin/context-roles`).then(setRoles),
       announcements: () => apiFetch(`${BASE}/api/admin/announcements`).then(setAnnouncements),
+      personas: () => apiFetch(`${BASE}/api/admin/personas`).then((rows: { persona: AiPersona }[]) => setPersonas(rows.map(r => r.persona))),
+      heartbeat: async () => {
+        const [jobs, cfg] = await Promise.all([
+          apiFetch(`${BASE}/api/admin/heartbeat/jobs?limit=50`),
+          apiFetch(`${BASE}/api/admin/heartbeat/config`),
+        ])
+        setHbJobs(jobs)
+        setHbConfig(cfg)
+        setHbConfigEdit({ ...cfg })
+      },
     }
     loaders[tab]().catch(() => setError('Failed to load data')).finally(() => setLoading(false))
   }, [tab, user])
@@ -363,7 +396,59 @@ export default function AdminPage() {
   if (!user || user.role !== 'admin') return <p className="forum-login-prompt">Admin access required.</p>
 
   const TAB_LABELS: Record<Tab, string> = {
-    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements',
+    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', personas: 'AI Personas', heartbeat: 'Heartbeat',
+  }
+
+  const savePersona = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setPersonaSaving(true)
+    try {
+      const forumIds = personaForm.forumIds.split(',').map(s => s.trim()).filter(Boolean)
+      if (editingPersona) {
+        await apiFetch(`${BASE}/api/admin/personas/${editingPersona.id}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...personaForm, active: true, forumIds }),
+        })
+      } else {
+        await apiFetch(`${BASE}/api/admin/personas`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...personaForm, forumIds }),
+        })
+      }
+      const rows: { persona: AiPersona }[] = await apiFetch(`${BASE}/api/admin/personas`)
+      setPersonas(rows.map(r => r.persona))
+      setEditingPersona(null)
+      setPersonaForm({ name: '', slug: '', systemPrompt: '', model: 'claude-sonnet-4-6', triggerMode: 'mention', avatarUrl: '', forumIds: '' })
+    } catch { setError('Failed to save persona') }
+    finally { setPersonaSaving(false) }
+  }
+
+  const deletePersona = async (id: string) => {
+    if (!confirm('Delete this persona?')) return
+    await apiFetch(`${BASE}/api/admin/personas/${id}`, { method: 'DELETE' })
+    setPersonas(prev => prev.filter(p => p.id !== id))
+  }
+
+  const saveHbConfig = async () => {
+    setHbSaving(true)
+    try {
+      const updated = await apiFetch(`${BASE}/api/admin/heartbeat/config`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(hbConfigEdit),
+      })
+      setHbConfig(updated)
+    } catch { setError('Failed to save config') }
+    finally { setHbSaving(false) }
+  }
+
+  const triggerHeartbeat = async () => {
+    setHbTriggering(true)
+    try {
+      await apiFetch(`${BASE}/api/admin/heartbeat/trigger`, { method: 'POST' })
+      const jobs = await apiFetch(`${BASE}/api/admin/heartbeat/jobs?limit=50`)
+      setHbJobs(jobs)
+    } catch { setError('Failed to trigger heartbeat') }
+    finally { setHbTriggering(false) }
   }
 
   return (
@@ -823,6 +908,103 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+      {/* ── AI Personas ── */}
+      {tab === 'personas' && !loading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <form onSubmit={savePersona} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <h4 style={{ margin: 0 }}>{editingPersona ? 'Edit Persona' : 'Create Persona'}</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <input className="papers-new-input" placeholder="Display name" value={personaForm.name} onChange={e => setPersonaForm(f => ({ ...f, name: e.target.value }))} required />
+              <input className="papers-new-input" placeholder="slug (e.g. dr-ada)" value={personaForm.slug} onChange={e => setPersonaForm(f => ({ ...f, slug: e.target.value }))} required disabled={!!editingPersona} />
+            </div>
+            <textarea className="papers-new-input" placeholder="System prompt (persona instructions)" rows={5} value={personaForm.systemPrompt} onChange={e => setPersonaForm(f => ({ ...f, systemPrompt: e.target.value }))} required style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: '0.82rem' }} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <select className="subscribe-select" value={personaForm.model} onChange={e => setPersonaForm(f => ({ ...f, model: e.target.value }))}>
+                <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+                <option value="claude-haiku-4-5-20251001">claude-haiku-4-5 (fast)</option>
+                <option value="claude-opus-4-8">claude-opus-4-8 (powerful)</option>
+              </select>
+              <select className="subscribe-select" value={personaForm.triggerMode} onChange={e => setPersonaForm(f => ({ ...f, triggerMode: e.target.value }))}>
+                <option value="mention">On @mention only</option>
+                <option value="always">Always (scheduled)</option>
+                <option value="new_thread">New threads only</option>
+              </select>
+              <input className="papers-new-input" placeholder="Avatar URL (optional)" value={personaForm.avatarUrl} onChange={e => setPersonaForm(f => ({ ...f, avatarUrl: e.target.value }))} />
+            </div>
+            <input className="papers-new-input" placeholder="Forum IDs (comma-separated UUIDs)" value={personaForm.forumIds} onChange={e => setPersonaForm(f => ({ ...f, forumIds: e.target.value }))} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="submit" className="tiptap-action-btn primary" disabled={personaSaving}>{personaSaving ? 'Saving…' : editingPersona ? 'Update' : 'Create'}</button>
+              {editingPersona && <button type="button" className="tiptap-action-btn" onClick={() => { setEditingPersona(null); setPersonaForm({ name: '', slug: '', systemPrompt: '', model: 'claude-sonnet-4-6', triggerMode: 'mention', avatarUrl: '', forumIds: '' }) }}>Cancel</button>}
+            </div>
+          </form>
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead><tr><th>Name</th><th>Model</th><th>Trigger</th><th>Active</th><th>Created</th><th></th></tr></thead>
+              <tbody>
+                {personas.map(p => (
+                  <tr key={p.id}>
+                    <td><strong>{p.name}</strong><br /><span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>@{p.slug}</span></td>
+                    <td style={{ fontSize: '0.8rem' }}>{p.model}</td>
+                    <td>{p.triggerMode}</td>
+                    <td>{p.active ? '✓' : '—'}</td>
+                    <td>{new Date(p.createdAt).toLocaleDateString()}</td>
+                    <td style={{ display: 'flex', gap: 6 }}>
+                      <button className="post-action" onClick={() => { setEditingPersona(p); setPersonaForm({ name: p.name, slug: p.slug, systemPrompt: p.systemPrompt, model: p.model, triggerMode: p.triggerMode, avatarUrl: p.avatarUrl ?? '', forumIds: '' }) }}>Edit</button>
+                      <button className="post-action post-action-delete" onClick={() => deletePersona(p.id)}>Delete</button>
+                    </td>
+                  </tr>
+                ))}
+                {personas.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No personas yet.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Heartbeat ── */}
+      {tab === 'heartbeat' && !loading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h4 style={{ margin: 0 }}>Configuration</h4>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="tiptap-action-btn" onClick={triggerHeartbeat} disabled={hbTriggering}>{hbTriggering ? 'Triggering…' : 'Manual Trigger'}</button>
+                <button className="tiptap-action-btn primary" onClick={saveHbConfig} disabled={hbSaving}>{hbSaving ? 'Saving…' : 'Save Config'}</button>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+              {Object.entries(hbConfigEdit).map(([k, v]) => (
+                <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>{k}</span>
+                  <input className="papers-new-input" value={v} onChange={e => setHbConfigEdit(c => ({ ...c, [k]: e.target.value }))} />
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h4 style={{ margin: '0 0 10px' }}>Recent Jobs</h4>
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <thead><tr><th>Action</th><th>Status</th><th>Retries</th><th>Created</th><th>Completed</th><th>Error</th></tr></thead>
+                <tbody>
+                  {hbJobs.map(j => (
+                    <tr key={j.id}>
+                      <td style={{ fontSize: '0.82rem' }}>{j.actionType}</td>
+                      <td><span style={{ color: j.status === 'Completed' ? '#6ee7a0' : j.status === 'Failed' ? 'var(--danger)' : 'var(--text-muted)' }}>{j.status}</span></td>
+                      <td>{j.retryCount}</td>
+                      <td style={{ fontSize: '0.78rem' }}>{new Date(j.createdAt).toLocaleString()}</td>
+                      <td style={{ fontSize: '0.78rem' }}>{j.completedAt ? new Date(j.completedAt).toLocaleString() : '—'}</td>
+                      <td style={{ fontSize: '0.78rem', color: 'var(--danger)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.error ?? ''}</td>
+                    </tr>
+                  ))}
+                  {hbJobs.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No jobs yet.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Edit User Modal ── */}
       {userModal && (
         <div className="admin-modal-backdrop" onClick={() => setUserModal(null)}>

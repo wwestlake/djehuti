@@ -845,6 +845,8 @@ footer a:hover { text-decoration: underline; }
 .post-list { display: flex; flex-direction: column; gap: 12px; }
 .post-item { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .post-answer { border-color: #6ee7a0; }
+.post-bot { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.post-bot-badge { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-size: 0.75rem; font-weight: 600; padding: 3px 12px; letter-spacing: 0.02em; }
 .post-answer-badge { background: color-mix(in srgb, #6ee7a0 20%, transparent); color: #6ee7a0; font-size: 0.8rem; font-weight: 600; padding: 4px 14px; }
 .post-body { padding: 16px; }
 .post-content { color: var(--text); font-size: 0.9rem; line-height: 1.6; }
