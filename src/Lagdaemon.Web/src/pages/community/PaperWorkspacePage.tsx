@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { papersApi } from '../../api/papersApi'
 import type { Paper, PaperSection } from '../../api/papersApi'
 
-interface Props {
-  paperId: string
-  onBack: () => void
-}
-
-export default function PaperWorkspacePage({ paperId, onBack }: Props) {
+export default function PaperWorkspacePage() {
+  const { paperId = '' } = useParams<{ paperId: string }>()
+  const navigate = useNavigate()
+  const onBack = () => navigate('/papers')
   const [paper, setPaper] = useState<Paper | null>(null)
   const [sections, setSections] = useState<PaperSection[]>([])
   const [activeSection, setActiveSection] = useState<PaperSection | null>(null)

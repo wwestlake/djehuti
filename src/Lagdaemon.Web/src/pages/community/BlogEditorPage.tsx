@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useEditor, EditorContent } from '@tiptap/react'
 import { BubbleMenu } from '@tiptap/react/menus'
 import StarterKit from '@tiptap/starter-kit'
@@ -17,11 +18,6 @@ import type { BlogArticle, BlogSection, BlogTag } from '../../api/blogApi'
 import BlogUploadModal from './BlogUploadModal'
 import { uploadToS3 } from '../../api/mediaApi'
 
-interface Props {
-  articleId?: string
-  onSaved: (slug: string) => void
-  onCancel: () => void
-}
 
 const AUTOSAVE_MS = 30_000
 
@@ -31,7 +27,11 @@ function readingTime(text: string): string {
   return `${mins} min read`
 }
 
-export default function BlogEditorPage({ articleId, onSaved, onCancel }: Props) {
+export default function BlogEditorPage() {
+  const { articleId } = useParams<{ articleId: string }>()
+  const navigate = useNavigate()
+  const onSaved = (slug: string) => navigate('/blog/' + slug)
+  const onCancel = () => navigate('/blog')
   const [sections, setSections] = useState<BlogSection[]>([])
   const [allTags, setAllTags] = useState<BlogTag[]>([])
   const [article, setArticle] = useState<BlogArticle | null>(null)

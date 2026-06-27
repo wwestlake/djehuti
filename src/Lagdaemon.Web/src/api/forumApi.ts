@@ -102,8 +102,8 @@ export const forumApi = {
   getThreads: (forumId: string, page = 1, pageSize = 25): Promise<ForumThread[]> =>
     fetch(`${BASE}/forums/${forumId}/threads?page=${page}&pageSize=${pageSize}`, opts).then(r => r.json()),
 
-  getThread: (threadId: string): Promise<ForumThread> =>
-    fetch(`${BASE}/threads/${threadId}`, opts).then(r => r.json()),
+  getThread: (threadId: string): Promise<ForumThread | null> =>
+    fetch(`${BASE}/threads/${threadId}`, opts).then(r => r.ok ? r.json() : null),
 
   createThread: (forumId: string, title: string, content: string): Promise<ForumThread> =>
     fetch(`${BASE}/forums/${forumId}/threads`, {
@@ -113,7 +113,7 @@ export const forumApi = {
     }).then(r => r.json()),
 
   getPosts: (threadId: string, page = 1, pageSize = 25): Promise<ForumPost[]> =>
-    fetch(`${BASE}/threads/${threadId}/posts?page=${page}&pageSize=${pageSize}`, opts).then(r => r.json()),
+    fetch(`${BASE}/threads/${threadId}/posts?page=${page}&pageSize=${pageSize}`, opts).then(r => r.ok ? r.json() : []),
 
   createPost: (threadId: string, content: string): Promise<ForumPost> =>
     fetch(`${BASE}/threads/${threadId}/posts`, {

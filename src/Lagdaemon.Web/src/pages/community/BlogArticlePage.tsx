@@ -1,14 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Link2, Twitter, Linkedin } from 'lucide-react'
 import { blogApi } from '../../api/blogApi'
 import type { BlogArticle, BlogComment, BlogTag } from '../../api/blogApi'
 import { useAuth } from '../../contexts/AuthContext'
 
-interface Props {
-  slug: string
-  onNavigateBack: () => void
-  onNavigateEditor: (articleId: string) => void
-}
 
 interface TocEntry { id: string; text: string; level: number }
 
@@ -35,7 +31,11 @@ function readingTime(content: string) {
   return `${Math.max(1, Math.round(words / 200))} min read`
 }
 
-export default function BlogArticlePage({ slug, onNavigateBack, onNavigateEditor }: Props) {
+export default function BlogArticlePage() {
+  const { slug = '' } = useParams<{ slug: string }>()
+  const navigate = useNavigate()
+  const onNavigateBack = () => navigate('/blog')
+  const onNavigateEditor = (articleId: string) => navigate('/blog/editor/' + articleId)
   const { user } = useAuth()
   const [article, setArticle] = useState<BlogArticle | null>(null)
   const [tags, setTags] = useState<BlogTag[]>([])
