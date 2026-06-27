@@ -768,6 +768,52 @@ let private migrations : (int * string) list =
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         );
         """
+
+        26, """
+        -- Achievement dictionary (seeded once)
+        CREATE TABLE IF NOT EXISTS achievement_dictionary (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            slug        TEXT NOT NULL UNIQUE,
+            name        TEXT NOT NULL,
+            description TEXT NOT NULL,
+            icon        TEXT NOT NULL DEFAULT '🏆',
+            tier        TEXT NOT NULL CHECK (tier IN ('bronze','silver','gold','platinum','legendary')),
+            category    TEXT NOT NULL,
+            points      INT  NOT NULL DEFAULT 10,
+            hidden      BOOL NOT NULL DEFAULT false,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        """
+
+        27, """
+        -- Per-user metric counters (reset never; updated by heartbeat)
+        CREATE TABLE IF NOT EXISTS user_metrics (
+            user_id         UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            post_count      INT NOT NULL DEFAULT 0,
+            thread_count    INT NOT NULL DEFAULT 0,
+            vote_received   INT NOT NULL DEFAULT 0,
+            answer_count    INT NOT NULL DEFAULT 0,
+            reaction_count  INT NOT NULL DEFAULT 0,
+            days_active     INT NOT NULL DEFAULT 0,
+            login_streak    INT NOT NULL DEFAULT 0,
+            last_active_day DATE,
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        """
+
+        28, """
+        -- Awarded achievements (one row per user per achievement)
+        CREATE TABLE IF NOT EXISTS user_achievements (
+            id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            achievement_id UUID NOT NULL REFERENCES achievement_dictionary(id) ON DELETE CASCADE,
+            awarded_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+            notified       BOOL NOT NULL DEFAULT false,
+            UNIQUE (user_id, achievement_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_achievements_user ON user_achievements(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_achievements_notified ON user_achievements(notified) WHERE NOT notified;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
