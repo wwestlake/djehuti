@@ -3,6 +3,7 @@ import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import './App.css'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { UserPrefsProvider } from './contexts/UserPrefsContext'
+import { ThemeProvider } from './contexts/ThemeContext'
 import { UserMenu } from './components/auth/UserMenu'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { ScrollToTop } from './components/ScrollToTop'
@@ -435,11 +436,13 @@ function AppInner() {
 
 function App() {
   return (
-    <AuthProvider>
-      <UserPrefsProvider>
-        <AppInner />
-      </UserPrefsProvider>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <UserPrefsProvider>
+          <AppInner />
+        </UserPrefsProvider>
+      </AuthProvider>
+    </ThemeProvider>
   )
 }
 

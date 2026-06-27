@@ -1,7 +1,15 @@
 import { useState } from 'react'
 import { useAuth } from '../../../contexts/AuthContext'
+import { useTheme, THEMES } from '../../../contexts/ThemeContext'
 import type { UserPrefs } from '../../../api/preferencesApi'
 import ImageUpload from '../../media/ImageUpload'
+
+const SWATCH_COLORS: Record<string, string> = {
+  dark:      '#161b22',
+  light:     '#f6f8fa',
+  midnight:  '#0e0e1a',
+  solarized: '#eee8d5',
+}
 
 const API = '/djehuti/api'
 
@@ -11,6 +19,7 @@ interface Props {
 
 export default function GeneralSection({ }: Props) {
   const { user } = useAuth()
+  const { theme, setTheme } = useTheme()
   const [displayName, setDisplayName] = useState(user?.displayName ?? '')
   const [bio, setBio] = useState('')
   const [avatarUrl, setAvatarUrl] = useState('')
@@ -53,6 +62,23 @@ export default function GeneralSection({ }: Props) {
 
   return (
     <form className="settings-form" onSubmit={handleSave}>
+      <div className="settings-field">
+        <label>Theme</label>
+        <div className="theme-picker">
+          {THEMES.map(t => (
+            <button
+              key={t.id}
+              type="button"
+              className={`theme-swatch${theme === t.id ? ' active' : ''}`}
+              onClick={() => setTheme(t.id)}
+              title={t.label}
+            >
+              <span className="theme-swatch-dot" style={{ background: SWATCH_COLORS[t.id] }} />
+              <span className="theme-swatch-label">{t.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="settings-field">
         <label>Display Name</label>
         <input maxLength={80} value={displayName} onChange={e => setDisplayName(e.target.value)} className="settings-input" />
