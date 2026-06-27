@@ -108,6 +108,56 @@ let confirmSubscriptionEmailTemplate (confirmUrl: string) : string =
     </html>
     """ confirmUrl
 
+// ── Community notification templates ────────────────────────────────────────
+
+let private baseUrl () =
+    let v = Environment.GetEnvironmentVariable("BASE_URL")
+    if String.IsNullOrWhiteSpace(v) then "https://lagdaemon.com" else v.TrimEnd('/')
+
+let private wrapper (innerHtml: string) =
+    sprintf """<html>
+<body style="margin:0;padding:0;background:#0d1117;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<div style="max-width:600px;margin:0 auto;background:#161b22;border-radius:8px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.4);">
+  <div style="background:#0d1117;padding:20px 32px;border-bottom:1px solid #30363d;">
+    <span style="color:#58a6ff;font-size:18px;font-weight:700;">Lagdaemon</span>
+  </div>
+  <div style="padding:28px 32px;color:#c9d1d9;font-size:15px;line-height:1.6;">
+    %s
+  </div>
+  <div style="padding:16px 32px;border-top:1px solid #30363d;font-size:12px;color:#6e7681;">
+    You received this because your notification preferences are enabled.
+    <a href="%s/settings#notifications" style="color:#58a6ff;text-decoration:none;">Manage preferences</a>
+  </div>
+</div>
+</body></html>""" innerHtml (baseUrl ())
+
+let achievementEmailTemplate (displayName: string) (icon: string) (achievementName: string) (description: string) : string =
+    wrapper (sprintf """
+    <h2 style="color:#e6edf3;margin-top:0;">You earned a badge! %s</h2>
+    <p>Hi %s,</p>
+    <p>You've unlocked the <strong style="color:#ffd700;">%s</strong> achievement:</p>
+    <blockquote style="border-left:3px solid #58a6ff;margin:16px 0;padding:8px 16px;color:#8b949e;">%s</blockquote>
+    <p><a href="%s/achievements" style="background:#58a6ff;color:#0d1117;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600;">View your achievements</a></p>
+    """ icon displayName achievementName description (baseUrl ()))
+
+let mentionEmailTemplate (displayName: string) (mentionedBy: string) (threadTitle: string) (threadLink: string) (preview: string) : string =
+    wrapper (sprintf """
+    <h2 style="color:#e6edf3;margin-top:0;">You were mentioned</h2>
+    <p>Hi %s,</p>
+    <p><strong>%s</strong> mentioned you in <em>%s</em>:</p>
+    <blockquote style="border-left:3px solid #58a6ff;margin:16px 0;padding:8px 16px;color:#8b949e;font-style:italic;">%s</blockquote>
+    <p><a href="%s%s" style="background:#58a6ff;color:#0d1117;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600;">View thread</a></p>
+    """ displayName mentionedBy threadTitle preview (baseUrl ()) threadLink)
+
+let threadReplyEmailTemplate (displayName: string) (repliedBy: string) (threadTitle: string) (threadLink: string) (preview: string) : string =
+    wrapper (sprintf """
+    <h2 style="color:#e6edf3;margin-top:0;">New reply in your thread</h2>
+    <p>Hi %s,</p>
+    <p><strong>%s</strong> replied to <em>%s</em>:</p>
+    <blockquote style="border-left:3px solid #58a6ff;margin:16px 0;padding:8px 16px;color:#8b949e;font-style:italic;">%s</blockquote>
+    <p><a href="%s%s" style="background:#58a6ff;color:#0d1117;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600;">View thread</a></p>
+    """ displayName repliedBy threadTitle preview (baseUrl ()) threadLink)
+
 let passwordResetEmailTemplate (userName: string) (resetLink: string) : string =
     sprintf """
     <html>

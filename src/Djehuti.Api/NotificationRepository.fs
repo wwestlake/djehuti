@@ -136,8 +136,50 @@ let getSubscribersForThread (threadId: Guid) (minLevel: string) : Guid list =
     use r = cmd.ExecuteReader()
     [ while r.Read() do yield r.GetGuid(0) ]
 
-let notifySubscribers (threadId: Guid) (authorId: Guid) (body: string) (link: string) : unit =
+// ── Email job helper ──────────────────────────────────────────────────────────
+
+let enqueueEmailJob (payload: string) =
+    try
+        use conn = openConnection ()
+        use cmd = new NpgsqlCommand("""
+            INSERT INTO heartbeat_jobs (action_type, payload)
+            VALUES ('SendEmail', @payload::jsonb)
+        """, conn)
+        cmd.Parameters.AddWithValue("payload", payload) |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+    with ex ->
+        printfn "[NotificationRepository] enqueueEmailJob failed: %s" ex.Message
+
+// ── Thread subscription notifications ────────────────────────────────────────
+
+let notifySubscribers (threadId: Guid) (authorId: Guid) (repliedByName: string) (threadTitle: string) (link: string) (preview: string) : unit =
     let subscribers = getSubscribersForThread threadId "tracking"
     for userId in subscribers do
         if userId <> authorId then
-            createNotification userId "thread_reply" body (Some link) |> ignore
+            let msg = sprintf "New reply in \"%s\": %s" threadTitle preview
+            createNotification userId "thread_reply" msg (Some link) |> ignore
+            // Email if user wants it
+            let prefs = Djehuti.Api.PreferencesRepository.getPreferences userId
+            let wantsEmail =
+                match Map.tryFind "email_notify_replies" prefs with
+                | Some (v: obj) -> try unbox<bool> v with _ -> false
+                | None -> false
+            if wantsEmail then
+                let payload = sprintf """{"template":"thread_reply","to_user_id":"%s","replied_by":"%s","thread_title":"%s","thread_link":"%s","preview":"%s","achievement_slug":"","achievement_name":"","icon":"","mentioned_by":""}"""
+                                (userId.ToString()) repliedByName threadTitle link (preview.Replace("\"","'"))
+                enqueueEmailJob payload
+
+// ── Mention notifications ─────────────────────────────────────────────────────
+
+let notifyMention (mentionedUserId: Guid) (authorId: Guid) (authorName: string) (threadTitle: string) (link: string) (preview: string) : unit =
+    if mentionedUserId <> authorId then
+        createNotification mentionedUserId "mention" (sprintf "%s mentioned you in \"%s\"" authorName threadTitle) (Some link) |> ignore
+        let prefs = Djehuti.Api.PreferencesRepository.getPreferences mentionedUserId
+        let wantsEmail =
+            match Map.tryFind "email_notify_mentions" prefs with
+            | Some (v: obj) -> try unbox<bool> v with _ -> true
+            | None -> true
+        if wantsEmail then
+            let payload = sprintf """{"template":"mention","to_user_id":"%s","mentioned_by":"%s","thread_title":"%s","thread_link":"%s","preview":"%s","achievement_slug":"","achievement_name":"","icon":"","replied_by":""}"""
+                            (mentionedUserId.ToString()) authorName threadTitle link (preview.Replace("\"","'"))
+            enqueueEmailJob payload

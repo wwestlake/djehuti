@@ -50,6 +50,22 @@ type GenerateReplyPayload = {
 }
 
 [<CLIMutable>]
+type SendEmailPayload = {
+    template:          string   // "achievement" | "mention" | "thread_reply"
+    to_user_id:        string
+    // achievement fields
+    achievement_slug:  string
+    achievement_name:  string
+    icon:              string
+    // mention / thread_reply fields
+    mentioned_by:      string
+    replied_by:        string
+    thread_title:      string
+    thread_link:       string
+    preview:           string
+}
+
+[<CLIMutable>]
 type CreateThreadPayload = {
     PersonaId:        string
     ForumId:          string
@@ -231,11 +247,45 @@ Return ONLY a JSON array with this exact schema per item:
                     PersonaRepository.failJob job.Id "createPost returned None" job.MaxRetries job.RetryCount
         }
 
+    let processSendEmail (job: PersonaRepository.HeartbeatJob) =
+        async {
+            let p = JsonSerializer.Deserialize<SendEmailPayload>(job.Payload, jsonOpts)
+            match Guid.TryParse(p.to_user_id) with
+            | false, _ ->
+                PersonaRepository.failJob job.Id "Invalid to_user_id" job.MaxRetries job.RetryCount
+            | true, userId ->
+                match UserRepository.getUserById userId with
+                | None ->
+                    PersonaRepository.failJob job.Id "User not found" job.MaxRetries job.RetryCount
+                | Some user ->
+                    let displayName = user.DisplayName |> Option.defaultValue user.Email
+                    let (subject, html) =
+                        match p.template with
+                        | "achievement" ->
+                            sprintf "You earned the %s badge!" p.achievement_name,
+                            Email.achievementEmailTemplate displayName p.icon p.achievement_name p.achievement_slug
+                        | "mention" ->
+                            sprintf "%s mentioned you in \"%s\"" p.mentioned_by p.thread_title,
+                            Email.mentionEmailTemplate displayName p.mentioned_by p.thread_title p.thread_link p.preview
+                        | "thread_reply" ->
+                            sprintf "New reply in \"%s\"" p.thread_title,
+                            Email.threadReplyEmailTemplate displayName p.replied_by p.thread_title p.thread_link p.preview
+                        | unknown ->
+                            sprintf "Notification from Lagdaemon", sprintf "<p>Template '%s' not implemented.</p>" unknown
+                    let! sent = Email.sendEmail { To = user.Email; Subject = subject; HtmlBody = html }
+                    if sent then
+                        PersonaRepository.completeJob job.Id
+                        logger.LogInformation("Email sent: template={Template} to={Email}", p.template, user.Email)
+                    else
+                        PersonaRepository.failJob job.Id "SES send returned false" job.MaxRetries job.RetryCount
+        }
+
     let processJob (apiKey: string) (job: PersonaRepository.HeartbeatJob) =
         async {
             try
                 match job.ActionType with
                 | "GenerateReply" -> do! processGenerateReply apiKey job
+                | "SendEmail"     -> do! processSendEmail job
                 | unknown ->
                     PersonaRepository.failJob job.Id (sprintf "Unknown action type: %s" unknown) job.MaxRetries job.RetryCount
             with ex ->
