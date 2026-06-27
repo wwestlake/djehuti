@@ -50,6 +50,8 @@ type ForumPost = {
     Content:   string
     IsAnswer:  bool
     VoteCount: int
+    IsBot:     bool
+    State:     string
     CreatedAt: DateTime
     UpdatedAt: DateTime
     DeletedAt: DateTime option
@@ -100,9 +102,11 @@ let private readPost (r: DbDataReader) = {
     Content   = r.GetString(3)
     IsAnswer  = r.GetBoolean(4)
     VoteCount = r.GetInt32(5)
-    CreatedAt = r.GetFieldValue<DateTime>(6)
-    UpdatedAt = r.GetFieldValue<DateTime>(7)
-    DeletedAt = if r.IsDBNull(8) then None else Some (r.GetFieldValue<DateTime>(8))
+    IsBot     = r.GetBoolean(6)
+    State     = r.GetString(7)
+    CreatedAt = r.GetFieldValue<DateTime>(8)
+    UpdatedAt = r.GetFieldValue<DateTime>(9)
+    DeletedAt = if r.IsDBNull(10) then None else Some (r.GetFieldValue<DateTime>(10))
 }
 
 // ── Categories ────────────────────────────────────────────────────────────────
@@ -257,11 +261,14 @@ let setThreadLocked (threadId: Guid) (locked: bool) =
 let getPostsByThread (threadId: Guid) (page: int) (pageSize: int) =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
-        """SELECT id, thread_id, author_id, content, is_answer, vote_count,
-                  created_at, updated_at, deleted_at
-           FROM forum_posts
-           WHERE thread_id = @tid AND deleted_at IS NULL
-           ORDER BY created_at ASC
+        """SELECT fp.id, fp.thread_id, fp.author_id, fp.content, fp.is_answer, fp.vote_count,
+                  COALESCE(u.is_bot, false), COALESCE(fp.state, 'published'),
+                  fp.created_at, fp.updated_at, fp.deleted_at
+           FROM forum_posts fp
+           LEFT JOIN users u ON u.id = fp.author_id
+           WHERE fp.thread_id = @tid AND fp.deleted_at IS NULL
+             AND COALESCE(fp.state, 'published') IN ('published','flagged')
+           ORDER BY fp.created_at ASC
            LIMIT @limit OFFSET @offset""", conn)
     cmd.Parameters.AddWithValue("tid", threadId) |> ignore
     cmd.Parameters.AddWithValue("limit", pageSize) |> ignore
@@ -274,10 +281,10 @@ let createPost (threadId: Guid) (authorId: Guid) (content: string) =
     use txn = conn.BeginTransaction()
     try
         use postCmd = new NpgsqlCommand(
-            """INSERT INTO forum_posts (thread_id, author_id, content)
-               VALUES (@tid, @aid, @content)
+            """INSERT INTO forum_posts (thread_id, author_id, content, state)
+               VALUES (@tid, @aid, @content, 'published')
                RETURNING id, thread_id, author_id, content, is_answer, vote_count,
-                         created_at, updated_at, deleted_at""", conn, txn)
+                         false, 'published', created_at, updated_at, deleted_at""", conn, txn)
         postCmd.Parameters.AddWithValue("tid", threadId) |> ignore
         postCmd.Parameters.AddWithValue("aid", authorId) |> ignore
         postCmd.Parameters.AddWithValue("content", content) |> ignore
@@ -310,7 +317,7 @@ let updatePost (postId: Guid) (authorId: Guid) (content: string) =
         """UPDATE forum_posts SET content = @content, updated_at = now()
            WHERE id = @id AND author_id = @aid AND deleted_at IS NULL
            RETURNING id, thread_id, author_id, content, is_answer, vote_count,
-                     created_at, updated_at, deleted_at""", conn)
+                     false, COALESCE(state, 'published'), created_at, updated_at, deleted_at""", conn)
     cmd.Parameters.AddWithValue("content", content) |> ignore
     cmd.Parameters.AddWithValue("id", postId) |> ignore
     cmd.Parameters.AddWithValue("aid", authorId) |> ignore

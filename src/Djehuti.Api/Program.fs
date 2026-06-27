@@ -698,6 +698,8 @@ let main args =
         options.SerializerOptions.WriteIndented <- true)
     |> ignore
 
+    builder.Services.AddHostedService<HeartbeatWorker.HeartbeatWorker>() |> ignore
+
     let app = builder.Build()
 
     Database.runMigrations ()
@@ -3020,6 +3022,128 @@ let main args =
                         let p = UserProfileRepository.upsertProfile conn userId (opt body.displayName) (opt body.bio) (opt body.avatarUrl) (opt body.website) (opt body.location)
                         return Results.Ok(p)
             } |> Async.StartAsTask)
+    ) |> ignore
+
+    // ── Admin: AI Personas ────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/admin/personas",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let personas = PersonaRepository.getPersonas()
+                let withForums = personas |> List.map (fun p ->
+                    {| persona = p; forumIds = PersonaRepository.getPersonaForums p.Id |})
+                Results.Ok(withForums)
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/personas",
+        Func<HttpContext, {| name: string; slug: string; systemPrompt: string; model: string; triggerMode: string; avatarUrl: string; forumIds: string[] |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    // Create a bot user account for the persona
+                    let botEmail = sprintf "persona+%s@djehuti.internal" body.slug
+                    let! botUserOpt = UserRepository.createUser botEmail None
+                    match botUserOpt with
+                    | None -> return Results.Problem(detail = "Failed to create bot user", statusCode = 500, title = "Error")
+                    | Some botUser ->
+                        // Mark as bot and set display name
+                        use conn = Database.openConnection()
+                        use flagCmd = new Npgsql.NpgsqlCommand(
+                            "UPDATE users SET is_bot = true, display_name = @dn, status = 'active' WHERE id = @id", conn)
+                        flagCmd.Parameters.AddWithValue("id", botUser.Id) |> ignore
+                        flagCmd.Parameters.AddWithValue("dn", body.name)  |> ignore
+                        flagCmd.ExecuteNonQuery() |> ignore
+
+                        let av = if String.IsNullOrWhiteSpace(body.avatarUrl) then None else Some body.avatarUrl
+                        match PersonaRepository.createPersona body.name body.slug body.systemPrompt body.model body.triggerMode av botUser.Id with
+                        | None -> return Results.Problem(detail = "Failed to create persona", statusCode = 500, title = "Error")
+                        | Some persona ->
+                            let forumIds = body.forumIds |> Array.choose (fun s -> match Guid.TryParse(s) with | true, g -> Some g | _ -> None) |> Array.toList
+                            PersonaRepository.setPersonaForums persona.Id forumIds
+                            return Results.Created($"/api/admin/personas/{persona.Id}", persona)
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPut(
+        "/api/admin/personas/{id}",
+        Func<Guid, HttpContext, {| name: string; systemPrompt: string; model: string; triggerMode: string; active: bool; avatarUrl: string; forumIds: string[] |}, IResult>(fun id ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let av = if String.IsNullOrWhiteSpace(body.avatarUrl) then None else Some body.avatarUrl
+                match PersonaRepository.updatePersona id body.name body.systemPrompt body.model body.triggerMode body.active av with
+                | None -> Results.NotFound()
+                | Some persona ->
+                    let forumIds = body.forumIds |> Array.choose (fun s -> match Guid.TryParse(s) with | true, g -> Some g | _ -> None) |> Array.toList
+                    PersonaRepository.setPersonaForums persona.Id forumIds
+                    Results.Ok(persona)
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/admin/personas/{id}",
+        Func<Guid, HttpContext, IResult>(fun id ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let ok = PersonaRepository.deletePersona id
+                if ok then Results.Ok() else Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    // ── Admin: Heartbeat ──────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/admin/heartbeat/config",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                Results.Ok(PersonaRepository.getConfig())
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/admin/heartbeat/config",
+        Func<HttpContext, Map<string, string>, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                for kvp in body do
+                    PersonaRepository.setConfig kvp.Key kvp.Value
+                Results.Ok(PersonaRepository.getConfig())
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/heartbeat/jobs",
+        Func<HttpContext, int, IResult>(fun ctx limit ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let l = if limit < 1 || limit > 200 then 50 else limit
+                Results.Ok(PersonaRepository.getRecentJobs l)
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/heartbeat/trigger",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                // Enqueue a no-op sentinel job to confirm queue is alive
+                match PersonaRepository.enqueueJob "Ping" """{"message":"manual trigger"}""" with
+                | Some job -> Results.Ok({| jobId = job.Id; status = "queued" |})
+                | None     -> Results.Problem(detail = "Failed to enqueue", statusCode = 500, title = "Error")
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
     ) |> ignore
 
     app.Run()
