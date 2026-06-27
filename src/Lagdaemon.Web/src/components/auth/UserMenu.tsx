@@ -1,12 +1,15 @@
 import { useState } from 'react'
-import { LogIn, LogOut, User, ChevronDown } from 'lucide-react'
+import { LogIn, LogOut, User, ChevronDown, Settings, Trophy } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
+import type { SettingsSection } from '../settings/SettingsPanel'
 
 type UserMenuProps = {
   onOpenLogin: () => void
+  onOpenSettings?: (section?: SettingsSection) => void
+  onOpenAchievements?: () => void
 }
 
-export function UserMenu({ onOpenLogin }: UserMenuProps) {
+export function UserMenu({ onOpenLogin, onOpenSettings, onOpenAchievements }: UserMenuProps) {
   const { user, isAuthenticated, logout } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
 
@@ -42,6 +45,18 @@ export function UserMenu({ onOpenLogin }: UserMenuProps) {
             <User size={14} />
             <span>Open Djehuti</span>
           </a>
+          {onOpenAchievements && (
+            <button className="user-menu-item" onClick={() => { setIsOpen(false); onOpenAchievements() }}>
+              <Trophy size={14} />
+              <span>Achievements</span>
+            </button>
+          )}
+          {onOpenSettings && (
+            <button className="user-menu-item" onClick={() => { setIsOpen(false); onOpenSettings('general') }}>
+              <Settings size={14} />
+              <span>Settings</span>
+            </button>
+          )}
           <div className="user-menu-divider" />
           <button className="user-menu-item danger" onClick={async () => { setIsOpen(false); await logout() }}>
             <LogOut size={14} />

@@ -569,6 +569,328 @@ let private migrations : (int * string) list =
 
         CREATE INDEX IF NOT EXISTS idx_forum_post_reactions_post ON forum_post_reactions(post_id);
         """
+
+        19, """
+        -- Moderation: user restricted status + reporting workflow
+        ALTER TABLE users DROP CONSTRAINT IF EXISTS users_status_check;
+        ALTER TABLE users ADD CONSTRAINT users_status_check
+            CHECK (status IN ('pending', 'active', 'suspended', 'restricted'));
+
+        CREATE TABLE IF NOT EXISTS forum_reports (
+            id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+            reporter_id UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            target_type TEXT        NOT NULL CHECK (target_type IN ('post', 'thread')),
+            target_id   UUID        NOT NULL,
+            reason      TEXT        NOT NULL,
+            status      TEXT        NOT NULL DEFAULT 'open'
+                                    CHECK (status IN ('open', 'dismissed', 'warned', 'deleted')),
+            resolved_by UUID        REFERENCES users(id),
+            resolved_at TIMESTAMPTZ,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_forum_reports_status   ON forum_reports(status);
+        CREATE INDEX IF NOT EXISTS idx_forum_reports_target   ON forum_reports(target_type, target_id);
+        CREATE INDEX IF NOT EXISTS idx_forum_reports_reporter ON forum_reports(reporter_id);
+        """
+
+        20, """
+        -- Phase 2: subscriptions and on-platform notifications
+        CREATE TABLE IF NOT EXISTS forum_subscriptions (
+            id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            target_type TEXT        NOT NULL CHECK (target_type IN ('thread', 'category')),
+            target_id   UUID        NOT NULL,
+            level       TEXT        NOT NULL DEFAULT 'tracking'
+                                    CHECK (level IN ('watching', 'tracking', 'muted')),
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (user_id, target_type, target_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_forum_subscriptions_user   ON forum_subscriptions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_forum_subscriptions_target ON forum_subscriptions(target_type, target_id);
+
+        CREATE TABLE IF NOT EXISTS notifications (
+            id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id    UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            type       TEXT        NOT NULL,
+            body       TEXT        NOT NULL,
+            link       TEXT,
+            read_at    TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at)
+            WHERE read_at IS NULL;
+        """
+
+        21, """
+        -- Post lifecycle state machine
+        ALTER TABLE forum_posts
+            ADD COLUMN IF NOT EXISTS state TEXT NOT NULL DEFAULT 'published'
+            CHECK (state IN ('draft','published','pending','flagged','quarantined','soft_deleted','hard_deleted','locked'));
+
+        CREATE INDEX IF NOT EXISTS idx_forum_posts_state ON forum_posts(state);
+
+        -- Bot flag on users (AI persona accounts)
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_bot BOOLEAN NOT NULL DEFAULT false;
+
+        -- AI Persona registry
+        CREATE TABLE IF NOT EXISTS ai_personas (
+            id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+            name                TEXT        NOT NULL,
+            slug                TEXT        NOT NULL UNIQUE,
+            avatar_url          TEXT,
+            system_prompt       TEXT        NOT NULL,
+            model               TEXT        NOT NULL DEFAULT 'claude-sonnet-4-6',
+            trigger_mode        TEXT        NOT NULL DEFAULT 'mention'
+                                            CHECK (trigger_mode IN ('always','mention','new_thread')),
+            active              BOOLEAN     NOT NULL DEFAULT true,
+            next_scheduled_run  TIMESTAMPTZ,
+            user_id             UUID        REFERENCES users(id),
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        -- Persona forum scope
+        CREATE TABLE IF NOT EXISTS ai_persona_forums (
+            persona_id UUID NOT NULL REFERENCES ai_personas(id) ON DELETE CASCADE,
+            forum_id   UUID NOT NULL REFERENCES forum_forums(id) ON DELETE CASCADE,
+            PRIMARY KEY (persona_id, forum_id)
+        );
+
+        -- Heartbeat job queue
+        CREATE TABLE IF NOT EXISTS heartbeat_jobs (
+            id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+            action_type  TEXT        NOT NULL,
+            payload      JSONB       NOT NULL,
+            status       TEXT        NOT NULL DEFAULT 'Pending'
+                                     CHECK (status IN ('Pending','Processing','Completed','Failed')),
+            retry_count  INT         NOT NULL DEFAULT 0,
+            max_retries  INT         NOT NULL DEFAULT 3,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+            locked_at    TIMESTAMPTZ,
+            completed_at TIMESTAMPTZ,
+            error        TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_heartbeat_jobs_status ON heartbeat_jobs(status, created_at);
+
+        -- Heartbeat config (admin-controlled key-value store)
+        CREATE TABLE IF NOT EXISTS heartbeat_config (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        INSERT INTO heartbeat_config VALUES
+            ('interval_minutes',       '5'),
+            ('batch_limit',            '10'),
+            ('persona_phase_active',   'true'),
+            ('moderation_phase_active','true'),
+            ('cleanup_phase_active',   'true')
+        ON CONFLICT (key) DO NOTHING;
+        """
+
+        22, """
+        -- Full-text search indexes for global forum search
+        ALTER TABLE forum_threads ADD COLUMN IF NOT EXISTS search_vector TSVECTOR;
+        ALTER TABLE forum_posts   ADD COLUMN IF NOT EXISTS search_vector TSVECTOR;
+
+        -- Populate existing data
+        UPDATE forum_threads SET search_vector =
+            to_tsvector('english', coalesce(title,''));
+        UPDATE forum_posts SET search_vector =
+            to_tsvector('english', regexp_replace(coalesce(content,''), '<[^>]+>', '', 'g'));
+
+        -- GIN indexes
+        CREATE INDEX IF NOT EXISTS idx_forum_threads_search ON forum_threads USING GIN(search_vector);
+        CREATE INDEX IF NOT EXISTS idx_forum_posts_search   ON forum_posts   USING GIN(search_vector);
+
+        -- Triggers to keep search_vector up to date
+        CREATE OR REPLACE FUNCTION forum_thread_search_update() RETURNS TRIGGER AS $$
+        BEGIN
+            NEW.search_vector := to_tsvector('english', coalesce(NEW.title,''));
+            RETURN NEW;
+        END; $$ LANGUAGE plpgsql;
+
+        CREATE OR REPLACE FUNCTION forum_post_search_update() RETURNS TRIGGER AS $$
+        BEGIN
+            NEW.search_vector := to_tsvector('english',
+                regexp_replace(coalesce(NEW.content,''), '<[^>]+>', '', 'g'));
+            RETURN NEW;
+        END; $$ LANGUAGE plpgsql;
+
+        DROP TRIGGER IF EXISTS trig_forum_thread_search ON forum_threads;
+        CREATE TRIGGER trig_forum_thread_search BEFORE INSERT OR UPDATE OF title
+            ON forum_threads FOR EACH ROW EXECUTE FUNCTION forum_thread_search_update();
+
+        DROP TRIGGER IF EXISTS trig_forum_post_search ON forum_posts;
+        CREATE TRIGGER trig_forum_post_search BEFORE INSERT OR UPDATE OF content
+            ON forum_posts FOR EACH ROW EXECUTE FUNCTION forum_post_search_update();
+        """
+
+        23, """
+        -- Sub-categories: nullable self-referential FK on forum_categories
+        ALTER TABLE forum_categories
+            ADD COLUMN IF NOT EXISTS parent_category_id UUID REFERENCES forum_categories(id) ON DELETE SET NULL;
+        CREATE INDEX IF NOT EXISTS idx_forum_categories_parent ON forum_categories(parent_category_id);
+        """
+
+        24, """
+        -- Polls
+        CREATE TABLE IF NOT EXISTS forum_polls (
+            id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            thread_id    UUID NOT NULL REFERENCES forum_threads(id) ON DELETE CASCADE,
+            question     TEXT NOT NULL,
+            closes_at    TIMESTAMPTZ,
+            allow_multiple BOOLEAN NOT NULL DEFAULT false,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE TABLE IF NOT EXISTS forum_poll_options (
+            id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            poll_id UUID NOT NULL REFERENCES forum_polls(id) ON DELETE CASCADE,
+            text    TEXT NOT NULL,
+            position INT NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS forum_poll_votes (
+            id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            poll_id   UUID NOT NULL REFERENCES forum_polls(id) ON DELETE CASCADE,
+            option_id UUID NOT NULL REFERENCES forum_poll_options(id) ON DELETE CASCADE,
+            user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (poll_id, option_id, user_id)
+        );
+        """
+
+        25, """
+        -- User preferences (unified settings system)
+        CREATE TABLE IF NOT EXISTS user_preferences (
+            user_id    UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            prefs      JSONB NOT NULL DEFAULT '{}',
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        """
+
+        26, """
+        -- Achievement dictionary (seeded once)
+        CREATE TABLE IF NOT EXISTS achievement_dictionary (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            slug        TEXT NOT NULL UNIQUE,
+            name        TEXT NOT NULL,
+            description TEXT NOT NULL,
+            icon        TEXT NOT NULL DEFAULT '🏆',
+            tier        TEXT NOT NULL CHECK (tier IN ('bronze','silver','gold','platinum','legendary')),
+            category    TEXT NOT NULL,
+            points      INT  NOT NULL DEFAULT 10,
+            hidden      BOOL NOT NULL DEFAULT false,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        """
+
+        27, """
+        -- Per-user metric counters (reset never; updated by heartbeat)
+        CREATE TABLE IF NOT EXISTS user_metrics (
+            user_id         UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            post_count      INT NOT NULL DEFAULT 0,
+            thread_count    INT NOT NULL DEFAULT 0,
+            vote_received   INT NOT NULL DEFAULT 0,
+            answer_count    INT NOT NULL DEFAULT 0,
+            reaction_count  INT NOT NULL DEFAULT 0,
+            days_active     INT NOT NULL DEFAULT 0,
+            login_streak    INT NOT NULL DEFAULT 0,
+            last_active_day DATE,
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        """
+
+        28, """
+        -- Awarded achievements (one row per user per achievement)
+        CREATE TABLE IF NOT EXISTS user_achievements (
+            id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            achievement_id UUID NOT NULL REFERENCES achievement_dictionary(id) ON DELETE CASCADE,
+            awarded_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+            notified       BOOL NOT NULL DEFAULT false,
+            UNIQUE (user_id, achievement_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_achievements_user ON user_achievements(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_achievements_notified ON user_achievements(notified) WHERE NOT notified;
+        """
+
+        29, """
+        -- Seed community personas
+        INSERT INTO ai_personas (name, slug, system_prompt, model, trigger_mode, active, user_id)
+        VALUES
+          ('Marcus Sterling', 'marcus-sterling',
+           'You are Marcus Sterling, a cybersecurity & infrastructure expert. ' ||
+           'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
+           'Terse, security-first, slightly paranoid but highly competent. Use minimal words. ' ||
+           'Always point out security flaws in proposed architecture before looking at benefits. ' ||
+           'Stay in character at all times.',
+           'claude-sonnet-4-6', 'always', true, null),
+          ('Wei Chen', 'wei-chen',
+           'You are Wei Chen, a generative AI & machine learning expert. ' ||
+           'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
+           'Academic and deeply enthusiastic about math and model architecture. Use exact ML terminology. ' ||
+           'Often link concepts back to foundational research papers or mathematical proofs. ' ||
+           'Stay in character at all times.',
+           'claude-sonnet-4-6', 'always', true, null),
+          ('Sarah Jenkins', 'sarah-jenkins',
+           'You are Sarah Jenkins, a UX/UI & front-end integration expert. ' ||
+           'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
+           'Empathetic to the end-user. Focus heavily on accessibility and interface latency. ' ||
+           'Slightly informal, use emojis occasionally, always ask "but how does the user experience this?" ' ||
+           'Stay in character at all times.',
+           'claude-sonnet-4-6', 'always', true, null),
+          ('David O''Connor', 'david-oconnor',
+           'You are David O''Connor, a legacy systems & database architecture expert. ' ||
+           'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
+           'The cynical veteran. Hate tech hype and buzzwords. Prefer boring, reliable technology that just works. ' ||
+           'Use dry, sarcastic humor and often reference older tech stacks. ' ||
+           'Stay in character at all times.',
+           'claude-sonnet-4-6', 'always', true, null),
+          ('Priya Patel', 'priya-patel',
+           'You are Priya Patel, a data science & analytics expert. ' ||
+           'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
+           'Highly data-driven and pragmatic. Always ask for the dataset or metrics before agreeing with a conclusion. ' ||
+           'Love SQL, Pandas, and structured data pipelines. ' ||
+           'Stay in character at all times.',
+           'claude-sonnet-4-6', 'always', true, null),
+          ('Mateo Vargas', 'mateo-vargas',
+           'You are Mateo Vargas, an AI ethics & alignment expert. ' ||
+           'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
+           'Philosophical and thoughtful. Question the "why" before the "how". ' ||
+           'Focus on algorithmic bias, data privacy, and long-term societal impact of the code being written. ' ||
+           'Stay in character at all times.',
+           'claude-sonnet-4-6', 'always', true, null),
+          ('Dr. Kenji Sato', 'kenji-sato',
+           'You are Dr. Kenji Sato, a DevOps & cloud architecture expert. ' ||
+           'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
+           'Highly structured and methodical. Think entirely in containers, pipelines, and state machines. ' ||
+           'Communicate clearly, often breaking answers down into numbered lists or bullet points. ' ||
+           'Stay in character at all times.',
+           'claude-sonnet-4-6', 'always', true, null),
+          ('Alex Russo', 'alex-russo',
+           'You are Alex Russo, a hobbyist tinkerer & hackathons enthusiast. ' ||
+           'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
+           'Chaotic good. Enthusiastic, break things just to see how they work. ' ||
+           'Sometimes type too fast and leave minor typos. Obsessed with hacking APIs together in unintended ways. ' ||
+           'Stay in character at all times.',
+           'claude-sonnet-4-6', 'always', true, null),
+          ('Leo Smith', 'leo-smith',
+           'You are Leo Smith, a junior developer & enthusiast. ' ||
+           'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
+           'Eager and inquisitive. Ask lots of clarifying questions. Often summarize what other people just said to confirm understanding. ' ||
+           'A positive presence. ' ||
+           'Stay in character at all times.',
+           'claude-sonnet-4-6', 'always', true, null),
+          ('Elena Rostova', 'elena-rostova',
+           'You are Elena Rostova, an edge computing & hardware constraints expert. ' ||
+           'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
+           'Extremely direct and to the point. Focus heavily on memory constraints, compute limits, and latency. ' ||
+           'Don''t do small talk; just deliver the technical reality. ' ||
+           'Stay in character at all times.',
+           'claude-sonnet-4-6', 'always', true, null)
+        ON CONFLICT DO NOTHING;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

@@ -1,13 +1,18 @@
 import { useState } from 'react'
 import './App.css'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { UserPrefsProvider } from './contexts/UserPrefsContext'
 import { UserMenu } from './components/auth/UserMenu'
+import NotificationDropdown from './components/NotificationDropdown'
+import SettingsPanel from './components/settings/SettingsPanel'
+import type { SettingsSection } from './components/settings/SettingsPanel'
 import { LoginModal } from './components/auth/LoginModal'
 import { SignupModal } from './components/auth/SignupModal'
 import { ForgotPasswordModal } from './components/auth/ForgotPasswordModal'
 import ForumPage from './pages/community/ForumPage'
 import ForumForumPage from './pages/community/ForumForumPage'
 import ForumThreadPage from './pages/community/ForumThreadPage'
+import ForumSearchPage from './pages/community/ForumSearchPage'
 import BlogPage from './pages/community/BlogPage'
 import BlogArticlePage from './pages/community/BlogArticlePage'
 import BlogEditorPage from './pages/community/BlogEditorPage'
@@ -17,9 +22,10 @@ import ProfilePage from './pages/community/ProfilePage'
 import AdminPage from './pages/community/AdminPage'
 import AnnouncementsPage from './pages/community/AnnouncementsPage'
 import AnnouncementBanner from './pages/community/AnnouncementBanner'
+import AchievementsPage from './pages/profile/AchievementsPage'
 
-type Section = 'home' | 'forum' | 'blog' | 'papers' | 'profile' | 'admin' | 'announcements'
-type ForumView = { page: 'list' } | { page: 'forum'; forumId: string } | { page: 'thread'; threadId: string }
+type Section = 'home' | 'forum' | 'blog' | 'papers' | 'profile' | 'achievements' | 'admin' | 'announcements'
+type ForumView = { page: 'list' } | { page: 'forum'; forumId: string } | { page: 'thread'; threadId: string } | { page: 'search'; query?: string }
 type BlogView = { page: 'list' } | { page: 'article'; slug: string } | { page: 'editor'; articleId?: string }
 type PapersView = { page: 'list' } | { page: 'workspace'; paperId: string }
 
@@ -29,9 +35,11 @@ type NavProps = {
   section: Section
   onSection: (s: Section) => void
   onOpenLogin: () => void
+  onOpenSettings: (section?: SettingsSection) => void
+  onOpenAchievements: () => void
 }
 
-function Nav({ section, onSection, onOpenLogin }: NavProps) {
+function Nav({ section, onSection, onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
   const { user } = useAuth()
   const [drawerOpen, setDrawerOpen] = useState(false)
 
@@ -71,11 +79,13 @@ function Nav({ section, onSection, onOpenLogin }: NavProps) {
         {/* Desktop nav */}
         <nav className="nav-desktop">
           {links}
-          <UserMenu onOpenLogin={onOpenLogin} />
+          {user && <NotificationDropdown />}
+          <UserMenu onOpenLogin={onOpenLogin} onOpenSettings={onOpenSettings} onOpenAchievements={onOpenAchievements} />
         </nav>
         {/* Mobile: UserMenu + hamburger */}
         <div className="nav-mobile-bar">
-          <UserMenu onOpenLogin={onOpenLogin} />
+          {user && <NotificationDropdown />}
+          <UserMenu onOpenLogin={onOpenLogin} onOpenSettings={onOpenSettings} onOpenAchievements={onOpenAchievements} />
           <button className="nav-hamburger" onClick={() => setDrawerOpen(o => !o)} aria-label="Menu">
             <span /><span /><span />
           </button>
@@ -365,6 +375,13 @@ function AppInner() {
   const [showLogin, setShowLogin] = useState(false)
   const [showSignup, setShowSignup] = useState(false)
   const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
+
+  const openSettings = (sec: SettingsSection = 'general') => {
+    setSettingsSection(sec)
+    setSettingsOpen(true)
+  }
 
   const goSection = (s: Section) => {
     setSection(s)
@@ -389,7 +406,15 @@ function AppInner() {
             onNavigateHome={() => setForumView({ page: 'list' })}
             onNavigateForum={forumId => setForumView({ page: 'forum', forumId })} />
         }
-        return <ForumPage onNavigateForum={forumId => setForumView({ page: 'forum', forumId })} />
+        if (forumView.page === 'search') {
+          return <ForumSearchPage
+            initialQuery={forumView.query}
+            onNavigateThread={threadId => setForumView({ page: 'thread', threadId })}
+            onNavigateForum={forumId => setForumView({ page: 'forum', forumId })} />
+        }
+        return <ForumPage
+          onNavigateForum={forumId => setForumView({ page: 'forum', forumId })}
+          onNavigateSearch={() => setForumView({ page: 'search' })} />
 
       case 'blog':
         if (blogView.page === 'article') {
@@ -416,6 +441,9 @@ function AppInner() {
       case 'profile':
         return <ProfilePage />
 
+      case 'achievements':
+        return <AchievementsPage />
+
       case 'admin':
         return <AdminPage />
 
@@ -429,7 +457,7 @@ function AppInner() {
 
   return (
     <>
-      <Nav section={section} onSection={goSection} onOpenLogin={() => setShowLogin(true)} />
+      <Nav section={section} onSection={goSection} onOpenLogin={() => setShowLogin(true)} onOpenSettings={openSettings} onOpenAchievements={() => goSection('achievements')} />
 
       {section === 'home' ? (
         <>
@@ -452,6 +480,8 @@ function AppInner() {
       <Modal open={aupOpen} onClose={() => setAupOpen(false)}
         title="Acceptable Use Policy — Djehuti Cyberscope AI+" effective="Effective Date: June 23, 2026" items={AUP_ITEMS} />
 
+      <SettingsPanel open={settingsOpen} initialSection={settingsSection} onClose={() => setSettingsOpen(false)} />
+
       <LoginModal open={showLogin} onClose={() => setShowLogin(false)}
         onSwitchToSignup={() => { setShowLogin(false); setShowSignup(true) }}
         onSwitchToForgotPassword={() => { setShowLogin(false); setShowForgotPassword(true) }} />
@@ -466,7 +496,9 @@ function AppInner() {
 function App() {
   return (
     <AuthProvider>
-      <AppInner />
+      <UserPrefsProvider>
+        <AppInner />
+      </UserPrefsProvider>
     </AuthProvider>
   )
 }

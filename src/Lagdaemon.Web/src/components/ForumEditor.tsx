@@ -5,11 +5,69 @@ import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import Mention from '@tiptap/extension-mention'
 import { common, createLowlight } from 'lowlight'
-import { Bold, Italic, UnderlineIcon, Strikethrough, Code, Link2, List, ListOrdered, Quote, Code2 } from 'lucide-react'
-import { useState } from 'react'
+import { Bold, Italic, UnderlineIcon, Strikethrough, Code, Link2, List, ListOrdered, Quote, Code2, Upload } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import type { SuggestionProps, SuggestionKeyDownProps } from '@tiptap/suggestion'
+import Image from '@tiptap/extension-image'
+import { uploadToS3 } from '../api/mediaApi'
 
 const lowlight = createLowlight(common)
+
+interface UserSuggestion {
+  id: string
+  displayName: string
+  avatarUrl?: string
+}
+
+interface MentionListProps {
+  items: UserSuggestion[]
+  command: (item: { id: string; label: string }) => void
+}
+
+function MentionList({ items, command }: MentionListProps) {
+  const [selectedIndex, setSelectedIndex] = useState(0)
+
+  const selectItem = useCallback((index: number) => {
+    const item = items[index]
+    if (item) command({ id: item.id, label: item.displayName })
+  }, [items, command])
+
+  useEffect(() => setSelectedIndex(0), [items])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIndex(i => (i + items.length - 1) % items.length) }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIndex(i => (i + 1) % items.length) }
+      if (e.key === 'Enter') { e.preventDefault(); selectItem(selectedIndex) }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [items, selectedIndex, selectItem])
+
+  if (!items.length) return null
+
+  return (
+    <div className="mention-list">
+      {items.map((item, i) => (
+        <button
+          key={item.id}
+          className={`mention-item${i === selectedIndex ? ' mention-item-selected' : ''}`}
+          onMouseEnter={() => setSelectedIndex(i)}
+          onClick={() => selectItem(i)}
+          type="button"
+        >
+          {item.avatarUrl
+            ? <img src={item.avatarUrl} className="mention-avatar" alt="" />
+            : <span className="mention-avatar mention-avatar-placeholder">{item.displayName[0]?.toUpperCase()}</span>
+          }
+          <span>{item.displayName}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
 
 interface Props {
   placeholder?: string
@@ -21,14 +79,57 @@ interface Props {
 export default function ForumEditor({ placeholder, initialContent, onChange, minHeight = 160 }: Props) {
   const [linkUrl, setLinkUrl] = useState('')
   const [showLinkInput, setShowLinkInput] = useState(false)
+  const [imageUploading, setImageUploading] = useState(false)
+  const [mentionItems, setMentionItems] = useState<UserSuggestion[]>([])
+  const [mentionCommand, setMentionCommand] = useState<((item: { id: string; label: string }) => void) | null>(null)
+  const [mentionPos, setMentionPos] = useState<{ top: number; left: number } | null>(null)
+  const popupRef = useRef<HTMLDivElement>(null)
+  const imageFileRef = useRef<HTMLInputElement>(null)
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
+      Image.configure({ HTMLAttributes: { class: 'tiptap-image' } }),
       Underline,
       Link.configure({ openOnClick: false, HTMLAttributes: { rel: 'noopener noreferrer' } }),
       CodeBlockLowlight.configure({ lowlight }),
       Placeholder.configure({ placeholder: placeholder ?? 'Write something…' }),
+      Mention.configure({
+        HTMLAttributes: { class: 'mention', 'data-mention': '' },
+        renderHTML({ options, node }) {
+          return ['span', { class: 'mention', 'data-mention': node.attrs.label, 'data-id': node.attrs.id }, `${options.suggestion.char}${node.attrs.label}`]
+        },
+        suggestion: {
+          items: async ({ query }: { query: string }) => {
+            if (query.length < 1) return []
+            const res = await fetch(`/djehuti/api/users/search?q=${encodeURIComponent(query)}&limit=8`, { credentials: 'include' })
+            if (!res.ok) return []
+            return (await res.json()) as UserSuggestion[]
+          },
+          render: () => {
+            return {
+              onStart: (props: SuggestionProps<UserSuggestion>) => {
+                const rect = props.clientRect?.()
+                if (rect) setMentionPos({ top: rect.bottom + window.scrollY, left: rect.left + window.scrollX })
+                setMentionItems(props.items as UserSuggestion[])
+                setMentionCommand(() => props.command as (item: { id: string; label: string }) => void)
+              },
+              onUpdate: (props: SuggestionProps<UserSuggestion>) => {
+                const rect = props.clientRect?.()
+                if (rect) setMentionPos({ top: rect.bottom + window.scrollY, left: rect.left + window.scrollX })
+                setMentionItems(props.items as UserSuggestion[])
+                setMentionCommand(() => props.command as (item: { id: string; label: string }) => void)
+              },
+              onExit: () => {
+                setMentionPos(null)
+                setMentionItems([])
+                setMentionCommand(null)
+              },
+              onKeyDown: (_props: SuggestionKeyDownProps) => false,
+            }
+          },
+        },
+      }),
     ],
     content: initialContent ?? '',
     editorProps: {
@@ -43,6 +144,19 @@ export default function ForumEditor({ placeholder, initialContent, onChange, min
     if (!linkUrl) { editor.chain().focus().unsetLink().run(); setShowLinkInput(false); return }
     editor.chain().focus().setLink({ href: linkUrl }).run()
     setLinkUrl(''); setShowLinkInput(false)
+  }
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImageUploading(true)
+    try {
+      const record = await uploadToS3(file, 'forum')
+      editor.chain().focus().setImage({ src: record.url }).run()
+    } catch { /* silent */ } finally {
+      setImageUploading(false)
+      if (imageFileRef.current) imageFileRef.current.value = ''
+    }
   }
 
   return (
@@ -71,6 +185,11 @@ export default function ForumEditor({ placeholder, initialContent, onChange, min
         <span className="tiptap-divider" />
         <button type="button" title="Link" className={`tiptap-action-btn${editor.isActive('link') ? ' active' : ''}`}
           onClick={() => setShowLinkInput(v => !v)}><Link2 size={14} /></button>
+        <button type="button" title="Upload image" className={`tiptap-action-btn${imageUploading ? ' uploading' : ''}`}
+          onClick={() => imageFileRef.current?.click()} disabled={imageUploading}>
+          {imageUploading ? <span className="tiptap-spinner" /> : <Upload size={14} />}
+        </button>
+        <input ref={imageFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageUpload} />
         {showLinkInput && (
           <span className="tiptap-link-input-row">
             <input value={linkUrl} onChange={e => setLinkUrl(e.target.value)}
@@ -95,6 +214,16 @@ export default function ForumEditor({ placeholder, initialContent, onChange, min
       )}
 
       <EditorContent editor={editor} />
+
+      {mentionPos && mentionCommand && mentionItems.length > 0 && (
+        <div
+          ref={popupRef}
+          className="mention-popup"
+          style={{ position: 'fixed', top: mentionPos.top, left: mentionPos.left, zIndex: 9999 }}
+        >
+          <MentionList items={mentionItems} command={mentionCommand} />
+        </div>
+      )}
     </div>
   )
 }

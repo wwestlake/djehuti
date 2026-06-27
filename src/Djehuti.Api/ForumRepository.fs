@@ -8,11 +8,12 @@ open Database
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type ForumCategory = {
-    Id:          Guid
-    Name:        string
-    Description: string option
-    Position:    int
-    CreatedAt:   DateTime
+    Id:               Guid
+    Name:             string
+    Description:      string option
+    Position:         int
+    ParentCategoryId: Guid option
+    CreatedAt:        DateTime
 }
 
 type ForumForum = {
@@ -50,6 +51,8 @@ type ForumPost = {
     Content:   string
     IsAnswer:  bool
     VoteCount: int
+    IsBot:     bool
+    State:     string
     CreatedAt: DateTime
     UpdatedAt: DateTime
     DeletedAt: DateTime option
@@ -58,11 +61,12 @@ type ForumPost = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 let private readCategory (r: DbDataReader) = {
-    Id          = r.GetGuid(0)
-    Name        = r.GetString(1)
-    Description = if r.IsDBNull(2) then None else Some (r.GetString(2))
-    Position    = r.GetInt32(3)
-    CreatedAt   = r.GetFieldValue<DateTime>(4)
+    Id               = r.GetGuid(0)
+    Name             = r.GetString(1)
+    Description      = if r.IsDBNull(2) then None else Some (r.GetString(2))
+    Position         = r.GetInt32(3)
+    CreatedAt        = r.GetFieldValue<DateTime>(4)
+    ParentCategoryId = if r.IsDBNull(5) then None else Some (r.GetGuid(5))
 }
 
 let private readForum (r: DbDataReader) = {
@@ -100,9 +104,11 @@ let private readPost (r: DbDataReader) = {
     Content   = r.GetString(3)
     IsAnswer  = r.GetBoolean(4)
     VoteCount = r.GetInt32(5)
-    CreatedAt = r.GetFieldValue<DateTime>(6)
-    UpdatedAt = r.GetFieldValue<DateTime>(7)
-    DeletedAt = if r.IsDBNull(8) then None else Some (r.GetFieldValue<DateTime>(8))
+    IsBot     = r.GetBoolean(6)
+    State     = r.GetString(7)
+    CreatedAt = r.GetFieldValue<DateTime>(8)
+    UpdatedAt = r.GetFieldValue<DateTime>(9)
+    DeletedAt = if r.IsDBNull(10) then None else Some (r.GetFieldValue<DateTime>(10))
 }
 
 // ── Categories ────────────────────────────────────────────────────────────────
@@ -110,18 +116,19 @@ let private readPost (r: DbDataReader) = {
 let getCategories () =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
-        "SELECT id, name, description, position, created_at FROM forum_categories ORDER BY position, name", conn)
+        "SELECT id, name, description, position, created_at, parent_category_id FROM forum_categories ORDER BY position, name", conn)
     use r = cmd.ExecuteReader()
     [ while r.Read() do yield readCategory r ]
 
-let createCategory (name: string) (description: string option) =
+let createCategory (name: string) (description: string option) (parentCategoryId: Guid option) =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
-        """INSERT INTO forum_categories (name, description)
-           VALUES (@name, @desc)
-           RETURNING id, name, description, position, created_at""", conn)
+        """INSERT INTO forum_categories (name, description, parent_category_id)
+           VALUES (@name, @desc, @parent)
+           RETURNING id, name, description, position, created_at, parent_category_id""", conn)
     cmd.Parameters.AddWithValue("name", name) |> ignore
     cmd.Parameters.AddWithValue("desc", description |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("parent", parentCategoryId |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
     use r = cmd.ExecuteReader()
     if r.Read() then Some (readCategory r) else None
 
@@ -257,11 +264,14 @@ let setThreadLocked (threadId: Guid) (locked: bool) =
 let getPostsByThread (threadId: Guid) (page: int) (pageSize: int) =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
-        """SELECT id, thread_id, author_id, content, is_answer, vote_count,
-                  created_at, updated_at, deleted_at
-           FROM forum_posts
-           WHERE thread_id = @tid AND deleted_at IS NULL
-           ORDER BY created_at ASC
+        """SELECT fp.id, fp.thread_id, fp.author_id, fp.content, fp.is_answer, fp.vote_count,
+                  COALESCE(u.is_bot, false), COALESCE(fp.state, 'published'),
+                  fp.created_at, fp.updated_at, fp.deleted_at
+           FROM forum_posts fp
+           LEFT JOIN users u ON u.id = fp.author_id
+           WHERE fp.thread_id = @tid AND fp.deleted_at IS NULL
+             AND COALESCE(fp.state, 'published') IN ('published','flagged')
+           ORDER BY fp.created_at ASC
            LIMIT @limit OFFSET @offset""", conn)
     cmd.Parameters.AddWithValue("tid", threadId) |> ignore
     cmd.Parameters.AddWithValue("limit", pageSize) |> ignore
@@ -274,10 +284,10 @@ let createPost (threadId: Guid) (authorId: Guid) (content: string) =
     use txn = conn.BeginTransaction()
     try
         use postCmd = new NpgsqlCommand(
-            """INSERT INTO forum_posts (thread_id, author_id, content)
-               VALUES (@tid, @aid, @content)
+            """INSERT INTO forum_posts (thread_id, author_id, content, state)
+               VALUES (@tid, @aid, @content, 'published')
                RETURNING id, thread_id, author_id, content, is_answer, vote_count,
-                         created_at, updated_at, deleted_at""", conn, txn)
+                         false, 'published', created_at, updated_at, deleted_at""", conn, txn)
         postCmd.Parameters.AddWithValue("tid", threadId) |> ignore
         postCmd.Parameters.AddWithValue("aid", authorId) |> ignore
         postCmd.Parameters.AddWithValue("content", content) |> ignore
@@ -310,7 +320,7 @@ let updatePost (postId: Guid) (authorId: Guid) (content: string) =
         """UPDATE forum_posts SET content = @content, updated_at = now()
            WHERE id = @id AND author_id = @aid AND deleted_at IS NULL
            RETURNING id, thread_id, author_id, content, is_answer, vote_count,
-                     created_at, updated_at, deleted_at""", conn)
+                     false, COALESCE(state, 'published'), created_at, updated_at, deleted_at""", conn)
     cmd.Parameters.AddWithValue("content", content) |> ignore
     cmd.Parameters.AddWithValue("id", postId) |> ignore
     cmd.Parameters.AddWithValue("aid", authorId) |> ignore
@@ -474,3 +484,67 @@ let toggleReaction (postId: Guid) (userId: Guid) (emoji: string) : bool =
         insCmd.ExecuteNonQuery() |> ignore
     txn.Commit()
     not exists
+
+// ── Reports ───────────────────────────────────────────────────────────────────
+
+type ForumReport = {
+    Id:         Guid
+    ReporterId: Guid
+    TargetType: string
+    TargetId:   Guid
+    Reason:     string
+    Status:     string
+    ResolvedBy: Guid option
+    ResolvedAt: DateTime option
+    CreatedAt:  DateTime
+}
+
+let private readReport (r: DbDataReader) : ForumReport = {
+    Id         = r.GetGuid(0)
+    ReporterId = r.GetGuid(1)
+    TargetType = r.GetString(2)
+    TargetId   = r.GetGuid(3)
+    Reason     = r.GetString(4)
+    Status     = r.GetString(5)
+    ResolvedBy = if r.IsDBNull(6) then None else Some (r.GetGuid(6))
+    ResolvedAt = if r.IsDBNull(7) then None else Some (r.GetFieldValue<DateTime>(7))
+    CreatedAt  = r.GetFieldValue<DateTime>(8)
+}
+
+let createReport (reporterId: Guid) (targetType: string) (targetId: Guid) (reason: string) : ForumReport option =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """INSERT INTO forum_reports (reporter_id, target_type, target_id, reason)
+           VALUES (@rid, @tt, @tid, @reason)
+           RETURNING id, reporter_id, target_type, target_id, reason, status, resolved_by, resolved_at, created_at""", conn)
+    cmd.Parameters.AddWithValue("rid",    reporterId)  |> ignore
+    cmd.Parameters.AddWithValue("tt",     targetType)  |> ignore
+    cmd.Parameters.AddWithValue("tid",    targetId)    |> ignore
+    cmd.Parameters.AddWithValue("reason", reason)      |> ignore
+    use r = cmd.ExecuteReader()
+    if r.Read() then Some (readReport r) else None
+
+let getReports (status: string option) (page: int) (pageSize: int) : ForumReport list =
+    use conn = openConnection ()
+    let where = match status with Some s -> "WHERE status = @status" | None -> "WHERE status = 'open'"
+    use cmd = new NpgsqlCommand(
+        $"""SELECT id, reporter_id, target_type, target_id, reason, status, resolved_by, resolved_at, created_at
+            FROM forum_reports {where}
+            ORDER BY created_at DESC
+            LIMIT @ps OFFSET @off""", conn)
+    match status with Some s -> cmd.Parameters.AddWithValue("status", s) |> ignore | None -> ()
+    cmd.Parameters.AddWithValue("ps",  pageSize)          |> ignore
+    cmd.Parameters.AddWithValue("off", (page - 1) * pageSize) |> ignore
+    use r = cmd.ExecuteReader()
+    [ while r.Read() do yield readReport r ]
+
+let resolveReport (reportId: Guid) (resolverId: Guid) (newStatus: string) : bool =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """UPDATE forum_reports
+           SET status = @status, resolved_by = @resolver, resolved_at = now()
+           WHERE id = @id""", conn)
+    cmd.Parameters.AddWithValue("status",   newStatus)  |> ignore
+    cmd.Parameters.AddWithValue("resolver", resolverId) |> ignore
+    cmd.Parameters.AddWithValue("id",       reportId)   |> ignore
+    cmd.ExecuteNonQuery() > 0

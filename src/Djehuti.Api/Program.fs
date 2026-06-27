@@ -698,9 +698,12 @@ let main args =
         options.SerializerOptions.WriteIndented <- true)
     |> ignore
 
+    builder.Services.AddHostedService<HeartbeatWorker.HeartbeatWorker>() |> ignore
+
     let app = builder.Build()
 
     Database.runMigrations ()
+    AchievementRepository.seedDictionary ()
 
     let datasetDir =
         [ Path.Combine(AppContext.BaseDirectory, "data", "datasets")
@@ -1268,12 +1271,17 @@ let main args =
 
     app.MapPost(
         "/api/forum/categories",
-        Func<HttpContext, {| name: string; description: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+        Func<HttpContext, {| name: string; description: string; parentCategoryId: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
             async {
                 match tryGetAuthClaims ctx with
                 | Some claims when Permissions.isAdmin claims.Role ->
                     let desc = if String.IsNullOrWhiteSpace body.description then None else Some body.description
-                    return match ForumRepository.createCategory body.name desc with
+                    let parentId =
+                        if String.IsNullOrWhiteSpace body.parentCategoryId then None
+                        else match System.Guid.TryParse(body.parentCategoryId) with
+                             | true, g -> Some g
+                             | _ -> None
+                    return match ForumRepository.createCategory body.name desc parentId with
                            | Some cat -> Results.Created($"/api/forum/categories/{cat.Id}", cat)
                            | None     -> Results.Problem(detail = "Failed to create category", statusCode = 500, title = "Error")
                 | Some _ -> return Results.Forbid()
@@ -1358,6 +1366,9 @@ let main args =
                         match Guid.TryParse(claims.UserId) with
                         | false, _ -> return Results.Unauthorized()
                         | true, userId ->
+                            match UserRepository.getUserStatus userId with
+                            | Some "restricted" -> return Results.Problem(detail = "Your account is restricted from posting", statusCode = 403, title = "Restricted")
+                            | _ ->
                             return match ForumRepository.createThread fid userId body.title body.content with
                                    | Some t -> Results.Created($"/api/forum/threads/{t.Id}", t)
                                    | None   -> Results.Problem(detail = "Failed to create thread", statusCode = 500, title = "Error")
@@ -1433,12 +1444,35 @@ let main args =
                         | None -> return Results.NotFound()
                         | Some thread when thread.IsLocked ->
                             return Results.Problem(detail = "Thread is locked", statusCode = 403, title = "Locked")
-                        | Some _ ->
+                        | Some thread ->
                             match Guid.TryParse(claims.UserId) with
                             | false, _ -> return Results.Unauthorized()
                             | true, userId ->
+                                match UserRepository.getUserStatus userId with
+                                | Some "restricted" -> return Results.Problem(detail = "Your account is restricted from posting", statusCode = 403, title = "Restricted")
+                                | _ ->
                                 return match ForumRepository.createPost tid userId body.content with
-                                       | Some p -> Results.Created($"/api/forum/posts/{p.Id}", p)
+                                       | Some p ->
+                                           let link = $"/community/threads/{tid}"
+                                           let preview = body.content.Replace("<", "").Replace(">", "")
+                                           let preview = if preview.Length > 80 then preview.[..79] + "…" else preview
+                                           let authorName =
+                                               match UserRepository.getUserById userId with
+                                               | Some u -> u.DisplayName |> Option.defaultValue u.Email
+                                               | None   -> "Someone"
+                                           NotificationRepository.notifySubscribers tid userId authorName thread.Title link preview
+                                           // Parse @mentions and notify each mentioned user
+                                           let mentionRegex = System.Text.RegularExpressions.Regex(@"data-mention=""([^""]+)""")
+                                           let mentionedNames =
+                                               mentionRegex.Matches(body.content)
+                                               |> Seq.cast<System.Text.RegularExpressions.Match>
+                                               |> Seq.map (fun m -> m.Groups.[1].Value)
+                                               |> Seq.distinct
+                                               |> Seq.toList
+                                           let mentionedIds = UserRepository.getUserIdsByDisplayNames mentionedNames
+                                           for mentionedUserId in mentionedIds do
+                                               NotificationRepository.notifyMention mentionedUserId userId authorName thread.Title link preview
+                                           Results.Created($"/api/forum/posts/{p.Id}", p)
                                        | None   -> Results.Problem(detail = "Failed to create post", statusCode = 500, title = "Error")
             } |> Async.StartAsTask)
     ) |> ignore
@@ -1543,6 +1577,464 @@ let main args =
                 let added   = ForumRepository.toggleReaction postId userId body.emoji
                 Results.Ok({| added = added; emoji = body.emoji |})
             | None -> Results.Unauthorized())
+    ) |> ignore
+
+    // ── Forum: Reports ───────────────────────────────────────────────────────
+
+    app.MapPost(
+        "/api/forum/reports",
+        Func<HttpContext, {| targetType: string; targetId: Guid; reason: string |}, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                let reporterId = Guid.Parse(claims.UserId)
+                match ForumRepository.createReport reporterId body.targetType body.targetId body.reason with
+                | Some r -> Results.Created($"/api/forum/reports/{r.Id}", r)
+                | None   -> Results.Problem(detail = "Failed to create report", statusCode = 500, title = "Error")
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/forum/reports",
+        Func<HttpContext, string, int, int, IResult>(fun ctx status page pageSize ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role || Permissions.hasContextRole (Database.openConnection()) (Guid.Parse(claims.UserId)) Permissions.ModuleForum Permissions.RoleModerator None ->
+                let p  = if page < 1 then 1 else page
+                let ps = if pageSize < 1 || pageSize > 100 then 25 else pageSize
+                let s  = if String.IsNullOrWhiteSpace(status) then None else Some status
+                Results.Ok(ForumRepository.getReports s p ps)
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/admin/forum/reports/{id}",
+        Func<Guid, HttpContext, {| status: string |}, IResult>(fun id ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role || Permissions.hasContextRole (Database.openConnection()) (Guid.Parse(claims.UserId)) Permissions.ModuleForum Permissions.RoleModerator None ->
+                let resolverId = Guid.Parse(claims.UserId)
+                let valid = [ "dismissed"; "warned"; "deleted" ]
+                if not (List.contains body.status valid) then
+                    Results.BadRequest("status must be one of: dismissed, warned, deleted")
+                else
+                    let ok = ForumRepository.resolveReport id resolverId body.status
+                    if ok then Results.Ok() else Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    // ── Subscriptions ─────────────────────────────────────────────────────────
+
+    app.MapPost(
+        "/api/forum/threads/{threadId}/subscribe",
+        Func<Guid, HttpContext, {| level: string |}, IResult>(fun threadId ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                let userId = Guid.Parse(claims.UserId)
+                let level  = if [ "watching"; "tracking"; "muted" ] |> List.contains body.level then body.level else "tracking"
+                match NotificationRepository.upsertSubscription userId "thread" threadId level with
+                | Some sub -> Results.Ok(sub)
+                | None     -> Results.Problem(detail = "Failed to subscribe", statusCode = 500, title = "Error")
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/forum/threads/{threadId}/subscribe",
+        Func<Guid, HttpContext, IResult>(fun threadId ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                let userId = Guid.Parse(claims.UserId)
+                Results.Ok(NotificationRepository.getSubscription userId "thread" threadId)
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPost(
+        "/api/forum/categories/{categoryId}/subscribe",
+        Func<Guid, HttpContext, {| level: string |}, IResult>(fun categoryId ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                let userId = Guid.Parse(claims.UserId)
+                let level  = if [ "watching"; "tracking"; "muted" ] |> List.contains body.level then body.level else "tracking"
+                match NotificationRepository.upsertSubscription userId "category" categoryId level with
+                | Some sub -> Results.Ok(sub)
+                | None     -> Results.Problem(detail = "Failed to subscribe", statusCode = 500, title = "Error")
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    // ── Notifications ─────────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/notifications",
+        Func<HttpContext, int, int, IResult>(fun ctx page pageSize ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                let userId = Guid.Parse(claims.UserId)
+                let p      = if page < 1 then 1 else page
+                let ps     = if pageSize < 1 || pageSize > 50 then 20 else pageSize
+                let items  = NotificationRepository.getNotifications userId p ps
+                let unread = NotificationRepository.getUnreadCount userId
+                Results.Ok({| items = items; unreadCount = unread |})
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/notifications/{id}/read",
+        Func<Guid, HttpContext, IResult>(fun id ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                let userId = Guid.Parse(claims.UserId)
+                let ok = NotificationRepository.markRead id userId
+                if ok then Results.Ok() else Results.NotFound()
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/notifications/read-all",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                NotificationRepository.markAllRead (Guid.Parse(claims.UserId))
+                Results.Ok()
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    // ── User Profile (self) ───────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/users/me/profile",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                match UserRepository.getUserById uid with
+                | None -> Results.NotFound()
+                | Some u ->
+                    Results.Ok({|
+                        displayName = u.DisplayName
+                        avatarUrl   = u.AvatarUrl
+                        bio         = u.Bio
+                        pronouns    = u.Pronouns
+                        location    = u.Location
+                    |}))
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/users/me/profile",
+        Func<HttpContext, {| displayName: string; bio: string; avatarUrl: string; pronouns: string; location: string |}, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                let dn  = if String.IsNullOrWhiteSpace body.displayName then None else Some (body.displayName.Trim())
+                let bio = if String.IsNullOrWhiteSpace body.bio         then None else Some (body.bio.Trim())
+                let av  = if String.IsNullOrWhiteSpace body.avatarUrl   then None else Some (body.avatarUrl.Trim())
+                let pr  = if String.IsNullOrWhiteSpace body.pronouns    then None else Some (body.pronouns.Trim())
+                let loc = if String.IsNullOrWhiteSpace body.location    then None else Some (body.location.Trim())
+                match UserRepository.updateProfileFull uid dn bio av pr loc with
+                | Some u -> Results.Ok({| displayName = u.DisplayName; avatarUrl = u.AvatarUrl; bio = u.Bio; pronouns = u.Pronouns; location = u.Location |})
+                | None   -> Results.Problem(detail = "Update failed", statusCode = 500, title = "Error"))
+    ) |> ignore
+
+    // ── User Preferences ─────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/users/me/preferences",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                let prefs = PreferencesRepository.getPreferences uid
+                Results.Ok(prefs |> Map.toSeq |> dict))
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/users/me/preferences",
+        Func<HttpContext, System.Text.Json.JsonElement, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                let patch =
+                    body.EnumerateObject()
+                    |> Seq.map (fun p ->
+                        let v : obj =
+                            match p.Value.ValueKind with
+                            | System.Text.Json.JsonValueKind.True  -> box true
+                            | System.Text.Json.JsonValueKind.False -> box false
+                            | System.Text.Json.JsonValueKind.Number -> box (p.Value.GetDouble())
+                            | _ -> box (p.Value.GetString())
+                        p.Name, v)
+                    |> Map.ofSeq
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                let updated = PreferencesRepository.patchPreferences uid patch
+                Results.Ok(updated |> Map.toSeq |> dict))
+    ) |> ignore
+
+    // ── Achievements ─────────────────────────────────────────────────────────
+
+    // GET /api/achievements — full dictionary (admin sees hidden)
+    app.MapGet(
+        "/api/achievements",
+        Func<HttpContext, IResult>(fun ctx ->
+            let isAdmin = tryGetAuthClaims ctx |> Option.map (fun c -> c.Role = "admin") |> Option.defaultValue false
+            Results.Ok(AchievementRepository.getAllAchievements isAdmin))
+    ) |> ignore
+
+    // GET /api/users/me/achievements
+    app.MapGet(
+        "/api/users/me/achievements",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid -> Results.Ok(AchievementRepository.getUserAchievements uid))
+    ) |> ignore
+
+    // GET /api/users/{userId}/achievements
+    app.MapGet(
+        "/api/users/{userId}/achievements",
+        Func<Guid, IResult>(fun userId ->
+            Results.Ok(AchievementRepository.getUserAchievements userId))
+    ) |> ignore
+
+    // GET /api/users/me/metrics
+    app.MapGet(
+        "/api/users/me/metrics",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid -> Results.Ok(AchievementRepository.getMetrics uid))
+    ) |> ignore
+
+    // POST /api/admin/achievements/recompute — force full batch recompute
+    app.MapPost(
+        "/api/admin/achievements/recompute",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some c when c.Role = "admin" ->
+                AchievementEngine.runBatch()
+                AchievementEngine.dispatchNotifications()
+                Results.Ok({| message = "Recompute complete" |})
+            | _ -> Results.Forbid())
+    ) |> ignore
+
+    // ── User search (mention autocomplete) ───────────────────────────────────
+
+    app.MapGet(
+        "/api/users/search",
+        Func<string, int, IResult>(fun q limit ->
+            let query = if String.IsNullOrWhiteSpace(q) then "" else q.Trim()
+            if query.Length < 1 then Results.Ok([])
+            else
+                let l = if limit < 1 || limit > 20 then 8 else limit
+                Results.Ok(UserRepository.searchUsersByName query l))
+    ) |> ignore
+
+    // ── Forum: Global Search ─────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/forum/search",
+        Func<HttpContext, string, string, string, string, int, int, IResult>(fun ctx q author fromDate toDate page pageSize ->
+            let query = if String.IsNullOrWhiteSpace(q) then "" else q.Trim()
+            if query.Length < 2 then Results.BadRequest("Query must be at least 2 characters") :> IResult
+            else
+                use conn = Database.openConnection()
+                let sql = """
+                    WITH thread_hits AS (
+                        SELECT t.id, t.title, t.forum_id, t.created_at, t.author_id,
+                               NULL::uuid AS post_id, NULL::text AS post_snippet,
+                               ts_rank(t.search_vector, query) AS rank,
+                               'thread' AS hit_type
+                        FROM forum_threads t, to_tsquery('english', unaccent(regexp_replace(@q, '\s+', ' & ', 'g'))) query
+                        WHERE t.search_vector @@ query
+                          AND (@author = '' OR t.author_id::text = @author)
+                          AND (@fromDate = '' OR t.created_at >= @fromDate::timestamptz)
+                          AND (@toDate   = '' OR t.created_at <= @toDate::timestamptz)
+                    ),
+                    post_hits AS (
+                        SELECT t.id, t.title, t.forum_id, p.created_at, p.author_id,
+                               p.id AS post_id,
+                               left(regexp_replace(p.content, '<[^>]+>', '', 'g'), 200) AS post_snippet,
+                               ts_rank(p.search_vector, query) AS rank,
+                               'post' AS hit_type
+                        FROM forum_posts p
+                        JOIN forum_threads t ON t.id = p.thread_id,
+                             to_tsquery('english', unaccent(regexp_replace(@q, '\s+', ' & ', 'g'))) query
+                        WHERE p.search_vector @@ query
+                          AND p.state IN ('published','flagged')
+                          AND p.deleted_at IS NULL
+                          AND (@author = '' OR p.author_id::text = @author)
+                          AND (@fromDate = '' OR p.created_at >= @fromDate::timestamptz)
+                          AND (@toDate   = '' OR p.created_at <= @toDate::timestamptz)
+                    )
+                    SELECT hit_type, id, title, forum_id, created_at, author_id, post_id, post_snippet, rank
+                    FROM (SELECT * FROM thread_hits UNION ALL SELECT * FROM post_hits) combined
+                    ORDER BY rank DESC, created_at DESC
+                    LIMIT @pageSize OFFSET @offset
+                """
+                use cmd = new Npgsql.NpgsqlCommand(sql, conn)
+                cmd.Parameters.AddWithValue("q", query) |> ignore
+                cmd.Parameters.AddWithValue("author", if String.IsNullOrWhiteSpace(author) then "" else author) |> ignore
+                cmd.Parameters.AddWithValue("fromDate", if String.IsNullOrWhiteSpace(fromDate) then "" else fromDate) |> ignore
+                cmd.Parameters.AddWithValue("toDate",   if String.IsNullOrWhiteSpace(toDate)   then "" else toDate)   |> ignore
+                let pg = if page < 1 then 1 else page
+                let ps = if pageSize < 1 || pageSize > 50 then 20 else pageSize
+                cmd.Parameters.AddWithValue("pageSize", ps) |> ignore
+                cmd.Parameters.AddWithValue("offset", (pg - 1) * ps) |> ignore
+                use r = cmd.ExecuteReader()
+                let results =
+                    [ while r.Read() do
+                        yield {|
+                            hitType     = r.GetString(0)
+                            threadId    = r.GetGuid(1)
+                            title       = r.GetString(2)
+                            forumId     = r.GetGuid(3)
+                            createdAt   = r.GetDateTime(4)
+                            authorId    = r.GetGuid(5)
+                            postId      = if r.IsDBNull(6) then None else Some(r.GetGuid(6))
+                            postSnippet = if r.IsDBNull(7) then None else Some(r.GetString(7))
+                            rank        = r.GetFloat(8)
+                        |} ]
+                Results.Ok(results) :> IResult)
+    ) |> ignore
+
+    // ── Forum: Polls ─────────────────────────────────────────────────────────
+
+    // GET /api/forum/threads/{threadId}/poll — fetch poll with options + vote counts + user's votes
+    app.MapGet(
+        "/api/forum/threads/{threadId}/poll",
+        Func<HttpContext, Guid, IResult>(fun ctx threadId ->
+            use conn = Database.openConnection()
+            use cmd = new Npgsql.NpgsqlCommand(
+                """SELECT p.id, p.question, p.closes_at, p.allow_multiple,
+                          o.id, o.text, o.position,
+                          COUNT(v.id) AS vote_count
+                   FROM forum_polls p
+                   JOIN forum_poll_options o ON o.poll_id = p.id
+                   LEFT JOIN forum_poll_votes v ON v.option_id = o.id
+                   WHERE p.thread_id = @tid
+                   GROUP BY p.id, p.question, p.closes_at, p.allow_multiple, o.id, o.text, o.position
+                   ORDER BY o.position""", conn)
+            cmd.Parameters.AddWithValue("tid", threadId) |> ignore
+            use r = cmd.ExecuteReader()
+            let mutable pollId = Guid.Empty
+            let mutable question = ""
+            let mutable closesAt : DateTime option = None
+            let mutable allowMultiple = false
+            let options = System.Collections.Generic.List<{| id: Guid; text: string; position: int; voteCount: int64 |}>()
+            while r.Read() do
+                if pollId = Guid.Empty then
+                    pollId        <- r.GetGuid(0)
+                    question      <- r.GetString(1)
+                    closesAt      <- if r.IsDBNull(2) then None else Some (r.GetDateTime(2))
+                    allowMultiple <- r.GetBoolean(3)
+                options.Add({| id = r.GetGuid(4); text = r.GetString(5); position = r.GetInt32(6); voteCount = r.GetInt64(7) |})
+            if pollId = Guid.Empty then Results.NotFound() :> IResult
+            else
+                let userVotes =
+                    match tryGetAuthClaims ctx with
+                    | Some claims ->
+                        use cmd2 = new Npgsql.NpgsqlCommand(
+                            "SELECT option_id FROM forum_poll_votes WHERE poll_id = @pid AND user_id = @uid", conn)
+                        cmd2.Parameters.AddWithValue("pid", pollId) |> ignore
+                        cmd2.Parameters.AddWithValue("uid", claims.UserId) |> ignore
+                        use r2 = cmd2.ExecuteReader()
+                        [ while r2.Read() do yield r2.GetGuid(0) ]
+                    | None -> []
+                Results.Ok({|
+                    id = pollId; question = question; closesAt = closesAt
+                    allowMultiple = allowMultiple; options = options
+                    userVotes = userVotes
+                |}) :> IResult)
+    ) |> ignore
+
+    // POST /api/forum/threads/{threadId}/poll — create poll (thread author or admin)
+    app.MapPost(
+        "/api/forum/threads/{threadId}/poll",
+        Func<HttpContext, Guid, {| question: string; options: string[]; closesAt: string; allowMultiple: bool |}, IResult>(fun ctx threadId body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized() :> IResult
+            | Some claims ->
+                use conn = Database.openConnection()
+                use check = new Npgsql.NpgsqlCommand("SELECT author_id FROM forum_threads WHERE id = @tid", conn)
+                check.Parameters.AddWithValue("tid", threadId) |> ignore
+                use cr = check.ExecuteReader()
+                let authorId = if cr.Read() then Some (cr.GetGuid(0)) else None
+                cr.Close()
+                match authorId with
+                | None -> Results.NotFound() :> IResult
+                | Some aid when (match Guid.TryParse(claims.UserId) with true, uid -> aid <> uid | _ -> true) && not (Permissions.isAdmin claims.Role) ->
+                    Results.Forbid() :> IResult
+                | _ ->
+                    let closesAt =
+                        if String.IsNullOrWhiteSpace body.closesAt then None
+                        else match System.DateTime.TryParse(body.closesAt) with
+                             | true, d -> Some d
+                             | _ -> None
+                    use ins = new Npgsql.NpgsqlCommand(
+                        """INSERT INTO forum_polls (thread_id, question, closes_at, allow_multiple)
+                           VALUES (@tid, @q, @closes, @multi) RETURNING id""", conn)
+                    ins.Parameters.AddWithValue("tid", threadId) |> ignore
+                    ins.Parameters.AddWithValue("q", body.question) |> ignore
+                    ins.Parameters.AddWithValue("closes", closesAt |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+                    ins.Parameters.AddWithValue("multi", body.allowMultiple) |> ignore
+                    let pollId = ins.ExecuteScalar() :?> Guid
+                    for i, opt in body.options |> Array.indexed do
+                        use oins = new Npgsql.NpgsqlCommand(
+                            "INSERT INTO forum_poll_options (poll_id, text, position) VALUES (@pid, @t, @pos)", conn)
+                        oins.Parameters.AddWithValue("pid", pollId) |> ignore
+                        oins.Parameters.AddWithValue("t", opt) |> ignore
+                        oins.Parameters.AddWithValue("pos", i) |> ignore
+                        oins.ExecuteNonQuery() |> ignore
+                    Results.Created($"/api/forum/threads/{threadId}/poll", {| id = pollId |}) :> IResult)
+    ) |> ignore
+
+    // POST /api/forum/polls/{pollId}/vote — cast vote
+    app.MapPost(
+        "/api/forum/polls/{pollId}/vote",
+        Func<HttpContext, Guid, {| optionIds: Guid[] |}, IResult>(fun ctx pollId body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized() :> IResult
+            | Some claims ->
+                use conn = Database.openConnection()
+                use pc = new Npgsql.NpgsqlCommand("SELECT allow_multiple, closes_at FROM forum_polls WHERE id = @pid", conn)
+                pc.Parameters.AddWithValue("pid", pollId) |> ignore
+                use pr = pc.ExecuteReader()
+                if not (pr.Read()) then pr.Close(); Results.NotFound() :> IResult
+                else
+                    let allowMultiple = pr.GetBoolean(0)
+                    let closesAt = if pr.IsDBNull(1) then None else Some (pr.GetDateTime(1))
+                    pr.Close()
+                    match closesAt with
+                    | Some d when d < DateTime.UtcNow -> Results.BadRequest("Poll is closed") :> IResult
+                    | _ ->
+                        let optIds = if allowMultiple then body.optionIds else body.optionIds |> Array.truncate 1
+                        use del = new Npgsql.NpgsqlCommand(
+                            "DELETE FROM forum_poll_votes WHERE poll_id = @pid AND user_id = @uid", conn)
+                        del.Parameters.AddWithValue("pid", pollId) |> ignore
+                        del.Parameters.AddWithValue("uid", claims.UserId) |> ignore
+                        del.ExecuteNonQuery() |> ignore
+                        for optId in optIds do
+                            use vi = new Npgsql.NpgsqlCommand(
+                                "INSERT INTO forum_poll_votes (poll_id, option_id, user_id) VALUES (@pid, @oid, @uid) ON CONFLICT DO NOTHING", conn)
+                            vi.Parameters.AddWithValue("pid", pollId) |> ignore
+                            vi.Parameters.AddWithValue("oid", optId) |> ignore
+                            vi.Parameters.AddWithValue("uid", claims.UserId) |> ignore
+                            vi.ExecuteNonQuery() |> ignore
+                        Results.Ok({| voted = true |}) :> IResult)
     ) |> ignore
 
     // ── Forum: Tags ───────────────────────────────────────────────────────────
@@ -2679,6 +3171,30 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    app.MapPatch(
+        "/api/admin/users/{id}/restrict",
+        Func<string, HttpContext, {| restrict: bool |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    match Guid.TryParse(id), Guid.TryParse(claims.UserId) with
+                    | (true, uid), (true, adminId) ->
+                        let newStatus = if body.restrict then "restricted" else "active"
+                        use conn = Database.openConnection()
+                        use cmd = new Npgsql.NpgsqlCommand(
+                            "UPDATE users SET status = @status, updated_at = now() WHERE id = @id", conn)
+                        cmd.Parameters.AddWithValue("status", newStatus) |> ignore
+                        cmd.Parameters.AddWithValue("id", uid) |> ignore
+                        let affected = cmd.ExecuteNonQuery()
+                        if affected > 0 then
+                            UserRepository.logAdminAudit adminId uid "update" (Some "status") None (Some newStatus)
+                        return if affected > 0 then Results.Ok() else Results.NotFound()
+                    | _ -> return Results.BadRequest("Invalid id")
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     app.MapPost(
         "/api/admin/users/{id}/reset-password",
         Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
@@ -2867,6 +3383,128 @@ let main args =
                         let p = UserProfileRepository.upsertProfile conn userId (opt body.displayName) (opt body.bio) (opt body.avatarUrl) (opt body.website) (opt body.location)
                         return Results.Ok(p)
             } |> Async.StartAsTask)
+    ) |> ignore
+
+    // ── Admin: AI Personas ────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/admin/personas",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let personas = PersonaRepository.getPersonas()
+                let withForums = personas |> List.map (fun p ->
+                    {| persona = p; forumIds = PersonaRepository.getPersonaForums p.Id |})
+                Results.Ok(withForums)
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/personas",
+        Func<HttpContext, {| name: string; slug: string; systemPrompt: string; model: string; triggerMode: string; avatarUrl: string; forumIds: string[] |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    // Create a bot user account for the persona
+                    let botEmail = sprintf "persona+%s@djehuti.internal" body.slug
+                    let! botUserOpt = UserRepository.createUser botEmail None
+                    match botUserOpt with
+                    | None -> return Results.Problem(detail = "Failed to create bot user", statusCode = 500, title = "Error")
+                    | Some botUser ->
+                        // Mark as bot and set display name
+                        use conn = Database.openConnection()
+                        use flagCmd = new Npgsql.NpgsqlCommand(
+                            "UPDATE users SET is_bot = true, display_name = @dn, status = 'active' WHERE id = @id", conn)
+                        flagCmd.Parameters.AddWithValue("id", botUser.Id) |> ignore
+                        flagCmd.Parameters.AddWithValue("dn", body.name)  |> ignore
+                        flagCmd.ExecuteNonQuery() |> ignore
+
+                        let av = if String.IsNullOrWhiteSpace(body.avatarUrl) then None else Some body.avatarUrl
+                        match PersonaRepository.createPersona body.name body.slug body.systemPrompt body.model body.triggerMode av botUser.Id with
+                        | None -> return Results.Problem(detail = "Failed to create persona", statusCode = 500, title = "Error")
+                        | Some persona ->
+                            let forumIds = body.forumIds |> Array.choose (fun s -> match Guid.TryParse(s) with | true, g -> Some g | _ -> None) |> Array.toList
+                            PersonaRepository.setPersonaForums persona.Id forumIds
+                            return Results.Created($"/api/admin/personas/{persona.Id}", persona)
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPut(
+        "/api/admin/personas/{id}",
+        Func<Guid, HttpContext, {| name: string; systemPrompt: string; model: string; triggerMode: string; active: bool; avatarUrl: string; forumIds: string[] |}, IResult>(fun id ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let av = if String.IsNullOrWhiteSpace(body.avatarUrl) then None else Some body.avatarUrl
+                match PersonaRepository.updatePersona id body.name body.systemPrompt body.model body.triggerMode body.active av with
+                | None -> Results.NotFound()
+                | Some persona ->
+                    let forumIds = body.forumIds |> Array.choose (fun s -> match Guid.TryParse(s) with | true, g -> Some g | _ -> None) |> Array.toList
+                    PersonaRepository.setPersonaForums persona.Id forumIds
+                    Results.Ok(persona)
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/admin/personas/{id}",
+        Func<Guid, HttpContext, IResult>(fun id ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let ok = PersonaRepository.deletePersona id
+                if ok then Results.Ok() else Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    // ── Admin: Heartbeat ──────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/admin/heartbeat/config",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                Results.Ok(PersonaRepository.getConfig())
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/admin/heartbeat/config",
+        Func<HttpContext, Map<string, string>, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                for kvp in body do
+                    PersonaRepository.setConfig kvp.Key kvp.Value
+                Results.Ok(PersonaRepository.getConfig())
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/heartbeat/jobs",
+        Func<HttpContext, int, IResult>(fun ctx limit ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let l = if limit < 1 || limit > 200 then 50 else limit
+                Results.Ok(PersonaRepository.getRecentJobs l)
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/heartbeat/trigger",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                // Enqueue a no-op sentinel job to confirm queue is alive
+                match PersonaRepository.enqueueJob "Ping" """{"message":"manual trigger"}""" with
+                | Some job -> Results.Ok({| jobId = job.Id; status = "queued" |})
+                | None     -> Results.Problem(detail = "Failed to enqueue", statusCode = 500, title = "Error")
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
     ) |> ignore
 
     app.Run()

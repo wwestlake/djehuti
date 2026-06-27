@@ -15,6 +15,7 @@ import {
 import { blogApi } from '../../api/blogApi'
 import type { BlogArticle, BlogSection, BlogTag } from '../../api/blogApi'
 import BlogUploadModal from './BlogUploadModal'
+import { uploadToS3 } from '../../api/mediaApi'
 
 interface Props {
   articleId?: string
@@ -56,6 +57,8 @@ export default function BlogEditorPage({ articleId, onSaved, onCancel }: Props) 
   const [imageUrl, setImageUrl] = useState('')
   const [showImageInput, setShowImageInput] = useState(false)
   const [showUpload, setShowUpload] = useState(false)
+  const [imageUploading, setImageUploading] = useState(false)
+  const imageFileRef = useRef<HTMLInputElement>(null)
 
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savedArticleId = useRef<string | null>(articleId ?? null)
@@ -176,6 +179,21 @@ export default function BlogEditorPage({ articleId, onSaved, onCancel }: Props) 
     editor?.chain().focus().setImage({ src: imageUrl }).run()
     setImageUrl('')
     setShowImageInput(false)
+  }
+
+  const handleImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImageUploading(true)
+    try {
+      const record = await uploadToS3(file, 'blog', savedArticleId.current ?? undefined)
+      editor?.chain().focus().setImage({ src: record.url }).run()
+    } catch {
+      // silent — user can retry via URL input
+    } finally {
+      setImageUploading(false)
+      if (imageFileRef.current) imageFileRef.current.value = ''
+    }
   }
 
   const toggleTag = (id: string) =>
@@ -307,6 +325,12 @@ export default function BlogEditorPage({ articleId, onSaved, onCancel }: Props) 
                   onMouseDown={e => { e.preventDefault(); setShowImageInput(v => !v) }} title="Image URL">
                   <ImageIcon size={15} />
                 </button>
+                <button className={`tiptap-toolbar-btn${imageUploading ? ' uploading' : ''}`}
+                  onMouseDown={e => { e.preventDefault(); imageFileRef.current?.click() }}
+                  title="Upload image" disabled={imageUploading}>
+                  <Upload size={15} />
+                </button>
+                <input ref={imageFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageFileUpload} />
                 <button className={`tiptap-toolbar-btn${editor?.isActive('codeBlock') ? ' active' : ''}`}
                   onMouseDown={e => { e.preventDefault(); editor?.chain().focus().toggleCodeBlock().run() }} title="Code block">
                   {'</>'}

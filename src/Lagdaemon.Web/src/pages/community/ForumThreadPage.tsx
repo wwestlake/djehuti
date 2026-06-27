@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { forumApi } from '../../api/forumApi'
-import type { ForumThread, ForumPost } from '../../api/forumApi'
+import type { ForumThread, ForumPost, Subscription, PollData } from '../../api/forumApi'
+import ReportModal from '../../components/forum/ReportModal'
+import PollWidget from '../../components/forum/PollWidget'
 import { useAuth } from '../../contexts/AuthContext'
 import ForumEditor from '../../components/ForumEditor'
 
@@ -13,6 +15,15 @@ interface Props {
 type Reaction = { emoji: string; count: number; userReacted: boolean }
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '🔥', '👀', '✅']
+const THREAD_REF_RE = /#([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi
+
+function renderPostContent(html: string, _onThreadNav: (id: string) => void) {
+  // Replace #UUID cross-references with clickable anchors (server-side safe: only replaces text nodes conceptually)
+  const withRefs = html.replace(THREAD_REF_RE, (_, id) =>
+    `<a class="thread-xref" data-thread-id="${id}" href="#">#${id.slice(0, 8)}…</a>`
+  )
+  return withRefs
+}
 
 function ReactionBar({ postId, user }: { postId: string; user: { id: string } | null }) {
   const [reactions, setReactions] = useState<Reaction[]>([])
@@ -72,17 +83,25 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
   const [submitting, setSubmitting] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editHtml, setEditHtml] = useState('')
+  const [reportTarget, setReportTarget] = useState<{ type: 'post' | 'thread'; id: string } | null>(null)
+  const [subscription, setSubscription] = useState<Subscription | null>(null)
+  const [poll, setPoll] = useState<PollData | null>(null)
   const replyEditorKey = useRef(0)
 
   useEffect(() => {
-    Promise.all([
+    const loads: Promise<unknown>[] = [
       forumApi.getThread(threadId),
       forumApi.getPosts(threadId),
-    ]).then(([t, p]) => {
-      setThread(t)
-      setPosts(p)
+      forumApi.getPoll(threadId),
+    ]
+    if (user) loads.push(forumApi.getThreadSubscription(threadId))
+    Promise.all(loads).then(([t, p, pollData, sub]) => {
+      setThread(t as ForumThread)
+      setPosts(p as ForumPost[])
+      setPoll(pollData as PollData | null)
+      if (sub !== undefined) setSubscription(sub as Subscription | null)
     }).finally(() => setLoading(false))
-  }, [threadId])
+  }, [threadId, user])
 
   const handleReply = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -133,6 +152,11 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
   const isAdmin = user?.role === 'admin'
   const replyIsEmpty = !replyHtml.replace(/<[^>]+>/g, '').trim()
 
+  const handleSubscribe = async (level: string) => {
+    const sub = await forumApi.subscribeThread(threadId, level)
+    setSubscription(sub)
+  }
+
   return (
     <div className="community-page">
       <div className="forum-breadcrumb">
@@ -149,6 +173,21 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
           {thread.isPinned && <span className="badge badge-pinned">Pinned</span>}
           {thread.isLocked && <span className="badge badge-locked">Locked</span>}
         </div>
+        {user && (
+          <div className="thread-subscribe">
+            <select
+              className="subscribe-select"
+              value={subscription?.level ?? ''}
+              onChange={e => handleSubscribe(e.target.value)}
+              aria-label="Subscribe to thread"
+            >
+              <option value="" disabled>Watch thread…</option>
+              <option value="watching">Watching</option>
+              <option value="tracking">Tracking</option>
+              <option value="muted">Muted</option>
+            </select>
+          </div>
+        )}
         {isAdmin && (
           <div className="thread-mod-actions">
             <button onClick={() => forumApi.pinThread(thread.id, !thread.isPinned).then(() => setThread(t => t ? { ...t, isPinned: !t.isPinned } : t))}>
@@ -161,10 +200,19 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
         )}
       </div>
 
+      {poll && (
+        <PollWidget
+          poll={poll}
+          userId={user?.id}
+          onRefresh={() => forumApi.getPoll(threadId).then(p => setPoll(p))}
+        />
+      )}
+
       <div className="post-list">
         {posts.map((post, idx) => (
-          <div key={post.id} className={`post-item${post.isAnswer ? ' post-answer' : ''}`}>
+          <div key={post.id} className={`post-item${post.isAnswer ? ' post-answer' : ''}${post.isBot ? ' post-bot' : ''}`}>
             {post.isAnswer && <div className="post-answer-badge">✓ Accepted Answer</div>}
+            {post.isBot && <div className="post-bot-badge">🤖 AI Persona</div>}
             <div className="post-body">
               {editingId === post.id ? (
                 <div className="post-edit">
@@ -182,7 +230,11 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
               ) : (
                 <div
                   className="post-content tiptap-render"
-                  dangerouslySetInnerHTML={{ __html: post.content }}
+                  dangerouslySetInnerHTML={{ __html: renderPostContent(post.content, (id) => onNavigateForum(id)) }}
+                  onClick={(e) => {
+                    const a = (e.target as HTMLElement).closest('[data-thread-id]')
+                    if (a) { e.preventDefault(); /* navigate to thread when we have a thread page handler */ }
+                  }}
                 />
               )}
             </div>
@@ -193,7 +245,7 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
                 {post.updatedAt !== post.createdAt && ' (edited)'}
               </span>
               <div className="post-actions">
-                {user && (
+                {user && !post.isBot && (
                   <button className="post-action" onClick={() => handleVote(post.id)}>▲ {post.voteCount}</button>
                 )}
                 {isThreadAuthor && idx > 0 && !post.isAnswer && (
@@ -204,6 +256,9 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
                 )}
                 {(user?.id === post.authorId || isAdmin) && (
                   <button className="post-action post-action-delete" onClick={() => handleDelete(post.id)}>Delete</button>
+                )}
+                {user && user.id !== post.authorId && !post.isBot && (
+                  <button className="post-action post-action-report" onClick={() => setReportTarget({ type: 'post', id: post.id })}>Report</button>
                 )}
               </div>
             </div>
@@ -228,6 +283,13 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
       )}
       {!user && <p className="forum-login-prompt">Sign in to reply.</p>}
       {thread.isLocked && <p className="forum-locked-notice">This thread is locked.</p>}
+      {reportTarget && (
+        <ReportModal
+          targetType={reportTarget.type}
+          targetId={reportTarget.id}
+          onClose={() => setReportTarget(null)}
+        />
+      )}
     </div>
   )
 }
