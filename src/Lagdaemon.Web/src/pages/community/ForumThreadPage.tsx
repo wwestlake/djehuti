@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { forumApi } from '../../api/forumApi'
 import type { ForumThread, ForumPost, Subscription, PollData } from '../../api/forumApi'
 import ReportModal from '../../components/forum/ReportModal'
@@ -17,7 +17,7 @@ type Reaction = { emoji: string; count: number; userReacted: boolean }
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '🔥', '👀', '✅']
 const THREAD_REF_RE = /#([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi
 
-function renderPostContent(html: string, onThreadNav: (id: string) => void) {
+function renderPostContent(html: string, _onThreadNav: (id: string) => void) {
   // Replace #UUID cross-references with clickable anchors (server-side safe: only replaces text nodes conceptually)
   const withRefs = html.replace(THREAD_REF_RE, (_, id) =>
     `<a class="thread-xref" data-thread-id="${id}" href="#">#${id.slice(0, 8)}…</a>`
@@ -203,7 +203,6 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
       {poll && (
         <PollWidget
           poll={poll}
-          threadId={threadId}
           userId={user?.id}
           onRefresh={() => forumApi.getPoll(threadId).then(p => setPoll(p))}
         />

@@ -4,12 +4,11 @@ import type { PollData } from '../../api/forumApi'
 
 interface Props {
   poll: PollData
-  threadId: string
   userId?: string
   onRefresh: () => void
 }
 
-export default function PollWidget({ poll, threadId, userId, onRefresh }: Props) {
+export default function PollWidget({ poll, userId, onRefresh }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set(poll.userVotes))
   const [voting, setVoting] = useState(false)
   const [voted, setVoted] = useState(poll.userVotes.length > 0)

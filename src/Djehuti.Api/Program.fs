@@ -1693,6 +1693,75 @@ let main args =
             | None -> Results.Unauthorized())
     ) |> ignore
 
+    // ── User Profile (self) ───────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/users/me/profile",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match UserRepository.getUserById claims.UserId with
+                | None -> Results.NotFound()
+                | Some u ->
+                    Results.Ok({|
+                        displayName = u.DisplayName
+                        avatarUrl   = u.AvatarUrl
+                        bio         = u.Bio
+                        pronouns    = u.Pronouns
+                        location    = u.Location
+                    |}))
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/users/me/profile",
+        Func<HttpContext, {| displayName: string; bio: string; avatarUrl: string; pronouns: string; location: string |}, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                let dn  = if String.IsNullOrWhiteSpace body.displayName then None else Some (body.displayName.Trim())
+                let bio = if String.IsNullOrWhiteSpace body.bio         then None else Some (body.bio.Trim())
+                let av  = if String.IsNullOrWhiteSpace body.avatarUrl   then None else Some (body.avatarUrl.Trim())
+                let pr  = if String.IsNullOrWhiteSpace body.pronouns    then None else Some (body.pronouns.Trim())
+                let loc = if String.IsNullOrWhiteSpace body.location    then None else Some (body.location.Trim())
+                match UserRepository.updateProfileFull claims.UserId dn bio av pr loc with
+                | Some u -> Results.Ok({| displayName = u.DisplayName; avatarUrl = u.AvatarUrl; bio = u.Bio; pronouns = u.Pronouns; location = u.Location |})
+                | None   -> Results.Problem(detail = "Update failed", statusCode = 500, title = "Error"))
+    ) |> ignore
+
+    // ── User Preferences ─────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/users/me/preferences",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                let prefs = PreferencesRepository.getPreferences claims.UserId
+                Results.Ok(prefs |> Map.toSeq |> dict))
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/users/me/preferences",
+        Func<HttpContext, System.Text.Json.JsonElement, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                let patch =
+                    body.EnumerateObject()
+                    |> Seq.map (fun p ->
+                        let v : obj =
+                            match p.Value.ValueKind with
+                            | System.Text.Json.JsonValueKind.True  -> box true
+                            | System.Text.Json.JsonValueKind.False -> box false
+                            | System.Text.Json.JsonValueKind.Number -> box (p.Value.GetDouble())
+                            | _ -> box (p.Value.GetString())
+                        p.Name, v)
+                    |> Map.ofSeq
+                let updated = PreferencesRepository.patchPreferences claims.UserId patch
+                Results.Ok(updated |> Map.toSeq |> dict))
+    ) |> ignore
+
     // ── User search (mention autocomplete) ───────────────────────────────────
 
     app.MapGet(
