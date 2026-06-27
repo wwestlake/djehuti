@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { forumApi } from '../../api/forumApi'
-import type { ForumThread, ForumPost } from '../../api/forumApi'
+import type { ForumThread, ForumPost, Subscription } from '../../api/forumApi'
 import ReportModal from '../../components/forum/ReportModal'
 import { useAuth } from '../../contexts/AuthContext'
 import ForumEditor from '../../components/ForumEditor'
@@ -74,17 +74,21 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editHtml, setEditHtml] = useState('')
   const [reportTarget, setReportTarget] = useState<{ type: 'post' | 'thread'; id: string } | null>(null)
+  const [subscription, setSubscription] = useState<Subscription | null>(null)
   const replyEditorKey = useRef(0)
 
   useEffect(() => {
-    Promise.all([
+    const loads: Promise<unknown>[] = [
       forumApi.getThread(threadId),
       forumApi.getPosts(threadId),
-    ]).then(([t, p]) => {
-      setThread(t)
-      setPosts(p)
+    ]
+    if (user) loads.push(forumApi.getThreadSubscription(threadId))
+    Promise.all(loads).then(([t, p, sub]) => {
+      setThread(t as ForumThread)
+      setPosts(p as ForumPost[])
+      if (sub !== undefined) setSubscription(sub as Subscription | null)
     }).finally(() => setLoading(false))
-  }, [threadId])
+  }, [threadId, user])
 
   const handleReply = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -135,6 +139,11 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
   const isAdmin = user?.role === 'admin'
   const replyIsEmpty = !replyHtml.replace(/<[^>]+>/g, '').trim()
 
+  const handleSubscribe = async (level: string) => {
+    const sub = await forumApi.subscribeThread(threadId, level)
+    setSubscription(sub)
+  }
+
   return (
     <div className="community-page">
       <div className="forum-breadcrumb">
@@ -151,6 +160,21 @@ export default function ForumThreadPage({ threadId, onNavigateHome, onNavigateFo
           {thread.isPinned && <span className="badge badge-pinned">Pinned</span>}
           {thread.isLocked && <span className="badge badge-locked">Locked</span>}
         </div>
+        {user && (
+          <div className="thread-subscribe">
+            <select
+              className="subscribe-select"
+              value={subscription?.level ?? ''}
+              onChange={e => handleSubscribe(e.target.value)}
+              aria-label="Subscribe to thread"
+            >
+              <option value="" disabled>Watch thread…</option>
+              <option value="watching">Watching</option>
+              <option value="tracking">Tracking</option>
+              <option value="muted">Muted</option>
+            </select>
+          </div>
+        )}
         {isAdmin && (
           <div className="thread-mod-actions">
             <button onClick={() => forumApi.pinThread(thread.id, !thread.isPinned).then(() => setThread(t => t ? { ...t, isPinned: !t.isPinned } : t))}>

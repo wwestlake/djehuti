@@ -2,6 +2,7 @@ import { useState } from 'react'
 import './App.css'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { UserMenu } from './components/auth/UserMenu'
+import NotificationDropdown from './components/NotificationDropdown'
 import { LoginModal } from './components/auth/LoginModal'
 import { SignupModal } from './components/auth/SignupModal'
 import { ForgotPasswordModal } from './components/auth/ForgotPasswordModal'
@@ -71,10 +72,12 @@ function Nav({ section, onSection, onOpenLogin }: NavProps) {
         {/* Desktop nav */}
         <nav className="nav-desktop">
           {links}
+          {user && <NotificationDropdown />}
           <UserMenu onOpenLogin={onOpenLogin} />
         </nav>
         {/* Mobile: UserMenu + hamburger */}
         <div className="nav-mobile-bar">
+          {user && <NotificationDropdown />}
           <UserMenu onOpenLogin={onOpenLogin} />
           <button className="nav-hamburger" onClick={() => setDrawerOpen(o => !o)} aria-label="Menu">
             <span /><span /><span />

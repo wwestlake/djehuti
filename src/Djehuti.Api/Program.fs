@@ -1444,7 +1444,12 @@ let main args =
                                 | Some "restricted" -> return Results.Problem(detail = "Your account is restricted from posting", statusCode = 403, title = "Restricted")
                                 | _ ->
                                 return match ForumRepository.createPost tid userId body.content with
-                                       | Some p -> Results.Created($"/api/forum/posts/{p.Id}", p)
+                                       | Some p ->
+                                           let link = $"/community/threads/{tid}"
+                                           let preview = body.content.Replace("<", "").Replace(">", "")
+                                           let preview = if preview.Length > 80 then preview.[..79] + "…" else preview
+                                           NotificationRepository.notifySubscribers tid userId $"New reply in thread: {preview}" link
+                                           Results.Created($"/api/forum/posts/{p.Id}", p)
                                        | None   -> Results.Problem(detail = "Failed to create post", statusCode = 500, title = "Error")
             } |> Async.StartAsTask)
     ) |> ignore
@@ -1555,10 +1560,10 @@ let main args =
 
     app.MapPost(
         "/api/forum/reports",
-        Func<HttpContext, {| targetType: string; targetId: System.Guid; reason: string |}, IResult>(fun ctx body ->
+        Func<HttpContext, {| targetType: string; targetId: Guid; reason: string |}, IResult>(fun ctx body ->
             match tryGetAuthClaims ctx with
             | Some claims ->
-                let reporterId = System.Guid.Parse(claims.UserId)
+                let reporterId = Guid.Parse(claims.UserId)
                 match ForumRepository.createReport reporterId body.targetType body.targetId body.reason with
                 | Some r -> Results.Created($"/api/forum/reports/{r.Id}", r)
                 | None   -> Results.Problem(detail = "Failed to create report", statusCode = 500, title = "Error")
@@ -1569,10 +1574,10 @@ let main args =
         "/api/admin/forum/reports",
         Func<HttpContext, string, int, int, IResult>(fun ctx status page pageSize ->
             match tryGetAuthClaims ctx with
-            | Some claims when Permissions.isAdmin claims.Role || Permissions.hasContextRole (Database.openConnection()) (System.Guid.Parse(claims.UserId)) Permissions.ModuleForum Permissions.RoleModerator None ->
+            | Some claims when Permissions.isAdmin claims.Role || Permissions.hasContextRole (Database.openConnection()) (Guid.Parse(claims.UserId)) Permissions.ModuleForum Permissions.RoleModerator None ->
                 let p  = if page < 1 then 1 else page
                 let ps = if pageSize < 1 || pageSize > 100 then 25 else pageSize
-                let s  = if System.String.IsNullOrWhiteSpace(status) then None else Some status
+                let s  = if String.IsNullOrWhiteSpace(status) then None else Some status
                 Results.Ok(ForumRepository.getReports s p ps)
             | Some _ -> Results.Forbid()
             | None   -> Results.Unauthorized())
@@ -1580,18 +1585,93 @@ let main args =
 
     app.MapPatch(
         "/api/admin/forum/reports/{id}",
-        Func<System.Guid, HttpContext, {| status: string |}, IResult>(fun id ctx body ->
+        Func<Guid, HttpContext, {| status: string |}, IResult>(fun id ctx body ->
             match tryGetAuthClaims ctx with
-            | Some claims when Permissions.isAdmin claims.Role || Permissions.hasContextRole (Database.openConnection()) (System.Guid.Parse(claims.UserId)) Permissions.ModuleForum Permissions.RoleModerator None ->
-                let resolverId = System.Guid.Parse(claims.UserId)
-                let validStatuses = [ "dismissed"; "warned"; "deleted" ]
-                if not (List.contains body.status validStatuses) then
+            | Some claims when Permissions.isAdmin claims.Role || Permissions.hasContextRole (Database.openConnection()) (Guid.Parse(claims.UserId)) Permissions.ModuleForum Permissions.RoleModerator None ->
+                let resolverId = Guid.Parse(claims.UserId)
+                let valid = [ "dismissed"; "warned"; "deleted" ]
+                if not (List.contains body.status valid) then
                     Results.BadRequest("status must be one of: dismissed, warned, deleted")
                 else
                     let ok = ForumRepository.resolveReport id resolverId body.status
                     if ok then Results.Ok() else Results.NotFound()
             | Some _ -> Results.Forbid()
             | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    // ── Subscriptions ─────────────────────────────────────────────────────────
+
+    app.MapPost(
+        "/api/forum/threads/{threadId}/subscribe",
+        Func<Guid, HttpContext, {| level: string |}, IResult>(fun threadId ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                let userId = Guid.Parse(claims.UserId)
+                let level  = if [ "watching"; "tracking"; "muted" ] |> List.contains body.level then body.level else "tracking"
+                match NotificationRepository.upsertSubscription userId "thread" threadId level with
+                | Some sub -> Results.Ok(sub)
+                | None     -> Results.Problem(detail = "Failed to subscribe", statusCode = 500, title = "Error")
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/forum/threads/{threadId}/subscribe",
+        Func<Guid, HttpContext, IResult>(fun threadId ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                let userId = Guid.Parse(claims.UserId)
+                Results.Ok(NotificationRepository.getSubscription userId "thread" threadId)
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPost(
+        "/api/forum/categories/{categoryId}/subscribe",
+        Func<Guid, HttpContext, {| level: string |}, IResult>(fun categoryId ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                let userId = Guid.Parse(claims.UserId)
+                let level  = if [ "watching"; "tracking"; "muted" ] |> List.contains body.level then body.level else "tracking"
+                match NotificationRepository.upsertSubscription userId "category" categoryId level with
+                | Some sub -> Results.Ok(sub)
+                | None     -> Results.Problem(detail = "Failed to subscribe", statusCode = 500, title = "Error")
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    // ── Notifications ─────────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/notifications",
+        Func<HttpContext, int, int, IResult>(fun ctx page pageSize ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                let userId = Guid.Parse(claims.UserId)
+                let p      = if page < 1 then 1 else page
+                let ps     = if pageSize < 1 || pageSize > 50 then 20 else pageSize
+                let items  = NotificationRepository.getNotifications userId p ps
+                let unread = NotificationRepository.getUnreadCount userId
+                Results.Ok({| items = items; unreadCount = unread |})
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/notifications/{id}/read",
+        Func<Guid, HttpContext, IResult>(fun id ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                let userId = Guid.Parse(claims.UserId)
+                let ok = NotificationRepository.markRead id userId
+                if ok then Results.Ok() else Results.NotFound()
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/notifications/read-all",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                NotificationRepository.markAllRead (Guid.Parse(claims.UserId))
+                Results.Ok()
+            | None -> Results.Unauthorized())
     ) |> ignore
 
     // ── Forum: Tags ───────────────────────────────────────────────────────────

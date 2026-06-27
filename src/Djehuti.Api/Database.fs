@@ -572,7 +572,6 @@ let private migrations : (int * string) list =
 
         19, """
         -- Moderation: user restricted status + reporting workflow
-
         ALTER TABLE users DROP CONSTRAINT IF EXISTS users_status_check;
         ALTER TABLE users ADD CONSTRAINT users_status_check
             CHECK (status IN ('pending', 'active', 'suspended', 'restricted'));
@@ -590,9 +589,39 @@ let private migrations : (int * string) list =
             created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
         );
 
-        CREATE INDEX IF NOT EXISTS idx_forum_reports_status     ON forum_reports(status);
-        CREATE INDEX IF NOT EXISTS idx_forum_reports_target     ON forum_reports(target_type, target_id);
-        CREATE INDEX IF NOT EXISTS idx_forum_reports_reporter   ON forum_reports(reporter_id);
+        CREATE INDEX IF NOT EXISTS idx_forum_reports_status   ON forum_reports(status);
+        CREATE INDEX IF NOT EXISTS idx_forum_reports_target   ON forum_reports(target_type, target_id);
+        CREATE INDEX IF NOT EXISTS idx_forum_reports_reporter ON forum_reports(reporter_id);
+        """
+
+        20, """
+        -- Phase 2: subscriptions and on-platform notifications
+        CREATE TABLE IF NOT EXISTS forum_subscriptions (
+            id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            target_type TEXT        NOT NULL CHECK (target_type IN ('thread', 'category')),
+            target_id   UUID        NOT NULL,
+            level       TEXT        NOT NULL DEFAULT 'tracking'
+                                    CHECK (level IN ('watching', 'tracking', 'muted')),
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (user_id, target_type, target_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_forum_subscriptions_user   ON forum_subscriptions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_forum_subscriptions_target ON forum_subscriptions(target_type, target_id);
+
+        CREATE TABLE IF NOT EXISTS notifications (
+            id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id    UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            type       TEXT        NOT NULL,
+            body       TEXT        NOT NULL,
+            link       TEXT,
+            read_at    TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at)
+            WHERE read_at IS NULL;
         """
     ]
 

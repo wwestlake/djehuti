@@ -20,6 +20,7 @@
     <Compile Include="PaperRepository.fs" />
     <Compile Include="BlogRepository.fs" />
     <Compile Include="AnnouncementRepository.fs" />
+    <Compile Include="NotificationRepository.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
