@@ -1831,6 +1831,69 @@ let main args =
             | _ -> Results.Forbid())
     ) |> ignore
 
+    // ── Public profiles ──────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/users/{userId}/public",
+        Func<Guid, IResult>(fun userId ->
+            match UserRepository.getUserById userId with
+            | None -> Results.NotFound()
+            | Some u ->
+                let dn = match u.DisplayName with | Some d -> d | None -> u.Email
+                Results.Ok({| id = u.Id.ToString(); displayName = dn; email = u.Email; bio = u.Bio; avatarUrl = u.AvatarUrl; pronouns = u.Pronouns; location = u.Location; createdAt = u.CreatedAt |})
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/users/{userId}/activity",
+        Func<Guid, System.Threading.Tasks.Task<IResult>>(fun userId ->
+            task {
+                use conn = Database.openConnection()
+                let items = ResizeArray<{| type_: string; id: string; title: string; createdAt: System.DateTime |}>()
+
+                // Recent forum posts
+                use cmd1 = new Npgsql.NpgsqlCommand("""
+                    SELECT id, content, created_at FROM forum_posts
+                    WHERE author_id = @uid AND NOT deleted
+                    ORDER BY created_at DESC LIMIT 15
+                """, conn)
+                cmd1.Parameters.AddWithValue("uid", userId) |> ignore
+                use r1 = cmd1.ExecuteReader()
+                while r1.Read() do
+                    let preview = (r1.GetString(1).Replace("<", "").Replace(">", "")).[..60]
+                    items.Add({| type_ = "post"; id = r1.GetGuid(0).ToString(); title = preview; createdAt = r1.GetDateTime(2) |})
+                r1.Close()
+
+                // Recent forum threads
+                use cmd2 = new Npgsql.NpgsqlCommand("""
+                    SELECT id, title, created_at FROM forum_threads
+                    WHERE author_id = @uid
+                    ORDER BY created_at DESC LIMIT 15
+                """, conn)
+                cmd2.Parameters.AddWithValue("uid", userId) |> ignore
+                use r2 = cmd2.ExecuteReader()
+                while r2.Read() do
+                    items.Add({| type_ = "thread"; id = r2.GetGuid(0).ToString(); title = r2.GetString(1); createdAt = r2.GetDateTime(2) |})
+                r2.Close()
+
+                // Recent blog articles
+                use cmd3 = new Npgsql.NpgsqlCommand("""
+                    SELECT id, title, created_at FROM blog_articles
+                    WHERE author_id = @uid
+                    ORDER BY created_at DESC LIMIT 15
+                """, conn)
+                cmd3.Parameters.AddWithValue("uid", userId) |> ignore
+                use r3 = cmd3.ExecuteReader()
+                while r3.Read() do
+                    items.Add({| type_ = "article"; id = r3.GetGuid(0).ToString(); title = r3.GetString(1); createdAt = r3.GetDateTime(2) |})
+                r3.Close()
+
+                let activity = items |> Seq.sortByDescending (fun a -> a.createdAt) |> Seq.take (min 30 items.Count) |> Seq.toList
+                return Results.Ok({| activity = activity |})
+            }
+        )
+    ) |> ignore
+
     // ── User search (mention autocomplete) ───────────────────────────────────
 
     app.MapGet(
