@@ -1700,6 +1700,74 @@ let main args =
                 Results.Ok(UserRepository.searchUsersByName query l))
     ) |> ignore
 
+    // ── Forum: Global Search ─────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/forum/search",
+        Func<HttpContext, string, string, string, string, int, int, IResult>(fun ctx q author fromDate toDate page pageSize ->
+            let query = if String.IsNullOrWhiteSpace(q) then "" else q.Trim()
+            if query.Length < 2 then Results.BadRequest("Query must be at least 2 characters") :> IResult
+            else
+                use conn = Database.openConnection()
+                let sql = """
+                    WITH thread_hits AS (
+                        SELECT t.id, t.title, t.forum_id, t.created_at, t.author_id,
+                               NULL::uuid AS post_id, NULL::text AS post_snippet,
+                               ts_rank(t.search_vector, query) AS rank,
+                               'thread' AS hit_type
+                        FROM forum_threads t, to_tsquery('english', unaccent(regexp_replace(@q, '\s+', ' & ', 'g'))) query
+                        WHERE t.search_vector @@ query
+                          AND (@author = '' OR t.author_id::text = @author)
+                          AND (@fromDate = '' OR t.created_at >= @fromDate::timestamptz)
+                          AND (@toDate   = '' OR t.created_at <= @toDate::timestamptz)
+                    ),
+                    post_hits AS (
+                        SELECT t.id, t.title, t.forum_id, p.created_at, p.author_id,
+                               p.id AS post_id,
+                               left(regexp_replace(p.content, '<[^>]+>', '', 'g'), 200) AS post_snippet,
+                               ts_rank(p.search_vector, query) AS rank,
+                               'post' AS hit_type
+                        FROM forum_posts p
+                        JOIN forum_threads t ON t.id = p.thread_id,
+                             to_tsquery('english', unaccent(regexp_replace(@q, '\s+', ' & ', 'g'))) query
+                        WHERE p.search_vector @@ query
+                          AND p.state IN ('published','flagged')
+                          AND p.deleted_at IS NULL
+                          AND (@author = '' OR p.author_id::text = @author)
+                          AND (@fromDate = '' OR p.created_at >= @fromDate::timestamptz)
+                          AND (@toDate   = '' OR p.created_at <= @toDate::timestamptz)
+                    )
+                    SELECT hit_type, id, title, forum_id, created_at, author_id, post_id, post_snippet, rank
+                    FROM (SELECT * FROM thread_hits UNION ALL SELECT * FROM post_hits) combined
+                    ORDER BY rank DESC, created_at DESC
+                    LIMIT @pageSize OFFSET @offset
+                """
+                use cmd = new Npgsql.NpgsqlCommand(sql, conn)
+                cmd.Parameters.AddWithValue("q", query) |> ignore
+                cmd.Parameters.AddWithValue("author", if String.IsNullOrWhiteSpace(author) then "" else author) |> ignore
+                cmd.Parameters.AddWithValue("fromDate", if String.IsNullOrWhiteSpace(fromDate) then "" else fromDate) |> ignore
+                cmd.Parameters.AddWithValue("toDate",   if String.IsNullOrWhiteSpace(toDate)   then "" else toDate)   |> ignore
+                let pg = if page < 1 then 1 else page
+                let ps = if pageSize < 1 || pageSize > 50 then 20 else pageSize
+                cmd.Parameters.AddWithValue("pageSize", ps) |> ignore
+                cmd.Parameters.AddWithValue("offset", (pg - 1) * ps) |> ignore
+                use r = cmd.ExecuteReader()
+                let results =
+                    [ while r.Read() do
+                        yield {|
+                            hitType     = r.GetString(0)
+                            threadId    = r.GetGuid(1)
+                            title       = r.GetString(2)
+                            forumId     = r.GetGuid(3)
+                            createdAt   = r.GetDateTime(4)
+                            authorId    = r.GetGuid(5)
+                            postId      = if r.IsDBNull(6) then None else Some(r.GetGuid(6))
+                            postSnippet = if r.IsDBNull(7) then None else Some(r.GetString(7))
+                            rank        = r.GetFloat(8)
+                        |} ]
+                Results.Ok(results) :> IResult)
+    ) |> ignore
+
     // ── Forum: Tags ───────────────────────────────────────────────────────────
 
     app.MapGet(

@@ -688,6 +688,44 @@ let private migrations : (int * string) list =
             ('cleanup_phase_active',   'true')
         ON CONFLICT (key) DO NOTHING;
         """
+
+        22, """
+        -- Full-text search indexes for global forum search
+        ALTER TABLE forum_threads ADD COLUMN IF NOT EXISTS search_vector TSVECTOR;
+        ALTER TABLE forum_posts   ADD COLUMN IF NOT EXISTS search_vector TSVECTOR;
+
+        -- Populate existing data
+        UPDATE forum_threads SET search_vector =
+            to_tsvector('english', coalesce(title,''));
+        UPDATE forum_posts SET search_vector =
+            to_tsvector('english', regexp_replace(coalesce(content,''), '<[^>]+>', '', 'g'));
+
+        -- GIN indexes
+        CREATE INDEX IF NOT EXISTS idx_forum_threads_search ON forum_threads USING GIN(search_vector);
+        CREATE INDEX IF NOT EXISTS idx_forum_posts_search   ON forum_posts   USING GIN(search_vector);
+
+        -- Triggers to keep search_vector up to date
+        CREATE OR REPLACE FUNCTION forum_thread_search_update() RETURNS TRIGGER AS $$
+        BEGIN
+            NEW.search_vector := to_tsvector('english', coalesce(NEW.title,''));
+            RETURN NEW;
+        END; $$ LANGUAGE plpgsql;
+
+        CREATE OR REPLACE FUNCTION forum_post_search_update() RETURNS TRIGGER AS $$
+        BEGIN
+            NEW.search_vector := to_tsvector('english',
+                regexp_replace(coalesce(NEW.content,''), '<[^>]+>', '', 'g'));
+            RETURN NEW;
+        END; $$ LANGUAGE plpgsql;
+
+        DROP TRIGGER IF EXISTS trig_forum_thread_search ON forum_threads;
+        CREATE TRIGGER trig_forum_thread_search BEFORE INSERT OR UPDATE OF title
+            ON forum_threads FOR EACH ROW EXECUTE FUNCTION forum_thread_search_update();
+
+        DROP TRIGGER IF EXISTS trig_forum_post_search ON forum_posts;
+        CREATE TRIGGER trig_forum_post_search BEFORE INSERT OR UPDATE OF content
+            ON forum_posts FOR EACH ROW EXECUTE FUNCTION forum_post_search_update();
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
