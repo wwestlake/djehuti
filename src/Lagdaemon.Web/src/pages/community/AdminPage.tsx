@@ -140,6 +140,8 @@ export default function AdminPage() {
   const [metrics, setMetrics] = useState<SiteMetrics | null>(null)
   const [metricsUser, setMetricsUser] = useState<UserDrilldown | null>(null)
   const [metricsUserLoading, setMetricsUserLoading] = useState(false)
+  const [recomputingAchievements, setRecomputingAchievements] = useState(false)
+  const [recomputeResult, setRecomputeResult] = useState<string | null>(null)
 
   const loadUsers = async (p = usersPage, s = userSearch, r = userFilterRole, st = userFilterStatus) => {
     setLoading(true); setError(null)
@@ -421,6 +423,18 @@ export default function AdminPage() {
 
   const TAB_LABELS: Record<Tab, string> = {
     users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics',
+  }
+
+  const recomputeAchievements = async () => {
+    setRecomputingAchievements(true)
+    setRecomputeResult(null)
+    try {
+      await apiFetch(`${BASE}/api/admin/achievements/recompute`, { method: 'POST' })
+      setRecomputeResult('Recompute complete. Refresh Metrics to see updated badge counts.')
+      const updated = await apiFetch(`${BASE}/api/admin/metrics`)
+      setMetrics(updated)
+    } catch { setRecomputeResult('Recompute failed — check server logs.') }
+    finally { setRecomputingAchievements(false) }
   }
 
   const loadMetricsUser = async (userId: string) => {
@@ -1056,6 +1070,14 @@ export default function AdminPage() {
 
         return (
           <div className="metrics-root">
+            {/* Actions */}
+            <section className="metrics-section" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button className="tiptap-action-btn primary" onClick={recomputeAchievements} disabled={recomputingAchievements}>
+                {recomputingAchievements ? 'Recomputing…' : 'Recompute Achievements'}
+              </button>
+              {recomputeResult && <span style={{ fontSize: '0.85rem', color: recomputeResult.includes('failed') ? 'var(--danger)' : '#6ee7a0' }}>{recomputeResult}</span>}
+            </section>
+
             {/* Summary cards */}
             <section className="metrics-section">
               <h4 className="metrics-section-title">Site Totals</h4>
