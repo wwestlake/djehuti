@@ -154,7 +154,12 @@ export default function AdminPage() {
     topThreads: { threadId: string; title: string; viewCount: number }[]
     referrers: { referrer: string; visits: number }[]
     dailyVisitors: { date: string; count: number }[]
+    countries: { country: string; visitors: number }[]
+    topPages: { path: string; views: number; uniqueVisitors: number }[]
+    recentVisitors: { ipAddress: string; country: string; region: string; city: string; domain: string; referrer: string; path: string; viewedAt: string }[]
   } | null>(null)
+  const [anonRefreshing, setAnonRefreshing] = useState(false)
+  const [anonRefreshMsg, setAnonRefreshMsg] = useState<string | null>(null)
 
   const loadUsers = async (p = usersPage, s = userSearch, r = userFilterRole, st = userFilterStatus) => {
     setLoading(true); setError(null)
@@ -465,6 +470,26 @@ export default function AdminPage() {
       setMetrics(updated)
     } catch { setRecomputeResult('Recompute failed — check server logs.') }
     finally { setRecomputingAchievements(false) }
+  }
+
+  const refreshAnonFromLogs = async () => {
+    setAnonRefreshing(true)
+    setAnonRefreshMsg(null)
+    try {
+      await apiFetch(`${BASE}/api/admin/metrics/anonymous/refresh-logs`, { method: 'POST' })
+      setAnonRefreshMsg('Log scan running — refreshing metrics in 15 seconds…')
+      setTimeout(async () => {
+        try {
+          const data = await apiFetch(`${BASE}/api/admin/metrics/anonymous`)
+          setAnonMetrics(data)
+          setAnonRefreshMsg('Done.')
+        } catch { setAnonRefreshMsg('Scan complete — refresh the page to see results.') }
+        finally { setAnonRefreshing(false) }
+      }, 15000)
+    } catch {
+      setAnonRefreshMsg('Failed to start log scan.')
+      setAnonRefreshing(false)
+    }
   }
 
   const loadMetricsUser = async (userId: string) => {
@@ -1224,7 +1249,15 @@ export default function AdminPage() {
               <SectionHeader id="anon" title="Anonymous Visitor Activity" />
               {!collapsedSections['anon'] && (
                 <>
-                  {!anonMetrics && <div style={{ color: 'var(--text-muted)', padding: '12px 0', fontSize: '0.9rem' }}>No anonymous traffic yet.</div>}
+                  {/* Refresh from logs button */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                    <button className="tiptap-action-btn primary" onClick={refreshAnonFromLogs} disabled={anonRefreshing}>
+                      {anonRefreshing ? 'Scanning logs…' : 'Scan Server Logs (30d)'}
+                    </button>
+                    {anonRefreshMsg && <span style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>{anonRefreshMsg}</span>}
+                  </div>
+
+                  {!anonMetrics && <div style={{ color: 'var(--text-muted)', padding: '12px 0', fontSize: '0.9rem' }}>No anonymous traffic yet. Click Scan Server Logs to import history.</div>}
                   {anonMetrics && (
                     <>
                       <div className="metrics-stat-row" style={{ marginBottom: 16 }}>
@@ -1267,8 +1300,8 @@ export default function AdminPage() {
                         )
                       })()}
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                        {/* Referrer breakdown */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                        {/* Traffic sources */}
                         <div>
                           <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6 }}>Traffic sources (30d)</div>
                           <div className="admin-table-wrap">
@@ -1286,24 +1319,66 @@ export default function AdminPage() {
                           </div>
                         </div>
 
-                        {/* Top viewed threads */}
+                        {/* Countries */}
                         <div>
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6 }}>Top viewed threads (30d)</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6 }}>Countries (30d)</div>
                           <div className="admin-table-wrap">
                             <table className="admin-table">
-                              <thead><tr><th>Thread</th><th>Views</th></tr></thead>
+                              <thead><tr><th>Country</th><th>Visitors</th></tr></thead>
                               <tbody>
-                                {anonMetrics.topThreads.map((t, i) => (
-                                  <tr key={i}><td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</td><td>{t.viewCount.toLocaleString()}</td></tr>
+                                {(anonMetrics.countries ?? []).map(c => (
+                                  <tr key={c.country}><td>{c.country}</td><td>{c.visitors.toLocaleString()}</td></tr>
                                 ))}
-                                {anonMetrics.topThreads.length === 0 && (
-                                  <tr><td colSpan={2} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No thread views yet.</td></tr>
+                                {(anonMetrics.countries ?? []).length === 0 && (
+                                  <tr><td colSpan={2} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No geo data yet — scan logs.</td></tr>
                                 )}
                               </tbody>
                             </table>
                           </div>
                         </div>
                       </div>
+
+                      {/* Top pages */}
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6 }}>Top pages (30d)</div>
+                        <div className="admin-table-wrap">
+                          <table className="admin-table">
+                            <thead><tr><th>Path</th><th>Views</th><th>Unique</th></tr></thead>
+                            <tbody>
+                              {(anonMetrics.topPages ?? []).map((p, i) => (
+                                <tr key={i}><td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{p.path}</td><td>{p.views}</td><td>{p.uniqueVisitors}</td></tr>
+                              ))}
+                              {(anonMetrics.topPages ?? []).length === 0 && (
+                                <tr><td colSpan={3} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No data yet.</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Recent visitors */}
+                      {(anonMetrics.recentVisitors ?? []).length > 0 && (
+                        <div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6 }}>Recent visitors (30d)</div>
+                          <div className="admin-table-wrap">
+                            <table className="admin-table">
+                              <thead><tr><th>IP</th><th>Location</th><th>Domain</th><th>Referrer</th><th>Path</th><th>When</th></tr></thead>
+                              <tbody>
+                                {anonMetrics.recentVisitors.map((v, i) => (
+                                  <tr key={i}>
+                                    <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{v.ipAddress}</td>
+                                    <td style={{ fontSize: '0.8rem' }}>{[v.city, v.region, v.country].filter(Boolean).join(', ') || '—'}</td>
+                                    <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{v.domain || '—'}</td>
+                                    <td style={{ fontSize: '0.75rem', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.referrer || 'Direct'}</td>
+                                    <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{v.path}</td>
+                                    <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{new Date(v.viewedAt).toLocaleString()}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
                     </>
                   )}
                 </>
