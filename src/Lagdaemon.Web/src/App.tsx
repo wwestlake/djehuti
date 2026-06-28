@@ -370,6 +370,38 @@ function PatreonBadge() {
   )
 }
 
+function SpreadTheWord() {
+  const [copied, setCopied] = useState(false)
+  const url = 'https://lagdaemon.com'
+  const text = encodeURIComponent('Lagdaemon — AI research, creative experimentation, and the Djehuti analysis instrument. Worth a look.')
+  const copy = () => {
+    navigator.clipboard.writeText(url)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  return (
+    <section className="spread-section">
+      <div className="spread-inner">
+        <div className="spread-text">
+          <strong>Know someone who should be here?</strong>
+          <span>Share Lagdaemon with researchers, builders, and creative practitioners working at the edge of AI.</span>
+        </div>
+        <div className="spread-actions">
+          <button className="spread-btn" onClick={copy}>
+            {copied ? '✓ Copied' : '🔗 Copy link'}
+          </button>
+          <a className="spread-btn" href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${text}`} target="_blank" rel="noopener noreferrer">
+            Share on 𝕏
+          </a>
+          <a className="spread-btn" href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`} target="_blank" rel="noopener noreferrer">
+            Share on LinkedIn
+          </a>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function Modal({ open, onClose, title, effective, items }: ModalProps) {
   if (!open) return null
   return (
@@ -453,6 +485,7 @@ function AppInner() {
           <PapersSection />
           <About />
           <PatreonBadge />
+          <SpreadTheWord />
           <Footer onPrivacy={() => setPrivacyOpen(true)} onAup={() => setAupOpen(true)} />
         </>
       ) : (
