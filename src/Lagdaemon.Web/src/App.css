@@ -1984,3 +1984,29 @@ footer a:hover { text-decoration: underline; }
 .tier-card { background: linear-gradient(135deg, #1f6feb 0%, #0969da 100%); border-radius: 8px; padding: 16px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .tier-name { font-size: 1.1rem; font-weight: 700; color: #fff; }
 .tier-capacity { font-size: 0.9rem; color: #e8f0fe; }
+
+/* ── Admin Metrics tab ─────────────────────────────────────────────────────── */
+.metrics-root { display: flex; flex-direction: column; gap: 28px; }
+.metrics-section { display: flex; flex-direction: column; gap: 12px; }
+.metrics-section-title { margin: 0; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.metrics-cards-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.metrics-stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; min-width: 120px; flex: 1; }
+.metrics-stat-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px; }
+.metrics-stat-all { font-size: 1.9rem; font-weight: 700; color: var(--accent); line-height: 1; margin-bottom: 4px; }
+.metrics-stat-split { display: flex; gap: 8px; font-size: 0.76rem; }
+.metrics-human { color: #56d364; }
+.metrics-ai    { color: #4fc3f7; }
+.metrics-forum-bars { display: flex; flex-direction: column; gap: 8px; }
+.metrics-forum-row { display: grid; grid-template-columns: 180px 1fr auto; gap: 10px; align-items: center; }
+.metrics-forum-name { font-size: 0.83rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.metrics-bar-track { height: 12px; background: var(--surface); border-radius: 4px; display: flex; overflow: hidden; }
+.metrics-bar-human { background: #56d364; height: 100%; transition: width 0.3s; }
+.metrics-bar-ai    { background: #4fc3f7; height: 100%; transition: width 0.3s; }
+.metrics-forum-counts { display: flex; gap: 5px; font-size: 0.8rem; align-items: center; white-space: nowrap; }
+.metrics-sparkline { display: flex; align-items: flex-end; gap: 3px; height: 80px; overflow-x: auto; padding-bottom: 4px; }
+.metrics-spark-col { display: flex; flex-direction: column; align-items: center; min-width: 14px; height: 100%; }
+.metrics-spark-label { font-size: 0.6rem; color: var(--text-muted); writing-mode: vertical-rl; transform: rotate(180deg); margin-top: 2px; }
+@media (max-width: 700px) {
+  .metrics-forum-row { grid-template-columns: 1fr; }
+  .metrics-cards-row .metrics-stat-card { min-width: 100px; }
+}
