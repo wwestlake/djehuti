@@ -47,6 +47,20 @@
   color-scheme: dark;
 }
 
+[data-theme="solarized"] {
+  --accent: #268bd2;
+  --bg: #fdf6e3;
+  --border: #cac2a8;
+  --danger: #dc322f;
+  --muted: #657b83;
+  --row-active: #eee8d5;
+  --surface: #eee8d5;
+  --surface-muted: #e5dfc7;
+  --text: #073642;
+  --text-strong: #002b36;
+  color-scheme: light;
+}
+
 * {
   box-sizing: border-box;
 }

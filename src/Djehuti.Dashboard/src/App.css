@@ -1557,38 +1557,43 @@ tbody tr.selected {
   border: 1px solid rgba(0,0,0,0.1);
 }
 
-.theme-swatch-light { background: #eef2f5; }
-.theme-swatch-dark  { background: #111827; }
+.theme-swatch-light    { background: #eef2f5; }
+.theme-swatch-dark     { background: #111827; }
 .theme-swatch-midnight { background: #080e1a; }
+.theme-swatch-solarized { background: #fdf6e3; }
 
 .swatch-topbar {
   height: 12px;
 }
-.theme-swatch-light .swatch-topbar { background: #ffffff; border-bottom: 1px solid #ccd6df; }
-.theme-swatch-dark  .swatch-topbar { background: #1e2a38; border-bottom: 1px solid #2d3a47; }
+.theme-swatch-light    .swatch-topbar { background: #ffffff; border-bottom: 1px solid #ccd6df; }
+.theme-swatch-dark     .swatch-topbar { background: #1e2a38; border-bottom: 1px solid #2d3a47; }
 .theme-swatch-midnight .swatch-topbar { background: #0d1826; border-bottom: 1px solid #1e2d44; }
+.theme-swatch-solarized .swatch-topbar { background: #eee8d5; border-bottom: 1px solid #cac2a8; }
 
 .swatch-body { display: flex; flex: 1; height: calc(100% - 12px); }
 
 .swatch-sidebar { width: 30px; }
-.theme-swatch-light .swatch-sidebar { background: #f4f7f9; border-right: 1px solid #ccd6df; }
-.theme-swatch-dark  .swatch-sidebar { background: #18212e; border-right: 1px solid #2d3a47; }
+.theme-swatch-light    .swatch-sidebar { background: #f4f7f9; border-right: 1px solid #ccd6df; }
+.theme-swatch-dark     .swatch-sidebar { background: #18212e; border-right: 1px solid #2d3a47; }
 .theme-swatch-midnight .swatch-sidebar { background: #0a1220; border-right: 1px solid #1e2d44; }
+.theme-swatch-solarized .swatch-sidebar { background: #e5dfc7; border-right: 1px solid #cac2a8; }
 
 .swatch-content { flex: 1; display: flex; flex-direction: column; gap: 6px; padding: 8px; }
 
 .swatch-line { height: 6px; border-radius: 3px; }
-.theme-swatch-light .swatch-line { background: #ccd6df; }
-.theme-swatch-dark  .swatch-line { background: #2d3a47; }
+.theme-swatch-light    .swatch-line { background: #ccd6df; }
+.theme-swatch-dark     .swatch-line { background: #2d3a47; }
 .theme-swatch-midnight .swatch-line { background: #1e2d44; }
+.theme-swatch-solarized .swatch-line { background: #cac2a8; }
 .swatch-line.short { width: 60%; }
 
 .swatch-accent {
   width: 18px; height: 18px; border-radius: 4px; margin-top: auto;
 }
-.theme-swatch-light .swatch-accent { background: #087f8c; }
-.theme-swatch-dark  .swatch-accent { background: #2bb8c8; }
+.theme-swatch-light    .swatch-accent { background: #087f8c; }
+.theme-swatch-dark     .swatch-accent { background: #2bb8c8; }
 .theme-swatch-midnight .swatch-accent { background: #5eead4; }
+.theme-swatch-solarized .swatch-accent { background: #268bd2; }
 
 .settings-grid {
   background: var(--surface);
