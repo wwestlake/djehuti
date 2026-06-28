@@ -3660,6 +3660,25 @@ let main args =
     // ── Patreon: Link Account (Manual Member ID) ─────────────────────────────
 
     app.MapPost(
+        "/api/patreon/tiers",
+        Func<IResult>(fun () -> Results.Ok(PatreonService.getAllTiers()))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/patreon/supporters",
+        Func<IResult>(fun () -> Results.Ok(PatreonService.getSupporters()))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/patreon/user-tiers",
+        Func<HttpContext, IResult>(fun ctx ->
+            let ids = ctx.Request.Query["ids"].ToString().Split(',', System.StringSplitOptions.RemoveEmptyEntries)
+                      |> Array.choose (fun s -> match Guid.TryParse(s) with | true, g -> Some g | _ -> None)
+                      |> Array.toList
+            Results.Ok(PatreonService.getUserTiers ids))
+    ) |> ignore
+
+    app.MapGet(
         "/api/users/patreon/link",
         Func<HttpContext, {| memberId: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
             task {
