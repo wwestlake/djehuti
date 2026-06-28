@@ -355,7 +355,156 @@ Return only the JSON object, no other text.""" payload.TopicHint
                 logger.LogError(ex, "Job {JobId} failed", job.Id)
         }
 
-    // ── Phase 3: Cleanup ────────────────────────────────────────────────────────
+    // ── Phase 3: Patreon reconciliation (runs once per day) ────────────────────
+
+    let patreonCreatorToken () =
+        let v = Environment.GetEnvironmentVariable("PATREON_CREATOR_ACCESS_TOKEN")
+        if String.IsNullOrWhiteSpace v then None else Some v
+
+    let runPatreonReconciliation () =
+        async {
+            try
+                let shouldRun =
+                    use conn = Database.openConnection()
+                    use cmd = new Npgsql.NpgsqlCommand(
+                        "SELECT value FROM heartbeat_config WHERE key = 'patreon_reconcile_last_run'", conn)
+                    match cmd.ExecuteScalar() with
+                    | null | :? DBNull -> true
+                    | v ->
+                        match System.DateTime.TryParse(string v) with
+                        | true, dt -> (DateTime.UtcNow - dt).TotalHours >= 24.0
+                        | _ -> true
+
+                if shouldRun then
+                    match patreonCreatorToken() with
+                    | None ->
+                        logger.LogWarning("PATREON_CREATOR_ACCESS_TOKEN not set — skipping reconciliation")
+                    | Some token ->
+                        use http = new HttpClient()
+                        http.DefaultRequestHeaders.Authorization <- AuthenticationHeaderValue("Bearer", token)
+
+                        // Fetch campaign ID
+                        let! campaignResp = http.GetStringAsync("https://www.patreon.com/api/oauth2/v2/campaigns") |> Async.AwaitTask
+                        let campaignDoc = JsonDocument.Parse(campaignResp)
+                        let campaignId =
+                            campaignDoc.RootElement
+                                .GetProperty("data")
+                                .EnumerateArray()
+                                |> Seq.tryHead
+                                |> Option.map (fun el -> el.GetProperty("id").GetString())
+
+                        match campaignId with
+                        | None ->
+                            logger.LogWarning("Patreon reconciliation: no campaign found")
+                        | Some cid ->
+                            // Fetch all active members (paginated)
+                            let mutable cursor = ""
+                            let mutable allMembers : (string * string option) list = []
+                            let mutable keepGoing = true
+
+                            while keepGoing do
+                                let url =
+                                    let base_ = sprintf "https://www.patreon.com/api/oauth2/v2/campaigns/%s/members?include=currently_entitled_tiers&fields%%5Bmember%%5D=patron_status&page%%5Bcount%%5D=500" cid
+                                    if cursor = "" then base_ else sprintf "%s&page%%5Bcursor%%5D=%s" base_ cursor
+                                let! resp = http.GetStringAsync(url) |> Async.AwaitTask
+                                let doc = JsonDocument.Parse(resp)
+
+                                let page =
+                                    doc.RootElement.GetProperty("data").EnumerateArray()
+                                    |> Seq.choose (fun el ->
+                                        let uuid   = el.GetProperty("id").GetString()
+                                        let status = el.GetProperty("attributes").GetProperty("patron_status").GetString()
+                                        if status = "active_patron" then
+                                            let tierId =
+                                                try
+                                                    el.GetProperty("relationships")
+                                                      .GetProperty("currently_entitled_tiers")
+                                                      .GetProperty("data")
+                                                      .EnumerateArray()
+                                                    |> Seq.tryHead
+                                                    |> Option.map (fun t -> t.GetProperty("id").GetString())
+                                                with _ -> None
+                                            Some (uuid, tierId)
+                                        else None)
+                                    |> Seq.toList
+
+                                allMembers <- allMembers @ page
+
+                                let nextCursor =
+                                    try
+                                        let mutable pagination = Unchecked.defaultof<JsonElement>
+                                        let mutable cursors    = Unchecked.defaultof<JsonElement>
+                                        let mutable next       = Unchecked.defaultof<JsonElement>
+                                        if doc.RootElement.GetProperty("meta").TryGetProperty("pagination", &pagination) &&
+                                           pagination.TryGetProperty("cursors", &cursors) &&
+                                           cursors.TryGetProperty("next", &next) then
+                                            Some (next.GetString())
+                                        else None
+                                    with _ -> None
+
+                                match nextCursor with
+                                | Some c when not (String.IsNullOrEmpty c) -> cursor <- c
+                                | _ -> keepGoing <- false
+
+                            // Reconcile against DB
+                            let activeUuids = allMembers |> List.map fst |> Set.ofList
+                            use conn = Database.openConnection()
+                            use cmd = new Npgsql.NpgsqlCommand(
+                                "SELECT patreon_uuid, patreon_tier_id FROM users WHERE patreon_uuid IS NOT NULL", conn)
+                            use r = cmd.ExecuteReader()
+                            let dbPatrons = [
+                                while r.Read() do
+                                    yield r.GetString(0), if r.IsDBNull(1) then None else Some (r.GetString(1))
+                            ]
+                            r.Close()
+
+                            let mutable demoted = 0
+                            let mutable updated = 0
+
+                            for (dbUuid, dbTier) in dbPatrons do
+                                if not (Set.contains dbUuid activeUuids) then
+                                    use upd = new Npgsql.NpgsqlCommand(
+                                        "UPDATE users SET patreon_tier_id = NULL WHERE patreon_uuid = @uuid", conn)
+                                    upd.Parameters.AddWithValue("uuid", dbUuid) |> ignore
+                                    upd.ExecuteNonQuery() |> ignore
+                                    demoted <- demoted + 1
+                                else
+                                    let apiTierId = allMembers |> List.tryFind (fst >> (=) dbUuid) |> Option.bind snd
+                                    let resolvedTier =
+                                        match apiTierId with
+                                        | None -> None
+                                        | Some pid ->
+                                            use lc = Database.openConnection()
+                                            use lk = new Npgsql.NpgsqlCommand(
+                                                "SELECT tier_id FROM patreon_tiers WHERE patreon_id = @pid", lc)
+                                            lk.Parameters.AddWithValue("pid", pid) |> ignore
+                                            match lk.ExecuteScalar() with
+                                            | null | :? DBNull -> None
+                                            | v -> Some (string v)
+                                    if resolvedTier <> dbTier then
+                                        use upd = new Npgsql.NpgsqlCommand(
+                                            "UPDATE users SET patreon_tier_id = @tier WHERE patreon_uuid = @uuid", conn)
+                                        upd.Parameters.AddWithValue("tier", resolvedTier |> Option.toObj) |> ignore
+                                        upd.Parameters.AddWithValue("uuid", dbUuid) |> ignore
+                                        upd.ExecuteNonQuery() |> ignore
+                                        updated <- updated + 1
+
+                            // Record last run time
+                            use upsert = new Npgsql.NpgsqlCommand("""
+                                INSERT INTO heartbeat_config (key, value) VALUES ('patreon_reconcile_last_run', @v)
+                                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+                            """, conn)
+                            upsert.Parameters.AddWithValue("v", DateTime.UtcNow.ToString("O")) |> ignore
+                            upsert.ExecuteNonQuery() |> ignore
+
+                            logger.LogInformation(
+                                "Patreon reconciliation: {Active} active patrons, {Demoted} demoted, {Updated} tier updates",
+                                allMembers.Length, demoted, updated)
+            with ex ->
+                logger.LogError(ex, "Patreon reconciliation error")
+        }
+
+    // ── Phase 4: Cleanup ────────────────────────────────────────────────────────
 
     let runCleanupPhase () =
         async {
@@ -407,6 +556,9 @@ Return only the JSON object, no other text.""" payload.TopicHint
 
                         // Phase 3: Cleanup
                         if cleanupOn then do! runCleanupPhase()
+
+                    // Phase B: Patreon reconciliation (no Anthropic key needed, runs daily)
+                    do! runPatreonReconciliation()
 
                     do! System.Threading.Tasks.Task.Delay(TimeSpan.FromMinutes(float intervalMin), ct) |> Async.AwaitTask
                 with
