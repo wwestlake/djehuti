@@ -32,9 +32,6 @@ import SupportersPage from './pages/community/SupportersPage'
 import { blogApi } from './api/blogApi'
 import type { BlogArticle } from './api/blogApi'
 
-import { blogApi } from './api/blogApi'
-import type { BlogArticle } from './api/blogApi'
-
 // ── Nav ───────────────────────────────────────────────────────────────────────
 
 type NavProps = {
@@ -366,7 +363,7 @@ function PatreonBadge() {
             </svg>
             Become a Patron
           </a>
-          <a className="patreon-badge-wall-link" onClick={() => navigate('/supporters')}>View Supporters →</a>
+          <a className="patreon-badge-wall-link" href="/supporters">View Supporters →</a>
         </div>
       </div>
     </section>
