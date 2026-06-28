@@ -3793,6 +3793,18 @@ let main args =
                                                                 None
                                             with _ -> None
 
+                                        // Translate Patreon's numeric tier ID to our internal slug
+                                        let internalTierId : string option =
+                                            match tierId with
+                                            | None -> None
+                                            | Some patreonTierId ->
+                                                use lookupConn = Database.openConnection()
+                                                use lookupCmd = new Npgsql.NpgsqlCommand(
+                                                    "SELECT tier_id FROM patreon_tiers WHERE patreon_id = @pid", lookupConn)
+                                                lookupCmd.Parameters.AddWithValue("pid", patreonTierId) |> ignore
+                                                let result = lookupCmd.ExecuteScalar()
+                                                if result <> null then Some (result :?> string) else None
+
                                         match eventType with
                                         | "members:pledge:create" | "members:pledge:update" ->
                                             use conn = Database.openConnection()
@@ -3801,7 +3813,7 @@ let main args =
                                                 WHERE patreon_uuid = @uuid
                                             """, conn)
                                             cmd.Parameters.AddWithValue("uuid", patreonUuid) |> ignore
-                                            cmd.Parameters.AddWithValue("tier", (match tierId with Some t -> t :> obj | None -> System.DBNull.Value :> obj)) |> ignore
+                                            cmd.Parameters.AddWithValue("tier", (match internalTierId with Some t -> t :> obj | None -> System.DBNull.Value :> obj)) |> ignore
                                             cmd.ExecuteNonQuery() |> ignore
                                             return Results.Ok({| status = "updated" |})
 
