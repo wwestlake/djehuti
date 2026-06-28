@@ -725,19 +725,18 @@ let main args =
 
     // ── Anonymous page-view tracking middleware ──────────────────────────────
     app.Use(fun (ctx: HttpContext) (next: Func<System.Threading.Tasks.Task>) ->
-        System.Threading.Tasks.Task.Run(fun () ->
-            // Only track anonymous GET requests to non-API paths
-            let isAnon = not (ctx.Request.Headers.ContainsKey("Authorization"))
-            let path   = ctx.Request.Path.Value
-            let isPage = ctx.Request.Method = "GET" && not (path.StartsWith("/api/"))
-            if isAnon && isPage then
-                let ip       = ctx.Connection.RemoteIpAddress |> Option.ofObj |> Option.map (fun a -> a.ToString()) |> Option.defaultValue "unknown"
-                let ipBytes  = System.Text.Encoding.UTF8.GetBytes(ip)
-                let hashBytes= System.Security.Cryptography.SHA256.HashData(ipBytes)
-                let ipHash   = System.Convert.ToHexString(hashBytes).ToLowerInvariant()
-                let referrer = ctx.Request.Headers.["Referer"].ToString()
-                MetricsRepository.recordPageView ipHash path referrer
-        ) |> ignore
+        // Capture all values synchronously before yielding — ctx is invalid after next.Invoke()
+        let isAnon = not (ctx.Request.Headers.ContainsKey("Authorization"))
+        let method = ctx.Request.Method
+        let path   = ctx.Request.Path.Value
+        let isPage = method = "GET" && not (path.StartsWith("/api/"))
+        if isAnon && isPage then
+            let ip       = ctx.Connection.RemoteIpAddress |> Option.ofObj |> Option.map (fun a -> a.ToString()) |> Option.defaultValue "unknown"
+            let ipBytes  = System.Text.Encoding.UTF8.GetBytes(ip)
+            let hashBytes= System.Security.Cryptography.SHA256.HashData(ipBytes)
+            let ipHash   = System.Convert.ToHexString(hashBytes).ToLowerInvariant()
+            let referrer = ctx.Request.Headers.["Referer"].ToString()
+            System.Threading.Tasks.Task.Run(fun () -> MetricsRepository.recordPageView ipHash path referrer) |> ignore
         next.Invoke()
     ) |> ignore
 
