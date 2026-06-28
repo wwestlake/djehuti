@@ -1432,6 +1432,10 @@ function App() {
           <span>{analysis ? `${analysis.summary.turnCount} turns loaded` : 'No run loaded'}</span>
           <span>{liveTurns.length > 0 ? `${liveTurns.length} live turns` : 'Live Lab idle'}</span>
         </div>
+        <a href="https://lagdaemon.com" className="back-to-community" title="Back to lagdaemon.com">
+          <ExternalLink size={14} />
+          <span>lagdaemon.com</span>
+        </a>
       </aside>
 
       {isMenuOpen && <button className="menu-backdrop" type="button" onClick={closeMenu} aria-label="Dismiss menu" />}
