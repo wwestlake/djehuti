@@ -140,7 +140,7 @@ let dispatchNotifications () =
         if wantsInApp then
             use conn2 = Djehuti.Api.Database.openConnection ()
             use cmd2 = new Npgsql.NpgsqlCommand("""
-                INSERT INTO notifications (user_id, type, message, link)
+                INSERT INTO notifications (user_id, type, body, link)
                 VALUES (@uid, 'achievement', @msg, '/profile/achievements')
                 ON CONFLICT DO NOTHING
             """, conn2)
