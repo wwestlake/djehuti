@@ -723,23 +723,6 @@ let main args =
 
     app.UseCors() |> ignore
 
-    // ── Anonymous page-view tracking middleware ──────────────────────────────
-    app.Use(fun (ctx: HttpContext) (next: Func<System.Threading.Tasks.Task>) ->
-        // Capture all values synchronously before yielding — ctx is invalid after next.Invoke()
-        let isAnon = not (ctx.Request.Headers.ContainsKey("Authorization"))
-        let method = ctx.Request.Method
-        let path   = ctx.Request.Path.Value
-        let isPage = method = "GET" && not (path.StartsWith("/api/"))
-        if isAnon && isPage then
-            let ip       = ctx.Connection.RemoteIpAddress |> Option.ofObj |> Option.map (fun a -> a.ToString()) |> Option.defaultValue "unknown"
-            let ipBytes  = System.Text.Encoding.UTF8.GetBytes(ip)
-            let hashBytes= System.Security.Cryptography.SHA256.HashData(ipBytes)
-            let ipHash   = System.Convert.ToHexString(hashBytes).ToLowerInvariant()
-            let referrer = ctx.Request.Headers.["Referer"].ToString()
-            System.Threading.Tasks.Task.Run(fun () -> MetricsRepository.recordPageView ipHash path referrer) |> ignore
-        next.Invoke()
-    ) |> ignore
-
     app.MapGet("/api/health", Func<string>(fun () -> "ok")) |> ignore
 
     app.MapGet(
@@ -3857,6 +3840,23 @@ let main args =
     ) |> ignore
 
     // ── Admin: Site Metrics ──────────────────────────────────────────────────
+
+    // ── Anonymous page-view beacon (called by React app on every page load) ────
+    app.MapPost(
+        "/api/track/pageview",
+        Func<HttpContext, IResult>(fun ctx ->
+            try
+                let isAnon = not (ctx.Request.Headers.ContainsKey("Authorization"))
+                let ip       = ctx.Connection.RemoteIpAddress |> Option.ofObj |> Option.map (fun a -> a.ToString()) |> Option.defaultValue "unknown"
+                let ipBytes  = System.Text.Encoding.UTF8.GetBytes(ip)
+                let ipHash   = System.Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(ipBytes)).ToLowerInvariant()
+                let path     = ctx.Request.Query.["path"].ToString()
+                let referrer = ctx.Request.Query.["ref"].ToString()
+                if isAnon then
+                    MetricsRepository.recordPageView ipHash path referrer
+                Results.Ok()
+            with _ -> Results.Ok()))  // always 200 — never fail a page load for analytics
+    |> ignore
 
     app.MapGet(
         "/api/stats",
