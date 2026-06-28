@@ -74,6 +74,12 @@ let private seedAchievements = [
     "early-adopter",    "Early Adopter",         "Joined during the beta period",              "🌱",  "legendary", "special",       500
     "night-owl",        "Night Owl",             "Posted between 2 AM and 5 AM local time",    "🦉",  "bronze",    "special",       10
     "comeback-kid",     "Comeback Kid",          "Returned after 30+ days of inactivity",      "🔄",  "silver",    "special",       25
+    // Djehuti interaction
+    "djehuti-initiate",        "Initiate Contact",   "Posted in a thread where Djehuti responded",             "djehuti-svg", "bronze",    "djehuti", 20
+    "djehuti-prompt-engineer", "Prompt Engineer",    "Made 5 or more posts in a single thread with Djehuti",   "djehuti-svg", "silver",    "djehuti", 50
+    "djehuti-code-collab",     "Code Collaborator",  "Djehuti generated a code block in your thread that received an upvote", "djehuti-svg", "gold", "djehuti", 75
+    "djehuti-deep-diver",      "Deep Diver",         "Elicited a Djehuti response exceeding 1,000 words",      "djehuti-svg", "gold",      "djehuti", 75
+    "djehuti-daily-sync",      "Daily Sync",         "Interacted with Djehuti on 7 or more distinct days",     "djehuti-svg", "platinum",  "djehuti", 100
 ]
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

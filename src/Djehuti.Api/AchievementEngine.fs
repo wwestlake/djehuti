@@ -30,6 +30,61 @@ let private rules : Rule list = [
     { Slug = "forum-architect";  Predicate = fun m -> m.ThreadCount   >= 50  }
 ]
 
+// ── Djehuti-specific badge checks ────────────────────────────────────────────
+
+let private checkDjehutiInteractions (userId: Guid) : string list =
+    use conn = Djehuti.Api.Database.openConnection ()
+    use cmd = new Npgsql.NpgsqlCommand("""
+        WITH user_bot_threads AS (
+            SELECT DISTINCT fp.thread_id
+            FROM forum_posts fp
+            WHERE fp.author_id = @uid AND fp.deleted_at IS NULL
+              AND EXISTS (
+                  SELECT 1 FROM forum_posts bp
+                  JOIN users bu ON bu.id = bp.author_id
+                  WHERE bp.thread_id = fp.thread_id AND bu.is_bot = true AND bp.deleted_at IS NULL
+              )
+        )
+        SELECT
+            (SELECT COUNT(*) FROM user_bot_threads) > 0,
+            EXISTS (
+                SELECT 1 FROM forum_posts fp
+                WHERE fp.author_id = @uid AND fp.deleted_at IS NULL
+                  AND fp.thread_id IN (SELECT thread_id FROM user_bot_threads)
+                GROUP BY fp.thread_id HAVING COUNT(*) >= 5
+            ),
+            EXISTS (
+                SELECT 1 FROM forum_posts bp
+                JOIN users bu ON bu.id = bp.author_id
+                WHERE bu.is_bot = true AND bp.deleted_at IS NULL
+                  AND bp.thread_id IN (SELECT thread_id FROM user_bot_threads)
+                  AND (bp.content ILIKE '%<pre%' OR bp.content ILIKE '%<code%')
+                  AND bp.vote_count > 0
+            ),
+            EXISTS (
+                SELECT 1 FROM forum_posts bp
+                JOIN users bu ON bu.id = bp.author_id
+                WHERE bu.is_bot = true AND bp.deleted_at IS NULL
+                  AND bp.thread_id IN (SELECT thread_id FROM user_bot_threads)
+                  AND LENGTH(bp.content) > 5000
+            ),
+            (
+                SELECT COUNT(DISTINCT DATE(fp.created_at))
+                FROM forum_posts fp
+                WHERE fp.author_id = @uid AND fp.deleted_at IS NULL
+                  AND fp.thread_id IN (SELECT thread_id FROM user_bot_threads)
+            ) >= 7
+    """, conn)
+    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+    use r = cmd.ExecuteReader()
+    if r.Read() then
+        [ if r.GetBoolean(0) then yield "djehuti-initiate"
+          if r.GetBoolean(1) then yield "djehuti-prompt-engineer"
+          if r.GetBoolean(2) then yield "djehuti-code-collab"
+          if r.GetBoolean(3) then yield "djehuti-deep-diver"
+          if r.GetBoolean(4) then yield "djehuti-daily-sync" ]
+    else []
+
 // ── Per-user pass ─────────────────────────────────────────────────────────────
 
 let private processUser (userId: Guid) =
@@ -39,6 +94,11 @@ let private processUser (userId: Guid) =
     for rule in rules do
         if not (Set.contains rule.Slug existing) && rule.Predicate metrics then
             match getAchievementBySlug rule.Slug with
+            | Some a -> awardAchievement userId a.Id |> ignore
+            | None   -> ()
+    for slug in checkDjehutiInteractions userId do
+        if not (Set.contains slug existing) then
+            match getAchievementBySlug slug with
             | Some a -> awardAchievement userId a.Id |> ignore
             | None   -> ()
 
