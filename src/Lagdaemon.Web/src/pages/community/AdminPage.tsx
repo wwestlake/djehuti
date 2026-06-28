@@ -1167,49 +1167,45 @@ export default function AdminPage() {
               )}
             </section>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-              {/* Top humans */}
-              <section className="metrics-section">
-                <SectionHeader id="humans" title="Top Human Members" />
-                {!collapsedSections['humans'] && (
-                  <div className="admin-table-wrap" style={{ marginTop: 12 }}>
-                    <table className="admin-table">
-                      <thead><tr><th>Name</th><th>Posts</th><th>Threads</th><th>Votes</th><th>Badges</th></tr></thead>
-                      <tbody>
-                        {topHumans.map(u => (
-                          <tr key={u.userId} style={{ cursor: 'pointer' }} onClick={() => loadMetricsUser(u.userId)}>
-                            <td><button className="admin-email-btn">{u.displayName}</button></td>
-                            <td>{u.posts}</td><td>{u.threads}</td><td>{u.votesReceived}</td><td>{u.achievements}</td>
-                          </tr>
-                        ))}
-                        {topHumans.length === 0 && <tr><td colSpan={5} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No human users yet.</td></tr>}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
+            <section className="metrics-section">
+              <SectionHeader id="humans" title="Top Human Members" />
+              {!collapsedSections['humans'] && (
+                <div className="admin-table-wrap" style={{ marginTop: 12 }}>
+                  <table className="admin-table">
+                    <thead><tr><th>Name</th><th>Posts</th><th>Threads</th><th>Votes</th><th>Badges</th></tr></thead>
+                    <tbody>
+                      {topHumans.map(u => (
+                        <tr key={u.userId} style={{ cursor: 'pointer' }} onClick={() => loadMetricsUser(u.userId)}>
+                          <td><button className="admin-email-btn">{u.displayName}</button></td>
+                          <td>{u.posts}</td><td>{u.threads}</td><td>{u.votesReceived}</td><td>{u.achievements}</td>
+                        </tr>
+                      ))}
+                      {topHumans.length === 0 && <tr><td colSpan={5} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No human users yet.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
 
-              {/* Top bots */}
-              <section className="metrics-section">
-                <SectionHeader id="bots" title="AI Persona Activity" />
-                {!collapsedSections['bots'] && (
-                  <div className="admin-table-wrap" style={{ marginTop: 12 }}>
-                    <table className="admin-table">
-                      <thead><tr><th>Persona</th><th>Posts</th><th>Threads</th></tr></thead>
-                      <tbody>
-                        {topBots.map(u => (
-                          <tr key={u.userId} style={{ cursor: 'pointer' }} onClick={() => loadMetricsUser(u.userId)}>
-                            <td><button className="admin-email-btn">{u.displayName}</button></td>
-                            <td>{u.posts}</td><td>{u.threads}</td>
-                          </tr>
-                        ))}
-                        {topBots.length === 0 && <tr><td colSpan={3} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No AI personas yet.</td></tr>}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-            </div>
+            <section className="metrics-section">
+              <SectionHeader id="bots" title="AI Persona Activity" />
+              {!collapsedSections['bots'] && (
+                <div className="admin-table-wrap" style={{ marginTop: 12 }}>
+                  <table className="admin-table">
+                    <thead><tr><th>Persona</th><th>Posts</th><th>Threads</th></tr></thead>
+                    <tbody>
+                      {topBots.map(u => (
+                        <tr key={u.userId} style={{ cursor: 'pointer' }} onClick={() => loadMetricsUser(u.userId)}>
+                          <td><button className="admin-email-btn">{u.displayName}</button></td>
+                          <td>{u.posts}</td><td>{u.threads}</td>
+                        </tr>
+                      ))}
+                      {topBots.length === 0 && <tr><td colSpan={3} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No AI personas yet.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
 
             {/* Timeseries modal */}
             {timeseriesMetric && (
