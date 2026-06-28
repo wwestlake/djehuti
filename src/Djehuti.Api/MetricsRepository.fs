@@ -99,7 +99,7 @@ let getSiteMetrics () =
             COUNT(*) FILTER (WHERE NOT u.is_bot)::int,
             COUNT(*) FILTER (WHERE u.is_bot)::int,
             COUNT(*)::int
-        FROM forum_threads ft JOIN users u ON u.id = ft.author_id WHERE ft.deleted_at IS NULL
+        FROM forum_threads ft JOIN users u ON u.id = ft.author_id
     """, conn)
     use r3 = cmd3.ExecuteReader()
     let humanThreads, aiThreads, allThreads =
@@ -141,8 +141,8 @@ let getSiteMetrics () =
             COUNT(DISTINCT ft.id)::int                             AS threads_all,
             COUNT(DISTINCT ft.id) FILTER (WHERE NOT u2.is_bot)::int AS threads_human,
             COUNT(DISTINCT ft.id) FILTER (WHERE u2.is_bot)::int    AS threads_ai
-        FROM forums f
-        LEFT JOIN forum_threads ft ON ft.forum_id = f.id AND ft.deleted_at IS NULL
+        FROM forum_forums f
+        LEFT JOIN forum_threads ft ON ft.forum_id = f.id
         LEFT JOIN users u2 ON u2.id = ft.author_id
         LEFT JOIN forum_posts fp ON fp.thread_id = ft.id AND fp.deleted_at IS NULL
         LEFT JOIN users u ON u.id = fp.author_id
@@ -242,10 +242,10 @@ let getUserDrilldown (userId: Guid) =
     use cmd = new NpgsqlCommand("""
         SELECT u.id, COALESCE(u.display_name,'Anonymous'), u.is_bot, u.email,
                COALESCE(m.post_count,0), COALESCE(m.thread_count,0),
-               COALESCE(m.vote_received,0), COALESCE(m.vote_given,0),
+               COALESCE(m.vote_received,0), 0,
                COALESCE(m.reaction_count,0), COALESCE(m.answer_count,0),
                COALESCE(m.login_streak,0), COALESCE(m.days_active,0),
-               COALESCE(m.last_active_at::text,'')
+               COALESCE(m.last_active_day::text,'')
         FROM users u LEFT JOIN user_metrics m ON m.user_id = u.id
         WHERE u.id = @uid
     """, conn)
