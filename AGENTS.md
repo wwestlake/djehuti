@@ -47,6 +47,12 @@ Use plain, precise language. Avoid slang and informal shorthand. The user has a 
 
 **Always include clickable PR links** — When creating a pull request, always provide the full GitHub URL link in the format `https://github.com/wwestlake/djehuti/pull/{number}`. Make it easy for the user to open and review.
 
+## Session Startup
+
+**At the start of every session, read `AGENTS.md` before doing any work.** If the user has not already prompted this, ask them to say "read agents.md" or read it proactively. Do not rely on memory files alone — this file is the authoritative source of project rules and overrides any remembered behavior from prior sessions.
+
+---
+
 ## Writing Rules
 
 When the user states a new rule or preference, add it to this file (`AGENTS.md`) immediately — in the same response, before moving on. Do not rely solely on memory files. This file is the authoritative source of project-level rules for all agents.
