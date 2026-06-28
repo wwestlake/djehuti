@@ -401,6 +401,59 @@ let getAnonymousMetrics () =
     ]
     r6.Close()
 
+    // Country breakdown last 30 days
+    use cmd7 = new NpgsqlCommand("""
+        SELECT country, COUNT(DISTINCT ip_hash)::int AS visitors
+        FROM anonymous_page_views
+        WHERE viewed_at >= now() - interval '30 days' AND country != ''
+        GROUP BY country ORDER BY visitors DESC LIMIT 15
+    """, conn)
+    use r7 = cmd7.ExecuteReader()
+    let countries = [
+        while r7.Read() do
+            yield {| Country = r7.GetString(0); Visitors = r7.GetInt32(1) |}
+    ]
+    r7.Close()
+
+    // Top pages last 30 days
+    use cmd8 = new NpgsqlCommand("""
+        SELECT path, COUNT(*)::int AS views, COUNT(DISTINCT ip_hash)::int AS uniq
+        FROM anonymous_page_views
+        WHERE viewed_at >= now() - interval '30 days'
+        GROUP BY path ORDER BY views DESC LIMIT 10
+    """, conn)
+    use r8 = cmd8.ExecuteReader()
+    let topPages = [
+        while r8.Read() do
+            yield {| Path = r8.GetString(0); Views = r8.GetInt32(1); UniqueVisitors = r8.GetInt32(2) |}
+    ]
+    r8.Close()
+
+    // Recent visitors (last 50, with geo)
+    use cmd9 = new NpgsqlCommand("""
+        SELECT DISTINCT ON (ip_hash)
+            ip_address, country, region, city, domain, referrer, path, viewed_at::text
+        FROM anonymous_page_views
+        WHERE viewed_at >= now() - interval '30 days'
+        ORDER BY ip_hash, viewed_at DESC
+        LIMIT 50
+    """, conn)
+    use r9 = cmd9.ExecuteReader()
+    let recentVisitors = [
+        while r9.Read() do
+            yield {|
+                IpAddress = r9.GetString(0)
+                Country   = r9.GetString(1)
+                Region    = r9.GetString(2)
+                City      = r9.GetString(3)
+                Domain    = r9.GetString(4)
+                Referrer  = r9.GetString(5)
+                Path      = r9.GetString(6)
+                ViewedAt  = r9.GetString(7)
+            |}
+    ]
+    r9.Close()
+
     {|
         UniqueVisitors30d     = uniqueVisitors30d
         UniqueVisitorsAllTime = uniqueVisitorsAllTime
@@ -409,6 +462,9 @@ let getAnonymousMetrics () =
         TopThreads            = topThreads
         Referrers             = referrers
         DailyVisitors         = dailyVisitors
+        Countries             = countries
+        TopPages              = topPages
+        RecentVisitors        = recentVisitors
     |}
 
 let getUserDrilldown (userId: Guid) =
