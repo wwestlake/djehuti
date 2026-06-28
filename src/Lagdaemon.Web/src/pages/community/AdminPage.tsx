@@ -20,7 +20,25 @@ interface Announcement {
   createdAt: string; updatedAt: string
 }
 
-type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'personas' | 'heartbeat'
+type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'personas' | 'heartbeat' | 'metrics'
+
+interface MetricsCounts { users: number; posts: number; threads: number; articles: number; votesGiven: number; reactions: number; achievements: number }
+interface ForumActivityRow { forumId: string; forumName: string; postsAll: number; postsHuman: number; postsAi: number; threadsAll: number; threadsHuman: number; threadsAi: number }
+interface DailyActivityRow { date: string; postsHuman: number; postsAi: number }
+interface TopUserRow { userId: string; displayName: string; isBot: boolean; posts: number; threads: number; votesReceived: number; achievements: number; loginStreak: number; daysActive: number }
+interface SiteMetrics {
+  totals: { all: MetricsCounts; human: MetricsCounts; ai: MetricsCounts }
+  forumActivity: ForumActivityRow[]
+  dailyActivity: DailyActivityRow[]
+  topHumans: TopUserRow[]
+  topBots: TopUserRow[]
+}
+interface UserDrilldown {
+  userId: string; displayName: string; isBot: boolean; email: string
+  postCount: number; threadCount: number; voteReceived: number; voteGiven: number
+  reactionCount: number; answerCount: number; loginStreak: number; daysActive: number; lastActiveAt: string
+  achievements: { slug: string; name: string; icon: string; tier: string; awardedAt: string }[]
+}
 
 interface AiPersona {
   id: string; name: string; slug: string; avatarUrl: string | null; systemPrompt: string
@@ -118,6 +136,11 @@ export default function AdminPage() {
   const [hbSaving, setHbSaving] = useState(false)
   const [hbTriggering, setHbTriggering] = useState(false)
 
+  // Metrics
+  const [metrics, setMetrics] = useState<SiteMetrics | null>(null)
+  const [metricsUser, setMetricsUser] = useState<UserDrilldown | null>(null)
+  const [metricsUserLoading, setMetricsUserLoading] = useState(false)
+
   const loadUsers = async (p = usersPage, s = userSearch, r = userFilterRole, st = userFilterStatus) => {
     setLoading(true); setError(null)
     try {
@@ -168,6 +191,7 @@ export default function AdminPage() {
         setHbConfig(cfg)
         setHbConfigEdit({ ...cfg })
       },
+      metrics: () => apiFetch(`${BASE}/api/admin/metrics`).then(setMetrics),
     }
     loaders[tab]().catch(() => setError('Failed to load data')).finally(() => setLoading(false))
   }, [tab, user])
@@ -396,7 +420,14 @@ export default function AdminPage() {
   if (!user || user.role !== 'admin') return <p className="forum-login-prompt">Admin access required.</p>
 
   const TAB_LABELS: Record<Tab, string> = {
-    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', personas: 'AI Personas', heartbeat: 'Heartbeat',
+    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics',
+  }
+
+  const loadMetricsUser = async (userId: string) => {
+    setMetricsUserLoading(true)
+    try { setMetricsUser(await apiFetch(`${BASE}/api/admin/metrics/user/${userId}`)) }
+    catch { setMetricsUser(null) }
+    finally { setMetricsUserLoading(false) }
   }
 
   const savePersona = async (e: React.FormEvent) => {
@@ -1003,6 +1034,185 @@ export default function AdminPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Metrics ── */}
+      {tab === 'metrics' && !loading && metrics && (() => {
+        const { totals, forumActivity, dailyActivity, topHumans, topBots } = metrics
+        const maxPosts = Math.max(...forumActivity.map(f => f.postsAll), 1)
+        const maxDay   = Math.max(...dailyActivity.map(d => d.postsHuman + d.postsAi), 1)
+        const TIER_COLOR: Record<string, string> = { bronze: '#cd7f32', silver: '#a0a0a0', gold: '#ffd700', platinum: '#00ccdd', legendary: '#c084fc', 'djehuti-svg': '#4fc3f7' }
+
+        const StatCard = ({ label, all, human, ai }: { label: string; all: number; human: number; ai: number }) => (
+          <div className="metrics-stat-card">
+            <div className="metrics-stat-label">{label}</div>
+            <div className="metrics-stat-all">{all.toLocaleString()}</div>
+            <div className="metrics-stat-split">
+              <span className="metrics-human">{human.toLocaleString()} human</span>
+              <span className="metrics-ai">{ai.toLocaleString()} AI</span>
+            </div>
+          </div>
+        )
+
+        return (
+          <div className="metrics-root">
+            {/* Summary cards */}
+            <section className="metrics-section">
+              <h4 className="metrics-section-title">Site Totals</h4>
+              <div className="metrics-cards-row">
+                <StatCard label="Users"    all={totals.all.users}    human={totals.human.users}    ai={totals.ai.users} />
+                <StatCard label="Posts"    all={totals.all.posts}    human={totals.human.posts}    ai={totals.ai.posts} />
+                <StatCard label="Threads"  all={totals.all.threads}  human={totals.human.threads}  ai={totals.ai.threads} />
+                <StatCard label="Articles" all={totals.all.articles} human={totals.human.articles} ai={0} />
+                <StatCard label="Upvotes"  all={totals.all.votesGiven} human={0} ai={0} />
+                <StatCard label="Badges"   all={totals.all.achievements} human={0} ai={0} />
+              </div>
+            </section>
+
+            {/* Forum breakdown */}
+            <section className="metrics-section">
+              <h4 className="metrics-section-title">Posts by Forum</h4>
+              <div className="metrics-forum-bars">
+                {forumActivity.map(f => (
+                  <div key={f.forumId} className="metrics-forum-row">
+                    <div className="metrics-forum-name" title={f.forumName}>{f.forumName}</div>
+                    <div className="metrics-bar-track">
+                      <div className="metrics-bar-human" style={{ width: `${(f.postsHuman / maxPosts) * 100}%` }} title={`${f.postsHuman} human`} />
+                      <div className="metrics-bar-ai"    style={{ width: `${(f.postsAi    / maxPosts) * 100}%` }} title={`${f.postsAi} AI`} />
+                    </div>
+                    <div className="metrics-forum-counts">
+                      <span className="metrics-human">{f.postsHuman}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>/</span>
+                      <span className="metrics-ai">{f.postsAi}</span>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>({f.postsAll} total)</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* 30-day activity */}
+            <section className="metrics-section">
+              <h4 className="metrics-section-title">30-Day Activity</h4>
+              <div className="metrics-sparkline">
+                {dailyActivity.map(d => {
+                  const total = d.postsHuman + d.postsAi
+                  const h = Math.round((total / maxDay) * 60)
+                  const hH = Math.round((d.postsHuman / maxDay) * 60)
+                  return (
+                    <div key={d.date} className="metrics-spark-col" title={`${d.date}: ${d.postsHuman} human, ${d.postsAi} AI`}>
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: 1 }}>
+                        <div className="metrics-bar-human" style={{ height: hH, width: 6 }} />
+                        <div className="metrics-bar-ai"    style={{ height: h - hH, width: 6 }} />
+                      </div>
+                      <div className="metrics-spark-label">{d.date.slice(5)}</div>
+                    </div>
+                  )
+                })}
+                {dailyActivity.length === 0 && <p style={{ color: 'var(--text-muted)' }}>No post activity in the last 30 days.</p>}
+              </div>
+            </section>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+              {/* Top humans */}
+              <section className="metrics-section">
+                <h4 className="metrics-section-title">Top Human Members</h4>
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead><tr><th>Name</th><th>Posts</th><th>Threads</th><th>Votes</th><th>Badges</th></tr></thead>
+                    <tbody>
+                      {topHumans.map(u => (
+                        <tr key={u.userId} style={{ cursor: 'pointer' }} onClick={() => loadMetricsUser(u.userId)}>
+                          <td><button className="admin-email-btn">{u.displayName}</button></td>
+                          <td>{u.posts}</td>
+                          <td>{u.threads}</td>
+                          <td>{u.votesReceived}</td>
+                          <td>{u.achievements}</td>
+                        </tr>
+                      ))}
+                      {topHumans.length === 0 && <tr><td colSpan={5} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No human users yet.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              {/* Top bots */}
+              <section className="metrics-section">
+                <h4 className="metrics-section-title">AI Persona Activity</h4>
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead><tr><th>Persona</th><th>Posts</th><th>Threads</th></tr></thead>
+                    <tbody>
+                      {topBots.map(u => (
+                        <tr key={u.userId} style={{ cursor: 'pointer' }} onClick={() => loadMetricsUser(u.userId)}>
+                          <td><button className="admin-email-btn">{u.displayName}</button></td>
+                          <td>{u.posts}</td>
+                          <td>{u.threads}</td>
+                        </tr>
+                      ))}
+                      {topBots.length === 0 && <tr><td colSpan={3} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No AI personas yet.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+
+            {/* User drilldown modal */}
+            {(metricsUser || metricsUserLoading) && (
+              <div className="admin-modal-backdrop" onClick={() => setMetricsUser(null)}>
+                <div className="admin-modal" style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()}>
+                  <div className="admin-modal-header">
+                    <h3 style={{ margin: 0 }}>{metricsUser?.displayName ?? 'Loading…'}</h3>
+                    <button className="admin-modal-close" onClick={() => setMetricsUser(null)}>✕</button>
+                  </div>
+                  {metricsUserLoading && <div className="forum-loading">Loading…</div>}
+                  {metricsUser && !metricsUserLoading && (
+                    <>
+                      <p style={{ margin: '0 0 12px', color: 'var(--text-muted)', fontSize: '0.83rem' }}>
+                        {metricsUser.isBot ? 'AI persona' : metricsUser.email}
+                        {metricsUser.lastActiveAt && ` · last active ${new Date(metricsUser.lastActiveAt).toLocaleDateString()}`}
+                      </p>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 18 }}>
+                        {([
+                          ['Posts',     metricsUser.postCount],
+                          ['Threads',   metricsUser.threadCount],
+                          ['Votes in',  metricsUser.voteReceived],
+                          ['Votes out', metricsUser.voteGiven],
+                          ['Reactions', metricsUser.reactionCount],
+                          ['Answers',   metricsUser.answerCount],
+                          ['Streak',    metricsUser.loginStreak],
+                          ['Days',      metricsUser.daysActive],
+                        ] as [string, number][]).map(([lbl, val]) => (
+                          <div key={lbl} style={{ background: 'var(--surface)', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--accent)' }}>{val}</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{lbl}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {metricsUser.achievements.length > 0 && (
+                        <>
+                          <h5 style={{ margin: '0 0 8px', color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Achievements</h5>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            {metricsUser.achievements.map(a => (
+                              <div key={a.slug} title={`${a.name} — ${new Date(a.awardedAt).toLocaleDateString()}`}
+                                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--surface)', borderRadius: 6, padding: '5px 9px', fontSize: '0.8rem', border: `1px solid ${TIER_COLOR[a.tier] ?? '#555'}` }}>
+                                <span>{a.icon}</span>
+                                <span style={{ color: TIER_COLOR[a.tier] ?? 'var(--text-muted)' }}>{a.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
+      {tab === 'metrics' && !loading && !metrics && !error && (
+        <p className="forum-empty">No metrics data available.</p>
       )}
 
       {/* ── Edit User Modal ── */}
