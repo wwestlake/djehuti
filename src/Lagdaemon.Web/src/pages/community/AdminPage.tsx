@@ -146,6 +146,15 @@ export default function AdminPage() {
   const [timeseriesMetric, setTimeseriesMetric] = useState<string | null>(null)
   const [timeseriesData, setTimeseriesData] = useState<{ date: string; count: number }[]>([])
   const [timeseriesLoading, setTimeseriesLoading] = useState(false)
+  const [anonMetrics, setAnonMetrics] = useState<{
+    uniqueVisitors30d: number
+    uniqueVisitorsAllTime: number
+    conversions30d: number
+    conversionRatePct: number
+    topThreads: { threadId: string; title: string; viewCount: number }[]
+    referrers: { referrer: string; visits: number }[]
+    dailyVisitors: { date: string; count: number }[]
+  } | null>(null)
 
   const loadUsers = async (p = usersPage, s = userSearch, r = userFilterRole, st = userFilterStatus) => {
     setLoading(true); setError(null)
@@ -197,7 +206,10 @@ export default function AdminPage() {
         setHbConfig(cfg)
         setHbConfigEdit({ ...cfg })
       },
-      metrics: () => apiFetch(`${BASE}/api/admin/metrics`).then(setMetrics),
+      metrics: () => Promise.all([
+        apiFetch(`${BASE}/api/admin/metrics`).then(setMetrics),
+        apiFetch(`${BASE}/api/admin/metrics/anonymous`).then(setAnonMetrics).catch(() => {}),
+      ]).then(() => {}),
     }
     loaders[tab]().catch(() => setError('Failed to load data')).finally(() => setLoading(false))
   }, [tab, user])
@@ -1204,6 +1216,97 @@ export default function AdminPage() {
                     </tbody>
                   </table>
                 </div>
+              )}
+            </section>
+
+            {/* Anonymous Activity */}
+            <section className="metrics-section">
+              <SectionHeader id="anon" title="Anonymous Visitor Activity" />
+              {!collapsedSections['anon'] && (
+                <>
+                  {!anonMetrics && <div className="forum-loading">Loading anonymous metrics…</div>}
+                  {anonMetrics && (
+                    <>
+                      <div className="metrics-stat-row" style={{ marginBottom: 16 }}>
+                        {[
+                          ['Unique Visitors (30d)', anonMetrics.uniqueVisitors30d],
+                          ['Unique Visitors (all time)', anonMetrics.uniqueVisitorsAllTime],
+                          ['Registrations (30d)', anonMetrics.conversions30d],
+                          ['Conversion Rate', `${anonMetrics.conversionRatePct.toFixed(1)}%`],
+                        ].map(([label, value]) => (
+                          <div key={String(label)} className="metrics-stat-card-btn" style={{ cursor: 'default' }}>
+                            <div className="metrics-stat-value">{String(value)}</div>
+                            <div className="metrics-stat-label">{String(label)}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Daily visitors chart */}
+                      {anonMetrics.dailyVisitors.length > 0 && (() => {
+                        const maxV = Math.max(...anonMetrics.dailyVisitors.map(d => d.count), 1)
+                        const BAR_H = 100
+                        return (
+                          <div style={{ marginBottom: 20 }}>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6 }}>Daily unique visitors — last 30 days</div>
+                            <div style={{ overflowX: 'auto' }}>
+                              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, minWidth: anonMetrics.dailyVisitors.length * 20, height: BAR_H + 28, paddingTop: 4 }}>
+                                {anonMetrics.dailyVisitors.map(d => {
+                                  const h = Math.max(2, Math.round((d.count / maxV) * BAR_H))
+                                  return (
+                                    <div key={d.date} title={`${d.date}: ${d.count}`}
+                                      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, flex: '1 0 16px' }}>
+                                      <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', opacity: d.count > 0 ? 1 : 0 }}>{d.count}</span>
+                                      <div style={{ width: '100%', minWidth: 8, height: h, background: '#7c6af7', borderRadius: '3px 3px 0 0', opacity: 0.85 }} />
+                                      <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>{d.date.slice(5)}</span>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })()}
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                        {/* Referrer breakdown */}
+                        <div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6 }}>Traffic sources (30d)</div>
+                          <div className="admin-table-wrap">
+                            <table className="admin-table">
+                              <thead><tr><th>Source</th><th>Visits</th></tr></thead>
+                              <tbody>
+                                {anonMetrics.referrers.map(r => (
+                                  <tr key={r.referrer}><td>{r.referrer}</td><td>{r.visits.toLocaleString()}</td></tr>
+                                ))}
+                                {anonMetrics.referrers.length === 0 && (
+                                  <tr><td colSpan={2} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No data yet.</td></tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        {/* Top viewed threads */}
+                        <div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6 }}>Top viewed threads (30d)</div>
+                          <div className="admin-table-wrap">
+                            <table className="admin-table">
+                              <thead><tr><th>Thread</th><th>Views</th></tr></thead>
+                              <tbody>
+                                {anonMetrics.topThreads.map((t, i) => (
+                                  <tr key={i}><td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</td><td>{t.viewCount.toLocaleString()}</td></tr>
+                                ))}
+                                {anonMetrics.topThreads.length === 0 && (
+                                  <tr><td colSpan={2} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No thread views yet.</td></tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </>
               )}
             </section>
 
