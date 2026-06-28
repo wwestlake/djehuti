@@ -838,7 +838,10 @@ let main args =
                             match newUser with
                             | Some user ->
                                 // Record conversion for anonymous visitor tracking
-                                let ip      = ctx.Connection.RemoteIpAddress |> Option.ofObj |> Option.map (fun a -> a.ToString()) |> Option.defaultValue "unknown"
+                                let ip =
+                                    match ctx.Request.Headers.TryGetValue("X-Real-IP") with
+                                    | true, v when v.Count > 0 -> v.[0]
+                                    | _ -> ctx.Connection.RemoteIpAddress |> Option.ofObj |> Option.map (fun a -> a.ToString()) |> Option.defaultValue "unknown"
                                 let ipBytes = System.Text.Encoding.UTF8.GetBytes(ip)
                                 let ipHash  = System.Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(ipBytes)).ToLowerInvariant()
                                 MetricsRepository.recordConversion ipHash user.Id
@@ -3847,7 +3850,11 @@ let main args =
         Func<HttpContext, IResult>(fun ctx ->
             try
                 let isAnon = not (ctx.Request.Headers.ContainsKey("Authorization"))
-                let ip       = ctx.Connection.RemoteIpAddress |> Option.ofObj |> Option.map (fun a -> a.ToString()) |> Option.defaultValue "unknown"
+                // Use X-Real-IP from nginx; fall back to socket address
+                let ip =
+                    match ctx.Request.Headers.TryGetValue("X-Real-IP") with
+                    | true, v when v.Count > 0 -> v.[0]
+                    | _ -> ctx.Connection.RemoteIpAddress |> Option.ofObj |> Option.map (fun a -> a.ToString()) |> Option.defaultValue "unknown"
                 let ipBytes  = System.Text.Encoding.UTF8.GetBytes(ip)
                 let ipHash   = System.Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(ipBytes)).ToLowerInvariant()
                 let path     = ctx.Request.Query.["path"].ToString()
