@@ -491,6 +491,14 @@ function AppInner() {
   const navigate = useNavigate()
   const isHome = location.pathname === '/'
 
+  // Anonymous page-view beacon — fires on every route change for non-logged-in visitors
+  const { user } = useAuth()
+  useEffect(() => {
+    if (user) return  // only track anonymous
+    const params = new URLSearchParams({ path: location.pathname, ref: document.referrer })
+    fetch(`/djehuti/api/track/pageview?${params}`, { method: 'POST' }).catch(() => {})
+  }, [location.pathname, user])
+
   const [privacyOpen, setPrivacyOpen] = useState(false)
   const [aupOpen, setAupOpen] = useState(false)
   const [showLogin, setShowLogin] = useState(false)
