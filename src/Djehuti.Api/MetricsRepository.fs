@@ -271,6 +271,146 @@ let getMetricTimeSeries (metric: string) : DailyActivityRow list =
     [ while r.Read() do
         yield { Date = r.GetString(0); PostsHuman = r.GetInt32(1); PostsAi = r.GetInt32(2) } ]
 
+// ── Anonymous visitor tracking ────────────────────────────────────────────────
+
+let recordPageView (ipHash: string) (path: string) (referrer: string) =
+    try
+        use conn = Database.openConnection ()
+        use cmd = new NpgsqlCommand("""
+            INSERT INTO anonymous_page_views (ip_hash, path, referrer)
+            VALUES (@ip, @path, @ref)
+        """, conn)
+        cmd.Parameters.AddWithValue("ip",   ipHash)   |> ignore
+        cmd.Parameters.AddWithValue("path", path)     |> ignore
+        cmd.Parameters.AddWithValue("ref",  referrer) |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+    with _ -> ()  // best-effort; never crash a request over analytics
+
+let recordConversion (ipHash: string) (userId: Guid) =
+    try
+        use conn = Database.openConnection ()
+        use cmd = new NpgsqlCommand("""
+            INSERT INTO anonymous_conversions (ip_hash, user_id)
+            VALUES (@ip, @uid)
+            ON CONFLICT DO NOTHING
+        """, conn)
+        cmd.Parameters.AddWithValue("ip",  ipHash) |> ignore
+        cmd.Parameters.AddWithValue("uid", userId) |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+    with _ -> ()
+
+[<CLIMutable>]
+type TopThreadViewRow = { ThreadId: Guid; Title: string; ViewCount: int }
+
+[<CLIMutable>]
+type ReferrerRow = { Referrer: string; Visits: int }
+
+let getAnonymousMetrics () =
+    use conn = Database.openConnection ()
+
+    // Unique anonymous visitors last 30 days
+    use cmd1 = new NpgsqlCommand("""
+        SELECT COUNT(DISTINCT ip_hash)::int
+        FROM anonymous_page_views
+        WHERE viewed_at >= now() - interval '30 days'
+    """, conn)
+    let uniqueVisitors30d = cmd1.ExecuteScalar() :?> int
+
+    // Total unique visitors all time
+    use cmd2 = new NpgsqlCommand("""
+        SELECT COUNT(DISTINCT ip_hash)::int FROM anonymous_page_views
+    """, conn)
+    let uniqueVisitorsAllTime = cmd2.ExecuteScalar() :?> int
+
+    // Top viewed thread paths last 30 days
+    use cmd3 = new NpgsqlCommand("""
+        SELECT
+            pv.path,
+            COUNT(*)::int AS views,
+            ft.id,
+            ft.title
+        FROM anonymous_page_views pv
+        LEFT JOIN forum_threads ft ON pv.path LIKE '%/threads/' || ft.id::text || '%'
+        WHERE pv.viewed_at >= now() - interval '30 days'
+          AND pv.path LIKE '%/threads/%'
+        GROUP BY pv.path, ft.id, ft.title
+        ORDER BY views DESC
+        LIMIT 10
+    """, conn)
+    use r3 = cmd3.ExecuteReader()
+    let topThreads = [
+        while r3.Read() do
+            let tid = if r3.IsDBNull(2) then Guid.Empty else r3.GetGuid(2)
+            let title = if r3.IsDBNull(3) then r3.GetString(0) else r3.GetString(3)
+            yield { ThreadId = tid; Title = title; ViewCount = r3.GetInt32(1) }
+    ]
+    r3.Close()
+
+    // Referrer breakdown last 30 days (top 10, strip query strings)
+    use cmd4 = new NpgsqlCommand("""
+        SELECT
+            CASE
+                WHEN referrer = '' THEN 'Direct'
+                WHEN referrer ILIKE '%quora%' THEN 'Quora'
+                WHEN referrer ILIKE '%google%' THEN 'Google'
+                WHEN referrer ILIKE '%reddit%' THEN 'Reddit'
+                WHEN referrer ILIKE '%twitter%' OR referrer ILIKE '%t.co%' OR referrer ILIKE '%x.com%' THEN 'Twitter/X'
+                WHEN referrer ILIKE '%linkedin%' THEN 'LinkedIn'
+                WHEN referrer ILIKE '%github%' THEN 'GitHub'
+                ELSE split_part(regexp_replace(referrer, '^https?://', ''), '/', 1)
+            END AS source,
+            COUNT(*)::int AS visits
+        FROM anonymous_page_views
+        WHERE viewed_at >= now() - interval '30 days'
+        GROUP BY source
+        ORDER BY visits DESC
+        LIMIT 10
+    """, conn)
+    use r4 = cmd4.ExecuteReader()
+    let referrers = [
+        while r4.Read() do
+            yield { Referrer = r4.GetString(0); Visits = r4.GetInt32(1) }
+    ]
+    r4.Close()
+
+    // Conversion rate last 30 days
+    use cmd5 = new NpgsqlCommand("""
+        SELECT
+            COUNT(DISTINCT ip_hash)::int AS visitors,
+            (SELECT COUNT(DISTINCT ip_hash)::int FROM anonymous_conversions
+             WHERE converted_at >= now() - interval '30 days') AS conversions
+        FROM anonymous_page_views
+        WHERE viewed_at >= now() - interval '30 days'
+    """, conn)
+    use r5 = cmd5.ExecuteReader()
+    let visitors30d, conversions30d =
+        if r5.Read() then r5.GetInt32(0), r5.GetInt32(1) else 0, 0
+    r5.Close()
+
+    // Daily unique visitors last 30 days (for chart)
+    use cmd6 = new NpgsqlCommand("""
+        SELECT DATE(viewed_at)::text, COUNT(DISTINCT ip_hash)::int
+        FROM anonymous_page_views
+        WHERE viewed_at >= now() - interval '30 days'
+        GROUP BY 1 ORDER BY 1
+    """, conn)
+    use r6 = cmd6.ExecuteReader()
+    let dailyVisitors = [
+        while r6.Read() do
+            yield {| Date = r6.GetString(0); Count = r6.GetInt32(1) |}
+    ]
+    r6.Close()
+
+    {|
+        UniqueVisitors30d     = uniqueVisitors30d
+        UniqueVisitorsAllTime = uniqueVisitorsAllTime
+        Conversions30d        = conversions30d
+        ConversionRatePct     = if visitors30d > 0 then float conversions30d / float visitors30d * 100.0 else 0.0
+        TopThreads            = topThreads
+        Referrers             = referrers
+        DailyVisitors         = dailyVisitors
+    |}
+
 let getUserDrilldown (userId: Guid) =
     use conn = Database.openConnection ()
     use cmd = new NpgsqlCommand("""
