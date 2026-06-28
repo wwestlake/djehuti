@@ -3837,6 +3837,14 @@ let main args =
     // ── Admin: Site Metrics ──────────────────────────────────────────────────
 
     app.MapGet(
+        "/api/stats",
+        Func<IResult>(fun () ->
+            try
+                let m = MetricsRepository.getSiteMetrics ()
+                Results.Ok({| Members = m.Totals.All.Users; Posts = m.Totals.All.Posts; Threads = m.Totals.All.Threads; Badges = m.Totals.All.Achievements |})
+            with ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Stats error"))) |> ignore
+
+    app.MapGet(
         "/api/admin/metrics",
         Func<HttpContext, IResult>(fun ctx ->
             match tryGetAuthClaims ctx with
