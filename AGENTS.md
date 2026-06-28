@@ -18,8 +18,8 @@ Step-by-step — follow this exactly every time, no exceptions:
 
 1. **New feature or fix**: create a new branch from `develop`. Branch names must be descriptive and unique. Never reuse a branch that had a failed build or was already merged.
 2. **Do the work** on that branch.
-3. **Merge the branch into `develop`** directly — no PR needed for this step.
-4. **To deploy**: create a PR from `develop → main`. Post the PR link to the user with "Action needed: please merge [URL]". Wait for the user to merge it.
+3. **Merge the branch into `develop`** directly — no PR needed for this step. Claude may merge its own branches into `develop` without user approval.
+4. **To deploy**: create a PR from `develop → main`. Post the PR link to the user with "Action needed: please merge [URL]". Wait for the user to merge it. Claude must never merge `develop → main`.
 5. **If the build fails after a merge to main**: create a new branch from `develop`, fix it, merge back to `develop`, then create a new `develop → main` PR.
 6. **Never reuse a broken branch.** If a branch had a build failure or mistake, it is dead. Create a new one.
 7. **Never merge your own PRs.** Never attempt `gh pr merge --admin` or `gh pr review --approve`. The user merges all PRs via the GitHub UI.
@@ -50,3 +50,17 @@ Use plain, precise language. Avoid slang and informal shorthand. The user has a 
 ## Writing Rules
 
 When the user states a new rule or preference, add it to this file (`AGENTS.md`) immediately — in the same response, before moving on. Do not rely solely on memory files. This file is the authoritative source of project-level rules for all agents.
+
+---
+
+## Privacy
+
+**Never display email addresses anywhere in the UI.**
+Display names are optional. The fallback chain is: `user_profiles.display_name` → `users.display_name` → `'Anonymous'`. Email is never a fallback. Exposing email addresses is a privacy violation.
+
+---
+
+## Precision in Communication
+
+**Use specific numbers, not vague generalizations.**
+Say "4 articles" not "all articles." Say "3 PRs" not "several PRs." When quantity matters — and it usually does — state the exact number. Vague terms like "all", "some", "a few", or "several" are not acceptable when the precise count is known.

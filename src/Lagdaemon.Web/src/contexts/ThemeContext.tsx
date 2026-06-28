@@ -16,15 +16,14 @@ interface ThemeContextValue {
   setTheme: (t: Theme) => void
 }
 
-const ThemeContext = createContext<ThemeContextValue>({
-  theme: 'dark',
-  setTheme: () => {},
-})
+const ThemeContext = createContext<ThemeContextValue>({ theme: 'dark', setTheme: () => {} })
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     const stored = localStorage.getItem(STORAGE_KEY) as Theme | null
-    return stored ?? 'dark'
+    const resolved = stored ?? 'dark'
+    document.documentElement.setAttribute('data-theme', resolved)
+    return resolved
   })
 
   useEffect(() => {

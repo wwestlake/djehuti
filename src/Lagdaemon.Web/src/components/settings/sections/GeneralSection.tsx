@@ -6,13 +6,6 @@ import ImageUpload from '../../media/ImageUpload'
 
 const API = '/djehuti/api'
 
-const SWATCH_COLORS: Record<string, string> = {
-  dark:      '#161b22',
-  light:     '#f6f8fa',
-  midnight:  '#0e0e1a',
-  solarized: '#eee8d5',
-}
-
 interface Props {
   onSave?: (updates: Partial<UserPrefs>) => Promise<void>
 }
@@ -29,6 +22,7 @@ export default function GeneralSection({ }: Props) {
   const [saved, setSaved] = useState(false)
   const [loaded, setLoaded] = useState(false)
 
+  // Load current profile on first render
   if (!loaded) {
     setLoaded(true)
     fetch(`${API}/users/me/profile`, { credentials: 'include' })
@@ -63,20 +57,15 @@ export default function GeneralSection({ }: Props) {
     <form className="settings-form" onSubmit={handleSave}>
       <div className="settings-field">
         <label>Theme</label>
-        <div className="theme-picker">
+        <select
+          className="settings-input"
+          value={theme}
+          onChange={e => setTheme(e.target.value as typeof theme)}
+        >
           {THEMES.map(t => (
-            <button
-              key={t.id}
-              type="button"
-              className={`theme-swatch${theme === t.id ? ' active' : ''}`}
-              onClick={() => setTheme(t.id)}
-              title={t.label}
-            >
-              <span className="theme-swatch-dot" style={{ background: SWATCH_COLORS[t.id] }} />
-              <span className="theme-swatch-label">{t.label}</span>
-            </button>
+            <option key={t.id} value={t.id}>{t.label}</option>
           ))}
-        </div>
+        </select>
       </div>
       <div className="settings-field">
         <label>Display Name</label>

@@ -1,6 +1,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-:root {
+:root,
+[data-theme="dark"] {
   --bg: #0d1117;
   --surface: #161b22;
   --surface2: #1c2128;
@@ -13,6 +14,55 @@
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
   --radius: 10px;
 }
+
+[data-theme="light"] {
+  --bg: #ffffff;
+  --surface: #f6f8fa;
+  --surface2: #eaeef2;
+  --border: #d0d7de;
+  --accent: #0969da;
+  --accent2: #1a7f37;
+  --accent3: #8250df;
+  --text: #1f2328;
+  --muted: #656d76;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  --radius: 10px;
+}
+
+[data-theme="midnight"] {
+  --bg: #06060f;
+  --surface: #0e0e1a;
+  --surface2: #13131f;
+  --border: #22223a;
+  --accent: #a78bfa;
+  --accent2: #34d399;
+  --accent3: #f472b6;
+  --text: #e2e0ff;
+  --muted: #6e6a9a;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  --radius: 10px;
+}
+
+[data-theme="solarized"] {
+  --bg: #fdf6e3;
+  --surface: #eee8d5;
+  --surface2: #e5dfc7;
+  --border: #cac2a8;
+  --accent: #268bd2;
+  --accent2: #859900;
+  --accent3: #6c71c4;
+  --text: #073642;
+  --muted: #657b83;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  --radius: 10px;
+}
+
+/* theme picker swatches */
+.theme-picker { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.theme-swatch { display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; background: none; border: none; padding: 0; }
+.theme-swatch-dot { width: 32px; height: 32px; border-radius: 50%; border: 3px solid transparent; transition: border-color 0.15s, transform 0.15s; }
+.theme-swatch.active .theme-swatch-dot { border-color: var(--accent); transform: scale(1.12); }
+.theme-swatch-label { font-size: 0.72rem; color: var(--muted); }
 
 html { scroll-behavior: smooth; }
 
