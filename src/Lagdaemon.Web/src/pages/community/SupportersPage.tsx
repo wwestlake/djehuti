@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { patreonApi, PatreonTier, SupporterEntry } from '../../api/patreonApi'
+import { patreonApi } from '../../api/patreonApi'
+import type { PatreonTier, SupporterEntry } from '../../api/patreonApi'
 import TierBadge from '../../components/TierBadge'
 
 export default function SupportersPage() {
