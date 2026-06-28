@@ -723,6 +723,24 @@ let main args =
 
     app.UseCors() |> ignore
 
+    // ── Anonymous page-view tracking middleware ──────────────────────────────
+    app.Use(fun (ctx: HttpContext) (next: Func<System.Threading.Tasks.Task>) ->
+        System.Threading.Tasks.Task.Run(fun () ->
+            // Only track anonymous GET requests to non-API paths
+            let isAnon = not (ctx.Request.Headers.ContainsKey("Authorization"))
+            let path   = ctx.Request.Path.Value
+            let isPage = ctx.Request.Method = "GET" && not (path.StartsWith("/api/"))
+            if isAnon && isPage then
+                let ip       = ctx.Connection.RemoteIpAddress |> Option.ofObj |> Option.map (fun a -> a.ToString()) |> Option.defaultValue "unknown"
+                let ipBytes  = System.Text.Encoding.UTF8.GetBytes(ip)
+                let hashBytes= System.Security.Cryptography.SHA256.HashData(ipBytes)
+                let ipHash   = System.Convert.ToHexString(hashBytes).ToLowerInvariant()
+                let referrer = ctx.Request.Headers.["Referer"].ToString()
+                MetricsRepository.recordPageView ipHash path referrer
+        ) |> ignore
+        next.Invoke()
+    ) |> ignore
+
     app.MapGet("/api/health", Func<string>(fun () -> "ok")) |> ignore
 
     app.MapGet(
@@ -814,7 +832,7 @@ let main args =
     // ── Auth Endpoints ───────────────────────────────────────────────────────────
     app.MapPost(
         "/api/auth/register",
-        Func<RegisterRequest, System.Threading.Tasks.Task<IResult>>(fun request ->
+        Func<HttpContext, RegisterRequest, System.Threading.Tasks.Task<IResult>>(fun ctx request ->
             async {
                 if String.IsNullOrWhiteSpace request.Email || String.IsNullOrWhiteSpace request.Password then
                     return Results.BadRequest("email and password are required")
@@ -837,6 +855,11 @@ let main args =
                             let! newUser = UserRepository.createUser request.Email (Some passwordHash)
                             match newUser with
                             | Some user ->
+                                // Record conversion for anonymous visitor tracking
+                                let ip      = ctx.Connection.RemoteIpAddress |> Option.ofObj |> Option.map (fun a -> a.ToString()) |> Option.defaultValue "unknown"
+                                let ipBytes = System.Text.Encoding.UTF8.GetBytes(ip)
+                                let ipHash  = System.Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(ipBytes)).ToLowerInvariant()
+                                MetricsRepository.recordConversion ipHash user.Id
                                 let verifyToken = Auth.generateSecureToken ()
                                 let! tokenStored = UserRepository.createEmailVerificationToken user.Id verifyToken
                                 if tokenStored then
@@ -3874,6 +3897,17 @@ let main args =
                 match MetricsRepository.getUserDrilldown userId with
                 | Some data -> Results.Ok(data)
                 | None      -> Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/metrics/anonymous",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                try Results.Ok(MetricsRepository.getAnonymousMetrics ())
+                with ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Anonymous metrics error")
             | Some _ -> Results.Forbid()
             | None   -> Results.Unauthorized())
     ) |> ignore
