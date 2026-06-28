@@ -245,11 +245,11 @@ let recomputeMetrics (userId: Guid) : UserMetrics =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand("""
         SELECT
-          (SELECT COUNT(*)::int FROM forum_posts  WHERE author_id=@uid AND NOT deleted),
+          (SELECT COUNT(*)::int FROM forum_posts  WHERE author_id=@uid AND deleted_at IS NULL),
           (SELECT COUNT(*)::int FROM forum_threads WHERE author_id=@uid),
-          (SELECT COALESCE(SUM(vote_count),0)::int FROM forum_posts WHERE author_id=@uid AND NOT deleted),
-          (SELECT COUNT(*)::int FROM forum_posts  WHERE author_id=@uid AND is_answer AND NOT deleted),
-          (SELECT COUNT(*)::int FROM post_reactions pr JOIN forum_posts fp ON fp.id=pr.post_id WHERE fp.author_id=@uid)
+          (SELECT COALESCE(SUM(vote_count),0)::int FROM forum_posts WHERE author_id=@uid AND deleted_at IS NULL),
+          (SELECT COUNT(*)::int FROM forum_posts  WHERE author_id=@uid AND is_answer AND deleted_at IS NULL),
+          (SELECT COUNT(*)::int FROM forum_post_reactions pr JOIN forum_posts fp ON fp.id=pr.post_id WHERE fp.author_id=@uid)
     """, conn)
     cmd.Parameters.AddWithValue("uid", userId) |> ignore
     use r = cmd.ExecuteReader()
