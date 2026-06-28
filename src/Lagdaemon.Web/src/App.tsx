@@ -27,6 +27,10 @@ import AdminPage from './pages/community/AdminPage'
 import AnnouncementsPage from './pages/community/AnnouncementsPage'
 import AnnouncementBanner from './pages/community/AnnouncementBanner'
 import AchievementsPage from './pages/profile/AchievementsPage'
+import SupportersPage from './pages/community/SupportersPage'
+
+import { blogApi } from './api/blogApi'
+import type { BlogArticle } from './api/blogApi'
 
 import { blogApi } from './api/blogApi'
 import type { BlogArticle } from './api/blogApi'
@@ -350,17 +354,20 @@ function PatreonBadge() {
           <strong>Support this research</strong>
           <span>Djehuti is independent, open research. If it's useful to you, consider backing it on Patreon.</span>
         </div>
-        <a
-          className="patreon-badge-btn"
-          href="https://www.patreon.com/lagdaemon"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M14.82 2.41C11.57 2.41 8.93 5.05 8.93 8.3c0 3.24 2.64 5.88 5.89 5.88 3.24 0 5.88-2.64 5.88-5.88 0-3.25-2.64-5.89-5.88-5.89zM3.1 21.59h3.16V2.41H3.1v19.18z"/>
-          </svg>
-          Become a Patron
-        </a>
+        <div className="patreon-badge-actions">
+          <a
+            className="patreon-badge-btn"
+            href="https://www.patreon.com/lagdaemon"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M14.82 2.41C11.57 2.41 8.93 5.05 8.93 8.3c0 3.24 2.64 5.88 5.89 5.88 3.24 0 5.88-2.64 5.88-5.88 0-3.25-2.64-5.89-5.88-5.89zM3.1 21.59h3.16V2.41H3.1v19.18z"/>
+            </svg>
+            Become a Patron
+          </a>
+          <a className="patreon-badge-wall-link" onClick={() => navigate('/supporters')}>View Supporters →</a>
+        </div>
       </div>
     </section>
   )
@@ -468,6 +475,7 @@ function AppInner() {
             <Route path="/papers/:paperId" element={<PaperWorkspacePage />} />
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             <Route path="/achievements" element={<ProtectedRoute><AchievementsPage /></ProtectedRoute>} />
+            <Route path="/supporters" element={<SupportersPage />} />
             <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPage /></ProtectedRoute>} />
           </Routes>
         </main>

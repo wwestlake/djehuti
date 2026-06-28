@@ -571,9 +571,67 @@ a { color: var(--accent); }
 }
 .patreon-badge-btn:hover { opacity: 0.88; transform: translateY(-1px); }
 .patreon-badge-btn svg { width: 18px; height: 18px; }
+.patreon-badge-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem; flex-shrink: 0; }
+.patreon-badge-wall-link { font-size: 0.82rem; color: var(--accent); cursor: pointer; text-decoration: none; }
+.patreon-badge-wall-link:hover { text-decoration: underline; }
 @media (max-width: 600px) {
   .patreon-badge-inner { flex-direction: column; align-items: flex-start; }
+  .patreon-badge-actions { align-items: flex-start; }
 }
+
+/* ── Tier Badge ───────────────────────────────────────────────────────── */
+.tier-badge {
+  display: inline-block;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 20px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  vertical-align: middle;
+  margin-left: 0.4rem;
+}
+.tier-badge-md {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.7rem;
+}
+
+/* ── Supporters Page ──────────────────────────────────────────────────── */
+.supporters-page { max-width: 860px; margin: 0 auto; padding: 3rem 1.5rem 5rem; }
+.supporters-hero { text-align: center; margin-bottom: 3.5rem; }
+.supporters-hero h1 { font-size: 2rem; margin-bottom: 0.75rem; }
+.supporters-hero p { color: var(--text-secondary); max-width: 560px; margin: 0 auto 1.5rem; line-height: 1.65; }
+.supporters-patreon-btn {
+  display: inline-block;
+  background: #FF424D;
+  color: #fff;
+  font-weight: 700;
+  padding: 0.65rem 1.4rem;
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: opacity 0.15s;
+}
+.supporters-patreon-btn:hover { opacity: 0.85; }
+.supporters-tiers { display: flex; flex-direction: column; gap: 2.5rem; }
+.supporters-tier-section { border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem; background: var(--surface-1); }
+.supporters-tier-header { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.supporters-tier-info { display: flex; flex-direction: column; }
+.supporters-tier-name { font-weight: 700; font-size: 1rem; color: var(--text-primary); }
+.supporters-tier-amount { font-size: 0.8rem; color: var(--text-muted); }
+.supporters-tier-desc { font-size: 0.85rem; color: var(--text-secondary); width: 100%; margin: 0; }
+.supporters-names { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.supporter-name {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 0.3rem 0.85rem;
+  font-size: 0.88rem;
+  color: var(--text-primary);
+}
+.supporters-empty { color: var(--text-muted); font-size: 0.88rem; font-style: italic; margin: 0; }
+
 
 /* ── Footer ──────────────────────────────────────────────────────────── */
 footer {

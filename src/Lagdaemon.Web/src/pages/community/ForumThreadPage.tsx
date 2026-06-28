@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { forumApi } from '../../api/forumApi'
 import type { ForumThread, ForumPost, ForumCategory, ForumForum, Subscription, PollData } from '../../api/forumApi'
+import { patreonApi } from '../../api/patreonApi'
+import type { UserTierInfo } from '../../api/patreonApi'
 import ReportModal from '../../components/forum/ReportModal'
 import PollWidget from '../../components/forum/PollWidget'
+import TierBadge from '../../components/TierBadge'
 import { useAuth } from '../../contexts/AuthContext'
 import ForumEditor from '../../components/ForumEditor'
 
@@ -98,6 +101,7 @@ export default function ForumThreadPage() {
   const [mergeTargetId, setMergeTargetId] = useState('')
   const [modBusy, setModBusy] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [userTiers, setUserTiers] = useState<Record<string, UserTierInfo>>({})
 
   useEffect(() => {
     setErrorMsg(null)
@@ -108,8 +112,15 @@ export default function ForumThreadPage() {
     ]).then(([t, p, pollData]) => {
       setThread(t as ForumThread | null)
       if (!t) setErrorMsg('Thread not found.')
-      setPosts((p as ForumPost[]) ?? [])
+      const loadedPosts = (p as ForumPost[]) ?? []
+      setPosts(loadedPosts)
       setPoll(pollData as PollData | null)
+      const authorIds = [...new Set(loadedPosts.map(post => post.authorId))]
+      if (authorIds.length > 0) {
+        patreonApi.getUserTiers(authorIds).then(tiers => {
+          setUserTiers(Object.fromEntries(tiers.map(t => [t.userId, t])))
+        })
+      }
     }).catch(() => {
       setThread(prev => { if (!prev) setErrorMsg('Could not load thread.'); return prev })
     }).finally(() => setLoading(false))
@@ -319,6 +330,13 @@ export default function ForumThreadPage() {
               <span className="post-meta">
                 {new Date(post.createdAt).toLocaleDateString()}
                 {post.updatedAt !== post.createdAt && ' (edited)'}
+                {userTiers[post.authorId] && (
+                  <TierBadge
+                    tierName={userTiers[post.authorId].tierName}
+                    badgeColor={userTiers[post.authorId].badgeColor}
+                    badgeLabel={userTiers[post.authorId].badgeLabel}
+                  />
+                )}
               </span>
               {modAction === 'split' && idx > 0 && (
                 <label className="split-select-label">
