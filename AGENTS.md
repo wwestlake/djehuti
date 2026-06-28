@@ -70,3 +70,15 @@ Display names are optional. The fallback chain is: `user_profiles.display_name` 
 
 **Use specific numbers, not vague generalizations.**
 Say "4 articles" not "all articles." Say "3 PRs" not "several PRs." When quantity matters — and it usually does — state the exact number. Vague terms like "all", "some", "a few", or "several" are not acceptable when the precise count is known.
+
+---
+
+## Look It Up — Don't Guess
+
+**Before answering any question about how the repo, deploy pipeline, server config, or environment works — look it up.**
+
+SSH access is available via the PEM key. The deploy workflow is in `.github/workflows/deploy.yml`. The server runs at kwestkarz.com. Read the actual files rather than assuming or reasoning from memory.
+
+**Why:** Claude stated confidently that an env var "goes in api.env on the server" without checking how api.env is actually written. It is generated entirely by the GitHub Actions deploy step from GitHub secrets — a direct server edit would be overwritten on the next deploy.
+
+**How to apply:** Any time a question involves deployment, environment variables, server configuration, or repo structure — open the relevant file first, then answer.
