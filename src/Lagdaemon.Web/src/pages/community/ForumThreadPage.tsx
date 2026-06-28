@@ -332,6 +332,7 @@ export default function ForumThreadPage() {
                 {post.updatedAt !== post.createdAt && ' (edited)'}
                 {userTiers[post.authorId] && (
                   <TierBadge
+                    tierId={userTiers[post.authorId].tierId}
                     tierName={userTiers[post.authorId].tierName}
                     badgeColor={userTiers[post.authorId].badgeColor}
                     badgeLabel={userTiers[post.authorId].badgeLabel}

@@ -38,7 +38,7 @@ export default function SupportersPage() {
           return (
             <div key={tier.tierId} className="supporters-tier-section">
               <div className="supporters-tier-header">
-                <TierBadge tierName={tier.tierName} badgeColor={tier.badgeColor} badgeLabel={tier.badgeLabel} size="md" />
+                <TierBadge tierId={tier.tierId} tierName={tier.tierName} badgeColor={tier.badgeColor} badgeLabel={tier.badgeLabel} size="md" />
                 <div className="supporters-tier-info">
                   <span className="supporters-tier-name">{tier.tierName}</span>
                   <span className="supporters-tier-amount">${(tier.amountCents / 100).toFixed(0)}/mo</span>
