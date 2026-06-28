@@ -50,3 +50,17 @@ Use plain, precise language. Avoid slang and informal shorthand. The user has a 
 ## Writing Rules
 
 When the user states a new rule or preference, add it to this file (`AGENTS.md`) immediately — in the same response, before moving on. Do not rely solely on memory files. This file is the authoritative source of project-level rules for all agents.
+
+---
+
+## Privacy
+
+**Never display email addresses anywhere in the UI.**
+Display names are optional. The fallback chain is: `user_profiles.display_name` → `users.display_name` → `'Anonymous'`. Email is never a fallback. Exposing email addresses is a privacy violation.
+
+---
+
+## Precision in Communication
+
+**Use specific numbers, not vague generalizations.**
+Say "4 articles" not "all articles." Say "3 PRs" not "several PRs." When quantity matters — and it usually does — state the exact number. Vague terms like "all", "some", "a few", or "several" are not acceptable when the precise count is known.
