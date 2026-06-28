@@ -43,7 +43,7 @@ let getAllTiers () : PatreonTier list =
 let getSupporters () : SupporterEntry list =
     use conn = openConnection()
     use cmd = new NpgsqlCommand("""
-        SELECT COALESCE(up.display_name, u.username), pt.tier_id, pt.tier_name, pt.badge_color, pt.badge_label, pt.display_order
+        SELECT COALESCE(up.display_name, u.display_name, 'Anonymous'), pt.tier_id, pt.tier_name, pt.badge_color, pt.badge_label, pt.display_order
         FROM users u
         JOIN patreon_tiers pt ON pt.tier_id = u.patreon_tier_id
         LEFT JOIN user_profiles up ON up.user_id = u.id

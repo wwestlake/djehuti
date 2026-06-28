@@ -479,6 +479,7 @@ function AppInner() {
       {isHome ? (
         <>
           <Hero />
+          <PatreonBadge />
           <FeaturedPost />
           <Pitch />
           <Screenshots />

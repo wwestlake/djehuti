@@ -3659,7 +3659,7 @@ let main args =
 
     // ── Patreon: Link Account (Manual Member ID) ─────────────────────────────
 
-    app.MapPost(
+    app.MapGet(
         "/api/patreon/tiers",
         Func<IResult>(fun () -> Results.Ok(PatreonService.getAllTiers()))
     ) |> ignore
@@ -3678,7 +3678,7 @@ let main args =
             Results.Ok(PatreonService.getUserTiers ids))
     ) |> ignore
 
-    app.MapGet(
+    app.MapPost(
         "/api/users/patreon/link",
         Func<HttpContext, {| memberId: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
             task {
