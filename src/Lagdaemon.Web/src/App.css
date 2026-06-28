@@ -1201,7 +1201,8 @@ footer a:hover { text-decoration: underline; }
 .post-edit-actions { display: flex; gap: 8px; margin-top: 8px; }
 .post-footer { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 80%, var(--bg)); }
 .post-meta { font-size: 0.75rem; color: var(--text-muted); }
-.post-actions { display: flex; gap: 8px; }
+.post-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.post-share-row { display: flex; gap: 6px; align-items: center; }
 .post-action { background: none; border: 1px solid var(--border); color: var(--text-muted); padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; transition: color 0.15s, border-color 0.15s; }
 .post-action:hover { color: var(--text); border-color: var(--accent); }
 .post-action-delete:hover { color: var(--danger); border-color: var(--danger); }
