@@ -165,7 +165,7 @@ Return ONLY a JSON array with this exact schema per item:
                 logger.LogError(ex, "Moderation phase error")
         }
 
-    let runPersonaPhase (apiKey: string) (batchLimit: int) =
+    let runPersonaPhase (apiKey: string) (batchLimit: int) (personaIntervalMin: int) =
         async {
             try
                 // Enqueue GenerateReply jobs for due personas
@@ -222,10 +222,11 @@ Return ONLY a JSON array with this exact schema per item:
                                     })
                                     PersonaRepository.enqueueJob "CreateThread" payload |> ignore
 
-                        // Schedule next run (+5 minutes default)
+                        // Schedule next run
                         use conn = Database.openConnection()
                         use cmd = new Npgsql.NpgsqlCommand(
-                            "UPDATE ai_personas SET next_scheduled_run = now() + interval '5 minutes' WHERE id = @id", conn)
+                            "UPDATE ai_personas SET next_scheduled_run = now() + (@mins * interval '1 minute') WHERE id = @id", conn)
+                        cmd.Parameters.AddWithValue("mins", personaIntervalMin) |> ignore
                         cmd.Parameters.AddWithValue("id", persona.Id) |> ignore
                         cmd.ExecuteNonQuery() |> ignore
             with ex ->
@@ -374,8 +375,9 @@ Return only the JSON object, no other text.""" payload.TopicHint
             while not ct.IsCancellationRequested do
                 try
                     let config = PersonaRepository.getConfig()
-                    let intervalMin = config |> Map.tryFind "interval_minutes" |> Option.defaultValue "5" |> int
-                    let batchLimit  = config |> Map.tryFind "batch_limit"       |> Option.defaultValue "10" |> int
+                    let intervalMin        = config |> Map.tryFind "interval_minutes"        |> Option.defaultValue "5"   |> int
+                    let personaIntervalMin = config |> Map.tryFind "persona_interval_minutes" |> Option.defaultValue "660" |> int
+                    let batchLimit         = config |> Map.tryFind "batch_limit"              |> Option.defaultValue "10"  |> int
                     let personaOn   = config |> Map.tryFind "persona_phase_active"    |> Option.defaultValue "true" = "true"
                     let moderateOn  = config |> Map.tryFind "moderation_phase_active" |> Option.defaultValue "true" = "true"
                     let cleanupOn   = config |> Map.tryFind "cleanup_phase_active"    |> Option.defaultValue "true" = "true"
@@ -396,7 +398,7 @@ Return only the JSON object, no other text.""" payload.TopicHint
                     | Some apiKey ->
                         // Phase 1: Pre-run
                         if moderateOn then do! runModerationPhase apiKey
-                        if personaOn  then do! runPersonaPhase apiKey batchLimit
+                        if personaOn  then do! runPersonaPhase apiKey batchLimit personaIntervalMin
 
                         // Phase 2: Queue processing
                         let jobs = PersonaRepository.fetchAndLockJobs batchLimit
