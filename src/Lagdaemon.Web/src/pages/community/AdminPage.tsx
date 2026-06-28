@@ -142,6 +142,10 @@ export default function AdminPage() {
   const [metricsUserLoading, setMetricsUserLoading] = useState(false)
   const [recomputingAchievements, setRecomputingAchievements] = useState(false)
   const [recomputeResult, setRecomputeResult] = useState<string | null>(null)
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({})
+  const [timeseriesMetric, setTimeseriesMetric] = useState<string | null>(null)
+  const [timeseriesData, setTimeseriesData] = useState<{ date: string; count: number }[]>([])
+  const [timeseriesLoading, setTimeseriesLoading] = useState(false)
 
   const loadUsers = async (p = usersPage, s = userSearch, r = userFilterRole, st = userFilterStatus) => {
     setLoading(true); setError(null)
@@ -423,6 +427,20 @@ export default function AdminPage() {
 
   const TAB_LABELS: Record<Tab, string> = {
     users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics',
+  }
+
+  const toggleSection = (key: string) =>
+    setCollapsedSections(prev => ({ ...prev, [key]: !prev[key] }))
+
+  const openTimeseries = async (metric: string, label: string) => {
+    setTimeseriesMetric(label)
+    setTimeseriesLoading(true)
+    setTimeseriesData([])
+    try {
+      const rows: { date: string; postsHuman: number }[] = await apiFetch(`${BASE}/api/admin/metrics/timeseries/${metric}`)
+      setTimeseriesData(rows.map(r => ({ date: r.date, count: r.postsHuman })))
+    } catch { setTimeseriesData([]) }
+    finally { setTimeseriesLoading(false) }
   }
 
   const recomputeAchievements = async () => {
@@ -1057,15 +1075,23 @@ export default function AdminPage() {
         const maxDay   = Math.max(...dailyActivity.map(d => d.postsHuman + d.postsAi), 1)
         const TIER_COLOR: Record<string, string> = { bronze: '#cd7f32', silver: '#a0a0a0', gold: '#ffd700', platinum: '#00ccdd', legendary: '#c084fc', 'djehuti-svg': '#4fc3f7' }
 
-        const StatCard = ({ label, all, human, ai }: { label: string; all: number; human: number; ai: number }) => (
-          <div className="metrics-stat-card">
+        const SectionHeader = ({ id, title }: { id: string; title: string }) => (
+          <button className="metrics-section-toggle" onClick={() => toggleSection(id)}>
+            <h4 className="metrics-section-title" style={{ margin: 0 }}>{title}</h4>
+            <span className="metrics-section-chevron">{collapsedSections[id] ? '▶' : '▼'}</span>
+          </button>
+        )
+
+        const StatCard = ({ label, metric, all, human, ai }: { label: string; metric: string; all: number; human: number; ai: number }) => (
+          <button className="metrics-stat-card metrics-stat-card-btn" onClick={() => openTimeseries(metric, label)}>
             <div className="metrics-stat-label">{label}</div>
             <div className="metrics-stat-all">{all.toLocaleString()}</div>
             <div className="metrics-stat-split">
-              <span className="metrics-human">{human.toLocaleString()} human</span>
-              <span className="metrics-ai">{ai.toLocaleString()} AI</span>
+              {human > 0 && <span className="metrics-human">{human.toLocaleString()} human</span>}
+              {ai > 0 && <span className="metrics-ai">{ai.toLocaleString()} AI</span>}
+              {human === 0 && ai === 0 && <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>click for trend</span>}
             </div>
-          </div>
+          </button>
         )
 
         return (
@@ -1080,104 +1106,148 @@ export default function AdminPage() {
 
             {/* Summary cards */}
             <section className="metrics-section">
-              <h4 className="metrics-section-title">Site Totals</h4>
-              <div className="metrics-cards-row">
-                <StatCard label="Users"    all={totals.all.users}    human={totals.human.users}    ai={totals.ai.users} />
-                <StatCard label="Posts"    all={totals.all.posts}    human={totals.human.posts}    ai={totals.ai.posts} />
-                <StatCard label="Threads"  all={totals.all.threads}  human={totals.human.threads}  ai={totals.ai.threads} />
-                <StatCard label="Articles" all={totals.all.articles} human={totals.human.articles} ai={0} />
-                <StatCard label="Upvotes"  all={totals.all.votesGiven} human={0} ai={0} />
-                <StatCard label="Badges"   all={totals.all.achievements} human={0} ai={0} />
-              </div>
+              <SectionHeader id="totals" title="Site Totals" />
+              {!collapsedSections['totals'] && (
+                <div className="metrics-cards-row" style={{ marginTop: 12 }}>
+                  <StatCard label="Members"  metric="members"  all={totals.all.users}         human={totals.human.users}    ai={totals.ai.users} />
+                  <StatCard label="Posts"    metric="posts"    all={totals.all.posts}          human={totals.human.posts}    ai={totals.ai.posts} />
+                  <StatCard label="Threads"  metric="threads"  all={totals.all.threads}        human={totals.human.threads}  ai={totals.ai.threads} />
+                  <StatCard label="Articles" metric="articles" all={totals.all.articles}       human={0} ai={0} />
+                  <StatCard label="Upvotes"  metric="upvotes"  all={totals.all.votesGiven}     human={0} ai={0} />
+                  <StatCard label="Badges"   metric="badges"   all={totals.all.achievements}   human={0} ai={0} />
+                </div>
+              )}
             </section>
 
             {/* Forum breakdown */}
             <section className="metrics-section">
-              <h4 className="metrics-section-title">Posts by Forum</h4>
-              <div className="metrics-forum-bars">
-                {forumActivity.map(f => (
-                  <div key={f.forumId} className="metrics-forum-row">
-                    <div className="metrics-forum-name" title={f.forumName}>{f.forumName}</div>
-                    <div className="metrics-bar-track">
-                      <div className="metrics-bar-human" style={{ width: `${(f.postsHuman / maxPosts) * 100}%` }} title={`${f.postsHuman} human`} />
-                      <div className="metrics-bar-ai"    style={{ width: `${(f.postsAi    / maxPosts) * 100}%` }} title={`${f.postsAi} AI`} />
+              <SectionHeader id="forums" title="Posts by Forum" />
+              {!collapsedSections['forums'] && (
+                <div className="metrics-forum-bars" style={{ marginTop: 12 }}>
+                  {forumActivity.map(f => (
+                    <div key={f.forumId} className="metrics-forum-row">
+                      <div className="metrics-forum-name" title={f.forumName}>{f.forumName}</div>
+                      <div className="metrics-bar-track">
+                        <div className="metrics-bar-human" style={{ width: `${(f.postsHuman / maxPosts) * 100}%` }} title={`${f.postsHuman} human`} />
+                        <div className="metrics-bar-ai"    style={{ width: `${(f.postsAi    / maxPosts) * 100}%` }} title={`${f.postsAi} AI`} />
+                      </div>
+                      <div className="metrics-forum-counts">
+                        <span className="metrics-human">{f.postsHuman}</span>
+                        <span style={{ color: 'var(--text-muted)' }}>/</span>
+                        <span className="metrics-ai">{f.postsAi}</span>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>({f.postsAll} total)</span>
+                      </div>
                     </div>
-                    <div className="metrics-forum-counts">
-                      <span className="metrics-human">{f.postsHuman}</span>
-                      <span style={{ color: 'var(--text-muted)' }}>/</span>
-                      <span className="metrics-ai">{f.postsAi}</span>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>({f.postsAll} total)</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             {/* 30-day activity */}
             <section className="metrics-section">
-              <h4 className="metrics-section-title">30-Day Activity</h4>
-              <div className="metrics-sparkline">
-                {dailyActivity.map(d => {
-                  const total = d.postsHuman + d.postsAi
-                  const h = Math.round((total / maxDay) * 60)
-                  const hH = Math.round((d.postsHuman / maxDay) * 60)
-                  return (
-                    <div key={d.date} className="metrics-spark-col" title={`${d.date}: ${d.postsHuman} human, ${d.postsAi} AI`}>
-                      <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: 1 }}>
-                        <div className="metrics-bar-human" style={{ height: hH, width: 6 }} />
-                        <div className="metrics-bar-ai"    style={{ height: h - hH, width: 6 }} />
+              <SectionHeader id="daily" title="30-Day Post Activity" />
+              {!collapsedSections['daily'] && (
+                <div className="metrics-sparkline" style={{ marginTop: 12 }}>
+                  {dailyActivity.map(d => {
+                    const total = d.postsHuman + d.postsAi
+                    const h = Math.round((total / maxDay) * 60)
+                    const hH = Math.round((d.postsHuman / maxDay) * 60)
+                    return (
+                      <div key={d.date} className="metrics-spark-col" title={`${d.date}: ${d.postsHuman} human, ${d.postsAi} AI`}>
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: 1 }}>
+                          <div className="metrics-bar-human" style={{ height: hH, width: 6 }} />
+                          <div className="metrics-bar-ai"    style={{ height: h - hH, width: 6 }} />
+                        </div>
+                        <div className="metrics-spark-label">{d.date.slice(5)}</div>
                       </div>
-                      <div className="metrics-spark-label">{d.date.slice(5)}</div>
-                    </div>
-                  )
-                })}
-                {dailyActivity.length === 0 && <p style={{ color: 'var(--text-muted)' }}>No post activity in the last 30 days.</p>}
-              </div>
+                    )
+                  })}
+                  {dailyActivity.length === 0 && <p style={{ color: 'var(--text-muted)' }}>No post activity in the last 30 days.</p>}
+                </div>
+              )}
             </section>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
               {/* Top humans */}
               <section className="metrics-section">
-                <h4 className="metrics-section-title">Top Human Members</h4>
-                <div className="admin-table-wrap">
-                  <table className="admin-table">
-                    <thead><tr><th>Name</th><th>Posts</th><th>Threads</th><th>Votes</th><th>Badges</th></tr></thead>
-                    <tbody>
-                      {topHumans.map(u => (
-                        <tr key={u.userId} style={{ cursor: 'pointer' }} onClick={() => loadMetricsUser(u.userId)}>
-                          <td><button className="admin-email-btn">{u.displayName}</button></td>
-                          <td>{u.posts}</td>
-                          <td>{u.threads}</td>
-                          <td>{u.votesReceived}</td>
-                          <td>{u.achievements}</td>
-                        </tr>
-                      ))}
-                      {topHumans.length === 0 && <tr><td colSpan={5} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No human users yet.</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
+                <SectionHeader id="humans" title="Top Human Members" />
+                {!collapsedSections['humans'] && (
+                  <div className="admin-table-wrap" style={{ marginTop: 12 }}>
+                    <table className="admin-table">
+                      <thead><tr><th>Name</th><th>Posts</th><th>Threads</th><th>Votes</th><th>Badges</th></tr></thead>
+                      <tbody>
+                        {topHumans.map(u => (
+                          <tr key={u.userId} style={{ cursor: 'pointer' }} onClick={() => loadMetricsUser(u.userId)}>
+                            <td><button className="admin-email-btn">{u.displayName}</button></td>
+                            <td>{u.posts}</td><td>{u.threads}</td><td>{u.votesReceived}</td><td>{u.achievements}</td>
+                          </tr>
+                        ))}
+                        {topHumans.length === 0 && <tr><td colSpan={5} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No human users yet.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </section>
 
               {/* Top bots */}
               <section className="metrics-section">
-                <h4 className="metrics-section-title">AI Persona Activity</h4>
-                <div className="admin-table-wrap">
-                  <table className="admin-table">
-                    <thead><tr><th>Persona</th><th>Posts</th><th>Threads</th></tr></thead>
-                    <tbody>
-                      {topBots.map(u => (
-                        <tr key={u.userId} style={{ cursor: 'pointer' }} onClick={() => loadMetricsUser(u.userId)}>
-                          <td><button className="admin-email-btn">{u.displayName}</button></td>
-                          <td>{u.posts}</td>
-                          <td>{u.threads}</td>
-                        </tr>
-                      ))}
-                      {topBots.length === 0 && <tr><td colSpan={3} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No AI personas yet.</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
+                <SectionHeader id="bots" title="AI Persona Activity" />
+                {!collapsedSections['bots'] && (
+                  <div className="admin-table-wrap" style={{ marginTop: 12 }}>
+                    <table className="admin-table">
+                      <thead><tr><th>Persona</th><th>Posts</th><th>Threads</th></tr></thead>
+                      <tbody>
+                        {topBots.map(u => (
+                          <tr key={u.userId} style={{ cursor: 'pointer' }} onClick={() => loadMetricsUser(u.userId)}>
+                            <td><button className="admin-email-btn">{u.displayName}</button></td>
+                            <td>{u.posts}</td><td>{u.threads}</td>
+                          </tr>
+                        ))}
+                        {topBots.length === 0 && <tr><td colSpan={3} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No AI personas yet.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </section>
             </div>
+
+            {/* Timeseries modal */}
+            {timeseriesMetric && (
+              <div className="admin-modal-backdrop" onClick={() => setTimeseriesMetric(null)}>
+                <div className="admin-modal" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+                  <div className="admin-modal-header">
+                    <h3 style={{ margin: 0 }}>{timeseriesMetric} — last 30 days</h3>
+                    <button className="admin-modal-close" onClick={() => setTimeseriesMetric(null)}>✕</button>
+                  </div>
+                  {timeseriesLoading && <div className="forum-loading">Loading…</div>}
+                  {!timeseriesLoading && (() => {
+                    if (timeseriesData.length === 0) return <p style={{ color: 'var(--text-muted)' }}>No activity in the last 30 days.</p>
+                    const maxVal = Math.max(...timeseriesData.map(d => d.count), 1)
+                    const BAR_H = 120
+                    return (
+                      <div style={{ overflowX: 'auto', paddingBottom: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, minWidth: timeseriesData.length * 22, height: BAR_H + 32, paddingTop: 8 }}>
+                          {timeseriesData.map(d => {
+                            const h = Math.max(2, Math.round((d.count / maxVal) * BAR_H))
+                            return (
+                              <div key={d.date} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: '1 0 18px' }}
+                                title={`${d.date}: ${d.count}`}>
+                                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', writingMode: 'vertical-rl', opacity: d.count > 0 ? 1 : 0 }}>{d.count}</span>
+                                <div style={{ width: '100%', minWidth: 10, height: h, background: 'var(--accent)', borderRadius: '3px 3px 0 0', opacity: 0.85 }} />
+                                <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>{d.date.slice(5)}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                        <div style={{ marginTop: 12, fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+                          Total: {timeseriesData.reduce((s, d) => s + d.count, 0).toLocaleString()} · Peak: {maxVal.toLocaleString()}
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
+              </div>
+            )}
 
             {/* User drilldown modal */}
             {(metricsUser || metricsUserLoading) && (
