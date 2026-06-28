@@ -183,6 +183,20 @@ export default function BlogArticlePage() {
               )}
             </div>
 
+            {/* Share */}
+            <div className="blog-share-row">
+              <span className="blog-share-label">Share</span>
+              <button className="blog-share-btn" onClick={copyLink} title="Copy link">
+                <Link2 size={15} /> {copied ? 'Copied!' : 'Copy link'}
+              </button>
+              <button className="blog-share-btn" onClick={shareTwitter} title="Share on X / Twitter">
+                <Twitter size={15} /> X
+              </button>
+              <button className="blog-share-btn" onClick={shareLinkedIn} title="Share on LinkedIn">
+                <Linkedin size={15} /> LinkedIn
+              </button>
+            </div>
+
             {/* Author / admin actions */}
             {(isAuthor || isAdmin) && (
               <div className="blog-article-actions">
@@ -241,20 +255,6 @@ export default function BlogArticlePage() {
             >
               {article.content || ''}
             </ReactMarkdown>
-          </div>
-
-          {/* Share */}
-          <div className="blog-share-row">
-            <span className="blog-share-label">Share</span>
-            <button className="blog-share-btn" onClick={copyLink} title="Copy link">
-              <Link2 size={15} /> {copied ? 'Copied!' : 'Copy link'}
-            </button>
-            <button className="blog-share-btn" onClick={shareTwitter} title="Share on X / Twitter">
-              <Twitter size={15} /> X
-            </button>
-            <button className="blog-share-btn" onClick={shareLinkedIn} title="Share on LinkedIn">
-              <Linkedin size={15} /> LinkedIn
-            </button>
           </div>
 
           {/* Comments */}
