@@ -12,6 +12,21 @@ All files — HTML, config, static assets, scripts — must live in this reposit
 
 ---
 
+## Database Migrations
+
+**Claude runs all migrations — never ask the user to do it.**
+
+The PEM key is at `D:\0000 Turo Business\AppDev\secure\KwestKarz.pem`. The server is `ubuntu@kwestkarz.com`. The database is `djehuti`, owned by `djehuti`, accessed via `sudo -u postgres psql -d djehuti`.
+
+When a migration is needed:
+1. Write the `.sql` file to `migrations/` in the repo.
+2. SSH to the server using the PEM key and run the migration directly.
+3. Confirm success before creating the PR.
+
+Never put migration instructions in the PR body and tell the user to run them. Claude does it.
+
+---
+
 ## Branching & PRs
 
 Step-by-step — follow this exactly every time, no exceptions:

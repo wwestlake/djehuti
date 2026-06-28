@@ -1224,7 +1224,7 @@ export default function AdminPage() {
               <SectionHeader id="anon" title="Anonymous Visitor Activity" />
               {!collapsedSections['anon'] && (
                 <>
-                  {!anonMetrics && <div className="forum-loading">Loading anonymous metrics…</div>}
+                  {!anonMetrics && <div style={{ color: 'var(--text-muted)', padding: '12px 0', fontSize: '0.9rem' }}>No anonymous traffic yet.</div>}
                   {anonMetrics && (
                     <>
                       <div className="metrics-stat-row" style={{ marginBottom: 16 }}>
