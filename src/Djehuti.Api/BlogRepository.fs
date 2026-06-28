@@ -22,6 +22,7 @@ type BlogArticle = {
     Id:              Guid
     SectionId:       Guid
     AuthorId:        Guid
+    AuthorName:      string
     Title:           string
     Subtitle:        string option
     Slug:            string
@@ -189,10 +190,18 @@ let private articleCols =
     "id, section_id, author_id, title, slug, content, excerpt, cover_url, status, published_at, " +
     "created_at, updated_at, subtitle, body_json, visibility, featured, featured_position, pinned, deleted_at"
 
+let private resolveDisplayName (userId: Guid) : string =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand("SELECT COALESCE(display_name, 'Anonymous') FROM users WHERE id = @uid", conn)
+    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+    use r = cmd.ExecuteReader()
+    if r.Read() && not (r.IsDBNull(0)) then r.GetString(0) else "Anonymous"
+
 let private readArticle (r: DbDataReader) : BlogArticle = {
     Id               = r.GetGuid(0)
     SectionId        = r.GetGuid(1)
     AuthorId         = r.GetGuid(2)
+    AuthorName       = "Anonymous"
     Title            = r.GetString(3)
     Slug             = r.GetString(4)
     Content          = r.GetString(5)
@@ -210,6 +219,8 @@ let private readArticle (r: DbDataReader) : BlogArticle = {
     Pinned           = if r.IsDBNull(17) then false else r.GetBoolean(17)
     DeletedAt        = if r.IsDBNull(18) then None else Some (r.GetFieldValue<DateTime>(18))
 }
+
+let private withAuthorName (a: BlogArticle) = { a with AuthorName = resolveDisplayName a.AuthorId }
 
 let private readTag (r: DbDataReader) : BlogTag = {
     Id          = r.GetGuid(0)
@@ -405,28 +416,28 @@ let getPublishedArticles (sectionId: Guid option) (search: string option) (tagSl
     cmd.Parameters.AddWithValue("limit",  pageSize)              |> ignore
     cmd.Parameters.AddWithValue("offset", (page - 1) * pageSize) |> ignore
     use r = cmd.ExecuteReader()
-    [ while r.Read() do yield readArticle r ]
+    [ while r.Read() do yield readArticle r ] |> List.map withAuthorName
 
 let getRandomPublishedArticle () =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
         $"SELECT {articleCols} FROM blog_articles WHERE status = 'published' AND visibility = 'public' AND deleted_at IS NULL ORDER BY random() LIMIT 1", conn)
     use r = cmd.ExecuteReader()
-    if r.Read() then Some (readArticle r) else None
+    if r.Read() then Some (readArticle r |> withAuthorName) else None
 
 let getArticleBySlug (slug: string) =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand($"SELECT {articleCols} FROM blog_articles WHERE slug = @slug AND deleted_at IS NULL", conn)
     cmd.Parameters.AddWithValue("slug", slug) |> ignore
     use r = cmd.ExecuteReader()
-    if r.Read() then Some (readArticle r) else None
+    if r.Read() then Some (readArticle r |> withAuthorName) else None
 
 let getArticleById (id: Guid) =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand($"SELECT {articleCols} FROM blog_articles WHERE id = @id AND deleted_at IS NULL", conn)
     cmd.Parameters.AddWithValue("id", id) |> ignore
     use r = cmd.ExecuteReader()
-    if r.Read() then Some (readArticle r) else None
+    if r.Read() then Some (readArticle r |> withAuthorName) else None
 
 let getArticlesByAuthor (authorId: Guid) (page: int) (pageSize: int) =
     use conn = openConnection ()
@@ -436,21 +447,21 @@ let getArticlesByAuthor (authorId: Guid) (page: int) (pageSize: int) =
     cmd.Parameters.AddWithValue("limit",  pageSize)             |> ignore
     cmd.Parameters.AddWithValue("offset", (page-1) * pageSize)  |> ignore
     use r = cmd.ExecuteReader()
-    [ while r.Read() do yield readArticle r ]
+    [ while r.Read() do yield readArticle r ] |> List.map withAuthorName
 
 let getModerationQueue () =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
         $"SELECT {articleCols} FROM blog_articles WHERE status IN ('submitted','under_review','approved') AND deleted_at IS NULL ORDER BY created_at ASC", conn)
     use r = cmd.ExecuteReader()
-    [ while r.Read() do yield readArticle r ]
+    [ while r.Read() do yield readArticle r ] |> List.map withAuthorName
 
 let getAllArticlesAdmin () =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
         $"SELECT {articleCols} FROM blog_articles ORDER BY created_at DESC LIMIT 100", conn)
     use r = cmd.ExecuteReader()
-    [ while r.Read() do yield readArticle r ]
+    [ while r.Read() do yield readArticle r ] |> List.map withAuthorName
 
 let createArticle (sectionId: Guid) (authorId: Guid) (title: string) (subtitle: string option) (content: string) (bodyJson: string option) (excerpt: string option) (visibility: string) =
     use conn = openConnection ()
@@ -470,7 +481,7 @@ let createArticle (sectionId: Guid) (authorId: Guid) (title: string) (subtitle: 
     cmd.Parameters.AddWithValue("bodyJson", opt bodyJson)   |> ignore
     cmd.Parameters.AddWithValue("vis",      visibility)     |> ignore
     use r = cmd.ExecuteReader()
-    if r.Read() then Some (readArticle r) else None
+    if r.Read() then Some (readArticle r |> withAuthorName) else None
 
 let updateArticle (id: Guid) (authorId: Guid) (isAdmin: bool) (title: string) (subtitle: string option) (content: string) (bodyJson: string option) (excerpt: string option) (coverUrl: string option) (visibility: string) =
     use conn = openConnection ()
@@ -491,7 +502,7 @@ let updateArticle (id: Guid) (authorId: Guid) (isAdmin: bool) (title: string) (s
     cmd.Parameters.AddWithValue("id",       id)             |> ignore
     if not isAdmin then cmd.Parameters.AddWithValue("aid", authorId) |> ignore
     use r = cmd.ExecuteReader()
-    if r.Read() then Some (readArticle r) else None
+    if r.Read() then Some (readArticle r |> withAuthorName) else None
 
 let setArticleStatus (id: Guid) (status: string) =
     use conn = openConnection ()
@@ -501,7 +512,7 @@ let setArticleStatus (id: Guid) (status: string) =
     cmd.Parameters.AddWithValue("status", status) |> ignore
     cmd.Parameters.AddWithValue("id",     id)     |> ignore
     use r = cmd.ExecuteReader()
-    if r.Read() then Some (readArticle r) else None
+    if r.Read() then Some (readArticle r |> withAuthorName) else None
 
 let setArticleFeatured (id: Guid) (featured: bool) (position: int option) =
     use conn = openConnection ()
@@ -511,7 +522,7 @@ let setArticleFeatured (id: Guid) (featured: bool) (position: int option) =
     cmd.Parameters.AddWithValue("pos", opt position) |> ignore
     cmd.Parameters.AddWithValue("id",  id)           |> ignore
     use r = cmd.ExecuteReader()
-    if r.Read() then Some (readArticle r) else None
+    if r.Read() then Some (readArticle r |> withAuthorName) else None
 
 let setArticlePinned (id: Guid) (pinned: bool) =
     use conn = openConnection ()
@@ -520,7 +531,7 @@ let setArticlePinned (id: Guid) (pinned: bool) =
     cmd.Parameters.AddWithValue("p",  pinned) |> ignore
     cmd.Parameters.AddWithValue("id", id)     |> ignore
     use r = cmd.ExecuteReader()
-    if r.Read() then Some (readArticle r) else None
+    if r.Read() then Some (readArticle r |> withAuthorName) else None
 
 let softDeleteArticle (id: Guid) =
     use conn = openConnection ()

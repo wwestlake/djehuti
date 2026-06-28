@@ -26,6 +26,7 @@ export interface BlogArticle {
   id: string
   sectionId: string
   authorId: string
+  authorName: string
   title: string
   subtitle?: string
   slug: string

@@ -45,17 +45,18 @@ type ForumThread = {
 }
 
 type ForumPost = {
-    Id:        Guid
-    ThreadId:  Guid
-    AuthorId:  Guid
-    Content:   string
-    IsAnswer:  bool
-    VoteCount: int
-    IsBot:     bool
-    State:     string
-    CreatedAt: DateTime
-    UpdatedAt: DateTime
-    DeletedAt: DateTime option
+    Id:         Guid
+    ThreadId:   Guid
+    AuthorId:   Guid
+    AuthorName: string
+    Content:    string
+    IsAnswer:   bool
+    VoteCount:  int
+    IsBot:      bool
+    State:      string
+    CreatedAt:  DateTime
+    UpdatedAt:  DateTime
+    DeletedAt:  DateTime option
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -97,18 +98,41 @@ let private readThread (r: DbDataReader) = {
     UpdatedAt  = r.GetFieldValue<DateTime>(11)
 }
 
+let private resolveDisplayName (userId: Guid) : string =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand("SELECT COALESCE(display_name, 'Anonymous') FROM users WHERE id = @uid", conn)
+    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+    use r = cmd.ExecuteReader()
+    if r.Read() && not (r.IsDBNull(0)) then r.GetString(0) else "Anonymous"
+
 let private readPost (r: DbDataReader) = {
-    Id        = r.GetGuid(0)
-    ThreadId  = r.GetGuid(1)
-    AuthorId  = r.GetGuid(2)
-    Content   = r.GetString(3)
-    IsAnswer  = r.GetBoolean(4)
-    VoteCount = r.GetInt32(5)
-    IsBot     = r.GetBoolean(6)
-    State     = r.GetString(7)
-    CreatedAt = r.GetFieldValue<DateTime>(8)
-    UpdatedAt = r.GetFieldValue<DateTime>(9)
-    DeletedAt = if r.IsDBNull(10) then None else Some (r.GetFieldValue<DateTime>(10))
+    Id         = r.GetGuid(0)
+    ThreadId   = r.GetGuid(1)
+    AuthorId   = r.GetGuid(2)
+    AuthorName = ""
+    Content    = r.GetString(3)
+    IsAnswer   = r.GetBoolean(4)
+    VoteCount  = r.GetInt32(5)
+    IsBot      = r.GetBoolean(6)
+    State      = r.GetString(7)
+    CreatedAt  = r.GetFieldValue<DateTime>(8)
+    UpdatedAt  = r.GetFieldValue<DateTime>(9)
+    DeletedAt  = if r.IsDBNull(10) then None else Some (r.GetFieldValue<DateTime>(10))
+}
+
+let private readPostFull (r: DbDataReader) = {
+    Id         = r.GetGuid(0)
+    ThreadId   = r.GetGuid(1)
+    AuthorId   = r.GetGuid(2)
+    AuthorName = if r.IsDBNull(11) then "Anonymous" else r.GetString(11)
+    Content    = r.GetString(3)
+    IsAnswer   = r.GetBoolean(4)
+    VoteCount  = r.GetInt32(5)
+    IsBot      = r.GetBoolean(6)
+    State      = r.GetString(7)
+    CreatedAt  = r.GetFieldValue<DateTime>(8)
+    UpdatedAt  = r.GetFieldValue<DateTime>(9)
+    DeletedAt  = if r.IsDBNull(10) then None else Some (r.GetFieldValue<DateTime>(10))
 }
 
 // ── Categories ────────────────────────────────────────────────────────────────
@@ -371,7 +395,8 @@ let getPostsByThread (threadId: Guid) (page: int) (pageSize: int) =
     use cmd = new NpgsqlCommand(
         """SELECT fp.id, fp.thread_id, fp.author_id, fp.content, fp.is_answer, fp.vote_count,
                   COALESCE(u.is_bot, false), COALESCE(fp.state, 'published'),
-                  fp.created_at, fp.updated_at, fp.deleted_at
+                  fp.created_at, fp.updated_at, fp.deleted_at,
+                  COALESCE(u.display_name, 'Anonymous')
            FROM forum_posts fp
            LEFT JOIN users u ON u.id = fp.author_id
            WHERE fp.thread_id = @tid AND fp.deleted_at IS NULL
@@ -382,7 +407,7 @@ let getPostsByThread (threadId: Guid) (page: int) (pageSize: int) =
     cmd.Parameters.AddWithValue("limit", pageSize) |> ignore
     cmd.Parameters.AddWithValue("offset", (page - 1) * pageSize) |> ignore
     use r = cmd.ExecuteReader()
-    [ while r.Read() do yield readPost r ]
+    [ while r.Read() do yield readPostFull r ]
 
 let createPost (threadId: Guid) (authorId: Guid) (content: string) =
     use conn = openConnection ()
@@ -398,7 +423,7 @@ let createPost (threadId: Guid) (authorId: Guid) (content: string) =
         postCmd.Parameters.AddWithValue("content", content) |> ignore
         use r = postCmd.ExecuteReader()
         if r.Read() then
-            let post = readPost r
+            let post = { readPost r with AuthorName = resolveDisplayName authorId }
             r.Close()
             use statsCmd = new NpgsqlCommand(
                 """UPDATE forum_threads
@@ -430,7 +455,7 @@ let updatePost (postId: Guid) (authorId: Guid) (content: string) =
     cmd.Parameters.AddWithValue("id", postId) |> ignore
     cmd.Parameters.AddWithValue("aid", authorId) |> ignore
     use r = cmd.ExecuteReader()
-    if r.Read() then Some (readPost r) else None
+    if r.Read() then Some { readPost r with AuthorName = resolveDisplayName authorId } else None
 
 let deletePost (postId: Guid) =
     use conn = openConnection ()

@@ -183,6 +183,10 @@ export default function BlogArticlePage() {
               )}
             </div>
 
+            <div className="blog-article-byline">
+              By <a className="blog-author-link" href={`/profile/${article.authorId}`}>{article.authorName || 'Anonymous'}</a>
+            </div>
+
             {/* Share */}
             <div className="blog-share-row">
               <span className="blog-share-label">Share</span>

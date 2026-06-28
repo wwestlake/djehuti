@@ -320,6 +320,9 @@ export default function ForumThreadPage() {
           <div key={post.id} id={`post-${post.id}`} className={`post-item${post.isAnswer ? ' post-answer' : ''}${post.isBot ? ' post-bot' : ''}${modAction === 'split' && splitPostIds.has(post.id) ? ' post-split-selected' : ''}`}>
             {post.isAnswer && <div className="post-answer-badge">✓ Accepted Answer</div>}
             {post.isBot && <div className="post-bot-badge">🤖 AI Persona</div>}
+            <div className="post-author-row">
+              <a className="post-author-link" href={`/profile/${post.authorId}`}>{post.authorName || 'Anonymous'}</a>
+            </div>
             <div className="post-body">
               {editingId === post.id ? (
                 <div className="post-edit">

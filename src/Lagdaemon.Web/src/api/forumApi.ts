@@ -46,6 +46,7 @@ export interface ForumPost {
   id: string
   threadId: string
   authorId: string
+  authorName: string
   content: string
   isAnswer: boolean
   voteCount: number
