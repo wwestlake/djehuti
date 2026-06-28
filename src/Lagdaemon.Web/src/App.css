@@ -1996,10 +1996,15 @@ footer a:hover { text-decoration: underline; }
 
 /* ── Admin Metrics tab ─────────────────────────────────────────────────────── */
 .metrics-root { display: flex; flex-direction: column; gap: 28px; }
-.metrics-section { display: flex; flex-direction: column; gap: 12px; }
+.metrics-section { display: flex; flex-direction: column; gap: 0; }
+.metrics-section-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; background: none; border: none; border-bottom: 1px solid var(--border); padding: 10px 0; cursor: pointer; gap: 8px; }
+.metrics-section-toggle:hover .metrics-section-title { color: var(--accent); }
+.metrics-section-chevron { font-size: 0.7rem; color: var(--text-muted); flex-shrink: 0; }
 .metrics-section-title { margin: 0; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
 .metrics-cards-row { display: flex; flex-wrap: wrap; gap: 12px; }
 .metrics-stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; min-width: 120px; flex: 1; }
+.metrics-stat-card-btn { all: unset; box-sizing: border-box; cursor: pointer; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; min-width: 120px; flex: 1; transition: border-color 0.15s, box-shadow 0.15s; display: flex; flex-direction: column; }
+.metrics-stat-card-btn:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .metrics-stat-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px; }
 .metrics-stat-all { font-size: 1.9rem; font-weight: 700; color: var(--accent); line-height: 1; margin-bottom: 4px; }
 .metrics-stat-split { display: flex; gap: 8px; font-size: 0.76rem; }
