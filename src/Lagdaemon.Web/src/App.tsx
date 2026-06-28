@@ -447,12 +447,12 @@ function AppInner() {
       {isHome ? (
         <>
           <Hero />
+          <PatreonBadge />
           <FeaturedPost />
           <Pitch />
           <Screenshots />
           <PapersSection />
           <About />
-          <PatreonBadge />
           <Footer onPrivacy={() => setPrivacyOpen(true)} onAup={() => setAupOpen(true)} />
         </>
       ) : (
