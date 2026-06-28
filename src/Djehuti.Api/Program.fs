@@ -3856,6 +3856,17 @@ let main args =
     ) |> ignore
 
     app.MapGet(
+        "/api/admin/metrics/timeseries/{metric}",
+        Func<HttpContext, string, IResult>(fun ctx metric ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                try Results.Ok(MetricsRepository.getMetricTimeSeries metric)
+                with ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Timeseries error")
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapGet(
         "/api/admin/metrics/user/{id}",
         Func<HttpContext, Guid, IResult>(fun ctx userId ->
             match tryGetAuthClaims ctx with

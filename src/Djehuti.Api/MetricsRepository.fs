@@ -237,6 +237,40 @@ let getSiteMetrics () =
         TopBots       = topBots
     |}
 
+let getMetricTimeSeries (metric: string) : DailyActivityRow list =
+    use conn = Database.openConnection ()
+    let sql =
+        match metric with
+        | "posts" ->
+            """SELECT DATE(created_at)::text, COUNT(*)::int, 0::int
+               FROM forum_posts WHERE created_at >= now() - interval '30 days' AND deleted_at IS NULL
+               GROUP BY 1 ORDER BY 1"""
+        | "threads" ->
+            """SELECT DATE(created_at)::text, COUNT(*)::int, 0::int
+               FROM forum_threads WHERE created_at >= now() - interval '30 days'
+               GROUP BY 1 ORDER BY 1"""
+        | "members" ->
+            """SELECT DATE(created_at)::text, COUNT(*)::int, 0::int
+               FROM users WHERE created_at >= now() - interval '30 days' AND status != 'deleted'
+               GROUP BY 1 ORDER BY 1"""
+        | "articles" ->
+            """SELECT DATE(created_at)::text, COUNT(*)::int, 0::int
+               FROM blog_articles WHERE created_at >= now() - interval '30 days' AND status != 'deleted'
+               GROUP BY 1 ORDER BY 1"""
+        | "badges" ->
+            """SELECT DATE(awarded_at)::text, COUNT(*)::int, 0::int
+               FROM user_achievements WHERE awarded_at >= now() - interval '30 days'
+               GROUP BY 1 ORDER BY 1"""
+        | "upvotes" ->
+            """SELECT DATE(created_at)::text, COUNT(*)::int, 0::int
+               FROM forum_post_votes WHERE created_at >= now() - interval '30 days'
+               GROUP BY 1 ORDER BY 1"""
+        | _ -> "SELECT NULL::text, 0::int, 0::int WHERE false"
+    use cmd = new NpgsqlCommand(sql, conn)
+    use r = cmd.ExecuteReader()
+    [ while r.Read() do
+        yield { Date = r.GetString(0); PostsHuman = r.GetInt32(1); PostsAi = r.GetInt32(2) } ]
+
 let getUserDrilldown (userId: Guid) =
     use conn = Database.openConnection ()
     use cmd = new NpgsqlCommand("""
