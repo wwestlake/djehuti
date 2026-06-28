@@ -343,6 +343,39 @@ type ModalProps = {
   items: { strong: string; body: string }[]
 }
 
+function SiteStats() {
+  const [stats, setStats] = useState<{ members: number; posts: number; threads: number; badges: number } | null>(null)
+
+  useEffect(() => {
+    fetch('/djehuti/api/stats').then(r => r.ok ? r.json() : null).then(d => {
+      if (d) setStats({ members: d.members, posts: d.posts, threads: d.threads, badges: d.badges })
+    }).catch(() => {})
+  }, [])
+
+  if (!stats) return null
+
+  const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+
+  return (
+    <section className="site-stats">
+      <div className="site-stats-inner">
+        {([
+          ['Members',  stats.members,  '👤'],
+          ['Posts',    stats.posts,    '✍️'],
+          ['Threads',  stats.threads,  '💬'],
+          ['Badges',   stats.badges,   '🏅'],
+        ] as [string, number, string][]).map(([label, value, icon]) => (
+          <div key={label} className="site-stat">
+            <span className="site-stat-icon">{icon}</span>
+            <span className="site-stat-value">{fmt(value)}</span>
+            <span className="site-stat-label">{label}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function PatreonBadge() {
   return (
     <section className="patreon-badge-section">
@@ -479,6 +512,7 @@ function AppInner() {
       {isHome ? (
         <>
           <Hero />
+          <SiteStats />
           <PatreonBadge />
           <FeaturedPost />
           <Pitch />
