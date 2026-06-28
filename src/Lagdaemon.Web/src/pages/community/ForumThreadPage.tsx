@@ -72,6 +72,25 @@ function ReactionBar({ postId, user }: { postId: string; user: { id: string } | 
   )
 }
 
+function ShareRow({ url, title, compact }: { url: string; title: string; compact?: boolean }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    navigator.clipboard.writeText(url)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1800)
+  }
+  const twitterUrl = `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(title)}`
+  const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`
+  return (
+    <div className={compact ? 'post-share-row' : 'blog-share-row'}>
+      {!compact && <span className="blog-share-label">Share</span>}
+      <button className="blog-share-btn" onClick={copy}>{copied ? '✓ Copied' : '🔗 Copy link'}</button>
+      <a className="blog-share-btn" href={twitterUrl} target="_blank" rel="noopener noreferrer">𝕏</a>
+      <a className="blog-share-btn" href={linkedInUrl} target="_blank" rel="noopener noreferrer">LinkedIn</a>
+    </div>
+  )
+}
+
 type ModAction = 'move' | 'split' | 'merge' | null
 
 export default function ForumThreadPage() {
@@ -253,6 +272,7 @@ export default function ForumThreadPage() {
 
       <div className="thread-header">
         <h1>{thread?.title}</h1>
+        <ShareRow url={window.location.href} title={thread?.title ?? ''} />
         <div className="thread-header-badges">
           {thread?.isPinned && <span className="badge badge-pinned">Pinned</span>}
           {thread?.isLocked && <span className="badge badge-locked">Locked</span>}
@@ -297,7 +317,7 @@ export default function ForumThreadPage() {
 
       <div className="post-list">
         {posts.map((post, idx) => (
-          <div key={post.id} className={`post-item${post.isAnswer ? ' post-answer' : ''}${post.isBot ? ' post-bot' : ''}${modAction === 'split' && splitPostIds.has(post.id) ? ' post-split-selected' : ''}`}>
+          <div key={post.id} id={`post-${post.id}`} className={`post-item${post.isAnswer ? ' post-answer' : ''}${post.isBot ? ' post-bot' : ''}${modAction === 'split' && splitPostIds.has(post.id) ? ' post-split-selected' : ''}`}>
             {post.isAnswer && <div className="post-answer-badge">✓ Accepted Answer</div>}
             {post.isBot && <div className="post-bot-badge">🤖 AI Persona</div>}
             <div className="post-body">
@@ -351,6 +371,11 @@ export default function ForumThreadPage() {
                 </label>
               )}
               <div className="post-actions">
+                <ShareRow
+                  url={`${window.location.origin}${window.location.pathname}#post-${post.id}`}
+                  title={thread?.title ?? ''}
+                  compact
+                />
                 {user && !post.isBot && (
                   <button className="post-action" onClick={() => handleVote(post.id)}>▲ {post.voteCount}</button>
                 )}
