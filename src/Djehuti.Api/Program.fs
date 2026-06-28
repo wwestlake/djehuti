@@ -3834,5 +3834,30 @@ let main args =
         )
     ) |> ignore
 
+    // ── Admin: Site Metrics ──────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/admin/metrics",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                try Results.Ok(MetricsRepository.getSiteMetrics ())
+                with ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Metrics error")
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/metrics/user/{id}",
+        Func<HttpContext, Guid, IResult>(fun ctx userId ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match MetricsRepository.getUserDrilldown userId with
+                | Some data -> Results.Ok(data)
+                | None      -> Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
     app.Run()
     0

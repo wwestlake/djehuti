@@ -1,4 +1,5 @@
 import type { UserAchievement } from '../../api/achievementsApi'
+import { DJEHUTI_SVG_BADGES } from './DjehutiSvgBadges'
 
 const TIER_COLORS: Record<string, string> = {
   bronze:    '#cd7f32',
@@ -25,7 +26,9 @@ export default function AchievementBadge({ achievement, size = 'md', showLabel =
         className={`achievement-badge achievement-badge-${size}`}
         style={{ '--badge-color': color, width: px, height: px, fontSize } as React.CSSProperties}
       >
-        {achievement.icon}
+        {DJEHUTI_SVG_BADGES[achievement.slug]
+          ? <span dangerouslySetInnerHTML={{ __html: DJEHUTI_SVG_BADGES[achievement.slug] }} style={{ display: 'flex', width: '100%', height: '100%' }} />
+          : achievement.icon}
       </div>
       {showLabel && (
         <div className="achievement-badge-label" style={{ color }}>
