@@ -165,7 +165,7 @@ Return ONLY a JSON array with this exact schema per item:
                 logger.LogError(ex, "Moderation phase error")
         }
 
-    let runPersonaPhase (apiKey: string) (batchLimit: int) =
+    let runPersonaPhase (apiKey: string) (batchLimit: int) (personaIntervalMin: int) =
         async {
             try
                 // Enqueue GenerateReply jobs for due personas
@@ -180,16 +180,28 @@ Return ONLY a JSON array with this exact schema per item:
                     if isDue then
                         let forums = PersonaRepository.getPersonaForums persona.Id
                         for forumId in forums do
-                            // Get latest thread in forum
-                            use conn = Database.openConnection()
-                            use cmd = new Npgsql.NpgsqlCommand(
-                                "SELECT id FROM forum_threads WHERE forum_id = @fid ORDER BY last_post_at DESC NULLS LAST LIMIT 1", conn)
-                            cmd.Parameters.AddWithValue("fid", forumId) |> ignore
-                            use r = cmd.ExecuteReader()
-                            if r.Read() then
-                                let threadId = r.GetGuid(0)
-                                match persona.UserId with
-                                | Some uid ->
+                            match persona.UserId with
+                            | None -> ()
+                            | Some uid ->
+                                // Check for a recent thread (last 48 hours) to reply to
+                                use conn = Database.openConnection()
+                                use cmd = new Npgsql.NpgsqlCommand(
+                                    """SELECT id, last_post_at FROM forum_threads
+                                       WHERE forum_id = @fid
+                                       ORDER BY last_post_at DESC NULLS LAST LIMIT 1""", conn)
+                                cmd.Parameters.AddWithValue("fid", forumId) |> ignore
+                                use r = cmd.ExecuteReader()
+                                let threadResult =
+                                    if r.Read() then
+                                        let tid = r.GetGuid(0)
+                                        let lastPost = if r.IsDBNull(1) then DateTime.MinValue else r.GetDateTime(1)
+                                        Some (tid, lastPost)
+                                    else None
+                                r.Close()
+
+                                match threadResult with
+                                | Some (threadId, lastPost) when (DateTime.UtcNow - lastPost).TotalHours < 48.0 ->
+                                    // Recent activity — reply to the thread
                                     let payload = JsonSerializer.Serialize({
                                         PersonaId        = persona.Id.ToString()
                                         ThreadId         = threadId.ToString()
@@ -198,12 +210,23 @@ Return ONLY a JSON array with this exact schema per item:
                                         BotUserId        = uid.ToString()
                                     })
                                     PersonaRepository.enqueueJob "GenerateReply" payload |> ignore
-                                | None -> ()
+                                | _ ->
+                                    // No recent thread — start a new one
+                                    let payload = JsonSerializer.Serialize({
+                                        PersonaId        = persona.Id.ToString()
+                                        ForumId          = forumId.ToString()
+                                        SystemDirectives = persona.SystemPrompt
+                                        Model            = persona.Model
+                                        BotUserId        = uid.ToString()
+                                        TopicHint        = "Choose a topic relevant to this forum that would spark genuine discussion"
+                                    })
+                                    PersonaRepository.enqueueJob "CreateThread" payload |> ignore
 
-                        // Schedule next run (+5 minutes default)
+                        // Schedule next run
                         use conn = Database.openConnection()
                         use cmd = new Npgsql.NpgsqlCommand(
-                            "UPDATE ai_personas SET next_scheduled_run = now() + interval '5 minutes' WHERE id = @id", conn)
+                            "UPDATE ai_personas SET next_scheduled_run = now() + (@mins * interval '1 minute') WHERE id = @id", conn)
+                        cmd.Parameters.AddWithValue("mins", personaIntervalMin) |> ignore
                         cmd.Parameters.AddWithValue("id", persona.Id) |> ignore
                         cmd.ExecuteNonQuery() |> ignore
             with ex ->
@@ -280,12 +303,51 @@ Return ONLY a JSON array with this exact schema per item:
                         PersonaRepository.failJob job.Id "SES send returned false" job.MaxRetries job.RetryCount
         }
 
+    let processCreateThread (apiKey: string) (job: PersonaRepository.HeartbeatJob) =
+        async {
+            let payload = JsonSerializer.Deserialize<CreateThreadPayload>(job.Payload, jsonOpts)
+            let forumId   = Guid.Parse(payload.ForumId)
+            let botUserId = Guid.Parse(payload.BotUserId)
+
+            let userMsg =
+                sprintf """You are about to start a new discussion thread in this forum community. Topic hint: "%s"
+
+Generate a forum thread as a JSON object with exactly these two fields:
+{"title": "<concise engaging thread title>", "content": "<opening post — 2 to 4 paragraphs, written naturally as a community member, no bullet lists>"}
+
+Return only the JSON object, no other text.""" payload.TopicHint
+
+            let! rawResponse = callClaude apiKey payload.Model payload.SystemDirectives userMsg
+
+            let start = rawResponse.IndexOf('{')
+            let stop  = rawResponse.LastIndexOf('}')
+            if start >= 0 && stop > start then
+                let jsonSlice = rawResponse.[start..stop]
+                try
+                    let parsed = JsonSerializer.Deserialize<{| title: string; content: string |}>(jsonSlice, jsonOpts)
+                    if not (String.IsNullOrWhiteSpace parsed.title) && not (String.IsNullOrWhiteSpace parsed.content) then
+                        let htmlContent = sprintf "<p>%s</p>" (parsed.content.Replace("\n\n", "</p><p>").Replace("\n", "<br>"))
+                        match ForumRepository.createThread forumId botUserId parsed.title htmlContent with
+                        | Some _ ->
+                            PersonaRepository.completeJob job.Id
+                            logger.LogInformation("Persona created thread '{Title}' in forum {ForumId}", parsed.title, forumId)
+                        | None ->
+                            PersonaRepository.failJob job.Id "createThread returned None" job.MaxRetries job.RetryCount
+                    else
+                        PersonaRepository.failJob job.Id "Parsed thread had empty title or content" job.MaxRetries job.RetryCount
+                with ex ->
+                    PersonaRepository.failJob job.Id (sprintf "JSON parse error: %s" ex.Message) job.MaxRetries job.RetryCount
+            else
+                PersonaRepository.failJob job.Id "No JSON object found in Claude response" job.MaxRetries job.RetryCount
+        }
+
     let processJob (apiKey: string) (job: PersonaRepository.HeartbeatJob) =
         async {
             try
                 match job.ActionType with
-                | "GenerateReply" -> do! processGenerateReply apiKey job
-                | "SendEmail"     -> do! processSendEmail job
+                | "GenerateReply"  -> do! processGenerateReply apiKey job
+                | "CreateThread"   -> do! processCreateThread apiKey job
+                | "SendEmail"      -> do! processSendEmail job
                 | unknown ->
                     PersonaRepository.failJob job.Id (sprintf "Unknown action type: %s" unknown) job.MaxRetries job.RetryCount
             with ex ->
@@ -313,8 +375,9 @@ Return ONLY a JSON array with this exact schema per item:
             while not ct.IsCancellationRequested do
                 try
                     let config = PersonaRepository.getConfig()
-                    let intervalMin = config |> Map.tryFind "interval_minutes" |> Option.defaultValue "5" |> int
-                    let batchLimit  = config |> Map.tryFind "batch_limit"       |> Option.defaultValue "10" |> int
+                    let intervalMin        = config |> Map.tryFind "interval_minutes"        |> Option.defaultValue "5"   |> int
+                    let personaIntervalMin = config |> Map.tryFind "persona_interval_minutes" |> Option.defaultValue "660" |> int
+                    let batchLimit         = config |> Map.tryFind "batch_limit"              |> Option.defaultValue "10"  |> int
                     let personaOn   = config |> Map.tryFind "persona_phase_active"    |> Option.defaultValue "true" = "true"
                     let moderateOn  = config |> Map.tryFind "moderation_phase_active" |> Option.defaultValue "true" = "true"
                     let cleanupOn   = config |> Map.tryFind "cleanup_phase_active"    |> Option.defaultValue "true" = "true"
@@ -335,7 +398,7 @@ Return ONLY a JSON array with this exact schema per item:
                     | Some apiKey ->
                         // Phase 1: Pre-run
                         if moderateOn then do! runModerationPhase apiKey
-                        if personaOn  then do! runPersonaPhase apiKey batchLimit
+                        if personaOn  then do! runPersonaPhase apiKey batchLimit personaIntervalMin
 
                         // Phase 2: Queue processing
                         let jobs = PersonaRepository.fetchAndLockJobs batchLimit
