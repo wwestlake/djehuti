@@ -87,7 +87,7 @@ a { color: var(--accent); }
   align-items: center;
   justify-content: space-between;
   padding: 0.9rem 2rem;
-  background: rgba(13, 17, 23, 0.85);
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
 }
@@ -149,7 +149,7 @@ a { color: var(--accent); }
   right: 0;
   bottom: 0;
   width: 240px;
-  background: #0d1117;
+  background: var(--bg);
   border-left: 1px solid var(--border);
   z-index: 100;
   display: flex;
@@ -191,7 +191,7 @@ a { color: var(--accent); }
 .nav-drawer a:hover,
 .nav-drawer button:not(.nav-drawer-close):hover,
 .nav-drawer .nav-community-link.active {
-  background: #161b22;
+  background: var(--surface);
   color: var(--text);
 }
 .nav-drawer .nav-cta {
