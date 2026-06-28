@@ -574,6 +574,15 @@ a { color: var(--accent); }
 }
 .modal-close:hover { color: var(--text); }
 
+/* ── Site Stats ──────────────────────────────────────────────────────── */
+.site-stats { padding: 1.5rem 2rem; background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.site-stats-inner { max-width: 860px; margin: 0 auto; display: flex; justify-content: center; gap: 3rem; flex-wrap: wrap; }
+.site-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.site-stat-icon { font-size: 1.3rem; line-height: 1; }
+.site-stat-value { font-size: 2rem; font-weight: 700; color: var(--accent); line-height: 1.1; }
+.site-stat-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); }
+@media (max-width: 500px) { .site-stats-inner { gap: 1.8rem; } .site-stat-value { font-size: 1.6rem; } }
+
 /* ── Patreon Badge ───────────────────────────────────────────────────── */
 .patreon-badge-section {
   background: linear-gradient(135deg, #1a0a0b 0%, #2a0d10 100%);
