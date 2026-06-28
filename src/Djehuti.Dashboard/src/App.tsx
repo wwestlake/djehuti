@@ -174,8 +174,8 @@ const analyzeNavItems = [
 function App() {
   const [datasetJson, setDatasetJson] = useState(sampleJson)
   const [catalog, setCatalog] = useState<DataSetCatalogItem[]>([])
-  const [theme, setTheme] = useState<'light' | 'dark' | 'midnight'>(
-    () => (localStorage.getItem('djehuti.theme') as 'light' | 'dark' | 'midnight') ?? 'dark'
+  const [theme, setTheme] = useState<'light' | 'dark' | 'midnight' | 'solarized'>(
+    () => (localStorage.getItem('djehuti.theme') as 'light' | 'dark' | 'midnight' | 'solarized') ?? 'dark'
   )
   const [selectedDataSetId, setSelectedDataSetId] = useState('')
   const [isRenamingDataSet, setIsRenamingDataSet] = useState(false)
@@ -1192,10 +1192,11 @@ function App() {
     </section>
   )
 
-  const themes: Array<{ id: 'light' | 'dark' | 'midnight'; label: string; description: string }> = [
-    { id: 'light', label: 'Light', description: 'Clean light background, default workbench look.' },
-    { id: 'dark', label: 'Dark', description: 'Dark grey surfaces, easy on the eyes in low light.' },
+  const themes: Array<{ id: 'light' | 'dark' | 'midnight' | 'solarized'; label: string; description: string }> = [
+    { id: 'light',    label: 'Light',    description: 'Clean light background, default workbench look.' },
+    { id: 'dark',     label: 'Dark',     description: 'Dark grey surfaces, easy on the eyes in low light.' },
     { id: 'midnight', label: 'Midnight', description: 'Deep blue palette matching the phase-space canvas.' },
+    { id: 'solarized', label: 'Solarized', description: 'Warm cream tones, classic terminal aesthetic.' },
   ]
 
   const renderSettingsWorkspace = () => (
