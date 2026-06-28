@@ -131,8 +131,8 @@ let dispatchNotifications () =
             // Enqueue email via heartbeat_jobs
             use conn = Djehuti.Api.Database.openConnection ()
             use cmd = new Npgsql.NpgsqlCommand("""
-                INSERT INTO heartbeat_jobs (action_type, payload, scheduled_at)
-                VALUES ('SendEmail', @payload::jsonb, now())
+                INSERT INTO heartbeat_jobs (action_type, payload)
+                VALUES ('SendEmail', @payload::jsonb)
             """, conn)
             let payload = sprintf """{"to_user_id":"%s","template":"achievement","achievement_slug":"%s","achievement_name":"%s","icon":"%s"}""" (ua.UserId.ToString()) ua.Slug ua.Name ua.Icon
             cmd.Parameters.AddWithValue("payload", payload) |> ignore
