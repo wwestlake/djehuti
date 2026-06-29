@@ -3913,7 +3913,9 @@ let main args =
             match tryGetAuthClaims ctx with
             | Some claims when Permissions.isAdmin claims.Role ->
                 try Results.Ok(MetricsRepository.getAnonymousMetrics ())
-                with ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Anonymous metrics error")
+                with ex ->
+                    eprintfn "[AnonMetrics] EXCEPTION: %s\n%s" ex.Message ex.StackTrace
+                    Results.Problem(detail = ex.Message, statusCode = 500, title = "Anonymous metrics error")
             | Some _ -> Results.Forbid()
             | None   -> Results.Unauthorized())
     ) |> ignore
