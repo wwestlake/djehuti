@@ -1298,10 +1298,17 @@ export default function AdminPage() {
             <section className="metrics-section">
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
                 <SectionHeader id="anon" title="Anonymous Visitor Activity" />
-                <button className="tiptap-action-btn primary" onClick={refreshAnonFromLogs} disabled={anonRefreshing}>
-                  {anonRefreshing ? 'Scanning logs…' : 'Scan Server Logs (30d)'}
+                <button
+                  className="tiptap-action-btn primary"
+                  onClick={refreshAnonFromLogs}
+                  disabled={anonRefreshing}
+                  title={anonRefreshing ? 'Scanning logs…' : 'Scan Server Logs (30d)'}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 36, justifyContent: 'center' }}
+                >
+                  {anonRefreshing
+                    ? <span style={{ width: 16, height: 16, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />
+                    : 'Scan Server Logs'}
                 </button>
-                {anonRefreshMsg && <span style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>{anonRefreshMsg}</span>}
               </div>
               {!collapsedSections['anon'] && (
                 <>
