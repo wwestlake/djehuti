@@ -468,7 +468,7 @@ let getAnonymousMetrics () =
         LIMIT 50
     """, conn)
     use r9 = cmd9.ExecuteReader()
-    let safeStr (r: Npgsql.NpgsqlDataReader) i =
+    let safeStr (r: System.Data.Common.DbDataReader) i =
         if r.IsDBNull(i) then "" else r.GetString(i)
     let recentVisitors = [
         while r9.Read() do
