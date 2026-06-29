@@ -362,7 +362,7 @@ let getAnonymousMetrics () =
             COUNT(*)::int AS visits
         FROM anonymous_page_views
         WHERE viewed_at >= now() - interval '30 days'
-        GROUP BY source
+        GROUP BY 1
         ORDER BY visits DESC
         LIMIT 10
     """, conn)
