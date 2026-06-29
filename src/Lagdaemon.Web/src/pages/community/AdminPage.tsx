@@ -179,7 +179,6 @@ export default function AdminPage() {
     recentVisitors: { ipAddress: string; country: string; region: string; city: string; domain: string; referrer: string; path: string; viewedAt: string }[]
   } | null>(null)
   const [anonRefreshing, setAnonRefreshing] = useState(false)
-  const [anonRefreshMsg, setAnonRefreshMsg] = useState<string | null>(null)
   const [liveMetrics, setLiveMetrics] = useState<{ loggedIn: number; anonymous: number; total: number } | null>(null)
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
   const [newKeyName, setNewKeyName] = useState('')
@@ -532,20 +531,16 @@ export default function AdminPage() {
 
   const refreshAnonFromLogs = async () => {
     setAnonRefreshing(true)
-    setAnonRefreshMsg(null)
     try {
       await apiFetch(`${BASE}/api/admin/metrics/anonymous/refresh-logs`, { method: 'POST' })
-      setAnonRefreshMsg('Log scan running — refreshing metrics in 15 seconds…')
       setTimeout(async () => {
         try {
           const data = await apiFetch(`${BASE}/api/admin/metrics/anonymous`)
           setAnonMetrics(data)
-          setAnonRefreshMsg('Done.')
-        } catch { setAnonRefreshMsg('Scan complete — refresh the page to see results.') }
+        } catch { /* scan complete, metrics will update on next manual refresh */ }
         finally { setAnonRefreshing(false) }
       }, 15000)
     } catch {
-      setAnonRefreshMsg('Failed to start log scan.')
       setAnonRefreshing(false)
     }
   }
