@@ -92,6 +92,7 @@ type HeartbeatWorker(logger: ILogger<HeartbeatWorker>) =
     let callClaude (apiKey: string) (model: string) (systemPrompt: string) (userMessage: string) : string Async =
         async {
             use http = new HttpClient()
+            http.Timeout <- TimeSpan.FromSeconds(90.0)
             http.DefaultRequestHeaders.Add("x-api-key", apiKey)
             http.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01")
             let req = {
@@ -341,13 +342,22 @@ Return only the JSON object, no other text.""" payload.TopicHint
                 PersonaRepository.failJob job.Id "No JSON object found in Claude response" job.MaxRetries job.RetryCount
         }
 
-    let processJob (apiKey: string) (job: PersonaRepository.HeartbeatJob) =
+    let processJob (apiKey: string option) (job: PersonaRepository.HeartbeatJob) =
         async {
             try
                 match job.ActionType with
-                | "GenerateReply"  -> do! processGenerateReply apiKey job
-                | "CreateThread"   -> do! processCreateThread apiKey job
-                | "SendEmail"      -> do! processSendEmail job
+                | "SendEmail" -> do! processSendEmail job
+                | "Ping"      -> PersonaRepository.completeJob job.Id
+                | "GenerateReply" | "CreateThread" ->
+                    match apiKey with
+                    | None ->
+                        logger.LogWarning("Skipping {ActionType} job {JobId} — ANTHROPIC_API_KEY not set", job.ActionType, job.Id)
+                        // Return job to pending so it can be retried when key is available
+                        PersonaRepository.failJob job.Id "ANTHROPIC_API_KEY not configured" job.MaxRetries job.RetryCount
+                    | Some key ->
+                        match job.ActionType with
+                        | "GenerateReply" -> do! processGenerateReply key job
+                        | _               -> do! processCreateThread key job
                 | unknown ->
                     PersonaRepository.failJob job.Id (sprintf "Unknown action type: %s" unknown) job.MaxRetries job.RetryCount
             with ex ->
@@ -541,21 +551,23 @@ Return only the JSON object, no other text.""" payload.TopicHint
                         with ex ->
                             logger.LogError(ex, "Achievement phase error")
 
-                    match anthropicKey() with
+                    let apiKey = anthropicKey()
+
+                    // Phase 1: Pre-run (requires Anthropic key)
+                    match apiKey with
                     | None ->
-                        logger.LogWarning("ANTHROPIC_API_KEY not set — skipping heartbeat phases")
-                    | Some apiKey ->
-                        // Phase 1: Pre-run
-                        if moderateOn then do! runModerationPhase apiKey
-                        if personaOn  then do! runPersonaPhase apiKey batchLimit personaIntervalMin
+                        logger.LogWarning("ANTHROPIC_API_KEY not set — skipping moderation and persona phases")
+                    | Some key ->
+                        if moderateOn then do! runModerationPhase key
+                        if personaOn  then do! runPersonaPhase key batchLimit personaIntervalMin
 
-                        // Phase 2: Queue processing
-                        let jobs = PersonaRepository.fetchAndLockJobs batchLimit
-                        for job in jobs do
-                            do! processJob apiKey job
+                    // Phase 2: Queue processing (SendEmail and Ping work without a key)
+                    let jobs = PersonaRepository.fetchAndLockJobs batchLimit
+                    for job in jobs do
+                        do! processJob apiKey job
 
-                        // Phase 3: Cleanup
-                        if cleanupOn then do! runCleanupPhase()
+                    // Phase 3: Cleanup (always runs — resets stuck Processing jobs)
+                    if cleanupOn then do! runCleanupPhase()
 
                     // Phase B: Patreon reconciliation (no Anthropic key needed, runs daily)
                     do! runPatreonReconciliation()
