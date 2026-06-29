@@ -159,6 +159,44 @@ let insertEntries (entries: LogEntry list) (geoMap: Map<string, GeoInfo>) =
                 firstError <- false
     inserted
 
+// Enrich existing rows that have ip_address but no geo data (beacon-tracked visits)
+let enrichUnenrichedRecords () =
+    try
+        use conn = Database.openConnection()
+        use cmd = new NpgsqlCommand("""
+            SELECT DISTINCT ip_address FROM anonymous_page_views
+            WHERE ip_address IS NOT NULL AND ip_address != '' AND (country IS NULL OR country = '')
+        """, conn)
+        use r = cmd.ExecuteReader()
+        let ips = [ while r.Read() do yield r.GetString(0) ]
+        r.Close()
+        eprintfn "[enrichUnenrichedRecords] Found %d unenriched IPs" ips.Length
+        if ips.IsEmpty then 0
+        else
+            let geoMap = enrichIps ips
+            eprintfn "[enrichUnenrichedRecords] Geo map size: %d" geoMap.Count
+            let mutable updated = 0
+            for ip in ips do
+                match geoMap |> Map.tryFind ip with
+                | Some geo ->
+                    use upd = new NpgsqlCommand("""
+                        UPDATE anonymous_page_views
+                        SET country = @country, region = @region, city = @city, domain = @domain
+                        WHERE ip_address = @ip
+                    """, conn)
+                    upd.Parameters.AddWithValue("country", geo.Country) |> ignore
+                    upd.Parameters.AddWithValue("region",  geo.Region)  |> ignore
+                    upd.Parameters.AddWithValue("city",    geo.City)    |> ignore
+                    upd.Parameters.AddWithValue("domain",  geo.Domain)  |> ignore
+                    upd.Parameters.AddWithValue("ip",      ip)          |> ignore
+                    updated <- updated + upd.ExecuteNonQuery()
+                | None -> ()
+            eprintfn "[enrichUnenrichedRecords] Updated %d rows" updated
+            updated
+    with ex ->
+        eprintfn "[enrichUnenrichedRecords] EXCEPTION: %s" ex.Message
+        0
+
 let nginxLogDir = "/var/log/nginx"
 let logFiles () =
     if Directory.Exists(nginxLogDir) then
@@ -168,13 +206,24 @@ let logFiles () =
     else []
 
 let runRefresh () =
-    let cutoff = DateTime.UtcNow.AddDays(-30.0)
-    let entries =
-        logFiles ()
-        |> List.collect readLogFile
-        |> List.filter (fun e -> e.ViewedAt >= cutoff)
-
-    let ips = entries |> List.map (fun e -> e.Ip) |> List.distinct
-    let geoMap = enrichIps ips
-    let inserted = insertEntries entries geoMap
-    {| Parsed = entries.Length; UniqueIps = ips.Length; Inserted = inserted |}
+    try
+        let files = logFiles ()
+        eprintfn "[NginxLogParser] Found %d log files: %A" files.Length files
+        let cutoff = DateTime.UtcNow.AddDays(-30.0)
+        let entries =
+            files
+            |> List.collect readLogFile
+            |> List.filter (fun e -> e.ViewedAt >= cutoff)
+        eprintfn "[NginxLogParser] Parsed %d entries after filter (cutoff=%A)" entries.Length cutoff
+        let ips = entries |> List.map (fun e -> e.Ip) |> List.distinct
+        eprintfn "[NginxLogParser] Unique IPs: %d" ips.Length
+        let geoMap = enrichIps ips
+        eprintfn "[NginxLogParser] Geo map size: %d" geoMap.Count
+        let inserted = insertEntries entries geoMap
+        eprintfn "[NginxLogParser] Inserted: %d" inserted
+        let enriched = enrichUnenrichedRecords ()
+        eprintfn "[NginxLogParser] Beacon records enriched: %d" enriched
+        {| Parsed = entries.Length; UniqueIps = ips.Length; Inserted = inserted; BeaconEnriched = enriched |}
+    with ex ->
+        eprintfn "[NginxLogParser] runRefresh EXCEPTION: %s\n%s" ex.Message ex.StackTrace
+        {| Parsed = 0; UniqueIps = 0; Inserted = 0 |}
