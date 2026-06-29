@@ -4,6 +4,7 @@ import { blogApi } from '../../api/blogApi'
 import type { BlogArticle, BlogTag, BlogAuthor, SiteConfigEntry } from '../../api/blogApi'
 import { forumApi } from '../../api/forumApi'
 import type { ForumTag, ForumReport } from '../../api/forumApi'
+import { AdminTable } from '../../components/AdminTable'
 
 const BASE = '/djehuti'
 
@@ -758,51 +759,40 @@ export default function AdminPage() {
 
       {/* ── All Articles (admin) ── */}
       {tab === 'blog-all' && !loading && (
-        <div className="admin-table-wrap">
-          {allArticles.length === 0 ? <p className="forum-empty">No articles in database.</p> : (
-            <table className="admin-table">
-              <thead><tr><th>Title</th><th>Status</th><th>Visibility</th><th>Author ID</th><th>Created</th><th>Published</th></tr></thead>
-              <tbody>
-                {allArticles.map(a => (
-                  <tr key={a.id}>
-                    <td>{a.title}</td>
-                    <td><span className={`blog-status-badge ${a.status}`}>{a.status}</span></td>
-                    <td>{a.visibility}</td>
-                    <td className="admin-id-cell">{a.authorId.slice(0, 8)}…</td>
-                    <td>{new Date(a.createdAt).toLocaleDateString()}</td>
-                    <td>{a.publishedAt ? new Date(a.publishedAt).toLocaleDateString() : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+        <AdminTable<BlogArticle>
+          data={allArticles}
+          rowKey={a => a.id}
+          searchKeys={['title', 'status', 'visibility']}
+          emptyText="No articles in database."
+          columns={[
+            { key: 'title', label: 'Title' },
+            { key: 'status', label: 'Status', render: a => <span className={`blog-status-badge ${a.status}`}>{a.status}</span> },
+            { key: 'visibility', label: 'Visibility' },
+            { key: 'authorId', label: 'Author', render: a => <span className="admin-id-cell">{a.authorId.slice(0, 8)}…</span> },
+            { key: 'createdAt', label: 'Created', render: a => new Date(a.createdAt).toLocaleDateString(), sortVal: a => a.createdAt },
+            { key: 'publishedAt', label: 'Published', render: a => a.publishedAt ? new Date(a.publishedAt).toLocaleDateString() : '—', sortVal: a => a.publishedAt ?? '' },
+          ]}
+        />
       )}
 
       {/* ── Blog authors ── */}
       {tab === 'blog-authors' && !loading && (
-        <div className="admin-table-wrap">
-          {authors.length === 0 ? <p className="forum-empty">No authors yet.</p> : (
-            <table className="admin-table">
-              <thead><tr><th>User ID</th><th>Display Name</th><th>Trusted</th><th>Joined</th></tr></thead>
-              <tbody>
-                {authors.map(a => (
-                  <tr key={a.userId}>
-                    <td className="admin-id-cell">{a.userId.slice(0, 8)}…</td>
-                    <td>{a.displayName ?? '—'}</td>
-                    <td>
-                      <button className={`admin-trust-btn${a.trusted ? ' trusted' : ''}`}
-                        onClick={() => toggleTrusted(a)}>
-                        {a.trusted ? '✓ Trusted' : 'Set Trusted'}
-                      </button>
-                    </td>
-                    <td>{new Date(a.createdAt).toLocaleDateString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+        <AdminTable<BlogAuthor>
+          data={authors}
+          rowKey={a => a.userId}
+          searchKeys={['displayName']}
+          emptyText="No authors yet."
+          columns={[
+            { key: 'userId', label: 'User ID', render: a => <span className="admin-id-cell">{a.userId.slice(0, 8)}…</span> },
+            { key: 'displayName', label: 'Display Name', render: a => a.displayName ?? '—' },
+            { key: 'trusted', label: 'Trusted', render: a => (
+              <button className={`admin-trust-btn${a.trusted ? ' trusted' : ''}`} onClick={() => toggleTrusted(a)}>
+                {a.trusted ? '✓ Trusted' : 'Set Trusted'}
+              </button>
+            )},
+            { key: 'createdAt', label: 'Joined', render: a => new Date(a.createdAt).toLocaleDateString(), sortVal: a => a.createdAt },
+          ]}
+        />
       )}
 
       {/* ── Tags ── */}
@@ -816,21 +806,18 @@ export default function AdminPage() {
               <button type="submit" className="tiptap-action-btn primary" disabled={!newTagName.trim()}>Create</button>
             </div>
           </form>
-          <div className="admin-table-wrap">
-            <table className="admin-table">
-              <thead><tr><th>Name</th><th>Slug</th><th>Description</th><th></th></tr></thead>
-              <tbody>
-                {tags.map(t => (
-                  <tr key={t.id}>
-                    <td>{t.name}</td>
-                    <td className="admin-id-cell">{t.slug}</td>
-                    <td>{t.description ?? '—'}</td>
-                    <td><button className="post-action post-action-delete" onClick={() => deleteTag(t.id)}>Delete</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <AdminTable<BlogTag>
+            data={tags}
+            rowKey={t => t.id}
+            searchKeys={['name', 'slug', 'description']}
+            emptyText="No tags yet."
+            columns={[
+              { key: 'name', label: 'Name' },
+              { key: 'slug', label: 'Slug', render: t => <span className="admin-id-cell">{t.slug}</span> },
+              { key: 'description', label: 'Description', render: t => t.description ?? '—' },
+              { key: 'id', label: '', sortable: false, render: t => <button className="post-action post-action-delete" onClick={() => deleteTag(t.id)}>Delete</button> },
+            ]}
+          />
         </div>
       )}
 
@@ -845,71 +832,51 @@ export default function AdminPage() {
               <button type="submit" className="tiptap-action-btn primary" disabled={!newForumTagName.trim()}>Create</button>
             </div>
           </form>
-          <div className="admin-table-wrap">
-            <table className="admin-table">
-              <thead><tr><th>Name</th><th>Slug</th><th>Description</th><th></th></tr></thead>
-              <tbody>
-                {forumTags.map(t => (
-                  <tr key={t.id}>
-                    <td>{t.name}</td>
-                    <td className="admin-id-cell">{t.slug}</td>
-                    <td>{t.description ?? '—'}</td>
-                    <td><button className="post-action post-action-delete" onClick={() => deleteForumTag(t.id)}>Delete</button></td>
-                  </tr>
-                ))}
-                {forumTags.length === 0 && <tr><td colSpan={4} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No forum tags yet.</td></tr>}
-              </tbody>
-            </table>
-          </div>
+          <AdminTable<ForumTag>
+            data={forumTags}
+            rowKey={t => t.id}
+            searchKeys={['name', 'slug', 'description']}
+            emptyText="No forum tags yet."
+            columns={[
+              { key: 'name', label: 'Name' },
+              { key: 'slug', label: 'Slug', render: t => <span className="admin-id-cell">{t.slug}</span> },
+              { key: 'description', label: 'Description', render: t => t.description ?? '—' },
+              { key: 'id', label: '', sortable: false, render: t => <button className="post-action post-action-delete" onClick={() => deleteForumTag(t.id)}>Delete</button> },
+            ]}
+          />
         </div>
       )}
 
       {/* ── Forum Reports ── */}
       {tab === 'forum-reports' && !loading && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="admin-table-wrap">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>Type</th>
-                  <th>Reason</th>
-                  <th>Target ID</th>
-                  <th>Reported</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {forumReports.map(r => (
-                  <tr key={r.id}>
-                    <td><span className="admin-badge">{r.targetType}</span></td>
-                    <td>{r.reason}</td>
-                    <td className="admin-id-cell">{r.targetId}</td>
-                    <td>{new Date(r.createdAt).toLocaleDateString()}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button className="tiptap-action-btn secondary small" onClick={async () => {
-                          await forumApi.resolveReport(r.id, 'dismissed')
-                          setForumReports(prev => prev.filter(x => x.id !== r.id))
-                        }}>Dismiss</button>
-                        <button className="tiptap-action-btn secondary small" onClick={async () => {
-                          await forumApi.resolveReport(r.id, 'warned')
-                          setForumReports(prev => prev.filter(x => x.id !== r.id))
-                        }}>Warn</button>
-                        <button className="post-action post-action-delete" onClick={async () => {
-                          await forumApi.resolveReport(r.id, 'deleted')
-                          setForumReports(prev => prev.filter(x => x.id !== r.id))
-                        }}>Delete</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {forumReports.length === 0 && (
-                  <tr><td colSpan={5} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No open reports.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <AdminTable<ForumReport>
+          data={forumReports}
+          rowKey={r => r.id}
+          searchKeys={['reason', 'targetType']}
+          emptyText="No open reports."
+          columns={[
+            { key: 'targetType', label: 'Type', render: r => <span className="admin-badge">{r.targetType}</span> },
+            { key: 'reason', label: 'Reason' },
+            { key: 'targetId', label: 'Target ID', render: r => <span className="admin-id-cell">{r.targetId}</span> },
+            { key: 'createdAt', label: 'Reported', render: r => new Date(r.createdAt).toLocaleDateString(), sortVal: r => r.createdAt },
+            { key: 'id', label: 'Actions', sortable: false, render: r => (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="tiptap-action-btn secondary small" onClick={async () => {
+                  await forumApi.resolveReport(r.id, 'dismissed')
+                  setForumReports(prev => prev.filter(x => x.id !== r.id))
+                }}>Dismiss</button>
+                <button className="tiptap-action-btn secondary small" onClick={async () => {
+                  await forumApi.resolveReport(r.id, 'warned')
+                  setForumReports(prev => prev.filter(x => x.id !== r.id))
+                }}>Warn</button>
+                <button className="post-action post-action-delete" onClick={async () => {
+                  await forumApi.resolveReport(r.id, 'deleted')
+                  setForumReports(prev => prev.filter(x => x.id !== r.id))
+                }}>Delete</button>
+              </div>
+            )},
+          ]}
+        />
       )}
 
       {/* ── Config ── */}
@@ -1035,22 +1002,20 @@ export default function AdminPage() {
               </button>
             </div>
           </form>
-          <div className="admin-table-wrap">
-            <table className="admin-table">
-              <thead><tr><th>User ID</th><th>Module</th><th>Role</th><th>Scope</th><th>Granted</th><th></th></tr></thead>
-              <tbody>
-                {roles.map(r => (
-                  <tr key={r.id}>
-                    <td className="admin-id-cell">{r.userId.slice(0, 8)}…</td>
-                    <td>{r.module}</td><td>{r.role}</td>
-                    <td>{r.scopeId ? r.scopeId.slice(0, 8) + '…' : '—'}</td>
-                    <td>{new Date(r.grantedAt).toLocaleDateString()}</td>
-                    <td><button className="post-action post-action-delete" onClick={() => revokeRole(r.id)}>Revoke</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <AdminTable<ContextRole>
+            data={roles}
+            rowKey={r => r.id}
+            searchKeys={['module', 'role', 'userId']}
+            emptyText="No roles granted."
+            columns={[
+              { key: 'userId', label: 'User ID', render: r => <span className="admin-id-cell">{r.userId.slice(0, 8)}…</span> },
+              { key: 'module', label: 'Module' },
+              { key: 'role', label: 'Role' },
+              { key: 'scopeId', label: 'Scope', render: r => r.scopeId ? r.scopeId.slice(0, 8) + '…' : '—' },
+              { key: 'grantedAt', label: 'Granted', render: r => new Date(r.grantedAt).toLocaleDateString(), sortVal: r => r.grantedAt },
+              { key: 'id', label: '', sortable: false, render: r => <button className="post-action post-action-delete" onClick={() => revokeRole(r.id)}>Revoke</button> },
+            ]}
+          />
         </div>
       )}
       {/* ── AI Personas ── */}
@@ -1082,27 +1047,25 @@ export default function AdminPage() {
               {editingPersona && <button type="button" className="tiptap-action-btn" onClick={() => { setEditingPersona(null); setPersonaForm({ name: '', slug: '', systemPrompt: '', model: 'claude-sonnet-4-6', triggerMode: 'mention', avatarUrl: '', forumIds: '' }) }}>Cancel</button>}
             </div>
           </form>
-          <div className="admin-table-wrap">
-            <table className="admin-table">
-              <thead><tr><th>Name</th><th>Model</th><th>Trigger</th><th>Active</th><th>Created</th><th></th></tr></thead>
-              <tbody>
-                {personas.map(p => (
-                  <tr key={p.id}>
-                    <td><strong>{p.name}</strong><br /><span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>@{p.slug}</span></td>
-                    <td style={{ fontSize: '0.8rem' }}>{p.model}</td>
-                    <td>{p.triggerMode}</td>
-                    <td>{p.active ? '✓' : '—'}</td>
-                    <td>{new Date(p.createdAt).toLocaleDateString()}</td>
-                    <td style={{ display: 'flex', gap: 6 }}>
-                      <button className="post-action" onClick={() => { setEditingPersona(p); setPersonaForm({ name: p.name, slug: p.slug, systemPrompt: p.systemPrompt, model: p.model, triggerMode: p.triggerMode, avatarUrl: p.avatarUrl ?? '', forumIds: '' }) }}>Edit</button>
-                      <button className="post-action post-action-delete" onClick={() => deletePersona(p.id)}>Delete</button>
-                    </td>
-                  </tr>
-                ))}
-                {personas.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No personas yet.</td></tr>}
-              </tbody>
-            </table>
-          </div>
+          <AdminTable<AiPersona>
+            data={personas}
+            rowKey={p => p.id}
+            searchKeys={['name', 'slug', 'model', 'triggerMode']}
+            emptyText="No personas yet."
+            columns={[
+              { key: 'name', label: 'Name', render: p => <><strong>{p.name}</strong><br /><span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>@{p.slug}</span></> },
+              { key: 'model', label: 'Model', render: p => <span style={{ fontSize: '0.8rem' }}>{p.model}</span> },
+              { key: 'triggerMode', label: 'Trigger' },
+              { key: 'active', label: 'Active', render: p => p.active ? '✓' : '—' },
+              { key: 'createdAt', label: 'Created', render: p => new Date(p.createdAt).toLocaleDateString(), sortVal: p => p.createdAt },
+              { key: 'id', label: '', sortable: false, render: p => (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="post-action" onClick={() => { setEditingPersona(p); setPersonaForm({ name: p.name, slug: p.slug, systemPrompt: p.systemPrompt, model: p.model, triggerMode: p.triggerMode, avatarUrl: p.avatarUrl ?? '', forumIds: '' }) }}>Edit</button>
+                  <button className="post-action post-action-delete" onClick={() => deletePersona(p.id)}>Delete</button>
+                </div>
+              )},
+            ]}
+          />
         </div>
       )}
 
@@ -1128,24 +1091,20 @@ export default function AdminPage() {
           </div>
           <div>
             <h4 style={{ margin: '0 0 10px' }}>Recent Jobs</h4>
-            <div className="admin-table-wrap">
-              <table className="admin-table">
-                <thead><tr><th>Action</th><th>Status</th><th>Retries</th><th>Created</th><th>Completed</th><th>Error</th></tr></thead>
-                <tbody>
-                  {hbJobs.map(j => (
-                    <tr key={j.id}>
-                      <td style={{ fontSize: '0.82rem' }}>{j.actionType}</td>
-                      <td><span style={{ color: j.status === 'Completed' ? '#6ee7a0' : j.status === 'Failed' ? 'var(--danger)' : 'var(--text-muted)' }}>{j.status}</span></td>
-                      <td>{j.retryCount}</td>
-                      <td style={{ fontSize: '0.78rem' }}>{new Date(j.createdAt).toLocaleString()}</td>
-                      <td style={{ fontSize: '0.78rem' }}>{j.completedAt ? new Date(j.completedAt).toLocaleString() : '—'}</td>
-                      <td style={{ fontSize: '0.78rem', color: 'var(--danger)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.error ?? ''}</td>
-                    </tr>
-                  ))}
-                  {hbJobs.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No jobs yet.</td></tr>}
-                </tbody>
-              </table>
-            </div>
+            <AdminTable<HeartbeatJob>
+              data={hbJobs}
+              rowKey={j => j.id}
+              searchKeys={['actionType', 'status']}
+              emptyText="No jobs yet."
+              columns={[
+                { key: 'actionType', label: 'Action', render: j => <span style={{ fontSize: '0.82rem' }}>{j.actionType}</span> },
+                { key: 'status', label: 'Status', render: j => <span style={{ color: j.status === 'Completed' ? '#6ee7a0' : j.status === 'Failed' ? 'var(--danger)' : 'var(--text-muted)' }}>{j.status}</span> },
+                { key: 'retryCount', label: 'Retries' },
+                { key: 'createdAt', label: 'Created', render: j => <span style={{ fontSize: '0.78rem' }}>{new Date(j.createdAt).toLocaleString()}</span>, sortVal: j => j.createdAt },
+                { key: 'completedAt', label: 'Completed', render: j => <span style={{ fontSize: '0.78rem' }}>{j.completedAt ? new Date(j.completedAt).toLocaleString() : '—'}</span>, sortVal: j => j.completedAt ?? '' },
+                { key: 'error', label: 'Error', render: j => <span style={{ fontSize: '0.78rem', color: 'var(--danger)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{j.error ?? ''}</span> },
+              ]}
+            />
           </div>
         </div>
       )}
@@ -1555,40 +1514,20 @@ export default function AdminPage() {
             </button>
           </form>
 
-          {apiKeys.length === 0 ? (
-            <p style={{ color: 'var(--text-muted)' }}>No API keys yet.</p>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  <th style={{ textAlign: 'left', padding: '6px 8px' }}>Name</th>
-                  <th style={{ textAlign: 'left', padding: '6px 8px' }}>Prefix</th>
-                  <th style={{ textAlign: 'left', padding: '6px 8px' }}>Created</th>
-                  <th style={{ textAlign: 'left', padding: '6px 8px' }}>Last Used</th>
-                  <th style={{ textAlign: 'left', padding: '6px 8px' }}>Status</th>
-                  <th style={{ padding: '6px 8px' }} />
-                </tr>
-              </thead>
-              <tbody>
-                {apiKeys.map(k => (
-                  <tr key={k.id} style={{ borderBottom: '1px solid var(--border)', opacity: k.active ? 1 : 0.45 }}>
-                    <td style={{ padding: '8px 8px' }}>{k.name}</td>
-                    <td style={{ padding: '8px 8px' }}><code style={{ fontSize: '0.8rem' }}>{k.keyPrefix}…</code></td>
-                    <td style={{ padding: '8px 8px', color: 'var(--text-muted)' }}>{new Date(k.createdAt).toLocaleDateString()}</td>
-                    <td style={{ padding: '8px 8px', color: 'var(--text-muted)' }}>{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : '—'}</td>
-                    <td style={{ padding: '8px 8px' }}>
-                      <span style={{ color: k.active ? 'var(--accent)' : 'var(--text-muted)' }}>{k.active ? 'Active' : 'Revoked'}</span>
-                    </td>
-                    <td style={{ padding: '8px 8px', textAlign: 'right' }}>
-                      {k.active && (
-                        <button className="blog-tab" style={{ fontSize: '0.78rem', color: 'var(--error, #e05)' }} onClick={() => revokeApiKey(k.id)}>Revoke</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <AdminTable<ApiKey>
+            data={apiKeys}
+            rowKey={k => k.id}
+            searchKeys={['name', 'keyPrefix']}
+            emptyText="No API keys yet."
+            columns={[
+              { key: 'name', label: 'Name' },
+              { key: 'keyPrefix', label: 'Prefix', render: k => <code style={{ fontSize: '0.8rem' }}>{k.keyPrefix}…</code> },
+              { key: 'createdAt', label: 'Created', render: k => new Date(k.createdAt).toLocaleDateString(), sortVal: k => k.createdAt },
+              { key: 'lastUsedAt', label: 'Last Used', render: k => k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : '—', sortVal: k => k.lastUsedAt ?? '' },
+              { key: 'active', label: 'Status', render: k => <span style={{ color: k.active ? 'var(--accent)' : 'var(--text-muted)' }}>{k.active ? 'Active' : 'Revoked'}</span> },
+              { key: 'id', label: '', sortable: false, render: k => k.active ? <button className="post-action post-action-delete" onClick={() => revokeApiKey(k.id)}>Revoke</button> : null },
+            ]}
+          />
         </div>
       )}
 
