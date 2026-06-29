@@ -28,6 +28,7 @@ import AnnouncementsPage from './pages/community/AnnouncementsPage'
 import AnnouncementBanner from './pages/community/AnnouncementBanner'
 import AchievementsPage from './pages/profile/AchievementsPage'
 import SupportersPage from './pages/community/SupportersPage'
+import SponsorsPage from './pages/community/SponsorsPage'
 
 import { blogApi } from './api/blogApi'
 import type { BlogArticle } from './api/blogApi'
@@ -479,6 +480,10 @@ function Footer({ onPrivacy, onAup }: { onPrivacy: () => void; onAup: () => void
         <a href="#" onClick={(e) => { e.preventDefault(); onPrivacy() }}>Privacy Policy</a>
         &nbsp;&middot;&nbsp;
         <a href="#" onClick={(e) => { e.preventDefault(); onAup() }}>Acceptable Use</a>
+        &nbsp;&middot;&nbsp;
+        <a href="/sponsors">Sponsors</a>
+        &nbsp;&middot;&nbsp;
+        <a href="/supporters">Supporters</a>
       </p>
     </footer>
   )
@@ -549,6 +554,7 @@ function AppInner() {
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             <Route path="/achievements" element={<ProtectedRoute><AchievementsPage /></ProtectedRoute>} />
             <Route path="/supporters" element={<SupportersPage />} />
+            <Route path="/sponsors" element={<SponsorsPage />} />
             <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPage /></ProtectedRoute>} />
           </Routes>
         </main>

@@ -4257,5 +4257,58 @@ let main args =
                 with ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Create failed"))
     ) |> ignore
 
+    // ── Sponsors ──────────────────────────────────────────────────────────────
+
+    app.MapGet(
+        "/api/sponsors",
+        Func<IResult>(fun () -> Results.Ok(SponsorsRepository.getActiveSponsors()))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/sponsors",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role -> Results.Ok(SponsorsRepository.getAllSponsors())
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/sponsors",
+        Func<HttpContext, {| name: string; logoUrl: string; websiteUrl: string; tier: string; blurb: string; position: int |}, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let opt (s: string) = if System.String.IsNullOrWhiteSpace(s) then None else Some s
+                match SponsorsRepository.createSponsor body.name (opt body.logoUrl) (opt body.websiteUrl) body.tier (opt body.blurb) body.position with
+                | Some s -> Results.Ok(s)
+                | None   -> Results.Problem(detail = "Failed to create sponsor", statusCode = 500, title = "Error")
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPut(
+        "/api/admin/sponsors/{id}",
+        Func<HttpContext, Guid, {| name: string; logoUrl: string; websiteUrl: string; tier: string; blurb: string; active: bool; position: int |}, IResult>(fun ctx id body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let opt (s: string) = if System.String.IsNullOrWhiteSpace(s) then None else Some s
+                match SponsorsRepository.updateSponsor id body.name (opt body.logoUrl) (opt body.websiteUrl) body.tier (opt body.blurb) body.active body.position with
+                | Some s -> Results.Ok(s)
+                | None   -> Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/admin/sponsors/{id}",
+        Func<HttpContext, Guid, IResult>(fun ctx id ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                if SponsorsRepository.deleteSponsor id then Results.Ok()
+                else Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
     app.Run()
     0
