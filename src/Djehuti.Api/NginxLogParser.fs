@@ -226,4 +226,4 @@ let runRefresh () =
         {| Parsed = entries.Length; UniqueIps = ips.Length; Inserted = inserted; BeaconEnriched = enriched |}
     with ex ->
         eprintfn "[NginxLogParser] runRefresh EXCEPTION: %s\n%s" ex.Message ex.StackTrace
-        {| Parsed = 0; UniqueIps = 0; Inserted = 0 |}
+        {| Parsed = 0; UniqueIps = 0; Inserted = 0; BeaconEnriched = 0 |}
