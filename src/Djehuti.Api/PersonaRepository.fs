@@ -246,7 +246,7 @@ let pruneOldFailedJobs () : int =
     use conn = openConnection ()
     // Reset jobs stuck in Processing for more than 1 hour (service crash recovery)
     use resetCmd = new NpgsqlCommand(
-        "UPDATE heartbeat_jobs SET status = 'Pending', locked_at = NULL WHERE status = 'Processing' AND locked_at < now() - interval '1 hour'", conn)
+        "UPDATE heartbeat_jobs SET status = 'Pending', locked_at = NULL WHERE status = 'Processing' AND locked_at < now() - interval '10 minutes'", conn)
     resetCmd.ExecuteNonQuery() |> ignore
     use cmd = new NpgsqlCommand(
         "DELETE FROM heartbeat_jobs WHERE status = 'Failed' AND created_at < now() - interval '7 days'", conn)
