@@ -119,8 +119,12 @@ let enrichIps (ips: string list) : Map<string, GeoInfo> =
                             Domain  = get "reverse"
                         }
                 System.Threading.Thread.Sleep(1200) // respect 45 req/min rate limit
-            results |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
-        with _ -> Map.empty
+            let map = results |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+            eprintfn "[enrichIps] Done: %d IPs enriched" map.Count
+            map
+        with ex ->
+            eprintfn "[enrichIps] EXCEPTION: %s" ex.Message
+            Map.empty
 
 let insertEntries (entries: LogEntry list) (geoMap: Map<string, GeoInfo>) =
     eprintfn "[NginxLogParser] insertEntries called with %d entries" entries.Length
