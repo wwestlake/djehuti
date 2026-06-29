@@ -1250,16 +1250,15 @@ export default function AdminPage() {
 
             {/* Anonymous Activity */}
             <section className="metrics-section">
-              <SectionHeader id="anon" title="Anonymous Visitor Activity" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                <SectionHeader id="anon" title="Anonymous Visitor Activity" />
+                <button className="tiptap-action-btn primary" onClick={refreshAnonFromLogs} disabled={anonRefreshing}>
+                  {anonRefreshing ? 'Scanning logs…' : 'Scan Server Logs (30d)'}
+                </button>
+                {anonRefreshMsg && <span style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>{anonRefreshMsg}</span>}
+              </div>
               {!collapsedSections['anon'] && (
                 <>
-                  {/* Refresh from logs button */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                    <button className="tiptap-action-btn primary" onClick={refreshAnonFromLogs} disabled={anonRefreshing}>
-                      {anonRefreshing ? 'Scanning logs…' : 'Scan Server Logs (30d)'}
-                    </button>
-                    {anonRefreshMsg && <span style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>{anonRefreshMsg}</span>}
-                  </div>
 
                   {!anonMetrics && <div style={{ color: 'var(--text-muted)', padding: '12px 0', fontSize: '0.9rem' }}>No anonymous traffic yet. Click Scan Server Logs to import history.</div>}
                   {anonMetrics && (
