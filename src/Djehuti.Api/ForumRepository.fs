@@ -208,6 +208,25 @@ let getThreadsByForum (forumId: Guid) (page: int) (pageSize: int) =
     use r = cmd.ExecuteReader()
     [ while r.Read() do yield readThread r ]
 
+// Search threads across all forums or within one forum
+let searchThreads (forumId: Guid option) (search: string option) (page: int) (pageSize: int) =
+    use conn = openConnection ()
+    let forumClause = if forumId.IsSome then "AND forum_id = @fid" else ""
+    let searchClause = if search.IsSome then "AND title ILIKE @q" else ""
+    use cmd = new NpgsqlCommand(
+        $"""SELECT id, forum_id, author_id, title, is_pinned, is_locked, post_count, view_count,
+                   last_post_at, last_post_by, created_at, updated_at
+            FROM forum_threads
+            WHERE 1=1 {forumClause} {searchClause}
+            ORDER BY is_pinned DESC, last_post_at DESC NULLS LAST, created_at DESC
+            LIMIT @limit OFFSET @offset""", conn)
+    forumId |> Option.iter (fun id -> cmd.Parameters.AddWithValue("fid", id) |> ignore)
+    search  |> Option.iter (fun q  -> cmd.Parameters.AddWithValue("q", $"%%{q}%%")  |> ignore)
+    cmd.Parameters.AddWithValue("limit",  pageSize)              |> ignore
+    cmd.Parameters.AddWithValue("offset", (page - 1) * pageSize) |> ignore
+    use r = cmd.ExecuteReader()
+    [ while r.Read() do yield readThread r ]
+
 let getThreadById (threadId: Guid) =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(

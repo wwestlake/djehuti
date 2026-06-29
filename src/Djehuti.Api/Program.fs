@@ -4026,5 +4026,203 @@ let main args =
                     | ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Analysis failed"))
     ) |> ignore
 
+    // ── Public Community API (X-Api-Key) ────────────────────────────────────────
+
+    // GET /api/public/v1/community/forums — all categories + forums
+    app.MapGet(
+        "/api/public/v1/community/forums",
+        Func<HttpContext, IResult>(fun ctx ->
+            match requireApiKey ctx with
+            | None -> Results.Unauthorized()
+            | Some _ ->
+                let cats = ForumRepository.getCategories ()
+                let result =
+                    cats |> List.map (fun c ->
+                        {| category = c
+                           forums = ForumRepository.getForumsByCategory c.Id |})
+                Results.Ok(result))
+    ) |> ignore
+
+    // GET /api/public/v1/community/threads?forumId=&search=&page=&pageSize=
+    app.MapGet(
+        "/api/public/v1/community/threads",
+        Func<HttpContext, IResult>(fun ctx ->
+            match requireApiKey ctx with
+            | None -> Results.Unauthorized()
+            | Some _ ->
+                let q = ctx.Request.Query
+                let forumId =
+                    match q.TryGetValue("forumId") with
+                    | true, v when v.Count > 0 ->
+                        match Guid.TryParse(v.[0]) with true, g -> Some g | _ -> None
+                    | _ -> None
+                let search =
+                    match q.TryGetValue("search") with
+                    | true, v when v.Count > 0 && not (String.IsNullOrWhiteSpace v.[0]) -> Some v.[0]
+                    | _ -> None
+                let page     = match q.TryGetValue("page")     with true, v when v.Count > 0 -> (try int v.[0] with _ -> 1)  | _ -> 1
+                let pageSize = match q.TryGetValue("pageSize") with true, v when v.Count > 0 -> (try int v.[0] with _ -> 20) | _ -> 20
+                Results.Ok(ForumRepository.searchThreads forumId search page (min pageSize 100)))
+    ) |> ignore
+
+    // GET /api/public/v1/community/threads/{id}
+    app.MapGet(
+        "/api/public/v1/community/threads/{id}",
+        Func<HttpContext, string, IResult>(fun ctx id ->
+            match requireApiKey ctx with
+            | None -> Results.Unauthorized()
+            | Some _ ->
+                match Guid.TryParse(id) with
+                | false, _ -> Results.BadRequest("Invalid thread id")
+                | true, tid ->
+                    match ForumRepository.getThreadById tid with
+                    | None -> Results.NotFound("Thread not found")
+                    | Some t -> Results.Ok(t))
+    ) |> ignore
+
+    // GET /api/public/v1/community/threads/{id}/posts?page=&pageSize=
+    app.MapGet(
+        "/api/public/v1/community/threads/{id}/posts",
+        Func<HttpContext, string, IResult>(fun ctx id ->
+            match requireApiKey ctx with
+            | None -> Results.Unauthorized()
+            | Some _ ->
+                match Guid.TryParse(id) with
+                | false, _ -> Results.BadRequest("Invalid thread id")
+                | true, tid ->
+                    let q        = ctx.Request.Query
+                    let page     = match q.TryGetValue("page")     with true, v when v.Count > 0 -> (try int v.[0] with _ -> 1)  | _ -> 1
+                    let pageSize = match q.TryGetValue("pageSize") with true, v when v.Count > 0 -> (try int v.[0] with _ -> 50) | _ -> 50
+                    Results.Ok(ForumRepository.getPostsByThread tid page (min pageSize 200)))
+    ) |> ignore
+
+    // POST /api/public/v1/community/threads — create thread as key owner
+    app.MapPost(
+        "/api/public/v1/community/threads",
+        Func<HttpContext, IResult>(fun ctx ->
+            match requireApiKey ctx with
+            | None -> Results.Unauthorized()
+            | Some ownerId ->
+                let body =
+                    try
+                        use sr = new System.IO.StreamReader(ctx.Request.Body)
+                        let json = sr.ReadToEnd()
+                        let doc  = System.Text.Json.JsonDocument.Parse(json)
+                        let get (k: string) =
+                            let mutable el = Unchecked.defaultof<System.Text.Json.JsonElement>
+                            if doc.RootElement.TryGetProperty(k, &el) then el.GetString() else null
+                        Some (get "forumId", get "title", get "content")
+                    with _ -> None
+                match body with
+                | None -> Results.BadRequest("Could not parse request body")
+                | Some (forumIdStr, title, content) ->
+                    if String.IsNullOrWhiteSpace title   then Results.BadRequest("title is required")
+                    elif String.IsNullOrWhiteSpace content then Results.BadRequest("content is required")
+                    else
+                        match Guid.TryParse(forumIdStr) with
+                        | false, _ -> Results.BadRequest("forumId is required and must be a valid GUID")
+                        | true, forumId ->
+                            match ForumRepository.createThread forumId ownerId title content with
+                            | None    -> Results.Problem(detail = "Forum not found or thread creation failed", statusCode = 500, title = "Create failed")
+                            | Some t  -> Results.Ok(t))
+    ) |> ignore
+
+    // POST /api/public/v1/community/threads/{id}/posts — reply as key owner
+    app.MapPost(
+        "/api/public/v1/community/threads/{id}/posts",
+        Func<HttpContext, string, IResult>(fun ctx id ->
+            match requireApiKey ctx with
+            | None -> Results.Unauthorized()
+            | Some ownerId ->
+                match Guid.TryParse(id) with
+                | false, _ -> Results.BadRequest("Invalid thread id")
+                | true, tid ->
+                    let content =
+                        try
+                            use sr = new System.IO.StreamReader(ctx.Request.Body)
+                            let json = System.Text.Json.JsonDocument.Parse(sr.ReadToEnd())
+                            let mutable el = Unchecked.defaultof<System.Text.Json.JsonElement>
+                            if json.RootElement.TryGetProperty("content", &el) then el.GetString() else null
+                        with _ -> null
+                    if String.IsNullOrWhiteSpace content then Results.BadRequest("content is required")
+                    else
+                        match ForumRepository.createPost tid ownerId content with
+                        | None -> Results.Problem(detail = "Thread not found or post creation failed", statusCode = 500, title = "Create failed")
+                        | Some p -> Results.Ok(p))
+    ) |> ignore
+
+    // GET /api/public/v1/community/sections — blog sections
+    app.MapGet(
+        "/api/public/v1/community/sections",
+        Func<HttpContext, IResult>(fun ctx ->
+            match requireApiKey ctx with
+            | None -> Results.Unauthorized()
+            | Some _ -> Results.Ok(BlogRepository.getSections ()))
+    ) |> ignore
+
+    // GET /api/public/v1/community/articles?search=&page=&pageSize=
+    app.MapGet(
+        "/api/public/v1/community/articles",
+        Func<HttpContext, IResult>(fun ctx ->
+            match requireApiKey ctx with
+            | None -> Results.Unauthorized()
+            | Some _ ->
+                let q = ctx.Request.Query
+                let search =
+                    match q.TryGetValue("search") with
+                    | true, v when v.Count > 0 && not (String.IsNullOrWhiteSpace v.[0]) -> Some v.[0]
+                    | _ -> None
+                let page     = match q.TryGetValue("page")     with true, v when v.Count > 0 -> (try int v.[0] with _ -> 1)  | _ -> 1
+                let pageSize = match q.TryGetValue("pageSize") with true, v when v.Count > 0 -> (try int v.[0] with _ -> 20) | _ -> 20
+                Results.Ok(BlogRepository.getPublishedArticles None search None page (min pageSize 100)))
+    ) |> ignore
+
+    // GET /api/public/v1/community/articles/{id}
+    app.MapGet(
+        "/api/public/v1/community/articles/{id}",
+        Func<HttpContext, string, IResult>(fun ctx id ->
+            match requireApiKey ctx with
+            | None -> Results.Unauthorized()
+            | Some _ ->
+                match BlogRepository.getArticleById (Guid.Parse id) with
+                | None -> Results.NotFound("Article not found")
+                | Some a -> Results.Ok(a))
+    ) |> ignore
+
+    // POST /api/public/v1/community/articles — create + publish as key owner
+    app.MapPost(
+        "/api/public/v1/community/articles",
+        Func<HttpContext, IResult>(fun ctx ->
+            match requireApiKey ctx with
+            | None -> Results.Unauthorized()
+            | Some ownerId ->
+                try
+                    use sr = new System.IO.StreamReader(ctx.Request.Body)
+                    let doc = System.Text.Json.JsonDocument.Parse(sr.ReadToEnd())
+                    let get (k: string) =
+                        let mutable el = Unchecked.defaultof<System.Text.Json.JsonElement>
+                        if doc.RootElement.TryGetProperty(k, &el) then el.GetString() else null
+                    let title    = get "title"
+                    let content  = get "content"
+                    let subtitle = get "subtitle" |> Option.ofObj
+                    let excerpt  = get "excerpt"  |> Option.ofObj
+                    let sectionIdStr = get "sectionId"
+                    if String.IsNullOrWhiteSpace title   then Results.BadRequest("title is required")
+                    elif String.IsNullOrWhiteSpace content then Results.BadRequest("content is required")
+                    else
+                        let sectionId =
+                            match Guid.TryParse(sectionIdStr) with
+                            | true, g -> g
+                            | _       -> BlogRepository.getOrCreateDefaultSection().Id
+                        match BlogRepository.createArticle sectionId ownerId title subtitle content None excerpt "public" with
+                        | None -> Results.Problem(detail = "Article creation failed", statusCode = 500, title = "Create failed")
+                        | Some draft ->
+                            // publish immediately — bypass moderation queue
+                            match BlogRepository.setArticleStatus draft.Id "published" with
+                            | None -> Results.Ok(draft)
+                            | Some published -> Results.Ok(published)
+                with ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Create failed"))
+    ) |> ignore
+
     app.Run()
     0

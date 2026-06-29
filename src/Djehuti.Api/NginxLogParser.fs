@@ -35,7 +35,14 @@ let private isBotUA (ua: string) =
     || lower.Contains("zgrab") || lower.Contains("masscan")
 
 let private parseDate (s: string) =
-    match DateTime.TryParseExact(s, "dd/MMM/yyyy:HH:mm:ss zzz",
+    // nginx outputs +0000 but .NET zzz expects +00:00 — insert colon before last 2 digits
+    let normalized =
+        if s.Length >= 5 then
+            let sign = s.[s.Length - 5]
+            if sign = '+' || sign = '-' then s.[..s.Length - 3] + ":" + s.[s.Length - 2..]
+            else s
+        else s
+    match DateTime.TryParseExact(normalized, "dd/MMM/yyyy:HH:mm:ss zzz",
                                   System.Globalization.CultureInfo.InvariantCulture,
                                   System.Globalization.DateTimeStyles.None) with
     | true, dt -> Some (dt.ToUniversalTime())
