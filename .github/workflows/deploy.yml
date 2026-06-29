@@ -113,11 +113,9 @@ jobs:
             | ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.DEPLOY_HOST }} 'cat > /opt/djehuti-api/api.env && chmod 600 /opt/djehuti-api/api.env'
 
       - name: Run database migrations
-        env:
-          DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
         run: |
           ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.DEPLOY_HOST }} \
-            "sudo -u postgres psql -d djehuti -f /dev/stdin" < migrations/live_activity.sql
+            "sudo -u postgres psql -d djehuti -c \"ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ; CREATE INDEX IF NOT EXISTS idx_users_last_activity_at ON users (last_activity_at);\""
 
       - name: Relink and restart API service
         run: |
