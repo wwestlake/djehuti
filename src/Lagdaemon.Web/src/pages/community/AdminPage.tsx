@@ -1363,23 +1363,20 @@ export default function AdminPage() {
                       {(anonMetrics.recentVisitors ?? []).length > 0 && (
                         <div>
                           <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6 }}>Recent visitors (30d)</div>
-                          <div className="admin-table-wrap">
-                            <table className="admin-table">
-                              <thead><tr><th>IP</th><th>Location</th><th>Domain</th><th>Referrer</th><th>Path</th><th>When</th></tr></thead>
-                              <tbody>
-                                {anonMetrics.recentVisitors.map((v, i) => (
-                                  <tr key={i}>
-                                    <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{v.ipAddress}</td>
-                                    <td style={{ fontSize: '0.8rem' }}>{[v.city, v.region, v.country].filter(Boolean).join(', ') || '—'}</td>
-                                    <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{v.domain || '—'}</td>
-                                    <td style={{ fontSize: '0.75rem', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.referrer || 'Direct'}</td>
-                                    <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{v.path}</td>
-                                    <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{new Date(v.viewedAt).toLocaleString()}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
+                          <AdminTable
+                            data={anonMetrics.recentVisitors}
+                            rowKey={v => v.ipAddress + v.viewedAt}
+                            searchKeys={['ipAddress', 'country', 'city', 'domain', 'referrer', 'path']}
+                            emptyText="No visitors."
+                            columns={[
+                              { key: 'ipAddress', label: 'IP', render: v => <span style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{v.ipAddress}</span> },
+                              { key: 'country', label: 'Location', render: v => <span style={{ fontSize: '0.8rem' }}>{[v.city, v.region, v.country].filter(Boolean).join(', ') || '—'}</span> },
+                              { key: 'domain', label: 'Domain', render: v => <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{v.domain || '—'}</span> },
+                              { key: 'referrer', label: 'Referrer', render: v => <span style={{ fontSize: '0.75rem' }}>{v.referrer || 'Direct'}</span> },
+                              { key: 'path', label: 'Path', render: v => <span style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{v.path}</span> },
+                              { key: 'viewedAt', label: 'When', render: v => <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{new Date(v.viewedAt).toLocaleString()}</span>, sortVal: v => v.viewedAt },
+                            ]}
+                          />
                         </div>
                       )}
                     </>
