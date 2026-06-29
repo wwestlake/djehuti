@@ -434,7 +434,7 @@ let getAnonymousMetrics () =
     use cmd7 = new NpgsqlCommand("""
         SELECT country, COUNT(DISTINCT ip_hash)::int AS visitors
         FROM anonymous_page_views
-        WHERE viewed_at >= now() - interval '30 days' AND country != ''
+        WHERE viewed_at >= now() - interval '30 days' AND country IS NOT NULL AND country != ''
         GROUP BY country ORDER BY visitors DESC LIMIT 15
     """, conn)
     use r7 = cmd7.ExecuteReader()
@@ -468,17 +468,19 @@ let getAnonymousMetrics () =
         LIMIT 50
     """, conn)
     use r9 = cmd9.ExecuteReader()
+    let safeStr (r: Npgsql.NpgsqlDataReader) i =
+        if r.IsDBNull(i) then "" else r.GetString(i)
     let recentVisitors = [
         while r9.Read() do
             yield {|
-                IpAddress = r9.GetString(0)
-                Country   = r9.GetString(1)
-                Region    = r9.GetString(2)
-                City      = r9.GetString(3)
-                Domain    = r9.GetString(4)
-                Referrer  = r9.GetString(5)
-                Path      = r9.GetString(6)
-                ViewedAt  = r9.GetString(7)
+                IpAddress = safeStr r9 0
+                Country   = safeStr r9 1
+                Region    = safeStr r9 2
+                City      = safeStr r9 3
+                Domain    = safeStr r9 4
+                Referrer  = safeStr r9 5
+                Path      = safeStr r9 6
+                ViewedAt  = safeStr r9 7
             |}
     ]
     r9.Close()
