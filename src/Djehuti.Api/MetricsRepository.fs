@@ -271,6 +271,34 @@ let getMetricTimeSeries (metric: string) : DailyActivityRow list =
     [ while r.Read() do
         yield { Date = r.GetString(0); PostsHuman = r.GetInt32(1); PostsAi = r.GetInt32(2) } ]
 
+// ── Live activity tracking ────────────────────────────────────────────────────
+
+let updateLastActivity (userId: string) =
+    try
+        use conn = Database.openConnection ()
+        use cmd = new NpgsqlCommand("""
+            UPDATE users SET last_activity_at = now()
+            WHERE id = @id::uuid
+              AND (last_activity_at IS NULL OR last_activity_at < now() - INTERVAL '1 minute')
+        """, conn)
+        cmd.Parameters.AddWithValue("id", userId) |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+    with _ -> ()
+
+let getLiveMetrics () =
+    use conn = Database.openConnection ()
+    use loggedInCmd = new NpgsqlCommand("""
+        SELECT COUNT(*)::int FROM users
+        WHERE last_activity_at >= now() - INTERVAL '5 minutes'
+    """, conn)
+    let loggedIn = loggedInCmd.ExecuteScalar() :?> int
+    use anonCmd = new NpgsqlCommand("""
+        SELECT COUNT(DISTINCT ip_hash)::int FROM anonymous_page_views
+        WHERE viewed_at >= now() - INTERVAL '5 minutes' AND source = 'beacon'
+    """, conn)
+    let anon = anonCmd.ExecuteScalar() :?> int
+    {| LoggedIn = loggedIn; Anonymous = anon; Total = loggedIn + anon |}
+
 // ── Anonymous visitor tracking ────────────────────────────────────────────────
 
 let recordPageView (ipHash: string) (ipAddress: string) (path: string) (referrer: string) =

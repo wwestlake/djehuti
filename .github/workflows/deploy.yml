@@ -112,6 +112,13 @@ jobs:
             "$DB_CONNECTION_STRING" "$DB_PASSWORD" "$GOOGLE_OAUTH_CLIENT_ID" "$GOOGLE_OAUTH_CLIENT_SECRET" "$GH_OAUTH_CLIENT_ID" "$GH_OAUTH_CLIENT_SECRET" "$JWT_SIGNING_KEY" "$PATREON_WEBHOOK_SECRET" "$PATREON_CREATOR_ACCESS_TOKEN" "$PATREON_CREATOR_REFRESH_TOKEN" "$ANTHROPIC_API_KEY" \
             | ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.DEPLOY_HOST }} 'cat > /opt/djehuti-api/api.env && chmod 600 /opt/djehuti-api/api.env'
 
+      - name: Run database migrations
+        env:
+          DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
+        run: |
+          ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.DEPLOY_HOST }} \
+            "sudo -u postgres psql -d djehuti -f /dev/stdin" < migrations/live_activity.sql
+
       - name: Relink and restart API service
         run: |
           scp -i ~/.ssh/deploy_key docs/deploy/djehuti-api.service ubuntu@${{ secrets.DEPLOY_HOST }}:/tmp/djehuti-api.service

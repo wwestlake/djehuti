@@ -171,6 +171,7 @@ export default function AdminPage() {
   } | null>(null)
   const [anonRefreshing, setAnonRefreshing] = useState(false)
   const [anonRefreshMsg, setAnonRefreshMsg] = useState<string | null>(null)
+  const [liveMetrics, setLiveMetrics] = useState<{ loggedIn: number; anonymous: number; total: number } | null>(null)
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
   const [newKeyName, setNewKeyName] = useState('')
   const [newKeyPlaintext, setNewKeyPlaintext] = useState<string | null>(null)
@@ -229,11 +230,21 @@ export default function AdminPage() {
       metrics: () => Promise.all([
         apiFetch(`${BASE}/api/admin/metrics`).then(setMetrics),
         apiFetch(`${BASE}/api/admin/metrics/anonymous`).then(setAnonMetrics).catch(() => {}),
+        apiFetch(`${BASE}/api/admin/metrics/live`).then(setLiveMetrics).catch(() => {}),
       ]).then(() => {}),
       'api-keys': () => apiFetch(`${BASE}/api/admin/api-keys`).then(setApiKeys),
     }
     loaders[tab]().catch(() => setError('Failed to load data')).finally(() => setLoading(false))
   }, [tab, user])
+
+  // Poll live metrics every 30s while on the metrics tab
+  useEffect(() => {
+    if (tab !== 'metrics') return
+    const id = setInterval(() => {
+      apiFetch(`${BASE}/api/admin/metrics/live`).then(setLiveMetrics).catch(() => {})
+    }, 30_000)
+    return () => clearInterval(id)
+  }, [tab])
 
   // ── Moderation ──────────────────────────────────────────────────────────────
 
@@ -1143,6 +1154,32 @@ export default function AdminPage() {
                 {recomputingAchievements ? 'Recomputing…' : 'Recompute Achievements'}
               </button>
               {recomputeResult && <span style={{ fontSize: '0.85rem', color: recomputeResult.includes('failed') ? 'var(--danger)' : '#6ee7a0' }}>{recomputeResult}</span>}
+            </section>
+
+            {/* Live board */}
+            <section className="metrics-section">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <h4 className="metrics-section-title" style={{ margin: 0 }}>Online Right Now</h4>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#6ee7a0', display: 'inline-block', boxShadow: '0 0 6px #6ee7a0' }} />
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>5-min window · refreshes every 30s</span>
+              </div>
+              <div className="metrics-cards-row">
+                <div className="metrics-stat-card" style={{ cursor: 'default' }}>
+                  <div className="metrics-stat-label">Logged-in Users</div>
+                  <div className="metrics-stat-all">{liveMetrics?.loggedIn ?? '—'}</div>
+                  <div className="metrics-stat-split"><span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>authenticated</span></div>
+                </div>
+                <div className="metrics-stat-card" style={{ cursor: 'default' }}>
+                  <div className="metrics-stat-label">Anonymous Visitors</div>
+                  <div className="metrics-stat-all">{liveMetrics?.anonymous ?? '—'}</div>
+                  <div className="metrics-stat-split"><span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>unique IPs</span></div>
+                </div>
+                <div className="metrics-stat-card" style={{ cursor: 'default' }}>
+                  <div className="metrics-stat-label">Total Active</div>
+                  <div className="metrics-stat-all">{liveMetrics?.total ?? '—'}</div>
+                  <div className="metrics-stat-split"><span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>combined</span></div>
+                </div>
+              </div>
             </section>
 
             {/* Summary cards */}
