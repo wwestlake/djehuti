@@ -123,8 +123,10 @@ let enrichIps (ips: string list) : Map<string, GeoInfo> =
         with _ -> Map.empty
 
 let insertEntries (entries: LogEntry list) (geoMap: Map<string, GeoInfo>) =
+    eprintfn "[NginxLogParser] insertEntries called with %d entries" entries.Length
     use conn = Database.openConnection()
     let mutable inserted = 0
+    let mutable firstError = true
     for e in entries do
         try
             let geo = geoMap |> Map.tryFind e.Ip |> Option.defaultValue { Country = ""; Region = ""; City = ""; Domain = "" }
@@ -147,7 +149,10 @@ let insertEntries (entries: LogEntry list) (geoMap: Map<string, GeoInfo>) =
             cmd.Parameters.AddWithValue("domain",  geo.Domain)   |> ignore
             cmd.Parameters.AddWithValue("at",      e.ViewedAt)   |> ignore
             inserted <- inserted + cmd.ExecuteNonQuery()
-        with _ -> ()
+        with ex ->
+            if firstError then
+                eprintfn "[NginxLogParser] INSERT EXCEPTION (first of %d): %s" entries.Length ex.Message
+                firstError <- false
     inserted
 
 let nginxLogDir = "/var/log/nginx"
