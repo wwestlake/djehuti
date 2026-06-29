@@ -931,6 +931,20 @@ let private migrations : (int * string) list =
         CREATE INDEX IF NOT EXISTS idx_api_keys_hash  ON api_keys (key_hash);
         CREATE INDEX IF NOT EXISTS idx_api_keys_owner ON api_keys (owner_id);
         """
+
+        32, """
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'anonymous_page_views') THEN
+                EXECUTE 'GRANT ALL ON TABLE anonymous_page_views TO djehuti';
+                EXECUTE 'GRANT USAGE, SELECT ON SEQUENCE anonymous_page_views_id_seq TO djehuti';
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'anonymous_conversions') THEN
+                EXECUTE 'GRANT ALL ON TABLE anonymous_conversions TO djehuti';
+                EXECUTE 'GRANT USAGE, SELECT ON SEQUENCE anonymous_conversions_id_seq TO djehuti';
+            END IF;
+        END $$;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
