@@ -70,6 +70,7 @@ async function apiFetch(url: string, opts?: RequestInit) {
 export default function AdminPage() {
   const { user } = useAuth()
   const [tab, setTab] = useState<Tab>('users')
+  const [menuOpen, setMenuOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -589,11 +590,19 @@ export default function AdminPage() {
 
   return (
     <div className="community-page admin-page">
-      <h2 className="community-page-title">Admin Console</h2>
-
-      <div className="blog-section-tabs">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+        <h2 className="community-page-title" style={{ margin: 0 }}>Admin Console</h2>
+        <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem', flex: 1 }}>{TAB_LABELS[tab]}</span>
+        <button className="nav-hamburger" onClick={() => setMenuOpen(o => !o)} aria-label="Menu">
+          <span /><span /><span />
+        </button>
+      </div>
+      {menuOpen && <div className="nav-drawer-overlay" onClick={() => setMenuOpen(false)} />}
+      <div className={`nav-drawer${menuOpen ? ' open' : ''}`}>
+        <button className="nav-drawer-close" onClick={() => setMenuOpen(false)}>✕</button>
         {(Object.keys(TAB_LABELS) as Tab[]).map(t => (
-          <button key={t} className={`blog-tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
+          <button key={t} className={`nav-community-link${tab === t ? ' active' : ''}`}
+            onClick={() => { setTab(t); setMenuOpen(false) }}>
             {TAB_LABELS[t]}
             {t === 'blog-queue' && queue.length > 0 && <span className="admin-badge">{queue.length}</span>}
             {t === 'forum-reports' && forumReports.length > 0 && <span className="admin-badge">{forumReports.length}</span>}
