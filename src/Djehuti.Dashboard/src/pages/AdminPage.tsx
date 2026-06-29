@@ -36,7 +36,18 @@ interface ContextRole {
   grantedAt: string
 }
 
-type Tab = 'users' | 'blog-queue' | 'roles'
+type Tab = 'users' | 'blog-queue' | 'roles' | 'sponsors'
+
+interface Sponsor {
+  id: string
+  name: string
+  logoUrl: string | null
+  websiteUrl: string | null
+  tier: 'gold' | 'silver' | 'bronze'
+  blurb: string | null
+  active: boolean
+  position: number
+}
 
 async function apiFetch(url: string, opts?: RequestInit) {
   const res = await fetch(url, { credentials: 'include', ...opts })
@@ -80,6 +91,12 @@ export default function AdminPage() {
   const [grantForm, setGrantForm] = useState({ userId: '', module: 'forum', role: 'moderator', scopeId: '' })
   const [granting, setGranting] = useState(false)
 
+  // Sponsors tab
+  const [sponsors, setSponsors] = useState<Sponsor[]>([])
+  const [sponsorForm, setSponsorForm] = useState({ name: '', logoUrl: '', websiteUrl: '', tier: 'gold', blurb: '', position: 0 })
+  const [sponsorSaving, setSponsorSaving] = useState(false)
+  const [editSponsor, setEditSponsor] = useState<Sponsor | null>(null)
+
   const loadUsers = async (p = page, s = search, r = filterRole, st = filterStatus) => {
     setLoading(true)
     setError(null)
@@ -107,6 +124,9 @@ export default function AdminPage() {
     } else if (tab === 'roles') {
       setLoading(true)
       apiFetch('/api/admin/context-roles').then(setRoles).catch(() => setError('Failed to load roles')).finally(() => setLoading(false))
+    } else if (tab === 'sponsors') {
+      setLoading(true)
+      apiFetch('/api/admin/sponsors').then(setSponsors).catch(() => setError('Failed to load sponsors')).finally(() => setLoading(false))
     }
   }, [tab, user])
 
@@ -270,9 +290,9 @@ export default function AdminPage() {
       <h2 className="admin-title">Admin Console</h2>
 
       <div className="blog-section-tabs">
-        {(['users', 'blog-queue', 'roles'] as Tab[]).map(t => (
+        {(['users', 'blog-queue', 'roles', 'sponsors'] as Tab[]).map(t => (
           <button key={t} className={`blog-tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
-            {t === 'users' ? 'Users' : t === 'blog-queue' ? 'Blog Queue' : 'Context Roles'}
+            {t === 'users' ? 'Users' : t === 'blog-queue' ? 'Blog Queue' : t === 'roles' ? 'Context Roles' : 'Sponsors'}
           </button>
         ))}
       </div>
@@ -425,6 +445,88 @@ export default function AdminPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Sponsors ── */}
+      {tab === 'sponsors' && !loading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <form className="admin-grant-form" onSubmit={async e => {
+            e.preventDefault()
+            setSponsorSaving(true)
+            try {
+              if (editSponsor) {
+                const updated = await apiFetch(`/api/admin/sponsors/${editSponsor.id}`, {
+                  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ ...sponsorForm, active: editSponsor.active }),
+                })
+                setSponsors(prev => prev.map(s => s.id === editSponsor.id ? updated : s))
+                setEditSponsor(null)
+              } else {
+                const created = await apiFetch('/api/admin/sponsors', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(sponsorForm),
+                })
+                setSponsors(prev => [...prev, created])
+              }
+              setSponsorForm({ name: '', logoUrl: '', websiteUrl: '', tier: 'gold', blurb: '', position: 0 })
+            } catch { setError('Failed to save sponsor.') }
+            finally { setSponsorSaving(false) }
+          }}>
+            <h4 style={{ margin: 0 }}>{editSponsor ? 'Edit Sponsor' : 'Add Sponsor'}</h4>
+            <div className="admin-grant-fields" style={{ flexWrap: 'wrap' }}>
+              <input className="papers-new-input" placeholder="Name *" value={sponsorForm.name} onChange={e => setSponsorForm(f => ({ ...f, name: e.target.value }))} required />
+              <input className="papers-new-input" placeholder="Logo URL" value={sponsorForm.logoUrl} onChange={e => setSponsorForm(f => ({ ...f, logoUrl: e.target.value }))} />
+              <input className="papers-new-input" placeholder="Website URL" value={sponsorForm.websiteUrl} onChange={e => setSponsorForm(f => ({ ...f, websiteUrl: e.target.value }))} />
+              <select className="admin-role-select" value={sponsorForm.tier} onChange={e => setSponsorForm(f => ({ ...f, tier: e.target.value }))}>
+                <option value="gold">Gold</option>
+                <option value="silver">Silver</option>
+                <option value="bronze">Bronze</option>
+              </select>
+              <input className="papers-new-input" placeholder="Blurb (optional)" value={sponsorForm.blurb} onChange={e => setSponsorForm(f => ({ ...f, blurb: e.target.value }))} />
+              <input className="papers-new-input" type="number" placeholder="Position" value={sponsorForm.position} onChange={e => setSponsorForm(f => ({ ...f, position: Number(e.target.value) }))} style={{ width: 80 }} />
+              <button type="submit" className="btn-primary" disabled={sponsorSaving || !sponsorForm.name.trim()}>
+                {sponsorSaving ? 'Saving…' : editSponsor ? 'Update' : 'Add'}
+              </button>
+              {editSponsor && <button type="button" onClick={() => { setEditSponsor(null); setSponsorForm({ name: '', logoUrl: '', websiteUrl: '', tier: 'gold', blurb: '', position: 0 }) }}>Cancel</button>}
+            </div>
+          </form>
+          <div className="admin-table-wrap">
+            {sponsors.length === 0 ? <p className="forum-empty">No sponsors yet.</p> : (
+              <table className="admin-table">
+                <thead><tr><th>Name</th><th>Tier</th><th>Website</th><th>Active</th><th>Pos</th><th></th></tr></thead>
+                <tbody>
+                  {sponsors.map(s => (
+                    <tr key={s.id}>
+                      <td>{s.logoUrl && <img src={s.logoUrl} alt="" style={{ height: 24, marginRight: 8, verticalAlign: 'middle' }} />}{s.name}</td>
+                      <td>{s.tier}</td>
+                      <td>{s.websiteUrl ? <a href={s.websiteUrl} target="_blank" rel="noopener noreferrer">{s.websiteUrl}</a> : '—'}</td>
+                      <td>{s.active ? '✓' : '✗'}</td>
+                      <td>{s.position}</td>
+                      <td style={{ display: 'flex', gap: 6 }}>
+                        <button className="admin-action-btn" onClick={() => {
+                          setEditSponsor(s)
+                          setSponsorForm({ name: s.name, logoUrl: s.logoUrl ?? '', websiteUrl: s.websiteUrl ?? '', tier: s.tier, blurb: s.blurb ?? '', position: s.position })
+                        }}>Edit</button>
+                        <button className="admin-action-btn" onClick={async () => {
+                          const updated = await apiFetch(`/api/admin/sponsors/${s.id}`, {
+                            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name: s.name, logoUrl: s.logoUrl ?? '', websiteUrl: s.websiteUrl ?? '', tier: s.tier, blurb: s.blurb ?? '', active: !s.active, position: s.position }),
+                          })
+                          setSponsors(prev => prev.map(x => x.id === s.id ? updated : x))
+                        }}>{s.active ? 'Deactivate' : 'Activate'}</button>
+                        <button className="post-action post-action-delete" onClick={async () => {
+                          if (!confirm(`Delete ${s.name}?`)) return
+                          await apiFetch(`/api/admin/sponsors/${s.id}`, { method: 'DELETE' })
+                          setSponsors(prev => prev.filter(x => x.id !== s.id))
+                        }}>Delete</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}
