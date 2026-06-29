@@ -36,8 +36,9 @@ export default function SponsorsPage() {
       <div className="sponsors-hero">
         <h1>Our Sponsors</h1>
         <p>
-          These companies and individuals directly fund the Djehuti research project,
-          making open science possible. We are grateful for their support.
+          These companies and individuals make the Djehuti research project possible —
+          through financial support, server infrastructure, AI compute time, or other
+          in-kind contributions. Open science runs on generosity. We are grateful.
         </p>
       </div>
 
@@ -82,8 +83,12 @@ export default function SponsorsPage() {
 
       <div className="sponsors-cta">
         <h3>Become a Sponsor</h3>
-        <p>Help fund open research into LLM behavior and information space dynamics.</p>
-        <a className="btn-primary" href="mailto:contact@lagdaemon.com">Contact Us</a>
+        <p>
+          Support open research into LLM behavior and information space dynamics.
+          Financial contributions, server infrastructure, AI compute time, and other
+          in-kind support are all welcome.
+        </p>
+        <a className="btn-primary" href="mailto:contact@lagdaemon.com">Get in Touch</a>
       </div>
     </div>
   )
