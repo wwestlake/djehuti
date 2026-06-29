@@ -88,8 +88,37 @@ let readLogFile (path: string) : LogEntry list =
         lines |> Array.choose parseLine |> Array.toList
     with _ -> []
 
-// Geo-enrich a batch of IPs via ip-api.com (free, 100 per request)
+// Geo-enrich IPs via ipwho.is (free, HTTPS, no batch limit)
 type GeoInfo = { Country: string; Region: string; City: string; Domain: string }
+
+let private enrichOneIp (http: HttpClient) (ip: string) : (string * GeoInfo) option =
+    try
+        let resp = http.GetAsync($"https://ipwho.is/{ip}").Result
+        let json = resp.Content.ReadAsStringAsync().Result
+        let doc  = JsonDocument.Parse(json)
+        let root = doc.RootElement
+        let mutable successEl = Unchecked.defaultof<JsonElement>
+        if root.TryGetProperty("success", &successEl) && successEl.GetBoolean() then
+            let get (k: string) =
+                let mutable v = Unchecked.defaultof<JsonElement>
+                if root.TryGetProperty(k, &v) then v.GetString() else ""
+            let getIsp () =
+                let mutable conn = Unchecked.defaultof<JsonElement>
+                if root.TryGetProperty("connection", &conn) then
+                    let mutable isp = Unchecked.defaultof<JsonElement>
+                    if conn.TryGetProperty("isp", &isp) then isp.GetString() else ""
+                else ""
+            let geo = {
+                Country = get "country"
+                Region  = get "region"
+                City    = get "city"
+                Domain  = getIsp ()
+            }
+            Some (ip, geo)
+        else None
+    with ex ->
+        eprintfn "[enrichIps] %s: %s" ip ex.Message
+        None
 
 let enrichIps (ips: string list) : Map<string, GeoInfo> =
     if ips.IsEmpty then Map.empty
@@ -97,30 +126,12 @@ let enrichIps (ips: string list) : Map<string, GeoInfo> =
         try
             use http = new HttpClient()
             http.Timeout <- TimeSpan.FromSeconds(10.0)
-            let batches = ips |> List.distinct |> List.chunkBySize 100
-            let results = System.Collections.Generic.Dictionary<string, GeoInfo>()
-            for batch in batches do
-                let body = JsonSerializer.Serialize(batch |> List.map (fun ip -> {| query = ip; fields = "status,country,regionName,city,reverse" |}))
-                use content = new StringContent(body, Encoding.UTF8, "application/json")
-                let resp = http.PostAsync("http://ip-api.com/batch", content).Result
-                let json = resp.Content.ReadAsStringAsync().Result
-                let doc = JsonDocument.Parse(json)
-                for el in doc.RootElement.EnumerateArray() do
-                    let mutable ipEl = Unchecked.defaultof<JsonElement>
-                    let mutable statusEl = Unchecked.defaultof<JsonElement>
-                    if el.TryGetProperty("query", &ipEl) && el.TryGetProperty("status", &statusEl) && statusEl.GetString() = "success" then
-                        let get (k: string) =
-                            let mutable v = Unchecked.defaultof<JsonElement>
-                            if el.TryGetProperty(k, &v) then v.GetString() else ""
-                        results.[ipEl.GetString()] <- {
-                            Country = get "country"
-                            Region  = get "regionName"
-                            City    = get "city"
-                            Domain  = get "reverse"
-                        }
-                System.Threading.Thread.Sleep(1200) // respect 45 req/min rate limit
-            let map = results |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
-            eprintfn "[enrichIps] Done: %d IPs enriched" map.Count
+            let distinct = ips |> List.distinct
+            let results =
+                distinct
+                |> List.choose (enrichOneIp http)
+            let map = results |> Map.ofList
+            eprintfn "[enrichIps] Done: %d/%d IPs enriched" map.Count distinct.Length
             map
         with ex ->
             eprintfn "[enrichIps] EXCEPTION: %s" ex.Message
