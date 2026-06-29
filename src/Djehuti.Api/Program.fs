@@ -3860,7 +3860,7 @@ let main args =
                 let path     = ctx.Request.Query.["path"].ToString()
                 let referrer = ctx.Request.Query.["ref"].ToString()
                 if isAnon then
-                    MetricsRepository.recordPageView ipHash path referrer
+                    MetricsRepository.recordPageView ipHash ip path referrer
                 Results.Ok()
             with _ -> Results.Ok()))  // always 200 — never fail a page load for analytics
     |> ignore

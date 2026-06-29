@@ -273,16 +273,17 @@ let getMetricTimeSeries (metric: string) : DailyActivityRow list =
 
 // ── Anonymous visitor tracking ────────────────────────────────────────────────
 
-let recordPageView (ipHash: string) (path: string) (referrer: string) =
+let recordPageView (ipHash: string) (ipAddress: string) (path: string) (referrer: string) =
     try
         use conn = Database.openConnection ()
         use cmd = new NpgsqlCommand("""
-            INSERT INTO anonymous_page_views (ip_hash, path, referrer)
-            VALUES (@ip, @path, @ref)
+            INSERT INTO anonymous_page_views (ip_hash, ip_address, path, referrer, source)
+            VALUES (@ip, @ipaddr, @path, @ref, 'beacon')
         """, conn)
-        cmd.Parameters.AddWithValue("ip",   ipHash)   |> ignore
-        cmd.Parameters.AddWithValue("path", path)     |> ignore
-        cmd.Parameters.AddWithValue("ref",  referrer) |> ignore
+        cmd.Parameters.AddWithValue("ip",     ipHash)     |> ignore
+        cmd.Parameters.AddWithValue("ipaddr", ipAddress)  |> ignore
+        cmd.Parameters.AddWithValue("path",   path)       |> ignore
+        cmd.Parameters.AddWithValue("ref",    referrer)   |> ignore
         cmd.ExecuteNonQuery() |> ignore
     with _ -> ()  // best-effort; never crash a request over analytics
 
