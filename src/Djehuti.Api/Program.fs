@@ -723,6 +723,16 @@ let main args =
 
     app.UseCors() |> ignore
 
+    // Update last_activity_at for authenticated users on every request (debounced in DB to 1/min)
+    app.Use(fun (ctx: HttpContext) (next: RequestDelegate) ->
+        match ctx.Request.Cookies.TryGetValue("djehuti_auth") with
+        | true, token ->
+            match Auth.verifyToken token with
+            | Some claims -> MetricsRepository.updateLastActivity claims.UserId
+            | None -> ()
+        | _ -> ()
+        next.Invoke(ctx)) |> ignore
+
     app.MapGet("/api/health", Func<string>(fun () -> "ok")) |> ignore
 
     app.MapGet(
@@ -3872,6 +3882,17 @@ let main args =
                 let m = MetricsRepository.getSiteMetrics ()
                 Results.Ok({| Members = m.Totals.All.Users; Posts = m.Totals.All.Posts; Threads = m.Totals.All.Threads; Badges = m.Totals.All.Achievements |})
             with ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Stats error"))) |> ignore
+
+    app.MapGet(
+        "/api/admin/metrics/live",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                try Results.Ok(MetricsRepository.getLiveMetrics ())
+                with ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Live metrics error")
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
 
     app.MapGet(
         "/api/admin/metrics",
