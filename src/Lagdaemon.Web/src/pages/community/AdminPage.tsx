@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { blogApi } from '../../api/blogApi'
 import type { BlogArticle, BlogTag, BlogAuthor, SiteConfigEntry } from '../../api/blogApi'
@@ -70,7 +71,15 @@ async function apiFetch(url: string, opts?: RequestInit) {
 
 export default function AdminPage() {
   const { user } = useAuth()
-  const [tab, setTab] = useState<Tab>('users')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'personas', 'heartbeat', 'metrics', 'api-keys']
+  const tabFromUrl = searchParams.get('tab') as Tab | null
+  const [tab, setTab] = useState<Tab>(tabFromUrl && validTabs.includes(tabFromUrl) ? tabFromUrl : 'users')
+
+  const switchTab = (t: Tab) => {
+    setTab(t)
+    setSearchParams({ tab: t }, { replace: true })
+  }
   const [menuOpen, setMenuOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -614,7 +623,7 @@ export default function AdminPage() {
         <button className="nav-drawer-close" onClick={() => setMenuOpen(false)}>✕</button>
         {(Object.keys(TAB_LABELS) as Tab[]).map(t => (
           <button key={t} className={`nav-community-link${tab === t ? ' active' : ''}`}
-            onClick={() => { setTab(t); setMenuOpen(false) }}>
+            onClick={() => { switchTab(t); setMenuOpen(false) }}>
             {TAB_LABELS[t]}
             {t === 'blog-queue' && queue.length > 0 && <span className="admin-badge">{queue.length}</span>}
             {t === 'forum-reports' && forumReports.length > 0 && <span className="admin-badge">{forumReports.length}</span>}
