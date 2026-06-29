@@ -20,7 +20,7 @@ interface Announcement {
   createdAt: string; updatedAt: string
 }
 
-type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'personas' | 'heartbeat' | 'metrics'
+type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'personas' | 'heartbeat' | 'metrics' | 'api-keys'
 
 interface MetricsCounts { users: number; posts: number; threads: number; articles: number; votesGiven: number; reactions: number; achievements: number }
 interface ForumActivityRow { forumId: string; forumName: string; postsAll: number; postsHuman: number; postsAi: number; threadsAll: number; threadsHuman: number; threadsAi: number }
@@ -38,6 +38,15 @@ interface UserDrilldown {
   postCount: number; threadCount: number; voteReceived: number; voteGiven: number
   reactionCount: number; answerCount: number; loginStreak: number; daysActive: number; lastActiveAt: string
   achievements: { slug: string; name: string; icon: string; tier: string; awardedAt: string }[]
+}
+
+interface ApiKey {
+  id: string
+  name: string
+  keyPrefix: string
+  createdAt: string
+  lastUsedAt: string | null
+  active: boolean
 }
 
 interface AiPersona {
@@ -160,6 +169,10 @@ export default function AdminPage() {
   } | null>(null)
   const [anonRefreshing, setAnonRefreshing] = useState(false)
   const [anonRefreshMsg, setAnonRefreshMsg] = useState<string | null>(null)
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
+  const [newKeyName, setNewKeyName] = useState('')
+  const [newKeyPlaintext, setNewKeyPlaintext] = useState<string | null>(null)
+  const [keyCreating, setKeyCreating] = useState(false)
 
   const loadUsers = async (p = usersPage, s = userSearch, r = userFilterRole, st = userFilterStatus) => {
     setLoading(true); setError(null)
@@ -215,6 +228,7 @@ export default function AdminPage() {
         apiFetch(`${BASE}/api/admin/metrics`).then(setMetrics),
         apiFetch(`${BASE}/api/admin/metrics/anonymous`).then(setAnonMetrics).catch(() => {}),
       ]).then(() => {}),
+      'api-keys': () => apiFetch(`${BASE}/api/admin/api-keys`).then(setApiKeys),
     }
     loaders[tab]().catch(() => setError('Failed to load data')).finally(() => setLoading(false))
   }, [tab, user])
@@ -442,8 +456,30 @@ export default function AdminPage() {
 
   if (!user || user.role !== 'admin') return <p className="forum-login-prompt">Admin access required.</p>
 
+  const generateApiKey = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newKeyName.trim()) return
+    setKeyCreating(true)
+    try {
+      const params = new URLSearchParams({ name: newKeyName.trim() })
+      const res = await apiFetch(`${BASE}/api/admin/api-keys?${params}`, { method: 'POST' })
+      setNewKeyPlaintext(res.key)
+      setApiKeys(prev => [res.record, ...prev])
+      setNewKeyName('')
+    } catch { setError('Failed to generate key') }
+    finally { setKeyCreating(false) }
+  }
+
+  const revokeApiKey = async (id: string) => {
+    if (!confirm('Revoke this API key? It will stop working immediately.')) return
+    try {
+      await apiFetch(`${BASE}/api/admin/api-keys/${id}`, { method: 'DELETE' })
+      setApiKeys(prev => prev.map(k => k.id === id ? { ...k, active: false } : k))
+    } catch { setError('Failed to revoke key') }
+  }
+
   const TAB_LABELS: Record<Tab, string> = {
-    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics',
+    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics', 'api-keys': 'API Keys',
   }
 
   const toggleSection = (key: string) =>
@@ -1479,6 +1515,72 @@ export default function AdminPage() {
       })()}
       {tab === 'metrics' && !loading && !metrics && !error && (
         <p className="forum-empty">No metrics data available.</p>
+      )}
+
+      {tab === 'api-keys' && !loading && (
+        <div style={{ maxWidth: 700 }}>
+          <h3 style={{ marginBottom: 4 }}>Public API Keys</h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: 20 }}>
+            Keys grant access to <code>/api/public/v1/</code> — datasets and analysis only. No AI. Pass as <code>X-Api-Key: &lt;key&gt;</code> header.
+          </p>
+
+          {newKeyPlaintext && (
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--accent)', borderRadius: 8, padding: 16, marginBottom: 20 }}>
+              <p style={{ margin: '0 0 8px', fontWeight: 600, color: 'var(--accent)' }}>Key generated — copy it now. It will not be shown again.</p>
+              <code style={{ display: 'block', wordBreak: 'break-all', fontSize: '0.85rem', background: 'var(--bg)', padding: '8px 12px', borderRadius: 6 }}>{newKeyPlaintext}</code>
+              <button style={{ marginTop: 10, fontSize: '0.8rem' }} className="blog-tab" onClick={() => { navigator.clipboard.writeText(newKeyPlaintext); }}>Copy</button>
+              <button style={{ marginTop: 10, marginLeft: 8, fontSize: '0.8rem' }} className="blog-tab" onClick={() => setNewKeyPlaintext(null)}>Dismiss</button>
+            </div>
+          )}
+
+          <form onSubmit={generateApiKey} style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
+            <input
+              className="admin-search-input"
+              placeholder="Key name (e.g. My Script)"
+              value={newKeyName}
+              onChange={e => setNewKeyName(e.target.value)}
+              style={{ flex: 1 }}
+            />
+            <button type="submit" className="blog-tab active" disabled={keyCreating || !newKeyName.trim()}>
+              {keyCreating ? 'Generating…' : 'Generate Key'}
+            </button>
+          </form>
+
+          {apiKeys.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)' }}>No API keys yet.</p>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  <th style={{ textAlign: 'left', padding: '6px 8px' }}>Name</th>
+                  <th style={{ textAlign: 'left', padding: '6px 8px' }}>Prefix</th>
+                  <th style={{ textAlign: 'left', padding: '6px 8px' }}>Created</th>
+                  <th style={{ textAlign: 'left', padding: '6px 8px' }}>Last Used</th>
+                  <th style={{ textAlign: 'left', padding: '6px 8px' }}>Status</th>
+                  <th style={{ padding: '6px 8px' }} />
+                </tr>
+              </thead>
+              <tbody>
+                {apiKeys.map(k => (
+                  <tr key={k.id} style={{ borderBottom: '1px solid var(--border)', opacity: k.active ? 1 : 0.45 }}>
+                    <td style={{ padding: '8px 8px' }}>{k.name}</td>
+                    <td style={{ padding: '8px 8px' }}><code style={{ fontSize: '0.8rem' }}>{k.keyPrefix}…</code></td>
+                    <td style={{ padding: '8px 8px', color: 'var(--text-muted)' }}>{new Date(k.createdAt).toLocaleDateString()}</td>
+                    <td style={{ padding: '8px 8px', color: 'var(--text-muted)' }}>{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : '—'}</td>
+                    <td style={{ padding: '8px 8px' }}>
+                      <span style={{ color: k.active ? 'var(--accent)' : 'var(--text-muted)' }}>{k.active ? 'Active' : 'Revoked'}</span>
+                    </td>
+                    <td style={{ padding: '8px 8px', textAlign: 'right' }}>
+                      {k.active && (
+                        <button className="blog-tab" style={{ fontSize: '0.78rem', color: 'var(--error, #e05)' }} onClick={() => revokeApiKey(k.id)}>Revoke</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       )}
 
       {/* ── Edit User Modal ── */}

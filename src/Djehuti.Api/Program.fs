@@ -3932,5 +3932,99 @@ let main args =
             | None   -> Results.Unauthorized())
     ) |> ignore
 
+    // ── Public API (X-Api-Key) ──────────────────────────────────────────────────
+
+    let requireApiKey (ctx: HttpContext) =
+        match ctx.Request.Headers.TryGetValue("X-Api-Key") with
+        | true, v when v.Count > 0 -> ApiKeyRepository.validateKey v.[0]
+        | _ -> None
+
+    // Admin: list my API keys
+    app.MapGet(
+        "/api/admin/api-keys",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, ownerId ->
+                Results.Ok(ApiKeyRepository.listKeys ownerId)
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    // Admin: generate new key
+    app.MapPost(
+        "/api/admin/api-keys",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, ownerId ->
+                let name =
+                    match ctx.Request.Query.TryGetValue("name") with
+                    | true, v when v.Count > 0 && not (String.IsNullOrWhiteSpace v.[0]) -> v.[0]
+                    | _ -> "API Key"
+                try
+                    let (plaintext, record) = ApiKeyRepository.generateKey name ownerId
+                    Results.Ok({| key = plaintext; record = record |})
+                with ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Key generation failed")
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    // Admin: revoke a key
+    app.MapDelete(
+        "/api/admin/api-keys/{id}",
+        Func<HttpContext, string, IResult>(fun ctx id ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(claims.UserId), Guid.TryParse(id) with
+                | (true, ownerId), (true, keyId) ->
+                    if ApiKeyRepository.revokeKey keyId ownerId then Results.NoContent()
+                    else Results.NotFound("Key not found")
+                | _ -> Results.BadRequest("Invalid key id")
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    // Public: list datasets
+    app.MapGet(
+        "/api/public/v1/datasets",
+        Func<HttpContext, IResult>(fun ctx ->
+            match requireApiKey ctx with
+            | None -> Results.Unauthorized()
+            | Some _ -> Results.Ok(DataLibrary.catalog ()))
+    ) |> ignore
+
+    // Public: get dataset by id
+    app.MapGet(
+        "/api/public/v1/datasets/{id}",
+        Func<HttpContext, string, IResult>(fun ctx id ->
+            match requireApiKey ctx with
+            | None -> Results.Unauthorized()
+            | Some _ ->
+                match DataLibrary.tryReadDataSet id with
+                | Ok json   -> Results.Text(json, "application/json")
+                | Error msg -> Results.NotFound(msg))
+    ) |> ignore
+
+    // Public: analyze a stored dataset (no AI)
+    app.MapPost(
+        "/api/public/v1/datasets/{id}/analyze",
+        Func<HttpContext, string, IResult>(fun ctx id ->
+            match requireApiKey ctx with
+            | None -> Results.Unauthorized()
+            | Some _ ->
+                match DataLibrary.tryReadDataSet id with
+                | Error msg -> Results.NotFound(msg)
+                | Ok json ->
+                    try Results.Ok(Dto.analyze json)
+                    with
+                    | :? ArgumentException as ex -> Results.BadRequest(ex.Message)
+                    | ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Analysis failed"))
+    ) |> ignore
+
     app.Run()
     0
