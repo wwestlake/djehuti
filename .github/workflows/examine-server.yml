@@ -1,0 +1,88 @@
+name: Examine Server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  examine:
+    name: System Examination
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Examine server
+        run: |
+          ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.DEPLOY_HOST }} bash -s << 'EOF'
+          set -e
+          echo "====== SYSTEM INFO ======"
+          uname -a
+          lsb_release -a 2>/dev/null || cat /etc/os-release
+
+          echo ""
+          echo "====== UPTIME / LOAD ======"
+          uptime
+
+          echo ""
+          echo "====== DISK USAGE ======"
+          df -h
+
+          echo ""
+          echo "====== MEMORY ======"
+          free -h
+
+          echo ""
+          echo "====== RUNNING SERVICES ======"
+          systemctl list-units --type=service --state=running --no-pager
+
+          echo ""
+          echo "====== DJEHUTI API SERVICE STATUS ======"
+          sudo systemctl status djehuti-api --no-pager || true
+
+          echo ""
+          echo "====== DJEHUTI API LAST 50 LOG LINES ======"
+          sudo journalctl -u djehuti-api -n 50 --no-pager || true
+
+          echo ""
+          echo "====== NGINX STATUS ======"
+          sudo systemctl status nginx --no-pager || true
+
+          echo ""
+          echo "====== NGINX SITES-ENABLED ======"
+          ls -la /etc/nginx/sites-enabled/
+          for f in /etc/nginx/sites-enabled/*; do echo "--- $f ---"; cat "$f"; done
+
+          echo ""
+          echo "====== /var/www LAYOUT ======"
+          ls -laR /var/www/
+
+          echo ""
+          echo "====== /opt LAYOUT ======"
+          ls -laR /opt/
+
+          echo ""
+          echo "====== API ENV FILE (keys only, no values) ======"
+          cut -d= -f1 /opt/djehuti-api/api.env 2>/dev/null || echo "api.env not found"
+
+          echo ""
+          echo "====== POSTGRES DATABASES ======"
+          sudo -u postgres psql -l || true
+
+          echo ""
+          echo "====== DJEHUTI DB TABLES ======"
+          sudo -u postgres psql -d djehuti -c "\dt" || true
+
+          echo ""
+          echo "====== OPEN PORTS ======"
+          ss -tlnp
+
+          echo ""
+          echo "====== CRONTABS ======"
+          sudo crontab -l 2>/dev/null || echo "no root crontab"
+          crontab -l 2>/dev/null || echo "no ubuntu crontab"
+          EOF
