@@ -66,6 +66,7 @@ function Nav({ onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
       <button className={`nav-community-link${active('/forum') ? ' active' : ''}`} onClick={() => go('/forum')}>Forum</button>
       <button className={`nav-community-link${active('/blog') ? ' active' : ''}`} onClick={() => go('/blog')}>Blog</button>
       <button className={`nav-community-link${active('/papers') ? ' active' : ''}`} onClick={() => go('/papers')}>Papers</button>
+      <button className={`nav-community-link${active('/sponsors') ? ' active' : ''}`} onClick={() => go('/sponsors')}>Sponsors</button>
       {user && (
         <button className={`nav-community-link${active('/profile') ? ' active' : ''}`} onClick={() => go('/profile')}>Profile</button>
       )}
