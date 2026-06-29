@@ -116,6 +116,7 @@ let enrichIps (ips: string list) : Map<string, GeoInfo> =
         with _ -> Map.empty
 
 let insertEntries (entries: LogEntry list) (geoMap: Map<string, GeoInfo>) =
+    eprintfn "[NginxLogParser] insertEntries called with %d entries" entries.Length
     use conn = Database.openConnection()
     let mutable inserted = 0
     for e in entries do
@@ -152,13 +153,22 @@ let logFiles () =
     else []
 
 let runRefresh () =
-    let cutoff = DateTime.UtcNow.AddDays(-30.0)
-    let entries =
-        logFiles ()
-        |> List.collect readLogFile
-        |> List.filter (fun e -> e.ViewedAt >= cutoff)
-
-    let ips = entries |> List.map (fun e -> e.Ip) |> List.distinct
-    let geoMap = enrichIps ips
-    let inserted = insertEntries entries geoMap
-    {| Parsed = entries.Length; UniqueIps = ips.Length; Inserted = inserted |}
+    try
+        let files = logFiles ()
+        eprintfn "[NginxLogParser] Found %d log files: %A" files.Length files
+        let cutoff = DateTime.UtcNow.AddDays(-30.0)
+        let entries =
+            files
+            |> List.collect readLogFile
+            |> List.filter (fun e -> e.ViewedAt >= cutoff)
+        eprintfn "[NginxLogParser] Parsed %d entries after filter (cutoff=%A)" entries.Length cutoff
+        let ips = entries |> List.map (fun e -> e.Ip) |> List.distinct
+        eprintfn "[NginxLogParser] Unique IPs: %d" ips.Length
+        let geoMap = enrichIps ips
+        eprintfn "[NginxLogParser] Geo map size: %d" geoMap.Count
+        let inserted = insertEntries entries geoMap
+        eprintfn "[NginxLogParser] Inserted: %d" inserted
+        {| Parsed = entries.Length; UniqueIps = ips.Length; Inserted = inserted |}
+    with ex ->
+        eprintfn "[NginxLogParser] runRefresh EXCEPTION: %s\n%s" ex.Message ex.StackTrace
+        {| Parsed = 0; UniqueIps = 0; Inserted = 0 |}
