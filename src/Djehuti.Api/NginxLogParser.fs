@@ -1,0 +1,164 @@
+module Djehuti.Api.NginxLogParser
+
+open System
+open System.IO
+open System.IO.Compression
+open System.Net.Http
+open System.Text
+open System.Text.Json
+open System.Text.RegularExpressions
+open Npgsql
+
+// Matches: IP - - [date] "METHOD /path HTTP/x" status bytes "referrer" "ua"
+let private logPattern =
+    Regex(@"^(\S+) \S+ \S+ \[([^\]]+)\] ""(\w+) ([^ ]+) [^""]*"" (\d+) \d+ ""([^""]*)"" ""([^""]*)""",
+          RegexOptions.Compiled)
+
+// Paths we care about — lagdaemon.com pages and djehuti dashboard
+let private isPageRequest (method: string) (path: string) (status: string) =
+    method = "GET"
+    && status = "200"
+    && not (path.StartsWith("/api/"))
+    && not (path.StartsWith("/djehuti/api/"))
+    && not (String.IsNullOrEmpty path)
+    && not (path.Contains(".php"))
+    && not (path.Contains("wp-"))
+    && not (path.Contains(".env"))
+    && not (path.Contains(".."))
+
+// Known bots/scanners to skip
+let private isBotUA (ua: string) =
+    let lower = ua.ToLowerInvariant()
+    lower.Contains("bot") || lower.Contains("crawler") || lower.Contains("spider")
+    || lower.Contains("scan") || lower.Contains("python-requests")
+    || lower.Contains("curl/") || lower.Contains("wget/")
+    || lower.Contains("zgrab") || lower.Contains("masscan")
+
+let private parseDate (s: string) =
+    match DateTime.TryParseExact(s, "dd/MMM/yyyy:HH:mm:ss zzz",
+                                  System.Globalization.CultureInfo.InvariantCulture,
+                                  System.Globalization.DateTimeStyles.None) with
+    | true, dt -> Some (dt.ToUniversalTime())
+    | _ -> None
+
+type LogEntry = {
+    Ip       : string
+    Path     : string
+    Referrer : string
+    UserAgent: string
+    ViewedAt : DateTime
+}
+
+let parseLine (line: string) : LogEntry option =
+    let m = logPattern.Match(line)
+    if not m.Success then None
+    else
+        let ip     = m.Groups.[1].Value
+        let date   = m.Groups.[2].Value
+        let method = m.Groups.[3].Value
+        let path   = m.Groups.[4].Value
+        let status = m.Groups.[5].Value
+        let ref_   = m.Groups.[6].Value
+        let ua     = m.Groups.[7].Value
+        if not (isPageRequest method path status) || isBotUA ua then None
+        else
+            match parseDate date with
+            | None -> None
+            | Some dt ->
+                Some { Ip = ip; Path = path; Referrer = (if ref_ = "-" then "" else ref_)
+                       UserAgent = ua; ViewedAt = dt }
+
+let readLogFile (path: string) : LogEntry list =
+    try
+        let lines =
+            if path.EndsWith(".gz") then
+                use fs = File.OpenRead(path)
+                use gz = new GZipStream(fs, CompressionMode.Decompress)
+                use sr = new StreamReader(gz)
+                sr.ReadToEnd().Split('\n')
+            else
+                File.ReadAllLines(path)
+        lines |> Array.choose parseLine |> Array.toList
+    with _ -> []
+
+// Geo-enrich a batch of IPs via ip-api.com (free, 100 per request)
+type GeoInfo = { Country: string; Region: string; City: string; Domain: string }
+
+let enrichIps (ips: string list) : Map<string, GeoInfo> =
+    if ips.IsEmpty then Map.empty
+    else
+        try
+            use http = new HttpClient()
+            http.Timeout <- TimeSpan.FromSeconds(10.0)
+            let batches = ips |> List.distinct |> List.chunkBySize 100
+            let results = System.Collections.Generic.Dictionary<string, GeoInfo>()
+            for batch in batches do
+                let body = JsonSerializer.Serialize(batch |> List.map (fun ip -> {| query = ip; fields = "status,country,regionName,city,reverse" |}))
+                use content = new StringContent(body, Encoding.UTF8, "application/json")
+                let resp = http.PostAsync("http://ip-api.com/batch", content).Result
+                let json = resp.Content.ReadAsStringAsync().Result
+                let doc = JsonDocument.Parse(json)
+                for el in doc.RootElement.EnumerateArray() do
+                    let mutable ipEl = Unchecked.defaultof<JsonElement>
+                    let mutable statusEl = Unchecked.defaultof<JsonElement>
+                    if el.TryGetProperty("query", &ipEl) && el.TryGetProperty("status", &statusEl) && statusEl.GetString() = "success" then
+                        let get (k: string) =
+                            let mutable v = Unchecked.defaultof<JsonElement>
+                            if el.TryGetProperty(k, &v) then v.GetString() else ""
+                        results.[ipEl.GetString()] <- {
+                            Country = get "country"
+                            Region  = get "regionName"
+                            City    = get "city"
+                            Domain  = get "reverse"
+                        }
+                System.Threading.Thread.Sleep(1200) // respect 45 req/min rate limit
+            results |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+        with _ -> Map.empty
+
+let insertEntries (entries: LogEntry list) (geoMap: Map<string, GeoInfo>) =
+    use conn = Database.openConnection()
+    let mutable inserted = 0
+    for e in entries do
+        try
+            let geo = geoMap |> Map.tryFind e.Ip |> Option.defaultValue { Country = ""; Region = ""; City = ""; Domain = "" }
+            let ipBytes  = Text.Encoding.UTF8.GetBytes(e.Ip)
+            let ipHash   = Convert.ToHexString(Security.Cryptography.SHA256.HashData(ipBytes)).ToLowerInvariant()
+            use cmd = new NpgsqlCommand("""
+                INSERT INTO anonymous_page_views
+                    (ip_hash, ip_address, path, referrer, user_agent, country, region, city, domain, viewed_at, source)
+                VALUES (@hash, @ip, @path, @ref, @ua, @country, @region, @city, @domain, @at, 'nginx_log')
+                ON CONFLICT (ip_address, path, viewed_at) DO NOTHING
+            """, conn)
+            cmd.Parameters.AddWithValue("hash",    ipHash)       |> ignore
+            cmd.Parameters.AddWithValue("ip",      e.Ip)         |> ignore
+            cmd.Parameters.AddWithValue("path",    e.Path)       |> ignore
+            cmd.Parameters.AddWithValue("ref",     e.Referrer)   |> ignore
+            cmd.Parameters.AddWithValue("ua",      e.UserAgent)  |> ignore
+            cmd.Parameters.AddWithValue("country", geo.Country)  |> ignore
+            cmd.Parameters.AddWithValue("region",  geo.Region)   |> ignore
+            cmd.Parameters.AddWithValue("city",    geo.City)     |> ignore
+            cmd.Parameters.AddWithValue("domain",  geo.Domain)   |> ignore
+            cmd.Parameters.AddWithValue("at",      e.ViewedAt)   |> ignore
+            inserted <- inserted + cmd.ExecuteNonQuery()
+        with _ -> ()
+    inserted
+
+let nginxLogDir = "/var/log/nginx"
+let logFiles () =
+    if Directory.Exists(nginxLogDir) then
+        Directory.GetFiles(nginxLogDir, "access.log*")
+        |> Array.filter (fun f -> not (f.EndsWith(".gz")) || true)
+        |> Array.toList
+    else []
+
+let runRefresh () =
+    let cutoff = DateTime.UtcNow.AddDays(-30.0)
+    let entries =
+        logFiles ()
+        |> List.collect readLogFile
+        |> List.filter (fun e -> e.ViewedAt >= cutoff)
+
+    let ips = entries |> List.map (fun e -> e.Ip) |> List.distinct
+    let geoMap = enrichIps ips
+    let inserted = insertEntries entries geoMap
+    {| Parsed = entries.Length; UniqueIps = ips.Length; Inserted = inserted |}

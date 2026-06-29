@@ -3918,5 +3918,19 @@ let main args =
             | None   -> Results.Unauthorized())
     ) |> ignore
 
+    app.MapPost(
+        "/api/admin/metrics/anonymous/refresh-logs",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                try
+                    // Run in background so request returns immediately
+                    System.Threading.Tasks.Task.Run(fun () -> NginxLogParser.runRefresh() |> ignore) |> ignore
+                    Results.Ok({| message = "Log refresh started — check metrics in ~60 seconds" |})
+                with ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Log refresh error")
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
     app.Run()
     0

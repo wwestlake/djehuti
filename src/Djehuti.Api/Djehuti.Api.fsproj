@@ -25,6 +25,7 @@
     <Compile Include="AchievementRepository.fs" />
     <Compile Include="AchievementEngine.fs" />
     <Compile Include="MetricsRepository.fs" />
+    <Compile Include="NginxLogParser.fs" />
     <Compile Include="PersonaRepository.fs" />
     <Compile Include="HeartbeatWorker.fs" />
     <Compile Include="PatreonService.fs" />
