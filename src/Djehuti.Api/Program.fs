@@ -3662,6 +3662,16 @@ let main args =
             | None   -> Results.Unauthorized())
     ) |> ignore
 
+    app.MapGet(
+        "/api/admin/heartbeat/health",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                Results.Ok(PersonaRepository.getWorkerHealth())
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
     app.MapPost(
         "/api/admin/heartbeat/trigger",
         Func<HttpContext, IResult>(fun ctx ->

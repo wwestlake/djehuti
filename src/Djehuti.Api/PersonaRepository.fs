@@ -211,6 +211,26 @@ let failJob (id: Guid) (error: string) (maxRetries: int) (currentRetry: int) : u
     cmd.Parameters.AddWithValue("err",    error)     |> ignore
     cmd.ExecuteNonQuery() |> ignore
 
+let getWorkerHealth () =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand("""
+        SELECT
+            COUNT(*) FILTER (WHERE status = 'Pending')::int,
+            COUNT(*) FILTER (WHERE status = 'Processing')::int,
+            COUNT(*) FILTER (WHERE status = 'Failed')::int,
+            COUNT(*) FILTER (WHERE status = 'Completed')::int,
+            MAX(completed_at)
+        FROM heartbeat_jobs
+    """, conn)
+    use r = cmd.ExecuteReader()
+    if r.Read() then
+        let lastCompleted = if r.IsDBNull(4) then None else Some (r.GetDateTime(4))
+        {| Pending = r.GetInt32(0); Processing = r.GetInt32(1); Failed = r.GetInt32(2)
+           Completed = r.GetInt32(3); LastCompletedAt = lastCompleted
+           WorkerStalled = lastCompleted |> Option.map (fun d -> (System.DateTime.UtcNow - d).TotalMinutes > 15.0) |> Option.defaultValue true |}
+    else
+        {| Pending = 0; Processing = 0; Failed = 0; Completed = 0; LastCompletedAt = None; WorkerStalled = true |}
+
 let getRecentJobs (limit: int) : HeartbeatJob list =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
@@ -224,6 +244,10 @@ let getRecentJobs (limit: int) : HeartbeatJob list =
 
 let pruneOldFailedJobs () : int =
     use conn = openConnection ()
+    // Reset jobs stuck in Processing for more than 1 hour (service crash recovery)
+    use resetCmd = new NpgsqlCommand(
+        "UPDATE heartbeat_jobs SET status = 'Pending', locked_at = NULL WHERE status = 'Processing' AND locked_at < now() - interval '1 hour'", conn)
+    resetCmd.ExecuteNonQuery() |> ignore
     use cmd = new NpgsqlCommand(
         "DELETE FROM heartbeat_jobs WHERE status = 'Failed' AND created_at < now() - interval '7 days'", conn)
     cmd.ExecuteNonQuery()

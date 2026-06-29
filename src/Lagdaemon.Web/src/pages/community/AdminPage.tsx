@@ -155,6 +155,7 @@ export default function AdminPage() {
   const [hbConfigEdit, setHbConfigEdit] = useState<HeartbeatConfig>({})
   const [hbSaving, setHbSaving] = useState(false)
   const [hbTriggering, setHbTriggering] = useState(false)
+  const [hbHealth, setHbHealth] = useState<{ pending: number; processing: number; failed: number; completed: number; lastCompletedAt: string | null; workerStalled: boolean } | null>(null)
 
   // Metrics
   const [metrics, setMetrics] = useState<SiteMetrics | null>(null)
@@ -227,13 +228,15 @@ export default function AdminPage() {
       announcements: () => apiFetch(`${BASE}/api/admin/announcements`).then(setAnnouncements),
       personas: () => apiFetch(`${BASE}/api/admin/personas`).then((rows: { persona: AiPersona }[]) => setPersonas(rows.map(r => r.persona))),
       heartbeat: async () => {
-        const [jobs, cfg] = await Promise.all([
+        const [jobs, cfg, health] = await Promise.all([
           apiFetch(`${BASE}/api/admin/heartbeat/jobs?limit=50`),
           apiFetch(`${BASE}/api/admin/heartbeat/config`),
+          apiFetch(`${BASE}/api/admin/heartbeat/health`),
         ])
         setHbJobs(jobs)
         setHbConfig(cfg)
         setHbConfigEdit({ ...cfg })
+        setHbHealth(health)
       },
       metrics: () => Promise.all([
         apiFetch(`${BASE}/api/admin/metrics`).then(setMetrics),
@@ -1087,6 +1090,22 @@ export default function AdminPage() {
       {/* ── Heartbeat ── */}
       {tab === 'heartbeat' && !loading && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          {hbHealth && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+              borderRadius: 8, fontSize: '0.85rem',
+              background: hbHealth.workerStalled ? 'rgba(239,68,68,0.12)' : 'rgba(110,231,160,0.1)',
+              border: `1px solid ${hbHealth.workerStalled ? 'var(--danger)' : '#6ee7a0'}`,
+            }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: hbHealth.workerStalled ? 'var(--danger)' : '#6ee7a0', boxShadow: hbHealth.workerStalled ? '0 0 6px var(--danger)' : '0 0 6px #6ee7a0' }} />
+              <span style={{ fontWeight: 600 }}>{hbHealth.workerStalled ? 'Worker stalled' : 'Worker healthy'}</span>
+              <span style={{ color: 'var(--text-muted)' }}>
+                {hbHealth.pending > 0 && `${hbHealth.pending} pending · `}
+                {hbHealth.failed > 0 && `${hbHealth.failed} failed · `}
+                {hbHealth.lastCompletedAt ? `last completed ${new Date(hbHealth.lastCompletedAt).toLocaleString()}` : 'no completed jobs'}
+              </span>
+            </div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <h4 style={{ margin: 0 }}>Configuration</h4>
@@ -1095,13 +1114,46 @@ export default function AdminPage() {
                 <button className="tiptap-action-btn primary" onClick={saveHbConfig} disabled={hbSaving}>{hbSaving ? 'Saving…' : 'Save Config'}</button>
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
-              {Object.entries(hbConfigEdit).map(([k, v]) => (
-                <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>{k}</span>
-                  <input className="papers-new-input" value={v} onChange={e => setHbConfigEdit(c => ({ ...c, [k]: e.target.value }))} />
-                </label>
-              ))}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+              {Object.entries(hbConfigEdit).map(([k, v]) => {
+                const isBool = v === 'true' || v === 'false'
+                const isNum  = !isBool && /^\d+$/.test(v)
+                const isReadonly = k === 'patreon_reconcile_last_run'
+                return (
+                  <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '0.85rem' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>{k}</span>
+                    {isBool ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => setHbConfigEdit(c => ({ ...c, [k]: v === 'true' ? 'false' : 'true' }))}
+                          style={{
+                            width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+                            background: v === 'true' ? '#6ee7a0' : 'var(--border)',
+                            position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+                          }}
+                        >
+                          <span style={{
+                            position: 'absolute', top: 3, left: v === 'true' ? 23 : 3,
+                            width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                            transition: 'left 0.2s', display: 'block',
+                          }} />
+                        </button>
+                        <span style={{ color: v === 'true' ? '#6ee7a0' : 'var(--text-muted)' }}>{v === 'true' ? 'On' : 'Off'}</span>
+                      </div>
+                    ) : isReadonly ? (
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: '6px 0' }}>{v}</span>
+                    ) : (
+                      <input
+                        className="papers-new-input"
+                        type={isNum ? 'number' : 'text'}
+                        value={v}
+                        onChange={e => setHbConfigEdit(c => ({ ...c, [k]: e.target.value }))}
+                      />
+                    )}
+                  </label>
+                )
+              })}
             </div>
           </div>
           <div>
