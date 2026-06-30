@@ -35,7 +35,7 @@ module OpenAiResponses =
         else
             let model =
                 let value = environmentValue "DJEHUTI_ANALYST_MODEL"
-                if String.IsNullOrWhiteSpace value then "gpt-4.1" else value
+                if String.IsNullOrWhiteSpace value then "gpt-4o-mini" else value
 
             Ok
                 { ApiKey = apiKey

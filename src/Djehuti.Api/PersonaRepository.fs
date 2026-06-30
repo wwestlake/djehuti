@@ -195,7 +195,7 @@ let fetchAndLockJobs (limit: int) : HeartbeatJob list =
 let completeJob (id: Guid) : unit =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
-        "UPDATE heartbeat_jobs SET status = 'Completed', completed_at = now() WHERE id = @id", conn)
+        "UPDATE heartbeat_jobs SET status = 'Completed', completed_at = now(), locked_at = null, error = null WHERE id = @id", conn)
     cmd.Parameters.AddWithValue("id", id) |> ignore
     cmd.ExecuteNonQuery() |> ignore
 

@@ -201,7 +201,7 @@ function App() {
   const [isAskingAnalyst, setIsAskingAnalyst] = useState(false)
   const [analystError, setAnalystError] = useState<string | null>(null)
   const [liveApiKey, setLiveApiKey] = useState(() => localStorage.getItem('djehuti.liveApiKey') ?? '')
-  const [liveModel, setLiveModel] = useState(() => localStorage.getItem('djehuti.liveModel') ?? 'gpt-4.1-mini')
+  const [liveModel, setLiveModel] = useState(() => localStorage.getItem('djehuti.liveModel') ?? 'gpt-4o-mini')
   const [liveEndpoint, setLiveEndpoint] = useState(() => localStorage.getItem('djehuti.liveEndpoint') ?? 'https://api.openai.com/v1/responses')
   const [livePrompt, setLivePrompt] = useState('')
   const [liveTurns, setLiveTurns] = useState<LiveTurn[]>(() => {
@@ -222,8 +222,8 @@ function App() {
   const [saveRunError, setSaveRunError] = useState<string | null>(null)
   const [saveRunSuccess, setSaveRunSuccess] = useState<string | null>(null)
   const [mlmceParticipants, setMlmceParticipants] = useState<MlmceParticipantConfig[]>([
-    { id: 'participant-a', roleLabel: 'Advocate', modelId: 'gpt-4.1-mini' },
-    { id: 'participant-b', roleLabel: 'Critic', modelId: 'gpt-4.1-mini' },
+    { id: 'participant-a', roleLabel: 'Advocate', modelId: 'gpt-4o-mini' },
+    { id: 'participant-b', roleLabel: 'Critic', modelId: 'gpt-4o-mini' },
   ])
   const [mlmceModeratorModel, setMlmceModeratorModel] = useState('gpt-4.1')
   const [mlmceModeratorProfileVersion, setMlmceModeratorProfileVersion] = useState('1')
@@ -273,7 +273,7 @@ function App() {
       {
         id: `participant-${String.fromCharCode(97 + participants.length)}`,
         roleLabel: 'Participant',
-        modelId: participants[participants.length - 1]?.modelId || 'gpt-4.1-mini',
+        modelId: participants[participants.length - 1]?.modelId || 'gpt-4o-mini',
       },
     ])
   }
@@ -432,7 +432,7 @@ function App() {
       const config: LiveProviderConfig = {
         protocol: 'openai-responses',
         apiKey: key,
-        model: liveModel.trim() || 'gpt-4.1-mini',
+        model: liveModel.trim() || 'gpt-4o-mini',
         endpoint: liveEndpoint.trim() || 'https://api.openai.com/v1/responses',
         webSearch: liveWebSearch,
       }
@@ -709,7 +709,7 @@ function App() {
             <input
               value={liveModel}
               onChange={(event) => setLiveModel(event.target.value)}
-              placeholder="gpt-4.1-mini"
+              placeholder="gpt-4o-mini"
             />
           </label>
           <label className="live-endpoint-field">
@@ -758,7 +758,7 @@ function App() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                       name,
-                      description: `Live Lab run - ${liveTurns.length} turns, model: ${liveModel.trim() || 'gpt-4.1-mini'}`,
+                      description: `Live Lab run - ${liveTurns.length} turns, model: ${liveModel.trim() || 'gpt-4o-mini'}`,
                       sourceKind: 'live-lab',
                       turnCount: liveTurns.length,
                       datasetJson: liveTurnsToDatasetJson(liveTurns),
