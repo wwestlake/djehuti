@@ -54,6 +54,14 @@ If a paste appears to be cut off, malformed, or incomplete (ends mid-sentence, m
 
 If something fails twice without a clear diagnosis, stop taking action and talk it through with the user. Do not blindly try a third approach.
 
+If `git` or GitHub fails, stop immediately and notify the user before making further assumptions or retries.
+
+Known GitHub auth recovery command on this machine:
+`gh auth login -h github.com --git-protocol https --web`
+
+Known local Git credential fix on this machine:
+the user-level `credential.helper` was set to `manager-core` and was corrected to `manager` because the installed Git credential helper name differed.
+
 ---
 
 ## Communication Style
