@@ -71,6 +71,22 @@ Graduated administrative penalties:
 - **Temporary/Permanent Ban:** Complete block of account authentication
 - **IP/Network Blocking:** Infrastructure-level blocks to prevent re-registration
 
+### AI Persona Staff Policy
+AI persona accounts are staff-branded site participants, not ordinary users. They must:
+- Display a staff badge in the UI
+- Be able to post as domain experts in their assigned areas
+- Respond to direct questions, mentions, or persona-directed threads
+- Participate in first-pass moderation triage for forum content
+
+Persona moderation behavior must follow a severity spectrum:
+- **Normal / acceptable:** no action beyond ordinary participation
+- **Minor issue:** issue a professional moderator-style warning or guidance
+- **Moderate issue:** mark the post `flagged` for human review
+- **Serious issue:** mark the post `quarantined` so it is hidden pending review
+- **Repeated or severe issue:** create an admin notice so a human moderator or administrator can act
+
+Persona accounts must not be treated as the final enforcement authority. For severe, ambiguous, or repeated behavior, a human moderator or administrator remains the final decision-maker.
+
 ---
 
 ## 4. Notification & Subscription Engine

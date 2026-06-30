@@ -22,7 +22,7 @@ interface Announcement {
   createdAt: string; updatedAt: string
 }
 
-type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'personas' | 'heartbeat' | 'metrics' | 'api-keys'
+type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'ai' | 'personas' | 'heartbeat' | 'metrics' | 'api-keys'
 
 interface MetricsCounts { users: number; posts: number; threads: number; articles: number; votesGiven: number; reactions: number; achievements: number }
 interface ForumActivityRow { forumId: string; forumName: string; postsAll: number; postsHuman: number; postsAi: number; threadsAll: number; threadsHuman: number; threadsAi: number }
@@ -72,13 +72,21 @@ async function apiFetch(url: string, opts?: RequestInit) {
 export default function AdminPage() {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'personas', 'heartbeat', 'metrics', 'api-keys']
+  const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'ai', 'personas', 'heartbeat', 'metrics', 'api-keys']
+  const navTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'ai', 'metrics', 'api-keys']
   const tabFromUrl = searchParams.get('tab') as Tab | null
-  const [tab, setTab] = useState<Tab>(tabFromUrl && validTabs.includes(tabFromUrl) ? tabFromUrl : 'users')
+  const normalizeTab = (t: Tab | null): Tab =>
+    t === 'personas' || t === 'heartbeat'
+      ? 'ai'
+      : t && validTabs.includes(t)
+        ? t
+        : 'users'
+  const [tab, setTab] = useState<Tab>(normalizeTab(tabFromUrl))
 
   const switchTab = (t: Tab) => {
-    setTab(t)
-    setSearchParams({ tab: t }, { replace: true })
+    const next = t === 'personas' || t === 'heartbeat' ? 'ai' : t
+    setTab(next)
+    setSearchParams({ tab: next }, { replace: true })
   }
   const [menuOpen, setMenuOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -226,6 +234,19 @@ export default function AdminPage() {
       }),
       roles: () => apiFetch(`${BASE}/api/admin/context-roles`).then(setRoles),
       announcements: () => apiFetch(`${BASE}/api/admin/announcements`).then(setAnnouncements),
+      ai: async () => {
+        const [personaRows, jobs, cfg, health] = await Promise.all([
+          apiFetch(`${BASE}/api/admin/personas`),
+          apiFetch(`${BASE}/api/admin/heartbeat/jobs?limit=50`),
+          apiFetch(`${BASE}/api/admin/heartbeat/config`),
+          apiFetch(`${BASE}/api/admin/heartbeat/health`),
+        ])
+        setPersonas((personaRows as { persona: AiPersona }[]).map(r => r.persona))
+        setHbJobs(jobs)
+        setHbConfig(cfg)
+        setHbConfigEdit({ ...cfg })
+        setHbHealth(health)
+      },
       personas: () => apiFetch(`${BASE}/api/admin/personas`).then((rows: { persona: AiPersona }[]) => setPersonas(rows.map(r => r.persona))),
       heartbeat: async () => {
         const [jobs, cfg, health] = await Promise.all([
@@ -503,7 +524,7 @@ export default function AdminPage() {
   }
 
   const TAB_LABELS: Record<Tab, string> = {
-    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics', 'api-keys': 'API Keys',
+    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', ai: 'AI Management', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics', 'api-keys': 'API Keys',
   }
 
   const toggleSection = (key: string) =>
@@ -619,7 +640,7 @@ export default function AdminPage() {
       {menuOpen && <div className="nav-drawer-overlay" onClick={() => setMenuOpen(false)} />}
       <div className={`nav-drawer${menuOpen ? ' open' : ''}`}>
         <button className="nav-drawer-close" onClick={() => setMenuOpen(false)}>✕</button>
-        {(Object.keys(TAB_LABELS) as Tab[]).map(t => (
+        {navTabs.map(t => (
           <button key={t} className={`nav-community-link${tab === t ? ' active' : ''}`}
             onClick={() => { switchTab(t); setMenuOpen(false) }}>
             {TAB_LABELS[t]}
@@ -1036,6 +1057,151 @@ export default function AdminPage() {
           />
         </div>
       )}
+      {/* ── AI Management ── */}
+      {tab === 'ai' && !loading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <h3 style={{ margin: 0 }}>AI Management</h3>
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              Manage persona instructions, model selection, forum assignments, and heartbeat runtime controls from one place.
+            </p>
+          </section>
+          <section style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h4 style={{ margin: 0 }}>Personas</h4>
+              {editingPersona && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Editing {editingPersona.name}</span>}
+            </div>
+            <form onSubmit={savePersona} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <input className="papers-new-input" placeholder="Display name" value={personaForm.name} onChange={e => setPersonaForm(f => ({ ...f, name: e.target.value }))} required />
+                <input className="papers-new-input" placeholder="slug (e.g. dr-ada)" value={personaForm.slug} onChange={e => setPersonaForm(f => ({ ...f, slug: e.target.value }))} required disabled={!!editingPersona} />
+              </div>
+              <textarea className="papers-new-input" placeholder="System prompt (persona instructions)" rows={6} value={personaForm.systemPrompt} onChange={e => setPersonaForm(f => ({ ...f, systemPrompt: e.target.value }))} required style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: '0.82rem' }} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                <select className="subscribe-select" value={personaForm.model} onChange={e => setPersonaForm(f => ({ ...f, model: e.target.value }))}>
+                  <option value="gpt-4o-mini">gpt-4o-mini</option>
+                  <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+                  <option value="gpt-4.1">gpt-4.1</option>
+                </select>
+                <select className="subscribe-select" value={personaForm.triggerMode} onChange={e => setPersonaForm(f => ({ ...f, triggerMode: e.target.value }))}>
+                  <option value="mention">On @mention only</option>
+                  <option value="always">Always (scheduled)</option>
+                  <option value="new_thread">New threads only</option>
+                </select>
+                <input className="papers-new-input" placeholder="Avatar URL (optional)" value={personaForm.avatarUrl} onChange={e => setPersonaForm(f => ({ ...f, avatarUrl: e.target.value }))} />
+              </div>
+              <input className="papers-new-input" placeholder="Forum IDs (comma-separated UUIDs)" value={personaForm.forumIds} onChange={e => setPersonaForm(f => ({ ...f, forumIds: e.target.value }))} />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="submit" className="tiptap-action-btn primary" disabled={personaSaving}>{personaSaving ? 'Saving…' : editingPersona ? 'Update' : 'Create'}</button>
+                {editingPersona && <button type="button" className="tiptap-action-btn" onClick={() => { setEditingPersona(null); setPersonaForm({ name: '', slug: '', systemPrompt: '', model: 'gpt-4o-mini', triggerMode: 'mention', avatarUrl: '', forumIds: '' }) }}>Cancel</button>}
+              </div>
+            </form>
+            <AdminTable<AiPersona>
+              data={personas}
+              rowKey={p => p.id}
+              searchKeys={['name', 'slug', 'model', 'triggerMode']}
+              emptyText="No personas yet."
+              columns={[
+                { key: 'name', label: 'Name', render: p => <><strong>{p.name}</strong><br /><span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>@{p.slug}</span></> },
+                { key: 'model', label: 'Model', render: p => <span style={{ fontSize: '0.8rem' }}>{p.model}</span> },
+                { key: 'triggerMode', label: 'Trigger' },
+                { key: 'active', label: 'Active', render: p => p.active ? '✓' : '—' },
+                { key: 'createdAt', label: 'Created', render: p => new Date(p.createdAt).toLocaleDateString(), sortVal: p => p.createdAt },
+                { key: 'id', label: '', sortable: false, render: p => (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="post-action" onClick={() => { setEditingPersona(p); setPersonaForm({ name: p.name, slug: p.slug, systemPrompt: p.systemPrompt, model: p.model, triggerMode: p.triggerMode, avatarUrl: p.avatarUrl ?? '', forumIds: '' }) }}>Edit</button>
+                    <button className="post-action post-action-delete" onClick={() => deletePersona(p.id)}>Delete</button>
+                  </div>
+                )},
+              ]}
+            />
+          </section>
+          <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h4 style={{ margin: 0 }}>Heartbeat</h4>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="tiptap-action-btn" onClick={triggerHeartbeat} disabled={hbTriggering}>{hbTriggering ? 'Triggering…' : 'Manual Trigger'}</button>
+                <button className="tiptap-action-btn primary" onClick={saveHbConfig} disabled={hbSaving}>{hbSaving ? 'Saving…' : 'Save Config'}</button>
+              </div>
+            </div>
+            {hbHealth && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+                borderRadius: 8, fontSize: '0.85rem',
+                background: hbHealth.workerStalled ? 'rgba(239,68,68,0.12)' : 'rgba(110,231,160,0.1)',
+                border: `1px solid ${hbHealth.workerStalled ? 'var(--danger)' : '#6ee7a0'}`,
+              }}>
+                <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: hbHealth.workerStalled ? 'var(--danger)' : '#6ee7a0', boxShadow: hbHealth.workerStalled ? '0 0 6px var(--danger)' : '0 0 6px #6ee7a0' }} />
+                <span style={{ fontWeight: 600 }}>{hbHealth.workerStalled ? 'Worker stalled' : 'Worker healthy'}</span>
+                <span style={{ color: 'var(--text-muted)' }}>
+                  {hbHealth.pending > 0 && `${hbHealth.pending} pending · `}
+                  {hbHealth.failed > 0 && `${hbHealth.failed} failed · `}
+                  {hbHealth.lastCompletedAt ? `last completed ${new Date(hbHealth.lastCompletedAt).toLocaleString()}` : 'no completed jobs'}
+                </span>
+              </div>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+              {Object.entries(hbConfigEdit).map(([k, v]) => {
+                const isBool = v === 'true' || v === 'false'
+                const isNum  = !isBool && /^\d+$/.test(v)
+                const isReadonly = k === 'patreon_reconcile_last_run'
+                return (
+                  <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '0.85rem' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>{k}</span>
+                    {isBool ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => setHbConfigEdit(c => ({ ...c, [k]: v === 'true' ? 'false' : 'true' }))}
+                          style={{
+                            width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+                            background: v === 'true' ? '#6ee7a0' : 'var(--border)',
+                            position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+                          }}
+                        >
+                          <span style={{
+                            position: 'absolute', top: 3, left: v === 'true' ? 23 : 3,
+                            width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                            transition: 'left 0.2s', display: 'block',
+                          }} />
+                        </button>
+                        <span style={{ color: v === 'true' ? '#6ee7a0' : 'var(--text-muted)' }}>{v === 'true' ? 'On' : 'Off'}</span>
+                      </div>
+                    ) : isReadonly ? (
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: '6px 0' }}>{v}</span>
+                    ) : (
+                      <input
+                        className="papers-new-input"
+                        type={isNum ? 'number' : 'text'}
+                        value={v}
+                        onChange={e => setHbConfigEdit(c => ({ ...c, [k]: e.target.value }))}
+                      />
+                    )}
+                  </label>
+                )
+              })}
+            </div>
+            <div>
+              <h4 style={{ margin: '0 0 10px' }}>Recent Jobs</h4>
+              <AdminTable<HeartbeatJob>
+                data={hbJobs}
+                rowKey={j => j.id}
+                searchKeys={['actionType', 'status']}
+                emptyText="No jobs yet."
+                columns={[
+                  { key: 'actionType', label: 'Action', render: j => <span style={{ fontSize: '0.82rem' }}>{j.actionType}</span> },
+                  { key: 'status', label: 'Status', render: j => <span style={{ color: j.status === 'Completed' ? '#6ee7a0' : j.status === 'Failed' ? 'var(--danger)' : 'var(--text-muted)' }}>{j.status}</span> },
+                  { key: 'retryCount', label: 'Retries' },
+                  { key: 'createdAt', label: 'Created', render: j => <span style={{ fontSize: '0.78rem' }}>{new Date(j.createdAt).toLocaleString()}</span>, sortVal: j => j.createdAt },
+                  { key: 'completedAt', label: 'Completed', render: j => <span style={{ fontSize: '0.78rem' }}>{j.completedAt ? new Date(j.completedAt).toLocaleString() : '—'}</span>, sortVal: j => j.completedAt ?? '' },
+                  { key: 'error', label: 'Error', render: j => <span style={{ fontSize: '0.78rem', color: 'var(--danger)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{j.error ?? ''}</span> },
+                ]}
+              />
+            </div>
+          </section>
+        </div>
+      )}
+
       {/* ── AI Personas ── */}
       {tab === 'personas' && !loading && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
