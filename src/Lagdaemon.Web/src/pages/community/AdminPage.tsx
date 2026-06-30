@@ -145,7 +145,7 @@ export default function AdminPage() {
 
   // Personas
   const [personas, setPersonas] = useState<AiPersona[]>([])
-  const [personaForm, setPersonaForm] = useState({ name: '', slug: '', systemPrompt: '', model: 'claude-sonnet-4-6', triggerMode: 'mention', avatarUrl: '', forumIds: '' })
+  const [personaForm, setPersonaForm] = useState({ name: '', slug: '', systemPrompt: '', model: 'gpt-4o-mini', triggerMode: 'mention', avatarUrl: '', forumIds: '' })
   const [editingPersona, setEditingPersona] = useState<AiPersona | null>(null)
   const [personaSaving, setPersonaSaving] = useState(false)
 
@@ -574,7 +574,7 @@ export default function AdminPage() {
       const rows: { persona: AiPersona }[] = await apiFetch(`${BASE}/api/admin/personas`)
       setPersonas(rows.map(r => r.persona))
       setEditingPersona(null)
-      setPersonaForm({ name: '', slug: '', systemPrompt: '', model: 'claude-sonnet-4-6', triggerMode: 'mention', avatarUrl: '', forumIds: '' })
+      setPersonaForm({ name: '', slug: '', systemPrompt: '', model: 'gpt-4o-mini', triggerMode: 'mention', avatarUrl: '', forumIds: '' })
     } catch { setError('Failed to save persona') }
     finally { setPersonaSaving(false) }
   }
@@ -1048,9 +1048,9 @@ export default function AdminPage() {
             <textarea className="papers-new-input" placeholder="System prompt (persona instructions)" rows={5} value={personaForm.systemPrompt} onChange={e => setPersonaForm(f => ({ ...f, systemPrompt: e.target.value }))} required style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: '0.82rem' }} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               <select className="subscribe-select" value={personaForm.model} onChange={e => setPersonaForm(f => ({ ...f, model: e.target.value }))}>
-                <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
-                <option value="claude-haiku-4-5-20251001">claude-haiku-4-5 (fast)</option>
-                <option value="claude-opus-4-8">claude-opus-4-8 (powerful)</option>
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+                <option value="gpt-4.1">gpt-4.1</option>
               </select>
               <select className="subscribe-select" value={personaForm.triggerMode} onChange={e => setPersonaForm(f => ({ ...f, triggerMode: e.target.value }))}>
                 <option value="mention">On @mention only</option>
@@ -1062,7 +1062,7 @@ export default function AdminPage() {
             <input className="papers-new-input" placeholder="Forum IDs (comma-separated UUIDs)" value={personaForm.forumIds} onChange={e => setPersonaForm(f => ({ ...f, forumIds: e.target.value }))} />
             <div style={{ display: 'flex', gap: 8 }}>
               <button type="submit" className="tiptap-action-btn primary" disabled={personaSaving}>{personaSaving ? 'Saving…' : editingPersona ? 'Update' : 'Create'}</button>
-              {editingPersona && <button type="button" className="tiptap-action-btn" onClick={() => { setEditingPersona(null); setPersonaForm({ name: '', slug: '', systemPrompt: '', model: 'claude-sonnet-4-6', triggerMode: 'mention', avatarUrl: '', forumIds: '' }) }}>Cancel</button>}
+              {editingPersona && <button type="button" className="tiptap-action-btn" onClick={() => { setEditingPersona(null); setPersonaForm({ name: '', slug: '', systemPrompt: '', model: 'gpt-4o-mini', triggerMode: 'mention', avatarUrl: '', forumIds: '' }) }}>Cancel</button>}
             </div>
           </form>
           <AdminTable<AiPersona>

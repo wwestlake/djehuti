@@ -9,24 +9,7 @@ open System.Text.Json.Serialization
 open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.Logging
 
-// ── Claude API types ───────────────────────────────────────────────────────────
-
-[<CLIMutable>]
-type ClaudeMessage = { role: string; content: string }
-
-[<CLIMutable>]
-type ClaudeRequest = {
-    model:      string
-    max_tokens: int
-    system:     string
-    messages:   ClaudeMessage list
-}
-
-[<CLIMutable>]
-type ClaudeContentBlock = { ``type``: string; text: string }
-
-[<CLIMutable>]
-type ClaudeResponse = { content: ClaudeContentBlock list }
+// ── OpenAI API helpers ─────────────────────────────────────────────────────────
 
 // ── Moderation types ───────────────────────────────────────────────────────────
 
@@ -85,27 +68,71 @@ type HeartbeatWorker(logger: ILogger<HeartbeatWorker>) =
         o.PropertyNameCaseInsensitive <- true
         o
 
-    let anthropicKey () =
-        let v = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
+    let defaultOpenAiModel = "gpt-4o-mini"
+
+    let openAiKey () =
+        let v = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
         if String.IsNullOrWhiteSpace v then None else Some v
 
-    let callClaude (apiKey: string) (model: string) (systemPrompt: string) (userMessage: string) : string Async =
+    let normalizeOpenAiModel (model: string) =
+        if String.IsNullOrWhiteSpace model || model.StartsWith("claude", StringComparison.OrdinalIgnoreCase) then
+            defaultOpenAiModel
+        else
+            model
+
+    let tryStringProperty (name: string) (element: JsonElement) =
+        let mutable value = Unchecked.defaultof<JsonElement>
+        if element.TryGetProperty(name, &value) && value.ValueKind = JsonValueKind.String then
+            Some(value.GetString())
+        else
+            None
+
+    let extractOpenAiText (json: string) =
+        use doc = JsonDocument.Parse(json)
+        let root = doc.RootElement
+
+        match tryStringProperty "output_text" root with
+        | Some text when not (String.IsNullOrWhiteSpace text) -> text
+        | _ ->
+            let mutable output = Unchecked.defaultof<JsonElement>
+            if root.TryGetProperty("output", &output) && output.ValueKind = JsonValueKind.Array then
+                let texts =
+                    output.EnumerateArray()
+                    |> Seq.collect (fun item ->
+                        let mutable content = Unchecked.defaultof<JsonElement>
+                        if item.TryGetProperty("content", &content) && content.ValueKind = JsonValueKind.Array then
+                            content.EnumerateArray()
+                            |> Seq.choose (tryStringProperty "text")
+                        else
+                            Seq.empty)
+                    |> Seq.filter (String.IsNullOrWhiteSpace >> not)
+                    |> Seq.toList
+
+                match texts with
+                | [] -> failwith "OpenAI response did not contain output text."
+                | values -> String.concat "\n" values
+            else
+                failwith "OpenAI response did not contain an output array."
+
+    let callOpenAi (apiKey: string) (model: string) (systemPrompt: string) (userMessage: string) : string Async =
         async {
             use http = new HttpClient()
             http.Timeout <- TimeSpan.FromSeconds(90.0)
-            http.DefaultRequestHeaders.Add("x-api-key", apiKey)
-            http.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01")
-            let req = {
-                model      = model
-                max_tokens = 1024
-                system     = systemPrompt
-                messages   = [{ role = "user"; content = userMessage }]
-            }
+            http.DefaultRequestHeaders.Authorization <- AuthenticationHeaderValue("Bearer", apiKey)
+            let req =
+                {| model = normalizeOpenAiModel model
+                   instructions = systemPrompt
+                   input = userMessage
+                   max_output_tokens = 1024
+                   store = false |}
             let body = new StringContent(JsonSerializer.Serialize(req), Encoding.UTF8, "application/json")
-            let! resp = http.PostAsync("https://api.anthropic.com/v1/messages", body) |> Async.AwaitTask
+            let! resp = http.PostAsync("https://api.openai.com/v1/responses", body) |> Async.AwaitTask
             let! json = resp.Content.ReadAsStringAsync() |> Async.AwaitTask
-            let parsed = JsonSerializer.Deserialize<ClaudeResponse>(json, jsonOpts)
-            return parsed.content |> List.tryHead |> Option.map _.text |> Option.defaultValue ""
+            if not resp.IsSuccessStatusCode then
+                let snippet = if json.Length > 500 then json.Substring(0, 500) else json
+                failwithf "OpenAI request failed with HTTP %i: %s" (int resp.StatusCode) snippet
+
+            return extractOpenAiText json
         }
 
     // ── Phase 1: Pre-run ────────────────────────────────────────────────────────
@@ -143,7 +170,7 @@ Return ONLY a JSON array with this exact schema per item:
 {"PostID":"<uuid>","IsViolation":<bool>,"Category":<string|null>,"ConfidenceScore":<0.0-1.0>}"""
 
                     let userMsg = sprintf "[%s]" batch
-                    let! rawResponse = callClaude apiKey "claude-haiku-4-5-20251001" systemPrompt userMsg
+                    let! rawResponse = callOpenAi apiKey defaultOpenAiModel systemPrompt userMsg
                     // Parse just the JSON array portion
                     let start = rawResponse.IndexOf('[')
                     let stop  = rawResponse.LastIndexOf(']')
@@ -259,7 +286,7 @@ Return ONLY a JSON array with this exact schema per item:
 
             let userMsg = sprintf "Here is the recent forum thread context:\n\n%s\n\nPlease provide a helpful, on-topic reply." context
 
-            let! reply = callClaude apiKey payload.Model payload.SystemDirectives userMsg
+            let! reply = callOpenAi apiKey payload.Model payload.SystemDirectives userMsg
 
             if not (String.IsNullOrWhiteSpace reply) then
                 let htmlReply = sprintf "<p>%s</p>" (reply.Replace("\n\n", "</p><p>").Replace("\n", "<br>"))
@@ -269,6 +296,8 @@ Return ONLY a JSON array with this exact schema per item:
                     logger.LogInformation("Persona reply posted to thread {ThreadId}", threadId)
                 | None ->
                     PersonaRepository.failJob job.Id "createPost returned None" job.MaxRetries job.RetryCount
+            else
+                PersonaRepository.failJob job.Id "OpenAI returned empty reply" job.MaxRetries job.RetryCount
         }
 
     let processSendEmail (job: PersonaRepository.HeartbeatJob) =
@@ -318,7 +347,7 @@ Generate a forum thread as a JSON object with exactly these two fields:
 
 Return only the JSON object, no other text.""" payload.TopicHint
 
-            let! rawResponse = callClaude apiKey payload.Model payload.SystemDirectives userMsg
+            let! rawResponse = callOpenAi apiKey payload.Model payload.SystemDirectives userMsg
 
             let start = rawResponse.IndexOf('{')
             let stop  = rawResponse.LastIndexOf('}')
@@ -339,7 +368,7 @@ Return only the JSON object, no other text.""" payload.TopicHint
                 with ex ->
                     PersonaRepository.failJob job.Id (sprintf "JSON parse error: %s" ex.Message) job.MaxRetries job.RetryCount
             else
-                PersonaRepository.failJob job.Id "No JSON object found in Claude response" job.MaxRetries job.RetryCount
+                PersonaRepository.failJob job.Id "No JSON object found in OpenAI response" job.MaxRetries job.RetryCount
         }
 
     let processJob (apiKey: string option) (job: PersonaRepository.HeartbeatJob) =
@@ -351,9 +380,9 @@ Return only the JSON object, no other text.""" payload.TopicHint
                 | "GenerateReply" | "CreateThread" ->
                     match apiKey with
                     | None ->
-                        logger.LogWarning("Skipping {ActionType} job {JobId} — ANTHROPIC_API_KEY not set", job.ActionType, job.Id)
+                        logger.LogWarning("Skipping {ActionType} job {JobId} — OPENAI_API_KEY not set", job.ActionType, job.Id)
                         // Return job to pending so it can be retried when key is available
-                        PersonaRepository.failJob job.Id "ANTHROPIC_API_KEY not configured" job.MaxRetries job.RetryCount
+                        PersonaRepository.failJob job.Id "OPENAI_API_KEY not configured" job.MaxRetries job.RetryCount
                     | Some key ->
                         match job.ActionType with
                         | "GenerateReply" -> do! processGenerateReply key job
@@ -551,12 +580,12 @@ Return only the JSON object, no other text.""" payload.TopicHint
                         with ex ->
                             logger.LogError(ex, "Achievement phase error")
 
-                    let apiKey = anthropicKey()
+                    let apiKey = openAiKey()
 
-                    // Phase 1: Pre-run (requires Anthropic key)
+                    // Phase 1: Pre-run (requires OpenAI key)
                     match apiKey with
                     | None ->
-                        logger.LogWarning("ANTHROPIC_API_KEY not set — skipping moderation and persona phases")
+                        logger.LogWarning("OPENAI_API_KEY not set — skipping moderation and persona phases")
                     | Some key ->
                         if moderateOn then do! runModerationPhase key
                         if personaOn  then do! runPersonaPhase key batchLimit personaIntervalMin
@@ -569,7 +598,7 @@ Return only the JSON object, no other text.""" payload.TopicHint
                     // Phase 3: Cleanup (always runs — resets stuck Processing jobs)
                     if cleanupOn then do! runCleanupPhase()
 
-                    // Phase B: Patreon reconciliation (no Anthropic key needed, runs daily)
+                    // Phase B: Patreon reconciliation (no OpenAI key needed, runs daily)
                     do! runPatreonReconciliation()
 
                     do! System.Threading.Tasks.Task.Delay(TimeSpan.FromMinutes(float intervalMin), ct) |> Async.AwaitTask
