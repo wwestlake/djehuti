@@ -3570,7 +3570,7 @@ let main args =
 
     app.MapPost(
         "/api/admin/personas",
-        Func<HttpContext, {| name: string; slug: string; systemPrompt: string; model: string; triggerMode: string; avatarUrl: string; forumIds: string[] |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+        Func<HttpContext, {| name: string; slug: string; systemPrompt: string; model: string; triggerMode: string; workTimezone: string; workStartHour: int; workWindowHours: int; avatarUrl: string; forumIds: string[] |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
             async {
                 match tryGetAuthClaims ctx with
                 | Some claims when Permissions.isAdmin claims.Role ->
@@ -3589,7 +3589,10 @@ let main args =
                         flagCmd.ExecuteNonQuery() |> ignore
 
                         let av = if String.IsNullOrWhiteSpace(body.avatarUrl) then None else Some body.avatarUrl
-                        match PersonaRepository.createPersona body.name body.slug body.systemPrompt body.model body.triggerMode av botUser.Id with
+                        let tz = if String.IsNullOrWhiteSpace(body.workTimezone) then None else Some body.workTimezone
+                        let startHour = if String.IsNullOrWhiteSpace(body.workTimezone) then None else Some body.workStartHour
+                        let windowHours = if String.IsNullOrWhiteSpace(body.workTimezone) then None else Some body.workWindowHours
+                        match PersonaRepository.createPersona body.name body.slug body.systemPrompt body.model body.triggerMode tz startHour windowHours av botUser.Id with
                         | None -> return Results.Problem(detail = "Failed to create persona", statusCode = 500, title = "Error")
                         | Some persona ->
                             let forumIds = body.forumIds |> Array.choose (fun s -> match Guid.TryParse(s) with | true, g -> Some g | _ -> None) |> Array.toList
@@ -3602,11 +3605,14 @@ let main args =
 
     app.MapPut(
         "/api/admin/personas/{id}",
-        Func<Guid, HttpContext, {| name: string; systemPrompt: string; model: string; triggerMode: string; active: bool; avatarUrl: string; forumIds: string[] |}, IResult>(fun id ctx body ->
+        Func<Guid, HttpContext, {| name: string; systemPrompt: string; model: string; triggerMode: string; active: bool; workTimezone: string; workStartHour: int; workWindowHours: int; avatarUrl: string; forumIds: string[] |}, IResult>(fun id ctx body ->
             match tryGetAuthClaims ctx with
             | Some claims when Permissions.isAdmin claims.Role ->
                 let av = if String.IsNullOrWhiteSpace(body.avatarUrl) then None else Some body.avatarUrl
-                match PersonaRepository.updatePersona id body.name body.systemPrompt body.model body.triggerMode body.active av with
+                let tz = if String.IsNullOrWhiteSpace(body.workTimezone) then None else Some body.workTimezone
+                let startHour = if String.IsNullOrWhiteSpace(body.workTimezone) then None else Some body.workStartHour
+                let windowHours = if String.IsNullOrWhiteSpace(body.workTimezone) then None else Some body.workWindowHours
+                match PersonaRepository.updatePersona id body.name body.systemPrompt body.model body.triggerMode body.active tz startHour windowHours av with
                 | None -> Results.NotFound()
                 | Some persona ->
                     let forumIds = body.forumIds |> Array.choose (fun s -> match Guid.TryParse(s) with | true, g -> Some g | _ -> None) |> Array.toList

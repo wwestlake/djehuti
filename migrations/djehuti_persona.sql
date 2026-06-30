@@ -19,7 +19,7 @@ VALUES (
     'Djehuti',
     'djehuti',
     'db000001-0000-0000-0000-000000000001',
-    'claude-sonnet-4-6',
+    'gpt-4.1',
     'always',
     true,
     $PROMPT$
