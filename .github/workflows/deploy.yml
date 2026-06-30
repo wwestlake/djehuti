@@ -115,7 +115,7 @@ jobs:
       - name: Run database migrations
         run: |
           ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.DEPLOY_HOST }} \
-            "sudo -u postgres psql -d djehuti -c \"ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ; CREATE INDEX IF NOT EXISTS idx_users_last_activity_at ON users (last_activity_at); CREATE TABLE IF NOT EXISTS sponsors (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL, logo_url TEXT, website_url TEXT, tier TEXT NOT NULL CHECK (tier IN ('gold', 'silver', 'bronze')), blurb TEXT, active BOOLEAN NOT NULL DEFAULT true, position INT NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());\""
+            "sudo -u postgres psql -d djehuti -c \"ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ; CREATE INDEX IF NOT EXISTS idx_users_last_activity_at ON users (last_activity_at); CREATE TABLE IF NOT EXISTS sponsors (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL, logo_url TEXT, website_url TEXT, tier TEXT NOT NULL CHECK (tier IN ('gold', 'silver', 'bronze')), blurb TEXT, active BOOLEAN NOT NULL DEFAULT true, position INT NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()); UPDATE heartbeat_jobs SET status = 'Pending', locked_at = NULL WHERE status = 'Processing';\""
 
       - name: Relink and restart API service
         run: |
