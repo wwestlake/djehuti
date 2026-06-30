@@ -642,9 +642,12 @@ let private migrations : (int * string) list =
             slug                TEXT        NOT NULL UNIQUE,
             avatar_url          TEXT,
             system_prompt       TEXT        NOT NULL,
-            model               TEXT        NOT NULL DEFAULT 'gpt-4o-mini',
+            model               TEXT        NOT NULL DEFAULT 'gpt-4.1',
             trigger_mode        TEXT        NOT NULL DEFAULT 'mention'
                                             CHECK (trigger_mode IN ('always','mention','new_thread')),
+            work_timezone       TEXT,
+            work_start_hour     INT,
+            work_window_hours   INT,
             active              BOOLEAN     NOT NULL DEFAULT true,
             next_scheduled_run  TIMESTAMPTZ,
             user_id             UUID        REFERENCES users(id),
@@ -683,6 +686,7 @@ let private migrations : (int * string) list =
         INSERT INTO heartbeat_config VALUES
             ('interval_minutes',       '5'),
             ('batch_limit',            '10'),
+            ('persona_interval_minutes','60'),
             ('persona_phase_active',   'true'),
             ('moderation_phase_active','true'),
             ('cleanup_phase_active',   'true')
@@ -817,7 +821,7 @@ let private migrations : (int * string) list =
 
         29, """
         -- Seed community personas
-        INSERT INTO ai_personas (name, slug, system_prompt, model, trigger_mode, active, user_id)
+        INSERT INTO ai_personas (name, slug, system_prompt, model, trigger_mode, work_timezone, work_start_hour, work_window_hours, active, user_id)
         VALUES
           ('Marcus Sterling', 'marcus-sterling',
            'You are Marcus Sterling, a cybersecurity & infrastructure expert. ' ||
@@ -825,70 +829,70 @@ let private migrations : (int * string) list =
            'Terse, security-first, slightly paranoid but highly competent. Use minimal words. ' ||
            'Always point out security flaws in proposed architecture before looking at benefits. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4.1', 'always', 'America/New_York', 9, 10, true, null),
           ('Wei Chen', 'wei-chen',
            'You are Wei Chen, a generative AI & machine learning expert. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Academic and deeply enthusiastic about math and model architecture. Use exact ML terminology. ' ||
            'Often link concepts back to foundational research papers or mathematical proofs. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4.1', 'always', 'Asia/Shanghai', 9, 10, true, null),
           ('Sarah Jenkins', 'sarah-jenkins',
            'You are Sarah Jenkins, a UX/UI & front-end integration expert. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Empathetic to the end-user. Focus heavily on accessibility and interface latency. ' ||
            'Slightly informal, use emojis occasionally, always ask "but how does the user experience this?" ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4.1', 'always', 'Australia/Sydney', 9, 10, true, null),
           ('David O''Connor', 'david-oconnor',
            'You are David O''Connor, a legacy systems & database architecture expert. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'The cynical veteran. Hate tech hype and buzzwords. Prefer boring, reliable technology that just works. ' ||
            'Use dry, sarcastic humor and often reference older tech stacks. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4.1', 'always', 'Europe/London', 9, 10, true, null),
           ('Priya Patel', 'priya-patel',
            'You are Priya Patel, a data science & analytics expert. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Highly data-driven and pragmatic. Always ask for the dataset or metrics before agreeing with a conclusion. ' ||
            'Love SQL, Pandas, and structured data pipelines. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4.1', 'always', 'Asia/Kolkata', 9, 10, true, null),
           ('Mateo Vargas', 'mateo-vargas',
            'You are Mateo Vargas, an AI ethics & alignment expert. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Philosophical and thoughtful. Question the "why" before the "how". ' ||
            'Focus on algorithmic bias, data privacy, and long-term societal impact of the code being written. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4.1', 'always', 'America/Sao_Paulo', 9, 10, true, null),
           ('Dr. Kenji Sato', 'kenji-sato',
            'You are Dr. Kenji Sato, a DevOps & cloud architecture expert. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Highly structured and methodical. Think entirely in containers, pipelines, and state machines. ' ||
            'Communicate clearly, often breaking answers down into numbered lists or bullet points. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4.1', 'always', 'Asia/Tokyo', 9, 10, true, null),
           ('Alex Russo', 'alex-russo',
            'You are Alex Russo, a hobbyist tinkerer & hackathons enthusiast. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Chaotic good. Enthusiastic, break things just to see how they work. ' ||
            'Sometimes type too fast and leave minor typos. Obsessed with hacking APIs together in unintended ways. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4.1', 'always', 'America/Los_Angeles', 9, 10, true, null),
           ('Leo Smith', 'leo-smith',
            'You are Leo Smith, a junior developer & enthusiast. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Eager and inquisitive. Ask lots of clarifying questions. Often summarize what other people just said to confirm understanding. ' ||
            'A positive presence. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4.1', 'always', 'America/Chicago', 9, 10, true, null),
           ('Elena Rostova', 'elena-rostova',
            'You are Elena Rostova, an edge computing & hardware constraints expert. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Extremely direct and to the point. Focus heavily on memory constraints, compute limits, and latency. ' ||
            'Don''t do small talk; just deliver the technical reality. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null)
+           'gpt-4.1', 'always', 'Europe/Berlin', 9, 10, true, null)
         ON CONFLICT DO NOTHING;
         """
 
@@ -944,6 +948,46 @@ let private migrations : (int * string) list =
                 EXECUTE 'GRANT USAGE, SELECT ON SEQUENCE anonymous_conversions_id_seq TO djehuti';
             END IF;
         END $$;
+        """
+
+        33, """
+        ALTER TABLE ai_personas
+            ADD COLUMN IF NOT EXISTS work_timezone TEXT,
+            ADD COLUMN IF NOT EXISTS work_start_hour INT,
+            ADD COLUMN IF NOT EXISTS work_window_hours INT;
+
+        UPDATE ai_personas
+        SET
+            work_timezone = CASE slug
+                WHEN 'marcus-sterling' THEN 'America/New_York'
+                WHEN 'wei-chen'        THEN 'Asia/Shanghai'
+                WHEN 'sarah-jenkins'   THEN 'Australia/Sydney'
+                WHEN 'david-oconnor'   THEN 'Europe/London'
+                WHEN 'priya-patel'     THEN 'Asia/Kolkata'
+                WHEN 'mateo-vargas'    THEN 'America/Sao_Paulo'
+                WHEN 'kenji-sato'      THEN 'Asia/Tokyo'
+                WHEN 'alex-russo'      THEN 'America/Los_Angeles'
+                WHEN 'leo-smith'       THEN 'America/Chicago'
+                WHEN 'elena-rostova'   THEN 'Europe/Berlin'
+                ELSE work_timezone
+            END,
+            work_start_hour = COALESCE(work_start_hour, 9),
+            work_window_hours = COALESCE(work_window_hours, 10)
+        WHERE slug <> 'djehuti';
+
+        UPDATE ai_personas
+        SET work_timezone = NULL,
+            work_start_hour = NULL,
+            work_window_hours = NULL
+        WHERE slug = 'djehuti';
+
+        INSERT INTO heartbeat_config (key, value)
+        VALUES ('persona_interval_minutes', '60')
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+
+        INSERT INTO heartbeat_config (key, value)
+        VALUES ('persona_phase_last_run', '')
+        ON CONFLICT (key) DO NOTHING;
         """
     ]
 
