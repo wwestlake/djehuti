@@ -146,12 +146,59 @@ let createZone (name: string) (slug: string) (description: string option) (posit
     with _ ->
         None
 
+let updateZone (zoneId: Guid) (name: string) (slug: string) (description: string option) (position: int) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """UPDATE mud_zones
+           SET name = @name,
+               slug = @slug,
+               description = @description,
+               position = @position
+           WHERE id = @id
+           RETURNING id, name, slug, description, position, created_at""", conn)
+    cmd.Parameters.AddWithValue("id", zoneId) |> ignore
+    cmd.Parameters.AddWithValue("name", name.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("slug", cleanSlug name slug) |> ignore
+    cmd.Parameters.AddWithValue("description", description |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("position", position) |> ignore
+    try
+        use reader = cmd.ExecuteReader()
+        if reader.Read() then Some (readZone reader) else None
+    with _ ->
+        None
+
 let createRoom (zoneId: Guid) (name: string) (slug: string) (description: string option) (position: int) =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
         """INSERT INTO mud_rooms (zone_id, name, slug, description, position)
            VALUES (@zone_id, @name, @slug, @description, @position)
            RETURNING id, zone_id, (SELECT name FROM mud_zones WHERE id = @zone_id), (SELECT slug FROM mud_zones WHERE id = @zone_id), name, slug, description, position, created_at""", conn)
+    cmd.Parameters.AddWithValue("zone_id", zoneId) |> ignore
+    cmd.Parameters.AddWithValue("name", name.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("slug", cleanSlug name slug) |> ignore
+    cmd.Parameters.AddWithValue("description", description |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("position", position) |> ignore
+    try
+        use reader = cmd.ExecuteReader()
+        if reader.Read() then Some (readRoom reader) else None
+    with _ ->
+        None
+
+let updateRoom (roomId: Guid) (zoneId: Guid) (name: string) (slug: string) (description: string option) (position: int) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """UPDATE mud_rooms
+           SET zone_id = @zone_id,
+               name = @name,
+               slug = @slug,
+               description = @description,
+               position = @position
+           WHERE id = @id
+           RETURNING id, zone_id,
+                     (SELECT name FROM mud_zones WHERE id = @zone_id),
+                     (SELECT slug FROM mud_zones WHERE id = @zone_id),
+                     name, slug, description, position, created_at""", conn)
+    cmd.Parameters.AddWithValue("id", roomId) |> ignore
     cmd.Parameters.AddWithValue("zone_id", zoneId) |> ignore
     cmd.Parameters.AddWithValue("name", name.Trim()) |> ignore
     cmd.Parameters.AddWithValue("slug", cleanSlug name slug) |> ignore

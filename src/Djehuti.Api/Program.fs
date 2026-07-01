@@ -178,7 +178,22 @@ type MudZoneCreateRequest =
       Position: int }
 
 [<CLIMutable>]
+type MudZoneUpdateRequest =
+    { Name: string
+      Slug: string
+      Description: string
+      Position: int }
+
+[<CLIMutable>]
 type MudRoomCreateRequest =
+    { ZoneId: string
+      Name: string
+      Slug: string
+      Description: string
+      Position: int }
+
+[<CLIMutable>]
+type MudRoomUpdateRequest =
     { ZoneId: string
       Name: string
       Slug: string
@@ -1376,6 +1391,23 @@ let main args =
         )
     ) |> ignore
 
+    app.MapPatch(
+        "/api/admin/mud/zones/{zoneId}",
+        Func<string, HttpContext, MudZoneUpdateRequest, IResult>(fun zoneId ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(zoneId) with
+                | false, _ -> Results.BadRequest("Invalid zone id")
+                | true, zoneGuid ->
+                    let description = if String.IsNullOrWhiteSpace body.Description then None else Some (body.Description.Trim())
+                    match MudAdminRepository.updateZone zoneGuid body.Name body.Slug description body.Position with
+                    | Some zone -> Results.Ok(zone)
+                    | None -> Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
     app.MapPost(
         "/api/admin/mud/rooms",
         Func<HttpContext, MudRoomCreateRequest, IResult>(fun ctx body ->
@@ -1388,6 +1420,24 @@ let main args =
                     match MudAdminRepository.createRoom zoneId body.Name body.Slug description body.Position with
                     | Some room -> Results.Created($"/api/admin/mud/rooms/{room.Id}", room)
                     | None -> Results.Problem(detail = "Failed to create room", statusCode = 500, title = "Error")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/admin/mud/rooms/{roomId}",
+        Func<string, HttpContext, MudRoomUpdateRequest, IResult>(fun roomId ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(roomId), Guid.TryParse(body.ZoneId) with
+                | (false, _), _ -> Results.BadRequest("Invalid room id")
+                | _, (false, _) -> Results.BadRequest("Invalid zone id")
+                | (true, roomGuid), (true, zoneGuid) ->
+                    let description = if String.IsNullOrWhiteSpace body.Description then None else Some (body.Description.Trim())
+                    match MudAdminRepository.updateRoom roomGuid zoneGuid body.Name body.Slug description body.Position with
+                    | Some room -> Results.Ok(room)
+                    | None -> Results.NotFound()
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )

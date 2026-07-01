@@ -170,7 +170,9 @@ export default function AdminPage() {
   // MUD
   const [mudWorld, setMudWorld] = useState<MudWorld | null>(null)
   const [mudZoneForm, setMudZoneForm] = useState({ name: '', slug: '', description: '', position: 0 })
+  const [editingMudZone, setEditingMudZone] = useState<MudZone | null>(null)
   const [mudRoomForm, setMudRoomForm] = useState({ zoneId: '', name: '', slug: '', description: '', position: 0 })
+  const [editingMudRoom, setEditingMudRoom] = useState<MudRoom | null>(null)
   const [mudExitForm, setMudExitForm] = useState({ fromRoomId: '', toRoomId: '', direction: '', label: '' })
   const [mudSaving, setMudSaving] = useState(false)
 
@@ -643,14 +645,20 @@ export default function AdminPage() {
     if (!mudZoneForm.name.trim()) return
     setMudSaving(true)
     try {
-      const zone = await mudAdminApi.createZone({
+      const payload = {
         name: mudZoneForm.name.trim(),
         slug: mudZoneForm.slug.trim(),
         description: mudZoneForm.description.trim() || undefined,
         position: mudZoneForm.position,
-      })
-      setMudWorld(prev => prev ? { ...prev, zones: [zone, ...prev.zones] } : { zones: [zone], rooms: [], exits: [] })
+      }
+      const zone = editingMudZone
+        ? await mudAdminApi.updateZone(editingMudZone.id, payload)
+        : await mudAdminApi.createZone(payload)
+      setMudWorld(prev => prev
+        ? { ...prev, zones: prev.zones.some(z => z.id === zone.id) ? prev.zones.map(z => z.id === zone.id ? zone : z) : [zone, ...prev.zones] }
+        : { zones: [zone], rooms: [], exits: [] })
       setMudZoneForm({ name: '', slug: '', description: '', position: 0 })
+      setEditingMudZone(null)
     } catch { setError('Failed to create zone') }
     finally { setMudSaving(false) }
   }
@@ -660,16 +668,22 @@ export default function AdminPage() {
     if (!mudRoomForm.zoneId || !mudRoomForm.name.trim()) return
     setMudSaving(true)
     try {
-      const room = await mudAdminApi.createRoom({
+      const payload = {
         zoneId: mudRoomForm.zoneId,
         name: mudRoomForm.name.trim(),
         slug: mudRoomForm.slug.trim(),
         description: mudRoomForm.description.trim() || undefined,
         position: mudRoomForm.position,
-      })
-      setMudWorld(prev => prev ? { ...prev, rooms: [room, ...prev.rooms] } : { zones: [], rooms: [room], exits: [] })
+      }
+      const room = editingMudRoom
+        ? await mudAdminApi.updateRoom(editingMudRoom.id, payload)
+        : await mudAdminApi.createRoom(payload)
+      setMudWorld(prev => prev
+        ? { ...prev, rooms: prev.rooms.some(r => r.id === room.id) ? prev.rooms.map(r => r.id === room.id ? room : r) : [room, ...prev.rooms] }
+        : { zones: [], rooms: [room], exits: [] })
       setMudRoomForm({ zoneId: mudRoomForm.zoneId, name: '', slug: '', description: '', position: 0 })
-    } catch { setError('Failed to create room') }
+      setEditingMudRoom(null)
+    } catch { setError('Failed to save room') }
     finally { setMudSaving(false) }
   }
 
@@ -696,6 +710,37 @@ export default function AdminPage() {
       await mudAdminApi.deleteExit(exitId)
       setMudWorld(prev => prev ? { ...prev, exits: prev.exits.filter(exit => exit.id !== exitId) } : prev)
     } catch { setError('Failed to delete exit') }
+  }
+
+  const startMudZoneEdit = (zone: MudZone) => {
+    setEditingMudZone(zone)
+    setMudZoneForm({
+      name: zone.name,
+      slug: zone.slug,
+      description: zone.description ?? '',
+      position: zone.position,
+    })
+  }
+
+  const startMudRoomEdit = (room: MudRoom) => {
+    setEditingMudRoom(room)
+    setMudRoomForm({
+      zoneId: room.zoneId,
+      name: room.name,
+      slug: room.slug,
+      description: room.description ?? '',
+      position: room.position,
+    })
+  }
+
+  const cancelMudZoneEdit = () => {
+    setEditingMudZone(null)
+    setMudZoneForm({ name: '', slug: '', description: '', position: 0 })
+  }
+
+  const cancelMudRoomEdit = () => {
+    setEditingMudRoom(null)
+    setMudRoomForm({ zoneId: '', name: '', slug: '', description: '', position: 0 })
   }
 
   return (
@@ -1284,18 +1329,19 @@ export default function AdminPage() {
 
           <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
             <form className="admin-grant-form" onSubmit={saveMudZone}>
-              <h4 style={{ margin: 0 }}>Create Zone</h4>
+              <h4 style={{ margin: 0 }}>{editingMudZone ? 'Edit Zone' : 'Create Zone'}</h4>
               <div className="admin-grant-fields" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <input className="papers-new-input" placeholder="Name" value={mudZoneForm.name} onChange={e => setMudZoneForm(f => ({ ...f, name: e.target.value }))} required />
                 <input className="papers-new-input" placeholder="Slug (optional)" value={mudZoneForm.slug} onChange={e => setMudZoneForm(f => ({ ...f, slug: e.target.value }))} />
                 <input className="papers-new-input" placeholder="Description" value={mudZoneForm.description} onChange={e => setMudZoneForm(f => ({ ...f, description: e.target.value }))} style={{ gridColumn: '1 / -1' }} />
                 <input className="papers-new-input" type="number" placeholder="Position" value={mudZoneForm.position} onChange={e => setMudZoneForm(f => ({ ...f, position: Number(e.target.value) }))} />
-                <button type="submit" className="tiptap-action-btn primary" disabled={mudSaving || !mudZoneForm.name.trim()}>Create Zone</button>
+                <button type="submit" className="tiptap-action-btn primary" disabled={mudSaving || !mudZoneForm.name.trim()}>{editingMudZone ? 'Save Zone' : 'Create Zone'}</button>
+                {editingMudZone && <button type="button" className="tiptap-action-btn" onClick={cancelMudZoneEdit}>Cancel</button>}
               </div>
             </form>
 
             <form className="admin-grant-form" onSubmit={saveMudRoom}>
-              <h4 style={{ margin: 0 }}>Create Room</h4>
+              <h4 style={{ margin: 0 }}>{editingMudRoom ? 'Edit Room' : 'Create Room'}</h4>
               <div className="admin-grant-fields" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <select className="admin-role-select" value={mudRoomForm.zoneId} onChange={e => setMudRoomForm(f => ({ ...f, zoneId: e.target.value }))} required>
                   <option value="">Select zone</option>
@@ -1305,7 +1351,8 @@ export default function AdminPage() {
                 <input className="papers-new-input" placeholder="Slug (optional)" value={mudRoomForm.slug} onChange={e => setMudRoomForm(f => ({ ...f, slug: e.target.value }))} />
                 <input className="papers-new-input" placeholder="Description" value={mudRoomForm.description} onChange={e => setMudRoomForm(f => ({ ...f, description: e.target.value }))} />
                 <input className="papers-new-input" type="number" placeholder="Position" value={mudRoomForm.position} onChange={e => setMudRoomForm(f => ({ ...f, position: Number(e.target.value) }))} />
-                <button type="submit" className="tiptap-action-btn primary" disabled={mudSaving || !mudRoomForm.zoneId || !mudRoomForm.name.trim()}>Create Room</button>
+                <button type="submit" className="tiptap-action-btn primary" disabled={mudSaving || !mudRoomForm.zoneId || !mudRoomForm.name.trim()}>{editingMudRoom ? 'Save Room' : 'Create Room'}</button>
+                {editingMudRoom && <button type="button" className="tiptap-action-btn" onClick={cancelMudRoomEdit}>Cancel</button>}
               </div>
             </form>
 
@@ -1337,6 +1384,7 @@ export default function AdminPage() {
               { key: 'description', label: 'Description', render: zone => zone.description ?? '—' },
               { key: 'position', label: 'Position' },
               { key: 'createdAt', label: 'Created', render: zone => new Date(zone.createdAt).toLocaleDateString(), sortVal: zone => zone.createdAt },
+              { key: 'id', label: '', sortable: false, render: zone => <button className="post-action" onClick={() => startMudZoneEdit(zone)}>Edit</button> },
             ]}
           />
 
@@ -1351,6 +1399,7 @@ export default function AdminPage() {
               { key: 'description', label: 'Description', render: room => room.description ?? '—' },
               { key: 'position', label: 'Position' },
               { key: 'createdAt', label: 'Created', render: room => new Date(room.createdAt).toLocaleDateString(), sortVal: room => room.createdAt },
+              { key: 'id', label: '', sortable: false, render: room => <button className="post-action" onClick={() => startMudRoomEdit(room)}>Edit</button> },
             ]}
           />
 

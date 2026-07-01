@@ -63,10 +63,37 @@ export const mudAdminApi = {
       }),
     }).then(json),
 
+  updateZone: (zoneId: string, fields: { name: string; slug: string; description?: string; position: number }): Promise<MudZone> =>
+    fetch(`${BASE}/zones/${zoneId}`, {
+      ...opts,
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: fields.name,
+        slug: fields.slug,
+        description: fields.description ?? '',
+        position: fields.position,
+      }),
+    }).then(json),
+
   createRoom: (fields: { zoneId: string; name: string; slug: string; description?: string; position: number }): Promise<MudRoom> =>
     fetch(`${BASE}/rooms`, {
       ...opts,
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        zoneId: fields.zoneId,
+        name: fields.name,
+        slug: fields.slug,
+        description: fields.description ?? '',
+        position: fields.position,
+      }),
+    }).then(json),
+
+  updateRoom: (roomId: string, fields: { zoneId: string; name: string; slug: string; description?: string; position: number }): Promise<MudRoom> =>
+    fetch(`${BASE}/rooms/${roomId}`, {
+      ...opts,
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         zoneId: fields.zoneId,
