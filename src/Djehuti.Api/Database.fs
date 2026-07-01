@@ -1199,6 +1199,53 @@ let private migrations : (int * string) list =
         WHERE r1.slug = 'council-chamber'
         ON CONFLICT (from_room_id, direction) DO NOTHING;
         """
+
+        37, """
+        UPDATE mud_zones
+        SET name = CASE slug
+            WHEN 'central-hub' THEN 'Outer Keep'
+            WHEN 'research-wing' THEN 'Inner Keep'
+            ELSE name
+        END,
+            description = CASE slug
+            WHEN 'central-hub' THEN 'The first keep wall and its gatehouse, where travelers enter the dungeon.'
+            WHEN 'research-wing' THEN 'Deeper halls beneath the keep where records, watches, and council business are kept.'
+            ELSE description
+        END
+        WHERE slug IN ('central-hub', 'research-wing');
+
+        UPDATE mud_rooms
+        SET name = CASE slug
+            WHEN 'atrium' THEN 'Gatehouse'
+            WHEN 'observatory' THEN 'Watch Tower'
+            WHEN 'archive-hall' THEN 'North Hall'
+            WHEN 'heartbeat-room' THEN 'Bell Chamber'
+            WHEN 'council-chamber' THEN 'Throne Room'
+            ELSE name
+        END,
+            description = CASE slug
+            WHEN 'atrium' THEN 'Stone steps descend into the keep. A passage leads east to the watch tower and north to the hall.'
+            WHEN 'observatory' THEN 'A narrow tower room with arrow slits and a view over the grounds. West returns to the gatehouse.'
+            WHEN 'archive-hall' THEN 'A long corridor lined with torch brackets and old stone alcoves.'
+            WHEN 'heartbeat-room' THEN 'A round chamber where a hanging bell marks the hour.'
+            WHEN 'council-chamber' THEN 'A vaulted chamber with an empty dais and faded banners.'
+            ELSE description
+        END
+        WHERE slug IN ('atrium', 'observatory', 'archive-hall', 'heartbeat-room', 'council-chamber');
+
+        UPDATE mud_exits
+        SET label = CASE
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'atrium') AND direction = 'east' THEN 'To the watch tower'
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'observatory') AND direction = 'west' THEN 'Back to the gatehouse'
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'atrium') AND direction = 'north' THEN 'To the north hall'
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'archive-hall') AND direction = 'south' THEN 'Back to the gatehouse'
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'observatory') AND direction = 'east' THEN 'To the bell chamber'
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'heartbeat-room') AND direction = 'west' THEN 'Back to the watch tower'
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'archive-hall') AND direction = 'east' THEN 'To the throne room'
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'council-chamber') AND direction = 'west' THEN 'Back to the north hall'
+            ELSE label
+        END;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
