@@ -84,7 +84,14 @@ let private payloadOf (pairs: (string * string) list) =
 
 let private starterRoomId () =
     use conn = openConnection ()
-    use cmd = new NpgsqlCommand("SELECT id FROM mud_rooms WHERE slug = 'atrium' LIMIT 1", conn)
+    use cmd = new NpgsqlCommand(
+        """SELECT id
+           FROM mud_rooms
+           ORDER BY
+             CASE WHEN slug = 'atrium' THEN 0 ELSE 1 END,
+             created_at,
+             name
+           LIMIT 1""", conn)
     let scalar = cmd.ExecuteScalar()
     if isNull scalar || scalar = box DBNull.Value then None else Some (scalar :?> Guid)
 
@@ -296,6 +303,14 @@ let getState (userId: Guid) : MudRoomState option =
     use conn = openConnection ()
     loadState conn userId
 
+let getOrCreateState (userId: Guid) (displayName: string option) : MudRoomState option =
+    use conn = openConnection ()
+    match ensureCharacter conn userId displayName with
+    | None -> None
+    | Some character ->
+        loadState conn userId
+        |> Option.map (fun state -> { state with CharacterId = character.Id; CharacterName = character.DisplayName })
+
 let look (userId: Guid) (displayName: string option) : MudCommandResult =
     withState userId displayName (fun state ->
         let message = describeState state
@@ -449,6 +464,86 @@ let inventory (userId: Guid) (displayName: string option) : MudCommandResult =
           Message = message
           State = Some state })
 
+let getItem (userId: Guid) (displayName: string option) (query: string) : MudCommandResult =
+    withState userId displayName (fun state ->
+        let trimmed = query.Trim()
+        if String.IsNullOrWhiteSpace(trimmed) then
+            { Success = false
+              Command = "get"
+              Message = "Get what?"
+              State = Some state }
+        else
+            match tryFindItem state.VisibleItems trimmed with
+            | None ->
+                { Success = false
+                  Command = $"get {trimmed}"
+                  Message = $"You do not see '{trimmed}' here."
+                  State = Some state }
+            | Some item when not item.Portable ->
+                { Success = false
+                  Command = $"get {trimmed}"
+                  Message = $"{item.Name} cannot be carried."
+                  State = Some state }
+            | Some item ->
+                use conn = openConnection ()
+                use cmd = new NpgsqlCommand(
+                    """UPDATE mud_items
+                       SET owner_character_id = @character_id,
+                           room_id = NULL
+                       WHERE owner_character_id IS NULL
+                         AND room_id = @room_id
+                         AND lower(slug) = lower(@query)""", conn)
+                cmd.Parameters.AddWithValue("character_id", state.CharacterId) |> ignore
+                cmd.Parameters.AddWithValue("room_id", state.RoomId) |> ignore
+                cmd.Parameters.AddWithValue("query", item.Slug) |> ignore
+                let changed = cmd.ExecuteNonQuery()
+                let nextState = getState userId |> Option.defaultValue state
+                let message =
+                    if changed > 0 then $"You pick up {item.Name}."
+                    else $"You cannot pick up {item.Name} right now."
+                logEvent conn userId state.CharacterId state.RoomId "get" (Some trimmed) message (payloadOf [ "target", trimmed ])
+                { Success = changed > 0
+                  Command = $"get {trimmed}"
+                  Message = message
+                  State = Some nextState })
+
+let dropItem (userId: Guid) (displayName: string option) (query: string) : MudCommandResult =
+    withState userId displayName (fun state ->
+        let trimmed = query.Trim()
+        if String.IsNullOrWhiteSpace(trimmed) then
+            { Success = false
+              Command = "drop"
+              Message = "Drop what?"
+              State = Some state }
+        else
+            match tryFindItem state.InventoryItems trimmed with
+            | None ->
+                { Success = false
+                  Command = $"drop {trimmed}"
+                  Message = $"You are not carrying '{trimmed}'."
+                  State = Some state }
+            | Some item ->
+                use conn = openConnection ()
+                use cmd = new NpgsqlCommand(
+                    """UPDATE mud_items
+                       SET owner_character_id = NULL,
+                           room_id = @room_id
+                       WHERE owner_character_id = @character_id
+                         AND lower(slug) = lower(@query)""", conn)
+                cmd.Parameters.AddWithValue("room_id", state.RoomId) |> ignore
+                cmd.Parameters.AddWithValue("character_id", state.CharacterId) |> ignore
+                cmd.Parameters.AddWithValue("query", item.Slug) |> ignore
+                let changed = cmd.ExecuteNonQuery()
+                let nextState = getState userId |> Option.defaultValue state
+                let message =
+                    if changed > 0 then $"You drop {item.Name}."
+                    else $"You cannot drop {item.Name} right now."
+                logEvent conn userId state.CharacterId state.RoomId "drop" (Some trimmed) message (payloadOf [ "target", trimmed ])
+                { Success = changed > 0
+                  Command = $"drop {trimmed}"
+                  Message = message
+                  State = Some nextState })
+
 let say (userId: Guid) (displayName: string option) (text: string) : MudCommandResult =
     withState userId displayName (fun state ->
         let trimmed = text.Trim()
@@ -487,7 +582,7 @@ let handleCommand (userId: Guid) (displayName: string option) (commandText: stri
     if String.IsNullOrWhiteSpace(trimmed) then
         { Success = false
           Command = ""
-          Message = "Type look, examine <thing>, read <thing>, inventory, move <direction>, say <message>, or emote <action>."
+          Message = "Type look, examine <thing>, read <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, or emote <action>."
           State = getState userId }
     else
         let parts = trimmed.Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
@@ -501,6 +596,12 @@ let handleCommand (userId: Guid) (displayName: string option) (commandText: stri
             let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
             read userId displayName query
         | "inventory" | "inv" | "i" -> inventory userId displayName
+        | "get" | "take" ->
+            let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
+            getItem userId displayName query
+        | "drop" ->
+            let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
+            dropItem userId displayName query
         | "say" ->
             let message = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
             say userId displayName message
@@ -521,5 +622,5 @@ let handleCommand (userId: Guid) (displayName: string option) (commandText: stri
         | _ ->
             { Success = false
               Command = trimmed
-              Message = "Unknown command. Try look, examine <thing>, read <thing>, inventory, move <direction>, say <message>, or emote <action>."
+              Message = "Unknown command. Try look, examine <thing>, read <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, or emote <action>."
               State = getState userId }
