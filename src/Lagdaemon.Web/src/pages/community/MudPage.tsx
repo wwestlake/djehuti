@@ -92,29 +92,30 @@ export default function MudPage({ embedded = false }: MudPageProps) {
     }
   }
 
-  const roomTitle = state?.roomName ?? 'MUD Console'
-  const roomBody = state?.roomDescription ?? 'Use the command box or the action buttons to enter the world.'
+  const roomTitle = state?.roomName ?? 'LagDaemon MUD'
+  const roomBody = state?.roomDescription ?? 'Enter the world and move through the keep.'
   const portableVisibleItems = useMemo(() => (state?.visibleItems ?? []).filter(item => item.portable), [state])
   const quickMovement = useMemo(() => (state?.exits ?? []).slice(0, 4), [state])
-  const shellStyle = embedded && fullScreen
+  const isFullScreen = embedded ? fullScreen : true
+  const shellStyle = isFullScreen
     ? {
         position: 'fixed' as const,
         inset: 0,
         zIndex: 1200,
         overflowY: 'auto' as const,
-        padding: '16px',
+        padding: embedded ? '16px' : '0',
         background: 'var(--bg)',
       }
     : undefined
 
   return (
-    <section className="mud-page">
+    <section className={`mud-page${embedded ? ' mud-page-embedded' : ' mud-page-app'}`}>
       <div className="mud-shell" style={shellStyle}>
         <div className="mud-hero">
           <div>
             <div className="mud-kicker">LagDaemon MUD</div>
             <h1>{roomTitle}</h1>
-            <p className="mud-zone">{state ? `Zone: ${state.zoneName}` : loading ? 'Loading world…' : 'Admin-only gameplay console.'}</p>
+            <p className="mud-zone">{state ? `Zone: ${state.zoneName}` : loading ? 'Loading world…' : 'Admin-only access for now.'}</p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {embedded && (
@@ -122,7 +123,7 @@ export default function MudPage({ embedded = false }: MudPageProps) {
                 {fullScreen ? 'Exit full screen' : 'Full screen'}
               </button>
             )}
-            {!embedded && <button className="mud-back-btn" onClick={() => navigate('/forum')}>Back to forum</button>}
+            {!embedded && <button className="mud-back-btn" onClick={() => navigate('/')}>Exit game</button>}
           </div>
         </div>
 
