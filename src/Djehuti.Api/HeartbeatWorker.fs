@@ -72,13 +72,60 @@ type HeartbeatWorker(logger: ILogger<HeartbeatWorker>) =
 
     let openAiKey () =
         let v = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
-        if String.IsNullOrWhiteSpace v then None else Some v
+        if String.IsNullOrWhiteSpace v then None else Some (v.Trim())
 
     let normalizeOpenAiModel (model: string) =
         if String.IsNullOrWhiteSpace model || model.StartsWith("claude", StringComparison.OrdinalIgnoreCase) then
             defaultOpenAiModel
         else
             model
+
+    let private tryParseUtcInstant (value: string option) =
+        match value with
+        | None -> None
+        | Some v when String.IsNullOrWhiteSpace v -> None
+        | Some v ->
+            match DateTime.TryParse(v, null, System.Globalization.DateTimeStyles.RoundtripKind) with
+            | true, dt -> Some (dt.ToUniversalTime())
+            | _ -> None
+
+    let private getTimeZoneInfo (timezoneId: string option) =
+        match timezoneId with
+        | None -> None
+        | Some tz ->
+            try Some (TimeZoneInfo.FindSystemTimeZoneById(tz))
+            with _ -> None
+
+    let private isWithinWorkWindow (localNow: DateTime) (startHour: int option) (windowHours: int option) =
+        match startHour, windowHours with
+        | Some startHour, Some windowHours when windowHours > 0 ->
+            if windowHours >= 24 then true
+            else
+                let currentHour = localNow.TimeOfDay.TotalHours
+                let start = float startHour
+                let stop = start + float windowHours
+                if stop <= 24.0 then
+                    currentHour >= start && currentHour < stop
+                else
+                    currentHour >= start || currentHour < (stop - 24.0)
+        | _ -> true
+
+    let private nextWorkWindowStartUtc (utcNow: DateTime) (timezone: TimeZoneInfo option) (startHour: int option) =
+        match timezone, startHour with
+        | Some tz, Some startHour ->
+            let utcNow = DateTime.SpecifyKind(utcNow, DateTimeKind.Utc)
+            let localNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, tz)
+            let todayStartLocal = localNow.Date.AddHours(float startHour)
+            let nextLocalStart =
+                if localNow < todayStartLocal then todayStartLocal
+                else todayStartLocal.AddDays(1.0)
+            TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(nextLocalStart, DateTimeKind.Unspecified), tz)
+        | _ -> utcNow.AddHours(24.0)
+
+    let private chooseRandom<'a> (items: 'a list) =
+        match items with
+        | [] -> None
+        | xs -> Some xs.[Random.Shared.Next(xs.Length)]
 
     let tryStringProperty (name: string) (element: JsonElement) =
         let mutable value = Unchecked.defaultof<JsonElement>

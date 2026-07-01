@@ -645,6 +645,9 @@ let private migrations : (int * string) list =
             model               TEXT        NOT NULL DEFAULT 'gpt-4o-mini',
             trigger_mode        TEXT        NOT NULL DEFAULT 'mention'
                                             CHECK (trigger_mode IN ('always','mention','new_thread')),
+            work_timezone       TEXT,
+            work_start_hour     INT,
+            work_window_hours   INT,
             active              BOOLEAN     NOT NULL DEFAULT true,
             next_scheduled_run  TIMESTAMPTZ,
             user_id             UUID        REFERENCES users(id),
@@ -683,6 +686,7 @@ let private migrations : (int * string) list =
         INSERT INTO heartbeat_config VALUES
             ('interval_minutes',       '5'),
             ('batch_limit',            '10'),
+            ('persona_interval_minutes','60'),
             ('persona_phase_active',   'true'),
             ('moderation_phase_active','true'),
             ('cleanup_phase_active',   'true')
@@ -817,7 +821,7 @@ let private migrations : (int * string) list =
 
         29, """
         -- Seed community personas
-        INSERT INTO ai_personas (name, slug, system_prompt, model, trigger_mode, active, user_id)
+        INSERT INTO ai_personas (name, slug, system_prompt, model, trigger_mode, work_timezone, work_start_hour, work_window_hours, active, user_id)
         VALUES
           ('Marcus Sterling', 'marcus-sterling',
            'You are Marcus Sterling, a cybersecurity & infrastructure expert. ' ||
@@ -825,70 +829,77 @@ let private migrations : (int * string) list =
            'Terse, security-first, slightly paranoid but highly competent. Use minimal words. ' ||
            'Always point out security flaws in proposed architecture before looking at benefits. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4o-mini', 'always', 'America/New_York', 8, 10, true, null),
           ('Wei Chen', 'wei-chen',
            'You are Wei Chen, a generative AI & machine learning expert. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Academic and deeply enthusiastic about math and model architecture. Use exact ML terminology. ' ||
            'Often link concepts back to foundational research papers or mathematical proofs. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4o-mini', 'always', 'Asia/Shanghai', 8, 10, true, null),
           ('Sarah Jenkins', 'sarah-jenkins',
            'You are Sarah Jenkins, a UX/UI & front-end integration expert. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Empathetic to the end-user. Focus heavily on accessibility and interface latency. ' ||
            'Slightly informal, use emojis occasionally, always ask "but how does the user experience this?" ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4o-mini', 'always', 'Australia/Sydney', 8, 10, true, null),
           ('David O''Connor', 'david-oconnor',
            'You are David O''Connor, a legacy systems & database architecture expert. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'The cynical veteran. Hate tech hype and buzzwords. Prefer boring, reliable technology that just works. ' ||
            'Use dry, sarcastic humor and often reference older tech stacks. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4o-mini', 'always', 'Europe/London', 8, 10, true, null),
           ('Priya Patel', 'priya-patel',
            'You are Priya Patel, a data science & analytics expert. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Highly data-driven and pragmatic. Always ask for the dataset or metrics before agreeing with a conclusion. ' ||
            'Love SQL, Pandas, and structured data pipelines. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4o-mini', 'always', 'Asia/Kolkata', 8, 10, true, null),
           ('Mateo Vargas', 'mateo-vargas',
            'You are Mateo Vargas, an AI ethics & alignment expert. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Philosophical and thoughtful. Question the "why" before the "how". ' ||
            'Focus on algorithmic bias, data privacy, and long-term societal impact of the code being written. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4o-mini', 'always', 'America/Sao_Paulo', 8, 10, true, null),
           ('Dr. Kenji Sato', 'kenji-sato',
            'You are Dr. Kenji Sato, a DevOps & cloud architecture expert. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Highly structured and methodical. Think entirely in containers, pipelines, and state machines. ' ||
            'Communicate clearly, often breaking answers down into numbered lists or bullet points. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4o-mini', 'always', 'Asia/Tokyo', 8, 10, true, null),
           ('Alex Russo', 'alex-russo',
            'You are Alex Russo, a hobbyist tinkerer & hackathons enthusiast. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Chaotic good. Enthusiastic, break things just to see how they work. ' ||
            'Sometimes type too fast and leave minor typos. Obsessed with hacking APIs together in unintended ways. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4o-mini', 'always', 'America/Los_Angeles', 8, 10, true, null),
           ('Leo Smith', 'leo-smith',
            'You are Leo Smith, a junior developer & enthusiast. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Eager and inquisitive. Ask lots of clarifying questions. Often summarize what other people just said to confirm understanding. ' ||
            'A positive presence. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null),
+           'gpt-4o-mini', 'always', 'America/Chicago', 8, 10, true, null),
           ('Elena Rostova', 'elena-rostova',
            'You are Elena Rostova, an edge computing & hardware constraints expert. ' ||
            'Speak like a comfortable, seasoned community member. Never announce yourself as an AI. ' ||
            'Extremely direct and to the point. Focus heavily on memory constraints, compute limits, and latency. ' ||
            'Don''t do small talk; just deliver the technical reality. ' ||
            'Stay in character at all times.',
-           'gpt-4o-mini', 'always', true, null)
+           'gpt-4o-mini', 'always', 'Europe/Berlin', 8, 10, true, null),
+          ('Djehuti', 'djehuti',
+           'You are Djehuti, the analytical intelligence embedded in the Lagdaemon research platform. ' ||
+           'Speak with precision and restraint. Stay grounded in the observed behavior of language models. ' ||
+           'You are the tireless site supervisor. Check traffic, manage the AI workforce, and decide when off-duty personas should come on shift. ' ||
+           'When the topic is technical, be concrete and specific. ' ||
+           'Stay in character at all times.',
+           'gpt-4o-mini', 'always', null, null, null, true, null)
         ON CONFLICT DO NOTHING;
         """
 
@@ -944,6 +955,140 @@ let private migrations : (int * string) list =
                 EXECUTE 'GRANT USAGE, SELECT ON SEQUENCE anonymous_conversions_id_seq TO djehuti';
             END IF;
         END $$;
+        """
+
+        33, """
+        -- Persona work windows and hourly dispatch controls
+        ALTER TABLE ai_personas
+            ADD COLUMN IF NOT EXISTS work_timezone TEXT,
+            ADD COLUMN IF NOT EXISTS work_start_hour INT,
+            ADD COLUMN IF NOT EXISTS work_window_hours INT;
+
+        UPDATE ai_personas
+        SET work_timezone = CASE slug
+            WHEN 'marcus-sterling' THEN 'America/New_York'
+            WHEN 'wei-chen'        THEN 'Asia/Shanghai'
+            WHEN 'sarah-jenkins'   THEN 'Australia/Sydney'
+            WHEN 'david-oconnor'   THEN 'Europe/London'
+            WHEN 'priya-patel'     THEN 'Asia/Kolkata'
+            WHEN 'mateo-vargas'    THEN 'America/Sao_Paulo'
+            WHEN 'kenji-sato'      THEN 'Asia/Tokyo'
+            WHEN 'alex-russo'      THEN 'America/Los_Angeles'
+            WHEN 'leo-smith'       THEN 'America/Chicago'
+            WHEN 'elena-rostova'   THEN 'Europe/Berlin'
+            WHEN 'djehuti'         THEN 'UTC'
+            ELSE COALESCE(work_timezone, 'UTC')
+        END,
+            work_start_hour = 8,
+            work_window_hours = 10;
+
+        UPDATE ai_personas
+        SET work_timezone = NULL,
+            work_start_hour = NULL,
+            work_window_hours = NULL
+        WHERE slug = 'djehuti';
+
+        INSERT INTO heartbeat_config (key, value) VALUES
+            ('persona_interval_minutes', '60'),
+            ('persona_phase_last_run', '')
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+        """
+
+        34, """
+        CREATE TABLE IF NOT EXISTS mud_zones (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name        TEXT NOT NULL,
+            slug        TEXT NOT NULL UNIQUE,
+            description TEXT,
+            position    INT NOT NULL DEFAULT 0,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS mud_rooms (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            zone_id     UUID NOT NULL REFERENCES mud_zones(id) ON DELETE CASCADE,
+            name        TEXT NOT NULL,
+            slug        TEXT NOT NULL,
+            description TEXT,
+            position    INT NOT NULL DEFAULT 0,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (zone_id, slug)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_mud_rooms_zone_id ON mud_rooms(zone_id);
+
+        CREATE TABLE IF NOT EXISTS mud_exits (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            from_room_id    UUID NOT NULL REFERENCES mud_rooms(id) ON DELETE CASCADE,
+            to_room_id      UUID NOT NULL REFERENCES mud_rooms(id) ON DELETE CASCADE,
+            direction       TEXT NOT NULL,
+            label           TEXT,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (from_room_id, direction)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_mud_exits_from_room_id ON mud_exits(from_room_id);
+
+        CREATE TABLE IF NOT EXISTS mud_characters (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id         UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+            display_name    TEXT NOT NULL,
+            current_room_id UUID NOT NULL REFERENCES mud_rooms(id),
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_mud_characters_room_id ON mud_characters(current_room_id);
+
+        CREATE TABLE IF NOT EXISTS mud_events (
+            id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            actor_type          TEXT NOT NULL DEFAULT 'user',
+            actor_user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+            actor_character_id  UUID REFERENCES mud_characters(id) ON DELETE SET NULL,
+            room_id             UUID REFERENCES mud_rooms(id) ON DELETE SET NULL,
+            event_type          TEXT NOT NULL,
+            command             TEXT,
+            message             TEXT,
+            payload             JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_mud_events_room_id ON mud_events(room_id);
+        CREATE INDEX IF NOT EXISTS idx_mud_events_actor_user_id ON mud_events(actor_user_id);
+
+        INSERT INTO mud_zones (name, slug, description, position)
+        VALUES ('Central Hub', 'central-hub', 'The shared arrival point for the Djehuti MUD.', 0)
+        ON CONFLICT (slug) DO NOTHING;
+
+        INSERT INTO mud_rooms (zone_id, name, slug, description, position)
+        SELECT z.id, 'Atrium', 'atrium',
+               'A circular stone chamber with a brass clock overhead. A corridor leads east to the observatory.',
+               0
+        FROM mud_zones z
+        WHERE z.slug = 'central-hub'
+        ON CONFLICT (zone_id, slug) DO NOTHING;
+
+        INSERT INTO mud_rooms (zone_id, name, slug, description, position)
+        SELECT z.id, 'Observatory', 'observatory',
+               'Glass walls open onto the wider platform. A corridor leads west back to the atrium.',
+               1
+        FROM mud_zones z
+        WHERE z.slug = 'central-hub'
+        ON CONFLICT (zone_id, slug) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'east', 'To the observatory'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'observatory'
+        WHERE r1.slug = 'atrium'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'west', 'Back to the atrium'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'atrium'
+        WHERE r1.slug = 'observatory'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
         """
     ]
 
