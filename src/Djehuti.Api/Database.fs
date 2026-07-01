@@ -1127,6 +1127,78 @@ let private migrations : (int * string) list =
           SET mud_name = EXCLUDED.mud_name,
               display_order = EXCLUDED.display_order;
         """
+
+        36, """
+        INSERT INTO mud_zones (name, slug, description, position)
+        VALUES ('Research Wing', 'research-wing', 'Quiet halls where the MUD records, studies, and keeps its working notes.', 1)
+        ON CONFLICT (slug) DO NOTHING;
+
+        INSERT INTO mud_rooms (zone_id, name, slug, description, position)
+        SELECT z.id, 'Archive Hall', 'archive-hall',
+               'Rows of ledger shelves, transcripts, and old experiment logs line the walls.',
+               0
+        FROM mud_zones z
+        WHERE z.slug = 'research-wing'
+        ON CONFLICT (zone_id, slug) DO NOTHING;
+
+        INSERT INTO mud_rooms (zone_id, name, slug, description, position)
+        SELECT z.id, 'Heartbeat Room', 'heartbeat-room',
+               'A narrow chamber filled with a low mechanical pulse. Dispatch schedules are tracked here.',
+               1
+        FROM mud_zones z
+        WHERE z.slug = 'research-wing'
+        ON CONFLICT (zone_id, slug) DO NOTHING;
+
+        INSERT INTO mud_rooms (zone_id, name, slug, description, position)
+        SELECT z.id, 'Council Chamber', 'council-chamber',
+               'A table of carved stone sits beneath a lantern grid. Decisions and notices are gathered here.',
+               2
+        FROM mud_zones z
+        WHERE z.slug = 'research-wing'
+        ON CONFLICT (zone_id, slug) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'north', 'To the archive hall'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'archive-hall'
+        WHERE r1.slug = 'atrium'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'south', 'Back to the atrium'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'atrium'
+        WHERE r1.slug = 'archive-hall'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'east', 'To the heartbeat room'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'heartbeat-room'
+        WHERE r1.slug = 'observatory'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'west', 'Back to the observatory'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'observatory'
+        WHERE r1.slug = 'heartbeat-room'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'east', 'To the council chamber'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'council-chamber'
+        WHERE r1.slug = 'archive-hall'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'west', 'Back to the archive hall'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'archive-hall'
+        WHERE r1.slug = 'council-chamber'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
