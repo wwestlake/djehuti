@@ -64,11 +64,12 @@ export default function MudPage() {
           <button className="mud-back-btn" onClick={() => navigate('/forum')}>Back to forum</button>
         </div>
 
-        <div className="mud-card mud-room">
+          <div className="mud-card mud-room">
           <div className="mud-room-text">{roomBody}</div>
           <div className="mud-meta">
             <span>Character: {state?.characterName ?? user?.displayName ?? 'Guest'}</span>
             <span>Room: {state?.roomId ?? 'unplaced'}</span>
+            <span>Rank: {state?.mudTierName ?? 'Wanderer'}</span>
           </div>
         </div>
 

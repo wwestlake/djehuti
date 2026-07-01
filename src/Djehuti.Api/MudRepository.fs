@@ -19,6 +19,7 @@ type MudRoomState =
       RoomName: string
       RoomDescription: string option
       ZoneName: string
+      MudTierName: string
       Exits: MudExitView list }
 
 type MudCommandResult =
@@ -50,6 +51,7 @@ let private readStateBase (r: DbDataReader) =
       RoomName = r.GetString(3)
       RoomDescription = if r.IsDBNull(4) then None else Some (r.GetString(4))
       ZoneName = r.GetString(5)
+      MudTierName = "Wanderer"
       Exits = [] }
 
 let private nonBlank (value: string option) =
@@ -67,6 +69,18 @@ let private starterRoomId () =
     use cmd = new NpgsqlCommand("SELECT id FROM mud_rooms WHERE slug = 'atrium' LIMIT 1", conn)
     let scalar = cmd.ExecuteScalar()
     if isNull scalar || scalar = box DBNull.Value then None else Some (scalar :?> Guid)
+
+let private loadMudTierName (userId: Guid) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """SELECT COALESCE(mtl.mud_name, pt.tier_name, 'Wanderer')
+           FROM users u
+           LEFT JOIN patreon_tiers pt ON pt.tier_id = u.patreon_tier_id
+           LEFT JOIN mud_tier_labels mtl ON mtl.patreon_tier_id = pt.tier_id
+           WHERE u.id = @uid""", conn)
+    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+    let scalar = cmd.ExecuteScalar()
+    if isNull scalar || scalar = box DBNull.Value then "Wanderer" else scalar :?> string
 
 let private loadState (conn: NpgsqlConnection) (userId: Guid) : MudRoomState option =
     use cmd = new NpgsqlCommand(
@@ -101,7 +115,9 @@ let private loadState (conn: NpgsqlConnection) (userId: Guid) : MudRoomState opt
                         Label = if exitReader.IsDBNull(1) then None else Some (exitReader.GetString(1))
                         TargetRoomId = exitReader.GetGuid(2)
                         TargetRoomName = exitReader.GetString(3) } ]
-        Some { baseState with Exits = exits }
+        reader.Close()
+        let mudTierName = loadMudTierName userId
+        Some { baseState with Exits = exits; MudTierName = mudTierName }
 
 let private loadCharacter (conn: NpgsqlConnection) (userId: Guid) : MudCharacterRow option =
     use cmd = new NpgsqlCommand(

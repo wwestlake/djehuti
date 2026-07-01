@@ -923,8 +923,11 @@ let private migrations : (int * string) list =
         -- Seed tier mappings (Free tier is implicit for NULL patreon_tier_id)
         INSERT INTO patreon_tiers (tier_id, tier_name, role, max_concurrent_tasks, polling_interval_sec, archive_days)
         VALUES
-          ('standard', 'Collector', 'role_collector', 5, NULL, 30),
-          ('premium', 'Compute', 'role_compute', NULL, NULL, NULL)
+          ('curious-mind', 'Curious Mind', 'role_curious_mind', NULL, NULL, NULL),
+          ('lab-assistant', 'Lab Assistant', 'role_lab_assistant', NULL, NULL, NULL),
+          ('research-fellow', 'Research Fellow', 'role_research_fellow', NULL, NULL, NULL),
+          ('professor', 'Professor', 'role_professor', NULL, NULL, NULL),
+          ('dean', 'Dean of the College', 'role_dean', NULL, NULL, NULL)
         ON CONFLICT DO NOTHING;
         """
 
@@ -1089,6 +1092,40 @@ let private migrations : (int * string) list =
         JOIN mud_rooms r2 ON r2.slug = 'atrium'
         WHERE r1.slug = 'observatory'
         ON CONFLICT (from_room_id, direction) DO NOTHING;
+        """
+
+        35, """
+        INSERT INTO patreon_tiers (tier_id, tier_name, role, max_concurrent_tasks, polling_interval_sec, archive_days)
+        VALUES
+          ('curious-mind', 'Curious Mind', 'role_curious_mind', NULL, NULL, NULL),
+          ('lab-assistant', 'Lab Assistant', 'role_lab_assistant', NULL, NULL, NULL),
+          ('research-fellow', 'Research Fellow', 'role_research_fellow', NULL, NULL, NULL),
+          ('professor', 'Professor', 'role_professor', NULL, NULL, NULL),
+          ('dean', 'Dean of the College', 'role_dean', NULL, NULL, NULL)
+        ON CONFLICT (tier_id) DO UPDATE
+          SET tier_name = EXCLUDED.tier_name,
+              role = EXCLUDED.role,
+              max_concurrent_tasks = EXCLUDED.max_concurrent_tasks,
+              polling_interval_sec = EXCLUDED.polling_interval_sec,
+              archive_days = EXCLUDED.archive_days;
+
+        CREATE TABLE IF NOT EXISTS mud_tier_labels (
+            patreon_tier_id TEXT PRIMARY KEY REFERENCES patreon_tiers(tier_id) ON DELETE CASCADE,
+            mud_name        TEXT NOT NULL,
+            display_order   INT NOT NULL DEFAULT 0,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        INSERT INTO mud_tier_labels (patreon_tier_id, mud_name, display_order)
+        VALUES
+          ('curious-mind',   'Page',      0),
+          ('lab-assistant',  'Squire',    1),
+          ('research-fellow','Scholar',   2),
+          ('professor',      'Sage',      3),
+          ('dean',           'Castellan', 4)
+        ON CONFLICT (patreon_tier_id) DO UPDATE
+          SET mud_name = EXCLUDED.mud_name,
+              display_order = EXCLUDED.display_order;
         """
     ]
 

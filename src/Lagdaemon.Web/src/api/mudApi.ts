@@ -14,6 +14,7 @@ export interface MudRoomState {
   roomName: string
   roomDescription?: string
   zoneName: string
+  mudTierName: string
   exits: MudExitView[]
 }
 
