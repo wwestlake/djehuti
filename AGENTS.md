@@ -107,3 +107,8 @@ SSH access is available via the PEM key. The deploy workflow is in `.github/work
 **Why:** Claude stated confidently that an env var "goes in api.env on the server" without checking how api.env is actually written. It is generated entirely by the GitHub Actions deploy step from GitHub secrets — a direct server edit would be overwritten on the next deploy.
 
 **How to apply:** Any time a question involves deployment, environment variables, server configuration, or repo structure — open the relevant file first, then answer.
+---
+
+## PR Links
+
+**Always send a clickable link when referencing a PR.** Do not mention a pull request without including its direct GitHub URL.

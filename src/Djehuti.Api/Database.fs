@@ -1250,6 +1250,14 @@ let private migrations : (int * string) list =
             ELSE label
         END;
         """
+
+        38, """
+        GRANT ALL ON TABLE mud_zones TO djehuti;
+        GRANT ALL ON TABLE mud_rooms TO djehuti;
+        GRANT ALL ON TABLE mud_exits TO djehuti;
+        GRANT ALL ON TABLE mud_characters TO djehuti;
+        GRANT ALL ON TABLE mud_events TO djehuti;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
