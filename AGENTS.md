@@ -40,6 +40,7 @@ Step-by-step — follow this exactly every time, no exceptions:
 7. **Never merge your own PRs.** Never attempt `gh pr merge --admin` or `gh pr review --approve`. The user merges all PRs via the GitHub UI.
 8. **Never push directly to `main`.**
 9. **Open PRs ready for review by default.** Do not create draft PRs unless the user explicitly asks for a draft.
+10. **Before reporting a PR to the user, check the PR merge state for conflicts.** If it is conflicted, resolve the conflicts first and only then report the PR link.
 
 ---
 
