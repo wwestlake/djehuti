@@ -122,6 +122,17 @@ a { color: var(--accent); }
     linear-gradient(180deg, color-mix(in srgb, var(--bg) 90%, #000 10%), var(--bg));
 }
 
+.mud-page-app {
+  min-height: 100vh;
+  padding: 0;
+}
+
+.mud-page-app .mud-shell {
+  max-width: none;
+  min-height: 100vh;
+  padding: 1rem;
+}
+
 .mud-shell {
   max-width: 1040px;
   margin: 0 auto;
@@ -303,6 +314,14 @@ a { color: var(--accent); }
 
   .mud-page {
     padding: 1rem 0.85rem 2rem;
+  }
+
+  .mud-page-app {
+    padding: 0;
+  }
+
+  .mud-page-app .mud-shell {
+    padding: 0.75rem;
   }
 
   .mud-card {
