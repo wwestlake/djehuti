@@ -7,6 +7,14 @@ export interface MudExitView {
   targetRoomName: string
 }
 
+export interface MudItemView {
+  name: string
+  slug: string
+  description?: string
+  portable: boolean
+  readable: boolean
+}
+
 export interface MudRoomState {
   characterId: string
   characterName: string
@@ -15,6 +23,8 @@ export interface MudRoomState {
   roomDescription?: string
   zoneName: string
   mudTierName: string
+  visibleItems: MudItemView[]
+  inventoryItems: MudItemView[]
   exits: MudExitView[]
 }
 
