@@ -12,6 +12,13 @@ type MudExitView =
       TargetRoomId: Guid
       TargetRoomName: string }
 
+type MudItemView =
+    { Name: string
+      Slug: string
+      Description: string option
+      Portable: bool
+      Readable: bool }
+
 type MudRoomState =
     { CharacterId: Guid
       CharacterName: string
@@ -20,6 +27,8 @@ type MudRoomState =
       RoomDescription: string option
       ZoneName: string
       MudTierName: string
+      VisibleItems: MudItemView list
+      InventoryItems: MudItemView list
       Exits: MudExitView list }
 
 type MudCommandResult =
@@ -52,7 +61,16 @@ let private readStateBase (r: DbDataReader) =
       RoomDescription = if r.IsDBNull(4) then None else Some (r.GetString(4))
       ZoneName = r.GetString(5)
       MudTierName = "Wanderer"
+      VisibleItems = []
+      InventoryItems = []
       Exits = [] }
+
+let private readItemView (r: DbDataReader) =
+    { Name = r.GetString(0)
+      Slug = r.GetString(1)
+      Description = if r.IsDBNull(2) then None else Some (r.GetString(2))
+      Portable = r.GetBoolean(3)
+      Readable = not (r.IsDBNull(4)) }
 
 let private nonBlank (value: string option) =
     value |> Option.bind (fun s -> if String.IsNullOrWhiteSpace(s) then None else Some s)
@@ -115,9 +133,31 @@ let private loadState (conn: NpgsqlConnection) (userId: Guid) : MudRoomState opt
                         Label = if exitReader.IsDBNull(1) then None else Some (exitReader.GetString(1))
                         TargetRoomId = exitReader.GetGuid(2)
                         TargetRoomName = exitReader.GetString(3) } ]
-        reader.Close()
+        exitReader.Close()
+        use roomItemsCmd = new NpgsqlCommand(
+            """SELECT name, slug, description, portable, readable_text
+               FROM mud_items
+               WHERE room_id = @room_id
+                 AND owner_character_id IS NULL
+               ORDER BY position, name""", conn)
+        roomItemsCmd.Parameters.AddWithValue("room_id", baseState.RoomId) |> ignore
+        use roomItemsReader = roomItemsCmd.ExecuteReader()
+        let visibleItems =
+            [ while roomItemsReader.Read() do
+                yield readItemView roomItemsReader ]
+        roomItemsReader.Close()
+        use invCmd = new NpgsqlCommand(
+            """SELECT name, slug, description, portable, readable_text
+               FROM mud_items
+               WHERE owner_character_id = @character_id
+               ORDER BY position, name""", conn)
+        invCmd.Parameters.AddWithValue("character_id", baseState.CharacterId) |> ignore
+        use invReader = invCmd.ExecuteReader()
+        let inventoryItems =
+            [ while invReader.Read() do
+                yield readItemView invReader ]
         let mudTierName = loadMudTierName userId
-        Some { baseState with Exits = exits; MudTierName = mudTierName }
+        Some { baseState with Exits = exits; VisibleItems = visibleItems; InventoryItems = inventoryItems; MudTierName = mudTierName }
 
 let private loadCharacter (conn: NpgsqlConnection) (userId: Guid) : MudCharacterRow option =
     use cmd = new NpgsqlCommand(
@@ -189,7 +229,50 @@ let private describeState (state: MudRoomState) =
         state.RoomDescription
         |> Option.defaultValue "The room has no description yet."
 
-    $"{state.RoomName}\n\n{description}\n\n{exitsText}"
+    let itemsText =
+        match state.VisibleItems with
+        | [] -> "Visible items: none."
+        | items ->
+            items
+            |> List.map _.Name
+            |> String.concat ", "
+            |> fun s -> $"Visible items: {s}"
+
+    $"{state.RoomName}\n\n{description}\n\n{exitsText}\n{itemsText}"
+
+let private tryFindItem (items: MudItemView list) (query: string) =
+    let normalized = query.Trim().ToLowerInvariant()
+    items
+    |> List.tryFind (fun item ->
+        item.Name.ToLowerInvariant() = normalized
+        || item.Slug.ToLowerInvariant() = normalized
+        || item.Name.ToLowerInvariant().Contains(normalized))
+
+let private describeItem (item: MudItemView) =
+    let body = item.Description |> Option.defaultValue "It has no description yet."
+    let portability = if item.Portable then "It looks portable." else "It looks fixed in place."
+    let readable = if item.Readable then "It can be read." else "There is nothing readable on it."
+    $"{item.Name}\n\n{body}\n\n{portability} {readable}"
+
+let private loadReadableText (conn: NpgsqlConnection) (state: MudRoomState) (query: string) =
+    use cmd = new NpgsqlCommand(
+        """SELECT readable_text
+           FROM mud_items
+           WHERE readable_text IS NOT NULL
+             AND (
+                 room_id = @room_id
+                 OR owner_character_id = @character_id
+             )
+             AND (
+                 lower(name) = lower(@query)
+                 OR lower(slug) = lower(@query)
+             )
+           LIMIT 1""", conn)
+    cmd.Parameters.AddWithValue("room_id", state.RoomId) |> ignore
+    cmd.Parameters.AddWithValue("character_id", state.CharacterId) |> ignore
+    cmd.Parameters.AddWithValue("query", query.Trim()) |> ignore
+    let scalar = cmd.ExecuteScalar()
+    if isNull scalar || scalar = box DBNull.Value then None else Some (scalar :?> string)
 
 let private withState (userId: Guid) (displayName: string option) (action: MudRoomState -> MudCommandResult) : MudCommandResult =
     use conn = openConnection ()
@@ -287,6 +370,85 @@ let private moveInternal (userId: Guid) (direction: string) (displayName: string
 let move (userId: Guid) (displayName: string option) (direction: string) =
     moveInternal userId direction displayName
 
+let examine (userId: Guid) (displayName: string option) (query: string) : MudCommandResult =
+    withState userId displayName (fun state ->
+        let trimmed = query.Trim()
+        if String.IsNullOrWhiteSpace(trimmed) then
+            { Success = false
+              Command = "examine"
+              Message = "Examine what?"
+              State = Some state }
+        else
+            let lower = trimmed.ToLowerInvariant()
+            let roomMatch =
+                lower = "room"
+                || lower = "here"
+                || lower = state.RoomName.ToLowerInvariant()
+            let item =
+                tryFindItem state.VisibleItems trimmed
+                |> Option.orElseWith (fun () -> tryFindItem state.InventoryItems trimmed)
+            let exitView =
+                state.Exits
+                |> List.tryFind (fun exit ->
+                    exit.Direction.Equals(trimmed, StringComparison.OrdinalIgnoreCase)
+                    || exit.TargetRoomName.IndexOf(trimmed, StringComparison.OrdinalIgnoreCase) >= 0)
+
+            let message =
+                if roomMatch then
+                    describeState state
+                else
+                    match item, exitView with
+                    | Some foundItem, _ -> describeItem foundItem
+                    | None, Some exit -> $"Exit {exit.Direction}\n\nIt leads toward {exit.TargetRoomName}."
+                    | None, None when lower = "self" || lower = "me" ->
+                        let inventoryCount = state.InventoryItems.Length
+                        $"{state.CharacterName}\n\nRank: {state.MudTierName}\nInventory items: {inventoryCount}"
+                    | None, None -> $"You do not see '{trimmed}' here."
+
+            use conn = openConnection ()
+            logEvent conn userId state.CharacterId state.RoomId "examine" (Some trimmed) message (payloadOf [ "target", trimmed ])
+            { Success = item.IsSome || exitView.IsSome || roomMatch || lower = "self" || lower = "me"
+              Command = $"examine {trimmed}"
+              Message = message
+              State = Some state })
+
+let read (userId: Guid) (displayName: string option) (query: string) : MudCommandResult =
+    withState userId displayName (fun state ->
+        let trimmed = query.Trim()
+        if String.IsNullOrWhiteSpace(trimmed) then
+            { Success = false
+              Command = "read"
+              Message = "Read what?"
+              State = Some state }
+        else
+            use conn = openConnection ()
+            let message =
+                match loadReadableText conn state trimmed with
+                | Some text -> text
+                | None -> $"There is nothing readable on '{trimmed}'."
+            logEvent conn userId state.CharacterId state.RoomId "read" (Some trimmed) message (payloadOf [ "target", trimmed ])
+            { Success = message <> $"There is nothing readable on '{trimmed}'."
+              Command = $"read {trimmed}"
+              Message = message
+              State = Some state })
+
+let inventory (userId: Guid) (displayName: string option) : MudCommandResult =
+    withState userId displayName (fun state ->
+        let message =
+            match state.InventoryItems with
+            | [] -> "You are carrying nothing."
+            | items ->
+                items
+                |> List.map _.Name
+                |> String.concat ", "
+                |> fun s -> $"You are carrying: {s}"
+        use conn = openConnection ()
+        logEvent conn userId state.CharacterId state.RoomId "inventory" (Some "inventory") message (payloadOf [ "count", string state.InventoryItems.Length ])
+        { Success = true
+          Command = "inventory"
+          Message = message
+          State = Some state })
+
 let say (userId: Guid) (displayName: string option) (text: string) : MudCommandResult =
     withState userId displayName (fun state ->
         let trimmed = text.Trim()
@@ -303,21 +465,48 @@ let say (userId: Guid) (displayName: string option) (text: string) : MudCommandR
               Message = $"{state.CharacterName} says: {trimmed}"
               State = Some state })
 
+let emote (userId: Guid) (displayName: string option) (text: string) : MudCommandResult =
+    withState userId displayName (fun state ->
+        let trimmed = text.Trim()
+        if String.IsNullOrWhiteSpace(trimmed) then
+            { Success = false
+              Command = "emote"
+              Message = "Emote what?"
+              State = Some state }
+        else
+            let message = $"{state.CharacterName} {trimmed}"
+            use conn = openConnection ()
+            logEvent conn userId state.CharacterId state.RoomId "emote" (Some trimmed) message (payloadOf [ "text", trimmed ])
+            { Success = true
+              Command = "emote"
+              Message = message
+              State = Some state })
+
 let handleCommand (userId: Guid) (displayName: string option) (commandText: string) : MudCommandResult =
     let trimmed = if isNull commandText then "" else commandText.Trim()
     if String.IsNullOrWhiteSpace(trimmed) then
         { Success = false
           Command = ""
-          Message = "Type look, move <direction>, or say <message>."
+          Message = "Type look, examine <thing>, read <thing>, inventory, move <direction>, say <message>, or emote <action>."
           State = getState userId }
     else
         let parts = trimmed.Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
         let verb = parts.[0].ToLowerInvariant()
         match verb with
         | "look" | "l" -> look userId displayName
+        | "examine" | "exam" | "x" ->
+            let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
+            examine userId displayName query
+        | "read" ->
+            let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
+            read userId displayName query
+        | "inventory" | "inv" | "i" -> inventory userId displayName
         | "say" ->
             let message = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
             say userId displayName message
+        | "emote" | "me" ->
+            let message = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
+            emote userId displayName message
         | "move" | "go" ->
             let direction = if parts.Length > 1 then parts.[1] else ""
             if String.IsNullOrWhiteSpace(direction) then
@@ -332,5 +521,5 @@ let handleCommand (userId: Guid) (displayName: string option) (commandText: stri
         | _ ->
             { Success = false
               Command = trimmed
-              Message = "Unknown command. Try look, move <direction>, or say <message>."
+              Message = "Unknown command. Try look, examine <thing>, read <thing>, inventory, move <direction>, say <message>, or emote <action>."
               State = getState userId }

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { mudApi, type MudRoomState, type MudCommandResult } from '../../api/mudApi'
+import { mudApi, type MudRoomState, type MudCommandResult, type MudItemView } from '../../api/mudApi'
 import { useAuth } from '../../contexts/AuthContext'
 
-const QUICK_COMMANDS = ['look', 'east', 'west', 'say hello']
+const QUICK_COMMANDS = ['look', 'examine room', 'inventory', 'read brass ledger', 'east', 'say hello', 'emote studies the room']
 
 type MudPageProps = {
   embedded?: boolean
@@ -27,6 +27,24 @@ function ExitList({ exits, onCommand }: { exits: MudRoomState['exits']; onComman
   )
 }
 
+function ItemList({ items, onCommand, emptyText }: { items: MudItemView[]; onCommand: (command: string) => void; emptyText: string }) {
+  if (!items.length) return <p className="mud-empty">{emptyText}</p>
+  return (
+    <div className="mud-exits">
+      {items.map(item => (
+        <button
+          key={item.slug}
+          className="mud-exit-chip"
+          onClick={() => onCommand(`examine ${item.slug}`)}
+        >
+          <span>{item.name}</span>
+          <small>{item.readable ? 'Readable' : item.portable ? 'Portable' : 'Fixed'}</small>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function MudPage({ embedded = false }: MudPageProps) {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -34,6 +52,7 @@ export default function MudPage({ embedded = false }: MudPageProps) {
   const [command, setCommand] = useState('look')
   const [message, setMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [fullScreen, setFullScreen] = useState(false)
 
   useEffect(() => {
     mudApi.getMe().then(setState).catch(() => setState(null))
@@ -55,17 +74,34 @@ export default function MudPage({ embedded = false }: MudPageProps) {
 
   const roomTitle = state?.roomName ?? 'The MUD is waiting'
   const roomBody = state?.roomDescription ?? 'Sign in and issue a command to enter the world.'
+  const shellStyle = embedded && fullScreen
+    ? {
+        position: 'fixed' as const,
+        inset: 0,
+        zIndex: 1200,
+        overflowY: 'auto' as const,
+        padding: '16px',
+        background: 'var(--bg)',
+      }
+    : undefined
 
   return (
     <section className="mud-page">
-      <div className="mud-shell">
+      <div className="mud-shell" style={shellStyle}>
         <div className="mud-hero">
           <div>
             <div className="mud-kicker">LagDaemon MUD</div>
             <h1>{roomTitle}</h1>
             <p className="mud-zone">{state ? `Zone: ${state.zoneName}` : 'Anonymous visitors can view the shell, but need to sign in to act.'}</p>
           </div>
-          {!embedded && <button className="mud-back-btn" onClick={() => navigate('/forum')}>Back to forum</button>}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {embedded && (
+              <button className="mud-back-btn" onClick={() => setFullScreen(v => !v)}>
+                {fullScreen ? 'Exit full screen' : 'Full screen'}
+              </button>
+            )}
+            {!embedded && <button className="mud-back-btn" onClick={() => navigate('/forum')}>Back to forum</button>}
+          </div>
         </div>
 
           <div className="mud-card mud-room">
@@ -96,7 +132,7 @@ export default function MudPage({ embedded = false }: MudPageProps) {
                 className="mud-command-input"
                 value={command}
                 onChange={e => setCommand(e.target.value)}
-                placeholder="look, east, say hello..."
+                placeholder="look, examine map, read ledger, inventory..."
                 disabled={busy || !user}
               />
               <button className="mud-command-btn" type="submit" disabled={busy || !user}>
@@ -122,6 +158,16 @@ export default function MudPage({ embedded = false }: MudPageProps) {
 
             {!user && <p className="mud-empty">Sign in to enter the MUD and issue commands.</p>}
             {message && <div className="mud-message">{message}</div>}
+          </div>
+
+          <div className="mud-card">
+            <h2>Visible Items</h2>
+            <ItemList items={state?.visibleItems ?? []} onCommand={runCommand} emptyText="No visible items." />
+          </div>
+
+          <div className="mud-card">
+            <h2>Inventory</h2>
+            <ItemList items={state?.inventoryItems ?? []} onCommand={runCommand} emptyText="You are carrying nothing." />
           </div>
         </div>
       </div>

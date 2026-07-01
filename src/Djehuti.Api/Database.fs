@@ -1258,6 +1258,94 @@ let private migrations : (int * string) list =
         GRANT ALL ON TABLE mud_characters TO djehuti;
         GRANT ALL ON TABLE mud_events TO djehuti;
         """
+
+        39, """
+        CREATE TABLE IF NOT EXISTS mud_items (
+            id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            room_id             UUID REFERENCES mud_rooms(id) ON DELETE SET NULL,
+            owner_character_id  UUID REFERENCES mud_characters(id) ON DELETE SET NULL,
+            name                TEXT NOT NULL,
+            slug                TEXT NOT NULL,
+            description         TEXT,
+            readable_text       TEXT,
+            portable            BOOLEAN NOT NULL DEFAULT false,
+            position            INT NOT NULL DEFAULT 0,
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_mud_items_room_id ON mud_items(room_id);
+        CREATE INDEX IF NOT EXISTS idx_mud_items_owner_character_id ON mud_items(owner_character_id);
+
+        INSERT INTO mud_items (room_id, name, slug, description, readable_text, portable, position)
+        SELECT r.id,
+               'Brass Ledger',
+               'brass-ledger',
+               'A heavy brass-bound ledger rests on a narrow stand. The clasp hangs open as if it is meant to be consulted often.',
+               'Dispatch ledger: Gatehouse watches changed with the bell. Visitors, rumors, and notable disturbances are to be recorded before nightfall.',
+               false,
+               0
+        FROM mud_rooms r
+        WHERE r.slug = 'atrium'
+          AND NOT EXISTS (
+              SELECT 1 FROM mud_items i
+              WHERE i.slug = 'brass-ledger'
+                AND i.room_id = r.id
+                AND i.owner_character_id IS NULL
+          );
+
+        INSERT INTO mud_items (room_id, name, slug, description, readable_text, portable, position)
+        SELECT r.id,
+               'Survey Map',
+               'survey-map',
+               'A rolled map of the keep and its near approaches, marked with routes, notes, and faded watch symbols.',
+               'Survey map: Outer Keep to Inner Keep. Gatehouse, Watch Tower, North Hall, Bell Chamber, Throne Room. Marginal note: old service routes remain unsealed.',
+               true,
+               1
+        FROM mud_rooms r
+        WHERE r.slug = 'observatory'
+          AND NOT EXISTS (
+              SELECT 1 FROM mud_items i
+              WHERE i.slug = 'survey-map'
+                AND i.room_id = r.id
+                AND i.owner_character_id IS NULL
+          );
+
+        INSERT INTO mud_items (room_id, name, slug, description, readable_text, portable, position)
+        SELECT r.id,
+               'Bronze Bell',
+               'bronze-bell',
+               'A bronze bell hangs from a timber frame. It is too large to carry and seems tied to the hourly rhythm of the keep.',
+               NULL,
+               false,
+               0
+        FROM mud_rooms r
+        WHERE r.slug = 'heartbeat-room'
+          AND NOT EXISTS (
+              SELECT 1 FROM mud_items i
+              WHERE i.slug = 'bronze-bell'
+                AND i.room_id = r.id
+                AND i.owner_character_id IS NULL
+          );
+
+        INSERT INTO mud_items (room_id, name, slug, description, readable_text, portable, position)
+        SELECT r.id,
+               'Sealed Notice',
+               'sealed-notice',
+               'A sealed notice has been pinned beside the old dais. The wax has cracked with age, but the sheet is still readable.',
+               'Council notice: access to the lower vaults remains restricted. Record unusual machinery, wandering personas, and unsanctioned experiments.',
+               false,
+               0
+        FROM mud_rooms r
+        WHERE r.slug = 'council-chamber'
+          AND NOT EXISTS (
+              SELECT 1 FROM mud_items i
+              WHERE i.slug = 'sealed-notice'
+                AND i.room_id = r.id
+                AND i.owner_character_id IS NULL
+          );
+
+        GRANT ALL ON TABLE mud_items TO djehuti;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
