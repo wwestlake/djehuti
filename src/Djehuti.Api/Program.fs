@@ -1340,9 +1340,13 @@ let main args =
                 match Guid.TryParse(claims.UserId) with
                 | false, _ -> Results.Unauthorized()
                 | true, userId ->
-                    match MudRepository.getState userId with
+                    let displayName =
+                        match claims.DisplayName with
+                        | Some s when not (String.IsNullOrWhiteSpace s) -> Some s
+                        | _ -> None
+                    match MudRepository.getOrCreateState userId displayName with
                     | Some state -> Results.Ok(state)
-                    | None -> Results.NotFound()
+                    | None -> Results.Problem(detail = "The MUD world has no rooms yet.", statusCode = 500, title = "MUD unavailable")
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )

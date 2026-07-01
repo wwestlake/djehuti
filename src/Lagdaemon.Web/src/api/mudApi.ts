@@ -37,9 +37,29 @@ export interface MudCommandResult {
 
 const opts = { credentials: 'include' as RequestCredentials }
 
+async function readJsonOrThrow<T>(response: Response): Promise<T> {
+  const text = await response.text()
+  const data = text
+    ? (() => {
+        try {
+          return JSON.parse(text)
+        } catch {
+          return text
+        }
+      })()
+    : null
+  if (!response.ok) {
+    const message =
+      typeof data === 'string' ? data
+      : data?.message ?? data?.detail ?? response.statusText ?? 'Request failed'
+    throw new Error(message)
+  }
+  return data as T
+}
+
 export const mudApi = {
   getMe: (): Promise<MudRoomState | null> =>
-    fetch(`${BASE}/me`, opts).then(r => r.ok ? r.json() : null),
+    fetch(`${BASE}/me`, opts).then(readJsonOrThrow<MudRoomState>),
 
   command: (command: string): Promise<MudCommandResult> =>
     fetch(`${BASE}/command`, {
@@ -47,5 +67,5 @@ export const mudApi = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ command }),
-    }).then(r => r.json()),
+    }).then(readJsonOrThrow<MudCommandResult>),
 }
