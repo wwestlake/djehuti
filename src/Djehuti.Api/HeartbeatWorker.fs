@@ -80,7 +80,7 @@ type HeartbeatWorker(logger: ILogger<HeartbeatWorker>) =
         else
             model
 
-    let private tryParseUtcInstant (value: string option) =
+    let tryParseUtcInstant (value: string option) =
         match value with
         | None -> None
         | Some v when String.IsNullOrWhiteSpace v -> None
@@ -89,14 +89,14 @@ type HeartbeatWorker(logger: ILogger<HeartbeatWorker>) =
             | true, dt -> Some (dt.ToUniversalTime())
             | _ -> None
 
-    let private getTimeZoneInfo (timezoneId: string option) =
+    let getTimeZoneInfo (timezoneId: string option) =
         match timezoneId with
         | None -> None
         | Some tz ->
             try Some (TimeZoneInfo.FindSystemTimeZoneById(tz))
             with _ -> None
 
-    let private isWithinWorkWindow (localNow: DateTime) (startHour: int option) (windowHours: int option) =
+    let isWithinWorkWindow (localNow: DateTime) (startHour: int option) (windowHours: int option) =
         match startHour, windowHours with
         | Some startHour, Some windowHours when windowHours > 0 ->
             if windowHours >= 24 then true
@@ -110,7 +110,7 @@ type HeartbeatWorker(logger: ILogger<HeartbeatWorker>) =
                     currentHour >= start || currentHour < (stop - 24.0)
         | _ -> true
 
-    let private nextWorkWindowStartUtc (utcNow: DateTime) (timezone: TimeZoneInfo option) (startHour: int option) =
+    let nextWorkWindowStartUtc (utcNow: DateTime) (timezone: TimeZoneInfo option) (startHour: int option) =
         match timezone, startHour with
         | Some tz, Some startHour ->
             let utcNow = DateTime.SpecifyKind(utcNow, DateTimeKind.Utc)
@@ -122,7 +122,7 @@ type HeartbeatWorker(logger: ILogger<HeartbeatWorker>) =
             TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(nextLocalStart, DateTimeKind.Unspecified), tz)
         | _ -> utcNow.AddHours(24.0)
 
-    let private chooseRandom<'a> (items: 'a list) =
+    let chooseRandom items =
         match items with
         | [] -> None
         | xs -> Some xs.[Random.Shared.Next(xs.Length)]

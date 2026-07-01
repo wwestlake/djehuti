@@ -29,6 +29,7 @@
     <Compile Include="ApiKeyRepository.fs" />
     <Compile Include="PersonaRepository.fs" />
     <Compile Include="MudRepository.fs" />
+    <Compile Include="MudAdminRepository.fs" />
     <Compile Include="SponsorsRepository.fs" />
     <Compile Include="HeartbeatWorker.fs" />
     <Compile Include="PatreonService.fs" />

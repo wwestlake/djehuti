@@ -5,6 +5,8 @@ import { blogApi } from '../../api/blogApi'
 import type { BlogArticle, BlogTag, BlogAuthor, SiteConfigEntry } from '../../api/blogApi'
 import { forumApi } from '../../api/forumApi'
 import type { ForumTag, ForumReport } from '../../api/forumApi'
+import { mudAdminApi } from '../../api/mudAdminApi'
+import type { MudWorld, MudZone, MudRoom, MudExit } from '../../api/mudAdminApi'
 import { AdminTable } from '../../components/AdminTable'
 
 const BASE = '/djehuti'
@@ -22,7 +24,7 @@ interface Announcement {
   createdAt: string; updatedAt: string
 }
 
-type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'ai' | 'personas' | 'heartbeat' | 'metrics' | 'api-keys'
+type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'ai' | 'mud' | 'personas' | 'heartbeat' | 'metrics' | 'api-keys'
 
 interface MetricsCounts { users: number; posts: number; threads: number; articles: number; votesGiven: number; reactions: number; achievements: number }
 interface ForumActivityRow { forumId: string; forumName: string; postsAll: number; postsHuman: number; postsAi: number; threadsAll: number; threadsHuman: number; threadsAi: number }
@@ -72,8 +74,8 @@ async function apiFetch(url: string, opts?: RequestInit) {
 export default function AdminPage() {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'ai', 'personas', 'heartbeat', 'metrics', 'api-keys']
-  const navTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'ai', 'metrics', 'api-keys']
+  const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'ai', 'mud', 'personas', 'heartbeat', 'metrics', 'api-keys']
+  const navTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'ai', 'mud', 'metrics', 'api-keys']
   const tabFromUrl = searchParams.get('tab') as Tab | null
   const normalizeTab = (t: Tab | null): Tab =>
     t === 'personas' || t === 'heartbeat'
@@ -164,6 +166,13 @@ export default function AdminPage() {
   const [hbSaving, setHbSaving] = useState(false)
   const [hbTriggering, setHbTriggering] = useState(false)
   const [hbHealth, setHbHealth] = useState<{ pending: number; processing: number; failed: number; completed: number; lastCompletedAt: string | null; workerStalled: boolean } | null>(null)
+
+  // MUD
+  const [mudWorld, setMudWorld] = useState<MudWorld | null>(null)
+  const [mudZoneForm, setMudZoneForm] = useState({ name: '', slug: '', description: '', position: 0 })
+  const [mudRoomForm, setMudRoomForm] = useState({ zoneId: '', name: '', slug: '', description: '', position: 0 })
+  const [mudExitForm, setMudExitForm] = useState({ fromRoomId: '', toRoomId: '', direction: '', label: '' })
+  const [mudSaving, setMudSaving] = useState(false)
 
   // Metrics
   const [metrics, setMetrics] = useState<SiteMetrics | null>(null)
@@ -259,6 +268,7 @@ export default function AdminPage() {
         setHbConfigEdit({ ...cfg })
         setHbHealth(health)
       },
+      mud: () => mudAdminApi.getWorld().then(setMudWorld),
       metrics: () => Promise.all([
         apiFetch(`${BASE}/api/admin/metrics`).then(setMetrics),
         apiFetch(`${BASE}/api/admin/metrics/anonymous`).then(setAnonMetrics).catch(() => {}),
@@ -524,7 +534,7 @@ export default function AdminPage() {
   }
 
   const TAB_LABELS: Record<Tab, string> = {
-    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', ai: 'AI Management', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics', 'api-keys': 'API Keys',
+    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', ai: 'AI Management', mud: 'MUD World', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics', 'api-keys': 'API Keys',
   }
 
   const toggleSection = (key: string) =>
@@ -626,6 +636,66 @@ export default function AdminPage() {
       setHbJobs(jobs)
     } catch { setError('Failed to trigger heartbeat') }
     finally { setHbTriggering(false) }
+  }
+
+  const saveMudZone = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!mudZoneForm.name.trim()) return
+    setMudSaving(true)
+    try {
+      const zone = await mudAdminApi.createZone({
+        name: mudZoneForm.name.trim(),
+        slug: mudZoneForm.slug.trim(),
+        description: mudZoneForm.description.trim() || undefined,
+        position: mudZoneForm.position,
+      })
+      setMudWorld(prev => prev ? { ...prev, zones: [zone, ...prev.zones] } : { zones: [zone], rooms: [], exits: [] })
+      setMudZoneForm({ name: '', slug: '', description: '', position: 0 })
+    } catch { setError('Failed to create zone') }
+    finally { setMudSaving(false) }
+  }
+
+  const saveMudRoom = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!mudRoomForm.zoneId || !mudRoomForm.name.trim()) return
+    setMudSaving(true)
+    try {
+      const room = await mudAdminApi.createRoom({
+        zoneId: mudRoomForm.zoneId,
+        name: mudRoomForm.name.trim(),
+        slug: mudRoomForm.slug.trim(),
+        description: mudRoomForm.description.trim() || undefined,
+        position: mudRoomForm.position,
+      })
+      setMudWorld(prev => prev ? { ...prev, rooms: [room, ...prev.rooms] } : { zones: [], rooms: [room], exits: [] })
+      setMudRoomForm({ zoneId: mudRoomForm.zoneId, name: '', slug: '', description: '', position: 0 })
+    } catch { setError('Failed to create room') }
+    finally { setMudSaving(false) }
+  }
+
+  const saveMudExit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!mudExitForm.fromRoomId || !mudExitForm.toRoomId || !mudExitForm.direction.trim()) return
+    setMudSaving(true)
+    try {
+      const exit = await mudAdminApi.createExit({
+        fromRoomId: mudExitForm.fromRoomId,
+        toRoomId: mudExitForm.toRoomId,
+        direction: mudExitForm.direction.trim(),
+        label: mudExitForm.label.trim() || undefined,
+      })
+      setMudWorld(prev => prev ? { ...prev, exits: [exit, ...prev.exits] } : { zones: [], rooms: [], exits: [exit] })
+      setMudExitForm({ fromRoomId: '', toRoomId: '', direction: '', label: '' })
+    } catch { setError('Failed to create exit') }
+    finally { setMudSaving(false) }
+  }
+
+  const deleteMudExit = async (exitId: string) => {
+    if (!confirm('Delete this exit?')) return
+    try {
+      await mudAdminApi.deleteExit(exitId)
+      setMudWorld(prev => prev ? { ...prev, exits: prev.exits.filter(exit => exit.id !== exitId) } : prev)
+    } catch { setError('Failed to delete exit') }
   }
 
   return (
@@ -1203,6 +1273,104 @@ export default function AdminPage() {
       )}
 
       {/* ── AI Personas ── */}
+      {tab === 'mud' && !loading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <h3 style={{ margin: 0 }}>MUD World Editor</h3>
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              Keep the MUD admin-only, manage zones and rooms, and wire exits without touching the player shell.
+            </p>
+          </section>
+
+          <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+            <form className="admin-grant-form" onSubmit={saveMudZone}>
+              <h4 style={{ margin: 0 }}>Create Zone</h4>
+              <div className="admin-grant-fields" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <input className="papers-new-input" placeholder="Name" value={mudZoneForm.name} onChange={e => setMudZoneForm(f => ({ ...f, name: e.target.value }))} required />
+                <input className="papers-new-input" placeholder="Slug (optional)" value={mudZoneForm.slug} onChange={e => setMudZoneForm(f => ({ ...f, slug: e.target.value }))} />
+                <input className="papers-new-input" placeholder="Description" value={mudZoneForm.description} onChange={e => setMudZoneForm(f => ({ ...f, description: e.target.value }))} style={{ gridColumn: '1 / -1' }} />
+                <input className="papers-new-input" type="number" placeholder="Position" value={mudZoneForm.position} onChange={e => setMudZoneForm(f => ({ ...f, position: Number(e.target.value) }))} />
+                <button type="submit" className="tiptap-action-btn primary" disabled={mudSaving || !mudZoneForm.name.trim()}>Create Zone</button>
+              </div>
+            </form>
+
+            <form className="admin-grant-form" onSubmit={saveMudRoom}>
+              <h4 style={{ margin: 0 }}>Create Room</h4>
+              <div className="admin-grant-fields" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <select className="admin-role-select" value={mudRoomForm.zoneId} onChange={e => setMudRoomForm(f => ({ ...f, zoneId: e.target.value }))} required>
+                  <option value="">Select zone</option>
+                  {(mudWorld?.zones ?? []).map(zone => <option key={zone.id} value={zone.id}>{zone.name}</option>)}
+                </select>
+                <input className="papers-new-input" placeholder="Name" value={mudRoomForm.name} onChange={e => setMudRoomForm(f => ({ ...f, name: e.target.value }))} required />
+                <input className="papers-new-input" placeholder="Slug (optional)" value={mudRoomForm.slug} onChange={e => setMudRoomForm(f => ({ ...f, slug: e.target.value }))} />
+                <input className="papers-new-input" placeholder="Description" value={mudRoomForm.description} onChange={e => setMudRoomForm(f => ({ ...f, description: e.target.value }))} />
+                <input className="papers-new-input" type="number" placeholder="Position" value={mudRoomForm.position} onChange={e => setMudRoomForm(f => ({ ...f, position: Number(e.target.value) }))} />
+                <button type="submit" className="tiptap-action-btn primary" disabled={mudSaving || !mudRoomForm.zoneId || !mudRoomForm.name.trim()}>Create Room</button>
+              </div>
+            </form>
+
+            <form className="admin-grant-form" onSubmit={saveMudExit}>
+              <h4 style={{ margin: 0 }}>Create Exit</h4>
+              <div className="admin-grant-fields" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <select className="admin-role-select" value={mudExitForm.fromRoomId} onChange={e => setMudExitForm(f => ({ ...f, fromRoomId: e.target.value }))} required>
+                  <option value="">From room</option>
+                  {(mudWorld?.rooms ?? []).map(room => <option key={room.id} value={room.id}>{room.name}</option>)}
+                </select>
+                <select className="admin-role-select" value={mudExitForm.toRoomId} onChange={e => setMudExitForm(f => ({ ...f, toRoomId: e.target.value }))} required>
+                  <option value="">To room</option>
+                  {(mudWorld?.rooms ?? []).map(room => <option key={room.id} value={room.id}>{room.name}</option>)}
+                </select>
+                <input className="papers-new-input" placeholder="Direction" value={mudExitForm.direction} onChange={e => setMudExitForm(f => ({ ...f, direction: e.target.value }))} required />
+                <input className="papers-new-input" placeholder="Label (optional)" value={mudExitForm.label} onChange={e => setMudExitForm(f => ({ ...f, label: e.target.value }))} />
+                <button type="submit" className="tiptap-action-btn primary" disabled={mudSaving || !mudExitForm.fromRoomId || !mudExitForm.toRoomId || !mudExitForm.direction.trim()}>Create Exit</button>
+              </div>
+            </form>
+          </section>
+
+          <AdminTable<MudZone>
+            data={mudWorld?.zones ?? []}
+            rowKey={zone => zone.id}
+            searchKeys={['name', 'slug', 'description']}
+            emptyText="No zones yet."
+            columns={[
+              { key: 'name', label: 'Zone', render: zone => <><strong>{zone.name}</strong><br /><span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{zone.slug}</span></> },
+              { key: 'description', label: 'Description', render: zone => zone.description ?? '—' },
+              { key: 'position', label: 'Position' },
+              { key: 'createdAt', label: 'Created', render: zone => new Date(zone.createdAt).toLocaleDateString(), sortVal: zone => zone.createdAt },
+            ]}
+          />
+
+          <AdminTable<MudRoom>
+            data={mudWorld?.rooms ?? []}
+            rowKey={room => room.id}
+            searchKeys={['name', 'slug', 'zoneName', 'zoneSlug', 'description']}
+            emptyText="No rooms yet."
+            columns={[
+              { key: 'name', label: 'Room', render: room => <><strong>{room.name}</strong><br /><span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{room.slug}</span></> },
+              { key: 'zoneName', label: 'Zone', render: room => <span>{room.zoneName}</span> },
+              { key: 'description', label: 'Description', render: room => room.description ?? '—' },
+              { key: 'position', label: 'Position' },
+              { key: 'createdAt', label: 'Created', render: room => new Date(room.createdAt).toLocaleDateString(), sortVal: room => room.createdAt },
+            ]}
+          />
+
+          <AdminTable<MudExit>
+            data={mudWorld?.exits ?? []}
+            rowKey={exit => exit.id}
+            searchKeys={['direction', 'label', 'fromRoomName', 'toRoomName']}
+            emptyText="No exits yet."
+            columns={[
+              { key: 'direction', label: 'Direction' },
+              { key: 'fromRoomName', label: 'From', render: exit => <span>{exit.fromRoomName}</span> },
+              { key: 'toRoomName', label: 'To', render: exit => <span>{exit.toRoomName}</span> },
+              { key: 'label', label: 'Label', render: exit => exit.label ?? '—' },
+              { key: 'createdAt', label: 'Created', render: exit => new Date(exit.createdAt).toLocaleDateString(), sortVal: exit => exit.createdAt },
+              { key: 'id', label: '', sortable: false, render: exit => <button className="post-action post-action-delete" onClick={() => deleteMudExit(exit.id)}>Delete</button> },
+            ]}
+          />
+        </div>
+      )}
+
       {tab === 'personas' && !loading && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
           <form onSubmit={savePersona} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
