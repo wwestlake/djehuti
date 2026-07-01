@@ -1346,6 +1346,10 @@ let private migrations : (int * string) list =
 
         GRANT ALL ON TABLE mud_items TO djehuti;
         """
+
+        40, """
+        GRANT ALL ON TABLE mud_tier_labels TO djehuti;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
