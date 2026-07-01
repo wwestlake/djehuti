@@ -96,7 +96,7 @@ let createPersona (name: string) (slug: string) (systemPrompt: string) (model: s
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
         """INSERT INTO ai_personas (name, slug, system_prompt, model, trigger_mode, work_timezone, work_start_hour, work_window_hours, avatar_url, user_id)
-           VALUES (@name, @slug, @sp, @model, @tm, @tz, @wh, @ww, @av, @uid)
+           VALUES (@name, @slug, @sp, @model, @tm, @tz, @startHour, @windowHours, @av, @uid)
            RETURNING id, name, slug, avatar_url, system_prompt, model, trigger_mode,
                      work_timezone, work_start_hour, work_window_hours,
                      active, next_scheduled_run, user_id, created_at""", conn)
@@ -106,20 +106,19 @@ let createPersona (name: string) (slug: string) (systemPrompt: string) (model: s
     cmd.Parameters.AddWithValue("model", model)                                                             |> ignore
     cmd.Parameters.AddWithValue("tm",    triggerMode)                                                       |> ignore
     cmd.Parameters.AddWithValue("tz",    workTimezone |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
-    cmd.Parameters.AddWithValue("wh",    workStartHour |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
-    cmd.Parameters.AddWithValue("ww",    workWindowHours |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("startHour",  workStartHour |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("windowHours", workWindowHours |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
     cmd.Parameters.AddWithValue("av",    avatarUrl |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
     cmd.Parameters.AddWithValue("uid",   botUserId)                                                         |> ignore
     use r = cmd.ExecuteReader()
     if r.Read() then Some (readPersona r) else None
 
-let updatePersona (id: Guid) (name: string) (systemPrompt: string) (model: string) (triggerMode: string) (workTimezone: string option) (workStartHour: int option) (workWindowHours: int option) (active: bool) (avatarUrl: string option) : AiPersona option =
+let updatePersona (id: Guid) (name: string) (systemPrompt: string) (model: string) (triggerMode: string) (active: bool) (workTimezone: string option) (workStartHour: int option) (workWindowHours: int option) (avatarUrl: string option) : AiPersona option =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
         """UPDATE ai_personas
            SET name = @name, system_prompt = @sp, model = @model,
-               trigger_mode = @tm, work_timezone = @tz, work_start_hour = @wh, work_window_hours = @ww,
-               active = @active, avatar_url = @av
+               trigger_mode = @tm, active = @active, work_timezone = @tz, work_start_hour = @startHour, work_window_hours = @windowHours, avatar_url = @av
            WHERE id = @id
            RETURNING id, name, slug, avatar_url, system_prompt, model, trigger_mode,
                      work_timezone, work_start_hour, work_window_hours,
@@ -129,10 +128,10 @@ let updatePersona (id: Guid) (name: string) (systemPrompt: string) (model: strin
     cmd.Parameters.AddWithValue("sp",     systemPrompt)                                                     |> ignore
     cmd.Parameters.AddWithValue("model",  model)                                                            |> ignore
     cmd.Parameters.AddWithValue("tm",     triggerMode)                                                      |> ignore
-    cmd.Parameters.AddWithValue("tz",     workTimezone |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
-    cmd.Parameters.AddWithValue("wh",     workStartHour |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
-    cmd.Parameters.AddWithValue("ww",     workWindowHours |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
     cmd.Parameters.AddWithValue("active", active)                                                           |> ignore
+    cmd.Parameters.AddWithValue("tz",     workTimezone |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("startHour",  workStartHour |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("windowHours", workWindowHours |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
     cmd.Parameters.AddWithValue("av",     avatarUrl |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
     use r = cmd.ExecuteReader()
     if r.Read() then Some (readPersona r) else None
@@ -213,7 +212,7 @@ let fetchAndLockJobs (limit: int) : HeartbeatJob list =
 let completeJob (id: Guid) : unit =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
-        "UPDATE heartbeat_jobs SET status = 'Completed', completed_at = now(), locked_at = null, error = null WHERE id = @id", conn)
+        "UPDATE heartbeat_jobs SET status = 'Completed', completed_at = now() WHERE id = @id", conn)
     cmd.Parameters.AddWithValue("id", id) |> ignore
     cmd.ExecuteNonQuery() |> ignore
 

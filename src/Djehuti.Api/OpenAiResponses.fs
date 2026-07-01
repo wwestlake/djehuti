@@ -28,14 +28,18 @@ module OpenAiResponses =
             processValue
 
     let tryOptionsFromEnvironment () =
-        let apiKey = environmentValue "OPENAI_API_KEY"
+        let apiKey =
+            environmentValue "OPENAI_API_KEY"
+            |> function
+                | null -> null
+                | value -> value.Trim()
 
         if String.IsNullOrWhiteSpace apiKey then
             Error(AiConnectionUnavailable "OPENAI_API_KEY is not configured.")
         else
             let model =
                 let value = environmentValue "DJEHUTI_ANALYST_MODEL"
-                if String.IsNullOrWhiteSpace value then "gpt-4o-mini" else value
+                if String.IsNullOrWhiteSpace value then "gpt-4.1" else value.Trim()
 
             Ok
                 { ApiKey = apiKey

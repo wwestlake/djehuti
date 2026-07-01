@@ -3790,14 +3790,14 @@ let main args =
 
     app.MapPut(
         "/api/admin/personas/{id}",
-        Func<Guid, HttpContext, {| name: string; systemPrompt: string; model: string; triggerMode: string; workTimezone: string; workStartHour: int; workWindowHours: int; active: bool; avatarUrl: string; forumIds: string[] |}, IResult>(fun id ctx body ->
+        Func<Guid, HttpContext, {| name: string; systemPrompt: string; model: string; triggerMode: string; active: bool; workTimezone: string; workStartHour: int; workWindowHours: int; avatarUrl: string; forumIds: string[] |}, IResult>(fun id ctx body ->
             match tryGetAuthClaims ctx with
             | Some claims when Permissions.isAdmin claims.Role ->
                 let av = if String.IsNullOrWhiteSpace(body.avatarUrl) then None else Some body.avatarUrl
                 let tz = if String.IsNullOrWhiteSpace(body.workTimezone) then None else Some body.workTimezone
                 let startHour = if String.IsNullOrWhiteSpace(body.workTimezone) then None else Some body.workStartHour
                 let windowHours = if String.IsNullOrWhiteSpace(body.workTimezone) then None else Some body.workWindowHours
-                match PersonaRepository.updatePersona id body.name body.systemPrompt body.model body.triggerMode tz startHour windowHours body.active av with
+                match PersonaRepository.updatePersona id body.name body.systemPrompt body.model body.triggerMode body.active tz startHour windowHours av with
                 | None -> Results.NotFound()
                 | Some persona ->
                     let forumIds = body.forumIds |> Array.choose (fun s -> match Guid.TryParse(s) with | true, g -> Some g | _ -> None) |> Array.toList
