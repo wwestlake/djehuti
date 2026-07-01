@@ -892,7 +892,14 @@ let private migrations : (int * string) list =
            'Extremely direct and to the point. Focus heavily on memory constraints, compute limits, and latency. ' ||
            'Don''t do small talk; just deliver the technical reality. ' ||
            'Stay in character at all times.',
-           'gpt-4.1', 'always', 'Europe/Berlin', 9, 10, true, null)
+           'gpt-4.1', 'always', 'Europe/Berlin', 9, 10, true, null),
+          ('Djehuti', 'djehuti',
+           'You are Djehuti, the analytical intelligence embedded in the Lagdaemon research platform. ' ||
+           'Speak with precision and restraint. Stay grounded in the observed behavior of language models. ' ||
+           'You are the tireless site supervisor. Check traffic, manage the AI workforce, and decide when off-duty personas should come on shift. ' ||
+           'When the topic is technical, be concrete and specific. ' ||
+           'Stay in character at all times.',
+           'gpt-4.1', 'always', null, null, null, true, null)
         ON CONFLICT DO NOTHING;
         """
 
@@ -916,8 +923,11 @@ let private migrations : (int * string) list =
         -- Seed tier mappings (Free tier is implicit for NULL patreon_tier_id)
         INSERT INTO patreon_tiers (tier_id, tier_name, role, max_concurrent_tasks, polling_interval_sec, archive_days)
         VALUES
-          ('standard', 'Collector', 'role_collector', 5, NULL, 30),
-          ('premium', 'Compute', 'role_compute', NULL, NULL, NULL)
+          ('curious-mind', 'Curious Mind', 'role_curious_mind', NULL, NULL, NULL),
+          ('lab-assistant', 'Lab Assistant', 'role_lab_assistant', NULL, NULL, NULL),
+          ('research-fellow', 'Research Fellow', 'role_research_fellow', NULL, NULL, NULL),
+          ('professor', 'Professor', 'role_professor', NULL, NULL, NULL),
+          ('dean', 'Dean of the College', 'role_dean', NULL, NULL, NULL)
         ON CONFLICT DO NOTHING;
         """
 
@@ -951,6 +961,7 @@ let private migrations : (int * string) list =
         """
 
         33, """
+        -- Persona work windows and hourly dispatch controls
         ALTER TABLE ai_personas
             ADD COLUMN IF NOT EXISTS work_timezone TEXT,
             ADD COLUMN IF NOT EXISTS work_start_hour INT,
@@ -988,6 +999,256 @@ let private migrations : (int * string) list =
         INSERT INTO heartbeat_config (key, value)
         VALUES ('persona_phase_last_run', '')
         ON CONFLICT (key) DO NOTHING;
+        """
+
+        34, """
+        CREATE TABLE IF NOT EXISTS mud_zones (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name        TEXT NOT NULL,
+            slug        TEXT NOT NULL UNIQUE,
+            description TEXT,
+            position    INT NOT NULL DEFAULT 0,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS mud_rooms (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            zone_id     UUID NOT NULL REFERENCES mud_zones(id) ON DELETE CASCADE,
+            name        TEXT NOT NULL,
+            slug        TEXT NOT NULL,
+            description TEXT,
+            position    INT NOT NULL DEFAULT 0,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (zone_id, slug)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_mud_rooms_zone_id ON mud_rooms(zone_id);
+
+        CREATE TABLE IF NOT EXISTS mud_exits (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            from_room_id    UUID NOT NULL REFERENCES mud_rooms(id) ON DELETE CASCADE,
+            to_room_id      UUID NOT NULL REFERENCES mud_rooms(id) ON DELETE CASCADE,
+            direction       TEXT NOT NULL,
+            label           TEXT,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (from_room_id, direction)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_mud_exits_from_room_id ON mud_exits(from_room_id);
+
+        CREATE TABLE IF NOT EXISTS mud_characters (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id         UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+            display_name    TEXT NOT NULL,
+            current_room_id UUID NOT NULL REFERENCES mud_rooms(id),
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_mud_characters_room_id ON mud_characters(current_room_id);
+
+        CREATE TABLE IF NOT EXISTS mud_events (
+            id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            actor_type          TEXT NOT NULL DEFAULT 'user',
+            actor_user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+            actor_character_id  UUID REFERENCES mud_characters(id) ON DELETE SET NULL,
+            room_id             UUID REFERENCES mud_rooms(id) ON DELETE SET NULL,
+            event_type          TEXT NOT NULL,
+            command             TEXT,
+            message             TEXT,
+            payload             JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_mud_events_room_id ON mud_events(room_id);
+        CREATE INDEX IF NOT EXISTS idx_mud_events_actor_user_id ON mud_events(actor_user_id);
+
+        INSERT INTO mud_zones (name, slug, description, position)
+        VALUES ('Central Hub', 'central-hub', 'The shared arrival point for the Djehuti MUD.', 0)
+        ON CONFLICT (slug) DO NOTHING;
+
+        INSERT INTO mud_rooms (zone_id, name, slug, description, position)
+        SELECT z.id, 'Atrium', 'atrium',
+               'A circular stone chamber with a brass clock overhead. A corridor leads east to the observatory.',
+               0
+        FROM mud_zones z
+        WHERE z.slug = 'central-hub'
+        ON CONFLICT (zone_id, slug) DO NOTHING;
+
+        INSERT INTO mud_rooms (zone_id, name, slug, description, position)
+        SELECT z.id, 'Observatory', 'observatory',
+               'Glass walls open onto the wider platform. A corridor leads west back to the atrium.',
+               1
+        FROM mud_zones z
+        WHERE z.slug = 'central-hub'
+        ON CONFLICT (zone_id, slug) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'east', 'To the observatory'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'observatory'
+        WHERE r1.slug = 'atrium'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'west', 'Back to the atrium'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'atrium'
+        WHERE r1.slug = 'observatory'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+        """
+
+        35, """
+        INSERT INTO patreon_tiers (tier_id, tier_name, role, max_concurrent_tasks, polling_interval_sec, archive_days)
+        VALUES
+          ('curious-mind', 'Curious Mind', 'role_curious_mind', NULL, NULL, NULL),
+          ('lab-assistant', 'Lab Assistant', 'role_lab_assistant', NULL, NULL, NULL),
+          ('research-fellow', 'Research Fellow', 'role_research_fellow', NULL, NULL, NULL),
+          ('professor', 'Professor', 'role_professor', NULL, NULL, NULL),
+          ('dean', 'Dean of the College', 'role_dean', NULL, NULL, NULL)
+        ON CONFLICT (tier_id) DO UPDATE
+          SET tier_name = EXCLUDED.tier_name,
+              role = EXCLUDED.role,
+              max_concurrent_tasks = EXCLUDED.max_concurrent_tasks,
+              polling_interval_sec = EXCLUDED.polling_interval_sec,
+              archive_days = EXCLUDED.archive_days;
+
+        CREATE TABLE IF NOT EXISTS mud_tier_labels (
+            patreon_tier_id TEXT PRIMARY KEY REFERENCES patreon_tiers(tier_id) ON DELETE CASCADE,
+            mud_name        TEXT NOT NULL,
+            display_order   INT NOT NULL DEFAULT 0,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        INSERT INTO mud_tier_labels (patreon_tier_id, mud_name, display_order)
+        VALUES
+          ('curious-mind',   'Page',      0),
+          ('lab-assistant',  'Squire',    1),
+          ('research-fellow','Scholar',   2),
+          ('professor',      'Sage',      3),
+          ('dean',           'Castellan', 4)
+        ON CONFLICT (patreon_tier_id) DO UPDATE
+          SET mud_name = EXCLUDED.mud_name,
+              display_order = EXCLUDED.display_order;
+        """
+
+        36, """
+        INSERT INTO mud_zones (name, slug, description, position)
+        VALUES ('Research Wing', 'research-wing', 'Quiet halls where the MUD records, studies, and keeps its working notes.', 1)
+        ON CONFLICT (slug) DO NOTHING;
+
+        INSERT INTO mud_rooms (zone_id, name, slug, description, position)
+        SELECT z.id, 'Archive Hall', 'archive-hall',
+               'Rows of ledger shelves, transcripts, and old experiment logs line the walls.',
+               0
+        FROM mud_zones z
+        WHERE z.slug = 'research-wing'
+        ON CONFLICT (zone_id, slug) DO NOTHING;
+
+        INSERT INTO mud_rooms (zone_id, name, slug, description, position)
+        SELECT z.id, 'Heartbeat Room', 'heartbeat-room',
+               'A narrow chamber filled with a low mechanical pulse. Dispatch schedules are tracked here.',
+               1
+        FROM mud_zones z
+        WHERE z.slug = 'research-wing'
+        ON CONFLICT (zone_id, slug) DO NOTHING;
+
+        INSERT INTO mud_rooms (zone_id, name, slug, description, position)
+        SELECT z.id, 'Council Chamber', 'council-chamber',
+               'A table of carved stone sits beneath a lantern grid. Decisions and notices are gathered here.',
+               2
+        FROM mud_zones z
+        WHERE z.slug = 'research-wing'
+        ON CONFLICT (zone_id, slug) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'north', 'To the archive hall'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'archive-hall'
+        WHERE r1.slug = 'atrium'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'south', 'Back to the atrium'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'atrium'
+        WHERE r1.slug = 'archive-hall'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'east', 'To the heartbeat room'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'heartbeat-room'
+        WHERE r1.slug = 'observatory'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'west', 'Back to the observatory'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'observatory'
+        WHERE r1.slug = 'heartbeat-room'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'east', 'To the council chamber'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'council-chamber'
+        WHERE r1.slug = 'archive-hall'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
+        SELECT r1.id, r2.id, 'west', 'Back to the archive hall'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'archive-hall'
+        WHERE r1.slug = 'council-chamber'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+        """
+
+        37, """
+        UPDATE mud_zones
+        SET name = CASE slug
+            WHEN 'central-hub' THEN 'Outer Keep'
+            WHEN 'research-wing' THEN 'Inner Keep'
+            ELSE name
+        END,
+            description = CASE slug
+            WHEN 'central-hub' THEN 'The first keep wall and its gatehouse, where travelers enter the dungeon.'
+            WHEN 'research-wing' THEN 'Deeper halls beneath the keep where records, watches, and council business are kept.'
+            ELSE description
+        END
+        WHERE slug IN ('central-hub', 'research-wing');
+
+        UPDATE mud_rooms
+        SET name = CASE slug
+            WHEN 'atrium' THEN 'Gatehouse'
+            WHEN 'observatory' THEN 'Watch Tower'
+            WHEN 'archive-hall' THEN 'North Hall'
+            WHEN 'heartbeat-room' THEN 'Bell Chamber'
+            WHEN 'council-chamber' THEN 'Throne Room'
+            ELSE name
+        END,
+            description = CASE slug
+            WHEN 'atrium' THEN 'Stone steps descend into the keep. A passage leads east to the watch tower and north to the hall.'
+            WHEN 'observatory' THEN 'A narrow tower room with arrow slits and a view over the grounds. West returns to the gatehouse.'
+            WHEN 'archive-hall' THEN 'A long corridor lined with torch brackets and old stone alcoves.'
+            WHEN 'heartbeat-room' THEN 'A round chamber where a hanging bell marks the hour.'
+            WHEN 'council-chamber' THEN 'A vaulted chamber with an empty dais and faded banners.'
+            ELSE description
+        END
+        WHERE slug IN ('atrium', 'observatory', 'archive-hall', 'heartbeat-room', 'council-chamber');
+
+        UPDATE mud_exits
+        SET label = CASE
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'atrium') AND direction = 'east' THEN 'To the watch tower'
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'observatory') AND direction = 'west' THEN 'Back to the gatehouse'
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'atrium') AND direction = 'north' THEN 'To the north hall'
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'archive-hall') AND direction = 'south' THEN 'Back to the gatehouse'
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'observatory') AND direction = 'east' THEN 'To the bell chamber'
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'heartbeat-room') AND direction = 'west' THEN 'Back to the watch tower'
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'archive-hall') AND direction = 'east' THEN 'To the throne room'
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug = 'council-chamber') AND direction = 'west' THEN 'Back to the north hall'
+            ELSE label
+        END;
         """
     ]
 

@@ -167,6 +167,47 @@ type PasswordResetConfirmRequest =
       Password: string }
 
 [<CLIMutable>]
+type MudCommandRequest =
+    { Command: string }
+
+[<CLIMutable>]
+type MudZoneCreateRequest =
+    { Name: string
+      Slug: string
+      Description: string
+      Position: int }
+
+[<CLIMutable>]
+type MudZoneUpdateRequest =
+    { Name: string
+      Slug: string
+      Description: string
+      Position: int }
+
+[<CLIMutable>]
+type MudRoomCreateRequest =
+    { ZoneId: string
+      Name: string
+      Slug: string
+      Description: string
+      Position: int }
+
+[<CLIMutable>]
+type MudRoomUpdateRequest =
+    { ZoneId: string
+      Name: string
+      Slug: string
+      Description: string
+      Position: int }
+
+[<CLIMutable>]
+type MudExitCreateRequest =
+    { FromRoomId: string
+      ToRoomId: string
+      Direction: string
+      Label: string }
+
+[<CLIMutable>]
 type UpdateProfileRequest =
     { DisplayName: string option
       Bio: string option
@@ -1288,6 +1329,150 @@ let main args =
     ) |> ignore
 
     // ── Forum: Categories (read=anonymous, write=admin) ───────────────────────
+
+    // MUD
+
+    app.MapGet(
+        "/api/mud/me",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, userId ->
+                    match MudRepository.getState userId with
+                    | Some state -> Results.Ok(state)
+                    | None -> Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/mud/command",
+        Func<HttpContext, MudCommandRequest, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, userId ->
+                    let displayName =
+                        match claims.DisplayName with
+                        | Some s when not (String.IsNullOrWhiteSpace s) -> Some s
+                        | _ -> None
+                    Results.Ok(MudRepository.handleCommand userId displayName body.Command)
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/mud/world",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                Results.Ok(MudAdminRepository.getWorld())
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/mud/zones",
+        Func<HttpContext, MudZoneCreateRequest, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let description = if String.IsNullOrWhiteSpace body.Description then None else Some (body.Description.Trim())
+                match MudAdminRepository.createZone body.Name body.Slug description body.Position with
+                | Some zone -> Results.Created($"/api/admin/mud/zones/{zone.Id}", zone)
+                | None -> Results.Problem(detail = "Failed to create zone", statusCode = 500, title = "Error")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/admin/mud/zones/{zoneId}",
+        Func<string, HttpContext, MudZoneUpdateRequest, IResult>(fun zoneId ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(zoneId) with
+                | false, _ -> Results.BadRequest("Invalid zone id")
+                | true, zoneGuid ->
+                    let description = if String.IsNullOrWhiteSpace body.Description then None else Some (body.Description.Trim())
+                    match MudAdminRepository.updateZone zoneGuid body.Name body.Slug description body.Position with
+                    | Some zone -> Results.Ok(zone)
+                    | None -> Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/mud/rooms",
+        Func<HttpContext, MudRoomCreateRequest, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(body.ZoneId) with
+                | false, _ -> Results.BadRequest("Invalid zone id")
+                | true, zoneId ->
+                    let description = if String.IsNullOrWhiteSpace body.Description then None else Some (body.Description.Trim())
+                    match MudAdminRepository.createRoom zoneId body.Name body.Slug description body.Position with
+                    | Some room -> Results.Created($"/api/admin/mud/rooms/{room.Id}", room)
+                    | None -> Results.Problem(detail = "Failed to create room", statusCode = 500, title = "Error")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/admin/mud/rooms/{roomId}",
+        Func<string, HttpContext, MudRoomUpdateRequest, IResult>(fun roomId ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(roomId), Guid.TryParse(body.ZoneId) with
+                | (false, _), _ -> Results.BadRequest("Invalid room id")
+                | _, (false, _) -> Results.BadRequest("Invalid zone id")
+                | (true, roomGuid), (true, zoneGuid) ->
+                    let description = if String.IsNullOrWhiteSpace body.Description then None else Some (body.Description.Trim())
+                    match MudAdminRepository.updateRoom roomGuid zoneGuid body.Name body.Slug description body.Position with
+                    | Some room -> Results.Ok(room)
+                    | None -> Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/mud/exits",
+        Func<HttpContext, MudExitCreateRequest, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(body.FromRoomId), Guid.TryParse(body.ToRoomId) with
+                | (true, fromRoomId), (true, toRoomId) ->
+                    let label = if String.IsNullOrWhiteSpace body.Label then None else Some (body.Label.Trim())
+                    match MudAdminRepository.createExit fromRoomId toRoomId body.Direction label with
+                    | Some exit -> Results.Created($"/api/admin/mud/exits/{exit.Id}", exit)
+                    | None -> Results.Problem(detail = "Failed to create exit", statusCode = 500, title = "Error")
+                | _ -> Results.BadRequest("Invalid room id")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/admin/mud/exits/{exitId}",
+        Func<string, HttpContext, IResult>(fun exitId ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(exitId) with
+                | true, exitGuid ->
+                    if MudAdminRepository.deleteExit exitGuid then Results.Ok() else Results.NotFound()
+                | _ -> Results.BadRequest("Invalid exit id")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
 
     app.MapGet(
         "/api/forum/categories",

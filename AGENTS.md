@@ -39,7 +39,8 @@ Step-by-step — follow this exactly every time, no exceptions:
 6. **Never reuse a broken branch.** If a branch had a build failure or mistake, it is dead. Create a new one.
 7. **Never merge your own PRs.** Never attempt `gh pr merge --admin` or `gh pr review --approve`. The user merges all PRs via the GitHub UI.
 8. **Never push directly to `main`.**
-9. **Before reporting a PR to the user, check the PR merge state for conflicts.** If it is conflicted, resolve the conflicts first and only then report the PR link.
+9. **Open PRs ready for review by default.** Do not create draft PRs unless the user explicitly asks for a draft.
+10. **Before reporting a PR to the user, check the PR merge state for conflicts.** If it is conflicted, resolve the conflicts first and only then report the PR link.
 
 ---
 
