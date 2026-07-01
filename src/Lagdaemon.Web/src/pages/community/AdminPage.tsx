@@ -8,6 +8,7 @@ import type { ForumTag, ForumReport } from '../../api/forumApi'
 import { mudAdminApi } from '../../api/mudAdminApi'
 import type { MudWorld, MudZone, MudRoom, MudExit } from '../../api/mudAdminApi'
 import { AdminTable } from '../../components/AdminTable'
+import MudPage from './MudPage'
 
 const BASE = '/djehuti'
 
@@ -24,7 +25,7 @@ interface Announcement {
   createdAt: string; updatedAt: string
 }
 
-type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'mud' | 'personas' | 'heartbeat' | 'metrics' | 'api-keys'
+type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'mud' | 'mud-console' | 'personas' | 'heartbeat' | 'metrics' | 'api-keys'
 
 interface MetricsCounts { users: number; posts: number; threads: number; articles: number; votesGiven: number; reactions: number; achievements: number }
 interface ForumActivityRow { forumId: string; forumName: string; postsAll: number; postsHuman: number; postsAi: number; threadsAll: number; threadsHuman: number; threadsAi: number }
@@ -102,7 +103,7 @@ async function apiFetch(url: string, opts?: RequestInit) {
 export default function AdminPage() {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'mud', 'personas', 'heartbeat', 'metrics', 'api-keys']
+  const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'mud', 'mud-console', 'personas', 'heartbeat', 'metrics', 'api-keys']
   const tabFromUrl = searchParams.get('tab') as Tab | null
   const [tab, setTab] = useState<Tab>(tabFromUrl && validTabs.includes(tabFromUrl) ? tabFromUrl : 'users')
 
@@ -278,6 +279,7 @@ export default function AdminPage() {
         setHbHealth(health)
       },
       mud: () => mudAdminApi.getWorld().then(setMudWorld),
+      'mud-console': async () => {},
       metrics: () => Promise.all([
         apiFetch(`${BASE}/api/admin/metrics`).then(setMetrics),
         apiFetch(`${BASE}/api/admin/metrics/anonymous`).then(setAnonMetrics).catch(() => {}),
@@ -543,7 +545,7 @@ export default function AdminPage() {
   }
 
   const TAB_LABELS: Record<Tab, string> = {
-    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', mud: 'MUD World', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics', 'api-keys': 'API Keys',
+    users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', mud: 'MUD World', 'mud-console': 'MUD Console', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics', 'api-keys': 'API Keys',
   }
 
   const toggleSection = (key: string) =>
@@ -1289,6 +1291,18 @@ export default function AdminPage() {
               { key: 'id', label: '', sortable: false, render: exit => <button className="post-action post-action-delete" onClick={() => deleteMudExit(exit.id)}>Delete</button> },
             ]}
           />
+        </div>
+      )}
+
+      {tab === 'mud-console' && !loading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <h3 style={{ margin: 0 }}>MUD Gameplay Console</h3>
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              This stays under admin for now. Use it to move through the world and test the live player command surface.
+            </p>
+          </section>
+          <MudPage embedded />
         </div>
       )}
 

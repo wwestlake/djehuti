@@ -5,6 +5,10 @@ import { useAuth } from '../../contexts/AuthContext'
 
 const QUICK_COMMANDS = ['look', 'east', 'west', 'say hello']
 
+type MudPageProps = {
+  embedded?: boolean
+}
+
 function ExitList({ exits, onCommand }: { exits: MudRoomState['exits']; onCommand: (command: string) => void }) {
   if (!exits.length) return <p className="mud-empty">No exits visible.</p>
   return (
@@ -23,7 +27,7 @@ function ExitList({ exits, onCommand }: { exits: MudRoomState['exits']; onComman
   )
 }
 
-export default function MudPage() {
+export default function MudPage({ embedded = false }: MudPageProps) {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [state, setState] = useState<MudRoomState | null>(null)
@@ -61,7 +65,7 @@ export default function MudPage() {
             <h1>{roomTitle}</h1>
             <p className="mud-zone">{state ? `Zone: ${state.zoneName}` : 'Anonymous visitors can view the shell, but need to sign in to act.'}</p>
           </div>
-          <button className="mud-back-btn" onClick={() => navigate('/forum')}>Back to forum</button>
+          {!embedded && <button className="mud-back-btn" onClick={() => navigate('/forum')}>Back to forum</button>}
         </div>
 
           <div className="mud-card mud-room">
