@@ -1446,14 +1446,14 @@ footer a:hover { text-decoration: underline; }
   transition: all 200ms;
 }
 .oauth-button:hover { background: var(--surface-muted); border-color: var(--accent); }
-.oauth-button.google { color: #1f2937; }
-.oauth-button.google:hover { background: #f9fafb; border-color: #4285f4; color: #4285f4; }
-.oauth-button.github { color: #24292e; }
-.oauth-button.github:hover { background: #f6f8fa; border-color: #24292e; color: #24292e; }
+.oauth-button.google { color: var(--text); border-color: color-mix(in srgb, #4285f4 35%, var(--border)); }
+.oauth-button.google:hover { background: color-mix(in srgb, #4285f4 12%, var(--surface)); border-color: #4285f4; color: var(--text); }
+.oauth-button.github { color: var(--text); border-color: color-mix(in srgb, #8b949e 35%, var(--border)); }
+.oauth-button.github:hover { background: color-mix(in srgb, #8b949e 14%, var(--surface)); border-color: #8b949e; color: var(--text); }
 
 @media (prefers-color-scheme: dark) {
   .oauth-button.google:hover { background: color-mix(in srgb, #4285f4 10%, var(--surface)); color: var(--text); }
-  .oauth-button.github:hover { background: color-mix(in srgb, #24292e 15%, var(--surface)); color: var(--text); }
+  .oauth-button.github:hover { background: color-mix(in srgb, #8b949e 15%, var(--surface)); color: var(--text); }
 }
 
 .auth-verification-pending {

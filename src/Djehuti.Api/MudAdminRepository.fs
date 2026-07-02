@@ -43,6 +43,31 @@ type MudWorld =
       Rooms: MudRoom list
       Exits: MudExit list }
 
+type MudRealmMetric =
+    { RealmSlug: string
+      CharacterCount: int }
+
+type MudExitTypeMetric =
+    { ExitType: string
+      Count: int }
+
+type MudAdminMetrics =
+    { ZoneCount: int
+      RoomCount: int
+      ExitCount: int
+      ItemCount: int
+      PortableItemCount: int
+      ReadableItemCount: int
+      ActiveCharacterCount: int
+      RetiredCharacterCount: int
+      CompanionEnabledCount: int
+      ByoKeyCount: int
+      EmptyZoneCount: int
+      DeadEndRoomCount: int
+      AverageExitsPerRoom: float
+      RealmCharacterCounts: MudRealmMetric list
+      ExitTypeCounts: MudExitTypeMetric list }
+
 let private readZone (r: DbDataReader) =
     { Id = r.GetGuid(0)
       Name = r.GetString(1)
@@ -241,3 +266,96 @@ let deleteExit (exitId: Guid) =
     use cmd = new NpgsqlCommand("DELETE FROM mud_exits WHERE id = @id", conn)
     cmd.Parameters.AddWithValue("id", exitId) |> ignore
     cmd.ExecuteNonQuery() > 0
+
+let getMetrics () =
+    use conn = openConnection ()
+
+    use summaryCmd = new NpgsqlCommand(
+        """SELECT
+               (SELECT COUNT(*) FROM mud_zones),
+               (SELECT COUNT(*) FROM mud_rooms),
+               (SELECT COUNT(*) FROM mud_exits),
+               (SELECT COUNT(*) FROM mud_items),
+               (SELECT COUNT(*) FROM mud_items WHERE portable = TRUE),
+               (SELECT COUNT(*) FROM mud_items WHERE readable_text IS NOT NULL AND btrim(readable_text) <> ''),
+               (SELECT COUNT(*) FROM mud_characters WHERE deleted_at IS NULL),
+               (SELECT COUNT(*) FROM mud_characters WHERE deleted_at IS NOT NULL),
+               (SELECT COUNT(*) FROM mud_companion_profiles WHERE enabled = TRUE),
+               (SELECT COUNT(*) FROM mud_companion_profiles WHERE byo_openai_key_protected IS NOT NULL),
+               (SELECT COUNT(*) FROM mud_zones z WHERE NOT EXISTS (SELECT 1 FROM mud_rooms r WHERE r.zone_id = z.id)),
+               (SELECT COUNT(*) FROM mud_rooms r WHERE NOT EXISTS (SELECT 1 FROM mud_exits e WHERE e.from_room_id = r.id)),
+               COALESCE((
+                   SELECT ROUND(AVG(exit_count)::numeric, 2)::float8
+                   FROM (
+                       SELECT COUNT(e.id) AS exit_count
+                       FROM mud_rooms r
+                       LEFT JOIN mud_exits e ON e.from_room_id = r.id
+                       GROUP BY r.id
+                   ) q
+               ), 0.0)""", conn)
+
+    use summaryReader = summaryCmd.ExecuteReader()
+    let summary =
+        if summaryReader.Read() then
+            { ZoneCount = summaryReader.GetInt32(0)
+              RoomCount = summaryReader.GetInt32(1)
+              ExitCount = summaryReader.GetInt32(2)
+              ItemCount = summaryReader.GetInt32(3)
+              PortableItemCount = summaryReader.GetInt32(4)
+              ReadableItemCount = summaryReader.GetInt32(5)
+              ActiveCharacterCount = summaryReader.GetInt32(6)
+              RetiredCharacterCount = summaryReader.GetInt32(7)
+              CompanionEnabledCount = summaryReader.GetInt32(8)
+              ByoKeyCount = summaryReader.GetInt32(9)
+              EmptyZoneCount = summaryReader.GetInt32(10)
+              DeadEndRoomCount = summaryReader.GetInt32(11)
+              AverageExitsPerRoom = summaryReader.GetDouble(12)
+              RealmCharacterCounts = []
+              ExitTypeCounts = [] }
+        else
+            { ZoneCount = 0
+              RoomCount = 0
+              ExitCount = 0
+              ItemCount = 0
+              PortableItemCount = 0
+              ReadableItemCount = 0
+              ActiveCharacterCount = 0
+              RetiredCharacterCount = 0
+              CompanionEnabledCount = 0
+              ByoKeyCount = 0
+              EmptyZoneCount = 0
+              DeadEndRoomCount = 0
+              AverageExitsPerRoom = 0.0
+              RealmCharacterCounts = []
+              ExitTypeCounts = [] }
+    summaryReader.Close()
+
+    use realmCmd = new NpgsqlCommand(
+        """SELECT realm_slug, COUNT(*)
+           FROM mud_characters
+           WHERE deleted_at IS NULL
+           GROUP BY realm_slug
+           ORDER BY realm_slug""", conn)
+    use realmReader = realmCmd.ExecuteReader()
+    let realmCounts =
+        [ while realmReader.Read() do
+            yield
+                { RealmSlug = realmReader.GetString(0)
+                  CharacterCount = realmReader.GetInt32(1) } ]
+    realmReader.Close()
+
+    use exitTypeCmd = new NpgsqlCommand(
+        """SELECT exit_type, COUNT(*)
+           FROM mud_exits
+           GROUP BY exit_type
+           ORDER BY COUNT(*) DESC, exit_type""", conn)
+    use exitTypeReader = exitTypeCmd.ExecuteReader()
+    let exitTypeCounts =
+        [ while exitTypeReader.Read() do
+            yield
+                { ExitType = exitTypeReader.GetString(0)
+                  Count = exitTypeReader.GetInt32(1) } ]
+
+    { summary with
+        RealmCharacterCounts = realmCounts
+        ExitTypeCounts = exitTypeCounts }
