@@ -13,6 +13,18 @@ open Djehuti.Core
 
 // OpenAI helpers
 
+let private supportedPersonaModels =
+    set [ "gpt-4.1"; "gpt-4.1-mini"; "gpt-4o-mini" ]
+
+let private resolvePersonaModel (options: OpenAiResponsesOptions) (model: string) =
+    let trimmed = if isNull model then "" else model.Trim()
+    if String.IsNullOrWhiteSpace trimmed then
+        options.Model
+    elif supportedPersonaModels.Contains trimmed then
+        trimmed
+    else
+        "gpt-4o-mini"
+
 let private aiErrorText error =
     match error with
     | AiConnectionUnavailable message -> message
@@ -35,8 +47,7 @@ let private submitOpenAiText
         let connection =
             OpenAiResponsesConnection(http, options) :> IAiConnection
 
-        let resolvedModel =
-            if String.IsNullOrWhiteSpace model then options.Model else model
+        let resolvedModel = resolvePersonaModel options model
 
         let request =
             { ConnectionId = AiConnectionId "heartbeat-openai"
