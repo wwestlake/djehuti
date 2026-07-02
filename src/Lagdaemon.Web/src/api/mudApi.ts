@@ -2,9 +2,27 @@ const BASE = '/djehuti/api/mud'
 
 export interface MudExitView {
   direction: string
+  exitType: string
   label?: string
   targetRoomId: string
   targetRoomName: string
+}
+
+export interface MudMapRoomView {
+  roomId: string
+  roomName: string
+  slug: string
+  x: number
+  y: number
+  current: boolean
+}
+
+export interface MudMapExitView {
+  fromRoomId: string
+  toRoomId: string
+  direction: string
+  exitType: string
+  label?: string
 }
 
 export interface MudItemView {
@@ -25,6 +43,8 @@ export interface MudRoomState {
   mudTierName: string
   visibleItems: MudItemView[]
   inventoryItems: MudItemView[]
+  mapRooms: MudMapRoomView[]
+  mapExits: MudMapExitView[]
   exits: MudExitView[]
 }
 

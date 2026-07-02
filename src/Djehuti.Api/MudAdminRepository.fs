@@ -34,6 +34,7 @@ type MudExit =
       ToRoomName: string
       ToRoomSlug: string
       Direction: string
+      ExitType: string
       Label: string option
       CreatedAt: DateTime }
 
@@ -70,8 +71,9 @@ let private readExit (r: DbDataReader) =
       ToRoomName = r.GetString(5)
       ToRoomSlug = r.GetString(6)
       Direction = r.GetString(7)
-      Label = if r.IsDBNull(8) then None else Some (r.GetString(8))
-      CreatedAt = r.GetFieldValue<DateTime>(9) }
+      ExitType = r.GetString(8)
+      Label = if r.IsDBNull(9) then None else Some (r.GetString(9))
+      CreatedAt = r.GetFieldValue<DateTime>(10) }
 
 let private slugify (value: string) =
     let normalized =
@@ -117,6 +119,7 @@ let getWorld () =
                   rt.name,
                   rt.slug,
                   e.direction,
+                  e.exit_type,
                   e.label,
                   e.created_at
            FROM mud_exits e
@@ -210,21 +213,22 @@ let updateRoom (roomId: Guid) (zoneId: Guid) (name: string) (slug: string) (desc
     with _ ->
         None
 
-let createExit (fromRoomId: Guid) (toRoomId: Guid) (direction: string) (label: string option) =
+let createExit (fromRoomId: Guid) (toRoomId: Guid) (direction: string) (exitType: string) (label: string option) =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
-        """INSERT INTO mud_exits (from_room_id, to_room_id, direction, label)
-           VALUES (@from_room_id, @to_room_id, @direction, @label)
+        """INSERT INTO mud_exits (from_room_id, to_room_id, direction, exit_type, label)
+           VALUES (@from_room_id, @to_room_id, @direction, @exit_type, @label)
            RETURNING id, from_room_id,
                      (SELECT name FROM mud_rooms WHERE id = @from_room_id),
                      (SELECT slug FROM mud_rooms WHERE id = @from_room_id),
                      to_room_id,
                      (SELECT name FROM mud_rooms WHERE id = @to_room_id),
                      (SELECT slug FROM mud_rooms WHERE id = @to_room_id),
-                     direction, label, created_at""", conn)
+                     direction, exit_type, label, created_at""", conn)
     cmd.Parameters.AddWithValue("from_room_id", fromRoomId) |> ignore
     cmd.Parameters.AddWithValue("to_room_id", toRoomId) |> ignore
     cmd.Parameters.AddWithValue("direction", direction.Trim().ToLowerInvariant()) |> ignore
+    cmd.Parameters.AddWithValue("exit_type", exitType.Trim().ToLowerInvariant()) |> ignore
     cmd.Parameters.AddWithValue("label", label |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
     try
         use reader = cmd.ExecuteReader()
