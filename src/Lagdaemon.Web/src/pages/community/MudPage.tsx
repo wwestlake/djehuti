@@ -5,9 +5,11 @@ import { useAuth } from '../../contexts/AuthContext'
 
 const QUICK_COMMANDS = [
   { label: 'Look', command: 'look' },
+  { label: 'Search', command: 'search' },
+  { label: 'Recipes', command: 'recipes' },
   { label: 'Room', command: 'examine room' },
   { label: 'Inventory', command: 'inventory' },
-  { label: 'Read ledger', command: 'read brass ledger' },
+  { label: 'Craft torch', command: 'craft torch' },
 ]
 
 type MudPageProps = {
@@ -156,7 +158,7 @@ export default function MudPage({ embedded = false }: MudPageProps) {
                 className="mud-command-input"
                 value={command}
                 onChange={e => setCommand(e.target.value)}
-                placeholder="look, get survey map, read brass ledger..."
+                placeholder="search, get rag strip, recipes, craft torch..."
                 disabled={busy || !user}
               />
               <button className="mud-command-btn" type="submit" disabled={busy || !user}>

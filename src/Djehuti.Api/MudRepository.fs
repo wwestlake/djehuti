@@ -45,6 +45,15 @@ type private MudCharacterRow =
       CreatedAt: DateTime
       UpdatedAt: DateTime }
 
+type private MudCraftRecipe =
+    { Slug: string
+      Name: string
+      Ingredients: string list
+      OutputName: string
+      OutputSlug: string
+      OutputDescription: string
+      OutputReadableText: string option }
+
 let private readCharacter (r: DbDataReader) =
     { Id = r.GetGuid(0)
       UserId = r.GetGuid(1)
@@ -81,6 +90,22 @@ let private payloadOf (pairs: (string * string) list) =
         |> List.map (fun (key, value) -> $"\"{key}\":{JsonSerializer.Serialize(value)}")
         |> String.concat ","
     "{" + rendered + "}"
+
+let private craftRecipes =
+    [ { Slug = "torch"
+        Name = "Torch"
+        Ingredients = [ "rag-strip"; "lamp-oil" ]
+        OutputName = "Torch"
+        OutputSlug = "torch"
+        OutputDescription = "A rough torch made from cloth and oil. It burns hot enough to light dark passages and mark your presence."
+        OutputReadableText = None }
+      { Slug = "signal-key"
+        Name = "Signal Key"
+        Ingredients = [ "brass-shard"; "wire-spool" ]
+        OutputName = "Signal Key"
+        OutputSlug = "signal-key"
+        OutputDescription = "A small improvised key of brass and wire. It looks like it belongs in a mechanical slot rather than a lock."
+        OutputReadableText = None } ]
 
 let private starterRoomId () =
     use conn = openConnection ()
@@ -281,6 +306,41 @@ let private loadReadableText (conn: NpgsqlConnection) (state: MudRoomState) (que
     let scalar = cmd.ExecuteScalar()
     if isNull scalar || scalar = box DBNull.Value then None else Some (scalar :?> string)
 
+let private isResourceSlug (slug: string) =
+    [ "brass-shard"; "wire-spool"; "rag-strip"; "lamp-oil"; "wax-seal" ]
+    |> List.contains slug
+
+let private describeRecipe (recipe: MudCraftRecipe) =
+    let ingredients =
+        recipe.Ingredients
+        |> List.map (fun slug -> slug.Replace("-", " "))
+        |> String.concat ", "
+    $"{recipe.Name}\n\nIngredients: {ingredients}\nCreates: {recipe.OutputName}"
+
+let private describeRecipes () =
+    craftRecipes
+    |> List.map describeRecipe
+    |> String.concat "\n\n"
+
+let private loadInventoryItemIds (conn: NpgsqlConnection) (characterId: Guid) =
+    use cmd = new NpgsqlCommand(
+        """SELECT id, slug
+           FROM mud_items
+           WHERE owner_character_id = @character_id
+           ORDER BY position, created_at, name""", conn)
+    cmd.Parameters.AddWithValue("character_id", characterId) |> ignore
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do
+        yield reader.GetGuid(0), reader.GetString(1).ToLowerInvariant() ]
+
+let private tryResolveRecipe (query: string) =
+    let normalized = query.Trim().ToLowerInvariant()
+    craftRecipes
+    |> List.tryFind (fun recipe ->
+        recipe.Slug = normalized
+        || recipe.Name.ToLowerInvariant() = normalized
+        || recipe.Name.ToLowerInvariant().Replace(" ", "-") = normalized)
+
 let private withState (userId: Guid) (displayName: string option) (action: MudRoomState -> MudCommandResult) : MudCommandResult =
     use conn = openConnection ()
     match ensureCharacter conn userId displayName with
@@ -464,6 +524,101 @@ let inventory (userId: Guid) (displayName: string option) : MudCommandResult =
           Message = message
           State = Some state })
 
+let search (userId: Guid) (displayName: string option) : MudCommandResult =
+    withState userId displayName (fun state ->
+        let resources =
+            state.VisibleItems
+            |> List.filter (fun item -> item.Portable || isResourceSlug item.Slug)
+            |> List.map _.Name
+        let message =
+            match resources with
+            | [] -> $"{describeState state}\n\nYou do not spot any loose materials worth taking."
+            | items ->
+                let found = items |> String.concat ", "
+                $"{describeState state}\n\nSearch turns up useful materials: {found}."
+        use conn = openConnection ()
+        logEvent conn userId state.CharacterId state.RoomId "search" (Some "search") message (payloadOf [ "count", string resources.Length ])
+        { Success = true
+          Command = "search"
+          Message = message
+          State = Some state })
+
+let recipes (userId: Guid) (displayName: string option) : MudCommandResult =
+    withState userId displayName (fun state ->
+        let message = describeRecipes ()
+        use conn = openConnection ()
+        logEvent conn userId state.CharacterId state.RoomId "recipes" (Some "recipes") message (payloadOf [ "count", string craftRecipes.Length ])
+        { Success = true
+          Command = "recipes"
+          Message = message
+          State = Some state })
+
+let craft (userId: Guid) (displayName: string option) (query: string) : MudCommandResult =
+    withState userId displayName (fun state ->
+        let trimmed = query.Trim()
+        if String.IsNullOrWhiteSpace(trimmed) then
+            { Success = false
+              Command = "craft"
+              Message = "Craft what? Try recipes."
+              State = Some state }
+        else
+            match tryResolveRecipe trimmed with
+            | None ->
+                { Success = false
+                  Command = $"craft {trimmed}"
+                  Message = $"Unknown recipe '{trimmed}'. Try recipes."
+                  State = Some state }
+            | Some recipe ->
+                use conn = openConnection ()
+                let inventoryRows = loadInventoryItemIds conn state.CharacterId
+                let mutable available = inventoryRows
+                let mutable missing = []
+                let mutable consumeIds : Guid list = []
+
+                for ingredient in recipe.Ingredients do
+                    match available |> List.tryFind (fun (_, slug) -> slug = ingredient) with
+                    | Some (id, _) ->
+                        consumeIds <- id :: consumeIds
+                        available <- available |> List.filter (fun (rowId, _) -> rowId <> id)
+                    | None ->
+                        missing <- ingredient :: missing
+
+                if not missing.IsEmpty then
+                    let missingText =
+                        missing
+                        |> List.rev
+                        |> List.map (fun slug -> slug.Replace("-", " "))
+                        |> String.concat ", "
+                    let message = $"You are missing: {missingText}."
+                    logEvent conn userId state.CharacterId state.RoomId "craft-failed" (Some trimmed) message (payloadOf [ "recipe", recipe.Slug ])
+                    { Success = false
+                      Command = $"craft {trimmed}"
+                      Message = message
+                      State = Some state }
+                else
+                    for consumeId in consumeIds do
+                        use deleteCmd = new NpgsqlCommand("DELETE FROM mud_items WHERE id = @id", conn)
+                        deleteCmd.Parameters.AddWithValue("id", consumeId) |> ignore
+                        deleteCmd.ExecuteNonQuery() |> ignore
+
+                    use insertCmd = new NpgsqlCommand(
+                        """INSERT INTO mud_items (owner_character_id, name, slug, description, readable_text, portable, position)
+                           VALUES (@character_id, @name, @slug, @description, @readable_text, true, 0)""", conn)
+                    insertCmd.Parameters.AddWithValue("character_id", state.CharacterId) |> ignore
+                    insertCmd.Parameters.AddWithValue("name", recipe.OutputName) |> ignore
+                    insertCmd.Parameters.AddWithValue("slug", recipe.OutputSlug) |> ignore
+                    insertCmd.Parameters.AddWithValue("description", recipe.OutputDescription) |> ignore
+                    insertCmd.Parameters.AddWithValue("readable_text", recipe.OutputReadableText |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+                    insertCmd.ExecuteNonQuery() |> ignore
+
+                    let nextState = getState userId |> Option.defaultValue state
+                    let message = $"You craft {recipe.OutputName}."
+                    logEvent conn userId state.CharacterId state.RoomId "craft" (Some trimmed) message (payloadOf [ "recipe", recipe.Slug; "created", recipe.OutputSlug ])
+                    { Success = true
+                      Command = $"craft {trimmed}"
+                      Message = message
+                      State = Some nextState })
+
 let getItem (userId: Guid) (displayName: string option) (query: string) : MudCommandResult =
     withState userId displayName (fun state ->
         let trimmed = query.Trim()
@@ -582,13 +737,18 @@ let handleCommand (userId: Guid) (displayName: string option) (commandText: stri
     if String.IsNullOrWhiteSpace(trimmed) then
         { Success = false
           Command = ""
-          Message = "Type look, examine <thing>, read <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, or emote <action>."
+          Message = "Type look, search, recipes, craft <thing>, examine <thing>, read <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, or emote <action>."
           State = getState userId }
     else
         let parts = trimmed.Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
         let verb = parts.[0].ToLowerInvariant()
         match verb with
         | "look" | "l" -> look userId displayName
+        | "search" | "scan" -> search userId displayName
+        | "recipes" | "recipe" -> recipes userId displayName
+        | "craft" ->
+            let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
+            craft userId displayName query
         | "examine" | "exam" | "x" ->
             let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
             examine userId displayName query
@@ -622,5 +782,5 @@ let handleCommand (userId: Guid) (displayName: string option) (commandText: stri
         | _ ->
             { Success = false
               Command = trimmed
-              Message = "Unknown command. Try look, examine <thing>, read <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, or emote <action>."
+              Message = "Unknown command. Try look, search, recipes, craft <thing>, examine <thing>, read <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, or emote <action>."
               State = getState userId }
