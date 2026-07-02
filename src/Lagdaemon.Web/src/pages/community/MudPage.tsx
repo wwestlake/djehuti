@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { mudApi, type MudRoomState, type MudCommandResult, type MudItemView } from '../../api/mudApi'
+import { mudApi, type MudRoomState, type MudCommandResult, type MudItemView, type MudMapRoomView, type MudMapExitView } from '../../api/mudApi'
 import { useAuth } from '../../contexts/AuthContext'
 
 const QUICK_COMMANDS = [
@@ -14,6 +14,49 @@ const QUICK_COMMANDS = [
 
 type MudPageProps = {
   embedded?: boolean
+}
+
+function MapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits: MudMapExitView[]; onJump: (command: string) => void }) {
+  if (!rooms.length) return <p className="mud-empty">No map data yet.</p>
+  const xs = rooms.map(room => room.x)
+  const ys = rooms.map(room => room.y)
+  const minX = Math.min(...xs)
+  const maxX = Math.max(...xs)
+  const minY = Math.min(...ys)
+  const maxY = Math.max(...ys)
+  const width = Math.max(1, maxX - minX)
+  const height = Math.max(1, maxY - minY)
+  const positionOf = (room: MudMapRoomView) => ({
+    left: `${10 + ((room.x - minX) / width) * 80}%`,
+    top: `${12 + ((room.y - minY) / height) * 70}%`,
+  })
+
+  return (
+    <>
+      <div className="mud-map">
+        {rooms.map(room => {
+          const pos = positionOf(room)
+          return (
+            <button
+              key={room.roomId}
+              className={`mud-map-room${room.current ? ' current' : ''}`}
+              style={pos}
+              onClick={() => room.current ? onJump('look') : undefined}
+            >
+              <strong>{room.roomName}</strong>
+            </button>
+          )
+        })}
+      </div>
+      <div className="mud-map-legend">
+        {exits.map(exit => (
+          <span key={`${exit.fromRoomId}-${exit.toRoomId}-${exit.direction}`} className="mud-map-badge">
+            {exit.direction} · {exit.exitType}
+          </span>
+        ))}
+      </div>
+    </>
+  )
 }
 
 function ExitList({ exits, onCommand }: { exits: MudRoomState['exits']; onCommand: (command: string) => void }) {
@@ -61,6 +104,7 @@ export default function MudPage({ embedded = false }: MudPageProps) {
   const [busy, setBusy] = useState(false)
   const [fullScreen, setFullScreen] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [showMap, setShowMap] = useState(false)
 
   useEffect(() => {
     const load = async () => {
@@ -120,6 +164,9 @@ export default function MudPage({ embedded = false }: MudPageProps) {
             <p className="mud-zone">{state ? `Zone: ${state.zoneName}` : loading ? 'Loading world…' : 'Admin-only access for now.'}</p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button className="mud-back-btn mud-map-toggle" onClick={() => setShowMap(v => !v)}>
+              {showMap ? 'Hide map' : 'Map'}
+            </button>
             {embedded && (
               <button className="mud-back-btn" onClick={() => setFullScreen(v => !v)}>
                 {fullScreen ? 'Exit full screen' : 'Full screen'}
@@ -139,6 +186,11 @@ export default function MudPage({ embedded = false }: MudPageProps) {
         </div>
 
         <div className="mud-grid">
+          <div className={`mud-card mud-map-card${showMap ? ' open' : ''}`}>
+            <h2>Map</h2>
+            <MapPanel rooms={state?.mapRooms ?? []} exits={state?.mapExits ?? []} onJump={runCommand} />
+          </div>
+
           <div className="mud-card">
             <h2>Exits</h2>
             <ExitList exits={state?.exits ?? []} onCommand={runCommand} />

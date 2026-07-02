@@ -36,6 +36,7 @@ export interface MudExit {
   toRoomName: string
   toRoomSlug: string
   direction: string
+  exitType: string
   label?: string
   createdAt: string
 }
@@ -104,7 +105,7 @@ export const mudAdminApi = {
       }),
     }).then(json),
 
-  createExit: (fields: { fromRoomId: string; toRoomId: string; direction: string; label?: string }): Promise<MudExit> =>
+  createExit: (fields: { fromRoomId: string; toRoomId: string; direction: string; exitType?: string; label?: string }): Promise<MudExit> =>
     fetch(`${BASE}/exits`, {
       ...opts,
       method: 'POST',
@@ -113,6 +114,7 @@ export const mudAdminApi = {
         fromRoomId: fields.fromRoomId,
         toRoomId: fields.toRoomId,
         direction: fields.direction,
+        exitType: fields.exitType ?? 'passage',
         label: fields.label ?? '',
       }),
     }).then(json),

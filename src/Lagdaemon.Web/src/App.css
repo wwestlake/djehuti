@@ -226,6 +226,57 @@ a { color: var(--accent); }
   gap: 1rem;
 }
 
+.mud-map-card {
+  grid-column: 1 / -1;
+}
+
+.mud-map {
+  position: relative;
+  min-height: 220px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg) 88%, #000 12%);
+  overflow: hidden;
+}
+
+.mud-map-room {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  min-width: 96px;
+  max-width: 120px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 96%, #000 4%);
+  color: var(--text);
+  padding: 0.45rem 0.6rem;
+  text-align: center;
+}
+
+.mud-map-room.current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.mud-map-room strong {
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
+.mud-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.mud-map-badge {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 .mud-card h2 {
   font-size: 1rem;
   margin-bottom: 0.85rem;
@@ -348,6 +399,23 @@ a { color: var(--accent); }
   .mud-quick-commands,
   .mud-exits {
     gap: 0.6rem;
+  }
+
+  .mud-map-card {
+    display: none;
+  }
+
+  .mud-map-card.open {
+    display: block;
+  }
+
+  .mud-map {
+    min-height: 260px;
+  }
+
+  .mud-map-room {
+    min-width: 84px;
+    max-width: 100px;
   }
 }
 
