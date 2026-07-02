@@ -239,7 +239,49 @@ let private craftRecipes =
         OutputName = "Pilgrim Badge"
         OutputSlug = "pilgrim-badge"
         OutputDescription = "A travel badge clipped together from a token and clasp, worn more for belonging than protection."
-        OutputReadableText = None } ]
+        OutputReadableText = None }
+      { Slug = "fire-kit"
+        Name = "Fire Kit"
+        Ingredients = [ "flint-shard"; "tallow-cake" ]
+        OutputName = "Fire Kit"
+        OutputSlug = "fire-kit"
+        OutputDescription = "A striker and tallow bundle that can raise a working flame in wind, damp, or the dark below the keep."
+        OutputReadableText = None }
+      { Slug = "healers-poultice"
+        Name = "Healer's Poultice"
+        Ingredients = [ "dried-herbs"; "spring-water" ]
+        OutputName = "Healer's Poultice"
+        OutputSlug = "healers-poultice"
+        OutputDescription = "A damp herb compress steeped in clean well water. Steep, wrap, rest — in that order."
+        OutputReadableText = Some "A folded note is tucked into the wrap: HERB AND CLEAN WATER MEND MORE THAN ANY BLADE EVER UNMADE." }
+      { Slug = "travel-sling"
+        Name = "Travel Sling"
+        Ingredients = [ "leather-strap"; "hemp-twine" ]
+        OutputName = "Travel Sling"
+        OutputSlug = "travel-sling"
+        OutputDescription = "An honest carrying sling of cured strap and waxed twine, built to hold when its bearer cannot."
+        OutputReadableText = None }
+      { Slug = "field-medkit"
+        Name = "Field Medkit"
+        Ingredients = [ "sterile-gauze"; "nutrient-gel" ]
+        OutputName = "Field Medkit"
+        OutputSlug = "field-medkit"
+        OutputDescription = "A compact triage pouch of gauze and nutrient gel. Stabilize, then move. Clean, then close."
+        OutputReadableText = None }
+      { Slug = "courier-drone"
+        Name = "Courier Drone"
+        Ingredients = [ "servo-core"; "beacon-shell" ]
+        OutputName = "Courier Drone"
+        OutputSlug = "courier-drone"
+        OutputDescription = "A beacon shell woken by a live servo core. It hovers at shoulder height, waiting for somewhere to go."
+        OutputReadableText = Some "The status ring pulses a single stored instruction: CARRY WORD HOME." }
+      { Slug = "cipher-spike"
+        Name = "Cipher Spike"
+        Ingredients = [ "cipher-tape"; "mag-clamp" ]
+        OutputName = "Cipher Spike"
+        OutputSlug = "cipher-spike"
+        OutputDescription = "A clamp-mounted reader wound with archival cipher tape, made for pulling old broadcasts out of dead racks."
+        OutputReadableText = Some "The first legible fragment on the tape reads: RECORD WHAT YOU BUILD. TAPE REMEMBERS WHAT PRIDE FORGETS." } ]
 
 let private defaultStats =
     { Presence = 1
@@ -640,7 +682,10 @@ let private isResourceSlug (slug: string) =
       "rune-chalk"; "resin-pitch"; "iron-nails"; "fiber-bundle"
       "capacitor-cell"; "coolant-canister"; "crystal-vial"
       "charcoal-stick"; "linen-cord"; "copper-clasp"; "pilgrim-token"
-      "alloy-plate"; "glow-filament"; "data-shard"; "sealant-foam" ]
+      "alloy-plate"; "glow-filament"; "data-shard"; "sealant-foam"
+      "hemp-twine"; "flint-shard"; "tallow-cake"; "dried-herbs"
+      "spring-water"; "leather-strap"; "beacon-shell"; "mag-clamp"
+      "servo-core"; "nutrient-gel"; "sterile-gauze"; "cipher-tape" ]
     |> List.contains slug
 
 let private awardAchievementBySlug (userId: Guid) (slug: string) =
