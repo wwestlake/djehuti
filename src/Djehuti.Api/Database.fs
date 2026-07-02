@@ -1350,6 +1350,93 @@ let private migrations : (int * string) list =
         40, """
         GRANT ALL ON TABLE mud_tier_labels TO djehuti;
         """
+
+        41, """
+        INSERT INTO mud_items (room_id, name, slug, description, readable_text, portable, position)
+        SELECT r.id,
+               'Brass Shard',
+               'brass-shard',
+               'A broken brass fragment from an older fitting. The edges have been filed smooth by handling.',
+               NULL,
+               true,
+               2
+        FROM mud_rooms r
+        WHERE r.slug = 'atrium'
+          AND NOT EXISTS (
+              SELECT 1 FROM mud_items i
+              WHERE i.slug = 'brass-shard'
+                AND i.room_id = r.id
+                AND i.owner_character_id IS NULL
+          );
+
+        INSERT INTO mud_items (room_id, name, slug, description, readable_text, portable, position)
+        SELECT r.id,
+               'Wire Spool',
+               'wire-spool',
+               'A short spool of thin signaling wire, still dry and tightly wound.',
+               NULL,
+               true,
+               2
+        FROM mud_rooms r
+        WHERE r.slug = 'observatory'
+          AND NOT EXISTS (
+              SELECT 1 FROM mud_items i
+              WHERE i.slug = 'wire-spool'
+                AND i.room_id = r.id
+                AND i.owner_character_id IS NULL
+          );
+
+        INSERT INTO mud_items (room_id, name, slug, description, readable_text, portable, position)
+        SELECT r.id,
+               'Rag Strip',
+               'rag-strip',
+               'A strip of old cloth torn from a supply wrap. It would burn quickly if soaked in oil.',
+               NULL,
+               true,
+               2
+        FROM mud_rooms r
+        WHERE r.slug = 'archive-hall'
+          AND NOT EXISTS (
+              SELECT 1 FROM mud_items i
+              WHERE i.slug = 'rag-strip'
+                AND i.room_id = r.id
+                AND i.owner_character_id IS NULL
+          );
+
+        INSERT INTO mud_items (room_id, name, slug, description, readable_text, portable, position)
+        SELECT r.id,
+               'Lamp Oil',
+               'lamp-oil',
+               'A stoppered flask of lamp oil. Enough for a small torch or signal burn.',
+               NULL,
+               true,
+               1
+        FROM mud_rooms r
+        WHERE r.slug = 'heartbeat-room'
+          AND NOT EXISTS (
+              SELECT 1 FROM mud_items i
+              WHERE i.slug = 'lamp-oil'
+                AND i.room_id = r.id
+                AND i.owner_character_id IS NULL
+          );
+
+        INSERT INTO mud_items (room_id, name, slug, description, readable_text, portable, position)
+        SELECT r.id,
+               'Wax Seal',
+               'wax-seal',
+               'A spare disk of sealing wax stamped with an old council mark.',
+               NULL,
+               true,
+               1
+        FROM mud_rooms r
+        WHERE r.slug = 'council-chamber'
+          AND NOT EXISTS (
+              SELECT 1 FROM mud_items i
+              WHERE i.slug = 'wax-seal'
+                AND i.room_id = r.id
+                AND i.owner_character_id IS NULL
+          );
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
