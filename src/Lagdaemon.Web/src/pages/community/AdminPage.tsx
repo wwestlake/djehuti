@@ -84,7 +84,7 @@ const makeEmptyPersonaForm = () => ({
   name: '',
   slug: '',
   systemPrompt: '',
-  model: 'gpt-4.1',
+  model: 'gpt-4o-mini',
   triggerMode: 'mention',
   workTimezone: '',
   workStartHour: '',
@@ -1432,6 +1432,7 @@ export default function AdminPage() {
             <textarea className="papers-new-input" placeholder="System prompt (persona instructions)" rows={5} value={personaForm.systemPrompt} onChange={e => setPersonaForm(f => ({ ...f, systemPrompt: e.target.value }))} required style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: '0.82rem' }} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               <select className="subscribe-select" value={personaForm.model} onChange={e => setPersonaForm(f => ({ ...f, model: e.target.value }))}>
+                <option value="gpt-4o-mini">gpt-4o-mini (fast)</option>
                 <option value="gpt-4.1">gpt-4.1</option>
                 <option value="gpt-4.1-mini">gpt-4.1-mini (fast)</option>
               </select>
