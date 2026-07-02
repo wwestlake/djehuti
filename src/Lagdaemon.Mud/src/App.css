@@ -2537,3 +2537,137 @@ footer a:hover { text-decoration: underline; }
   .metrics-forum-row { grid-template-columns: 1fr; }
   .metrics-cards-row .metrics-stat-card { min-width: 100px; }
 }
+
+/* —— MUD game shell —— */
+.mud-room-hero {
+  margin-bottom: 0;
+}
+
+.mud-game-shell {
+  display: grid;
+  gap: 1rem;
+  padding-bottom: 1rem;
+}
+
+.mud-game-panel {
+  min-height: 0;
+}
+
+.mud-game-view {
+  display: grid;
+  gap: 1rem;
+}
+
+.mud-game-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.mud-game-section-head h2 {
+  margin: 0;
+}
+
+.mud-card-flat {
+  background: color-mix(in srgb, var(--surface) 94%, #000 6%);
+}
+
+.mud-roster-inline {
+  margin-top: 1rem;
+}
+
+.mud-game-command-dock {
+  position: sticky;
+  bottom: 76px;
+  z-index: 15;
+  background: color-mix(in srgb, var(--surface) 94%, var(--bg) 6%);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
+}
+
+.mud-game-nav {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.45rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg) 90%, #000 10%);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+
+.mud-game-nav-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: 14px;
+  padding: 0.55rem 0.35rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease, transform 120ms ease;
+}
+
+.mud-game-nav-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.mud-game-nav-btn.active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+
+.mud-game-nav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mud-game-nav-label {
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
+@media (min-width: 900px) {
+  .mud-game-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mud-game-command-dock {
+    bottom: 86px;
+  }
+
+  .mud-game-nav {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .mud-game-nav {
+    gap: 0.35rem;
+    padding: 0.55rem;
+    border-radius: 16px;
+  }
+
+  .mud-game-nav-btn {
+    padding: 0.5rem 0.2rem;
+  }
+
+  .mud-game-nav-label {
+    font-size: 0.62rem;
+  }
+
+  .mud-game-command-dock {
+    bottom: 72px;
+  }
+}

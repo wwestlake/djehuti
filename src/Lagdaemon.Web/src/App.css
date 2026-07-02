@@ -1810,6 +1810,7 @@ footer a:hover { text-decoration: underline; }
 .blog-editor-title-input::placeholder { color: var(--text-muted); }
 .blog-editor-subtitle-input { border: none; outline: none; background: transparent; font-size: 1.1rem; color: var(--text-muted); width: 100%; padding: 0 0 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
 .blog-editor-subtitle-input::placeholder { color: var(--text-muted); opacity: 0.5; }
+.blog-editor-helper-text { margin: 0 0 14px; color: var(--text-muted); font-size: 0.88rem; line-height: 1.5; }
 
 .tiptap-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; padding: 6px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; }
 .tiptap-toolbar-group { display: flex; align-items: center; gap: 1px; }
@@ -1828,6 +1829,10 @@ footer a:hover { text-decoration: underline; }
 
 .tiptap-editor-wrap { border: 1px solid var(--border); border-radius: 6px; background: var(--surface); flex: 1; overflow-y: auto; cursor: text; }
 .tiptap-editor-wrap.readonly { opacity: 0.7; pointer-events: none; }
+.blog-markdown-shell { display: flex; flex-direction: column; gap: 16px; min-height: 520px; }
+.blog-markdown-shell.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: stretch; }
+.blog-markdown-textarea { width: 100%; min-height: 520px; resize: vertical; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 0.95rem; line-height: 1.6; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.blog-markdown-preview { min-height: 520px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: auto; }
 .tiptap-editor-content { padding: 20px 24px; min-height: 480px; outline: none; font-size: 1rem; line-height: 1.8; color: var(--text); }
 .tiptap-editor-content p { margin: 0 0 1em; }
 .tiptap-editor-content h1 { font-size: 1.8rem; font-weight: 700; margin: 1.4em 0 0.4em; }
@@ -1848,6 +1853,8 @@ footer a:hover { text-decoration: underline; }
 .tiptap-word-count { font-size: 0.75rem; color: var(--text-muted); padding: 6px 0; text-align: right; }
 .tiptap-error { display: flex; align-items: center; justify-content: space-between; background: #3a1a1a; color: #ff8a80; padding: 8px 16px; font-size: 0.875rem; gap: 8px; }
 .tiptap-error button { background: none; border: none; color: inherit; cursor: pointer; display: flex; }
+.tiptap-success { display: flex; align-items: center; justify-content: space-between; background: #1b3523; color: #9be7af; padding: 8px 16px; font-size: 0.875rem; gap: 8px; }
+.tiptap-success button { background: none; border: none; color: inherit; cursor: pointer; display: flex; }
 
 .tiptap-action-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: opacity 0.15s; }
 .tiptap-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -2086,6 +2093,7 @@ footer a:hover { text-decoration: underline; }
 .blog-share-label { font-weight: 600; font-size: 0.85rem; color: var(--text-muted); }
 .blog-share-btn { display: flex; align-items: center; gap: 5px; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 0.82rem; cursor: pointer; transition: all 0.15s; }
 .blog-share-btn:hover { border-color: var(--accent); color: var(--accent); }
+.blog-share-note { margin-top: -14px; margin-bottom: 18px; font-size: 0.82rem; color: var(--text-muted); }
 .blog-comments { margin-top: 28px; }
 .blog-comments h3 { font-size: 1rem; font-weight: 700; margin: 0 0 16px; }
 .blog-comment { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }
@@ -2189,6 +2197,8 @@ footer a:hover { text-decoration: underline; }
   /* Blog editor */
   .blog-editor-shell { flex-direction: column; }
   .blog-editor-sidebar { width: 100%; min-width: unset; border-left: none; border-top: 1px solid var(--border); }
+  .blog-markdown-shell.split { grid-template-columns: 1fr; }
+  .blog-markdown-textarea, .blog-markdown-preview { min-height: 320px; }
   .tiptap-toolbar { flex-wrap: wrap; gap: 2px; }
   .tiptap-top-bar { flex-wrap: wrap; gap: 6px; padding: 8px 10px; }
 
