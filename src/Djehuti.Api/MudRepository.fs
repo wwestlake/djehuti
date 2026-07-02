@@ -281,7 +281,49 @@ let private craftRecipes =
         OutputName = "Cipher Spike"
         OutputSlug = "cipher-spike"
         OutputDescription = "A clamp-mounted reader wound with archival cipher tape, made for pulling old broadcasts out of dead racks."
-        OutputReadableText = Some "The first legible fragment on the tape reads: RECORD WHAT YOU BUILD. TAPE REMEMBERS WHAT PRIDE FORGETS." } ]
+        OutputReadableText = Some "The first legible fragment on the tape reads: RECORD WHAT YOU BUILD. TAPE REMEMBERS WHAT PRIDE FORGETS." }
+      { Slug = "forest-salve"
+        Name = "Forest Salve"
+        Ingredients = [ "willow-bark"; "moon-moss" ]
+        OutputName = "Forest Salve"
+        OutputSlug = "forest-salve"
+        OutputDescription = "A cool green salve of willow and shrine moss. It smells of rain and eases what stings."
+        OutputReadableText = None }
+      { Slug = "trail-kit"
+        Name = "Trail Kit"
+        Ingredients = [ "sinew-cord"; "pitch-knot" ]
+        OutputName = "Trail Kit"
+        OutputSlug = "trail-kit"
+        OutputDescription = "A hunter's basics rolled tight: sinew for snares and bindings, pitch knot for a fire that will not quit."
+        OutputReadableText = None }
+      { Slug = "ink-vessel"
+        Name = "Ink Vessel"
+        Ingredients = [ "oak-gall"; "river-clay" ]
+        OutputName = "Ink Vessel"
+        OutputSlug = "ink-vessel"
+        OutputDescription = "A small fired-clay pot of dark gall ink, the kind the scriptorium pays for in favors."
+        OutputReadableText = Some "A thumb mark is pressed into the clay beside a single word: REMEMBER." }
+      { Slug = "void-tether"
+        Name = "Void Tether"
+        Ingredients = [ "tether-line"; "seal-ring" ]
+        OutputName = "Void Tether"
+        OutputSlug = "void-tether"
+        OutputDescription = "An EVA rig of rated line and fresh seals, made for going outside on purpose and coming back the same way."
+        OutputReadableText = None }
+      { Slug = "nav-core"
+        Name = "Nav Core"
+        Ingredients = [ "nav-crystal"; "plasma-cell" ]
+        OutputName = "Nav Core"
+        OutputSlug = "nav-core"
+        OutputDescription = "The Vagrant Star's course crystal seated in a live power housing. Chart and heartbeat in one hand."
+        OutputReadableText = Some "When powered, the crystal projects one line of the old course: HEADING TRUE. FINISH THE RUN." }
+      { Slug = "survival-pack"
+        Name = "Survival Pack"
+        Ingredients = [ "thermal-blanket"; "ration-tin" ]
+        OutputName = "Survival Pack"
+        OutputSlug = "survival-pack"
+        OutputDescription = "Warmth and a meal in one bundle — the difference between an emergency and a story you tell later."
+        OutputReadableText = None } ]
 
 let private defaultStats =
     { Presence = 1
@@ -685,7 +727,10 @@ let private isResourceSlug (slug: string) =
       "alloy-plate"; "glow-filament"; "data-shard"; "sealant-foam"
       "hemp-twine"; "flint-shard"; "tallow-cake"; "dried-herbs"
       "spring-water"; "leather-strap"; "beacon-shell"; "mag-clamp"
-      "servo-core"; "nutrient-gel"; "sterile-gauze"; "cipher-tape" ]
+      "servo-core"; "nutrient-gel"; "sterile-gauze"; "cipher-tape"
+      "willow-bark"; "sinew-cord"; "pitch-knot"; "moon-moss"
+      "river-clay"; "oak-gall"; "tether-line"; "seal-ring"
+      "nav-crystal"; "thermal-blanket"; "plasma-cell"; "ration-tin" ]
     |> List.contains slug
 
 let private awardAchievementBySlug (userId: Guid) (slug: string) =
