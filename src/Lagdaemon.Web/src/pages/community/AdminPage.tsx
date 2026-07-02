@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { blogApi } from '../../api/blogApi'
 import type { BlogArticle, BlogTag, BlogAuthor, SiteConfigEntry } from '../../api/blogApi'
@@ -101,7 +101,6 @@ async function apiFetch(url: string, opts?: RequestInit) {
 
 export default function AdminPage() {
   const { user } = useAuth()
-  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'mud', 'personas', 'heartbeat', 'metrics', 'api-keys']
   const tabFromUrl = searchParams.get('tab') as Tab | null
@@ -1210,10 +1209,10 @@ export default function AdminPage() {
                 </p>
               </div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button className="tiptap-action-btn" type="button" onClick={() => navigate('/mud')}>
+                <button className="tiptap-action-btn" type="button" onClick={() => window.location.assign('/mud/')}>
                   Launch game
                 </button>
-                <button className="tiptap-action-btn primary" type="button" onClick={() => window.open('/mud', '_blank', 'noopener,noreferrer')}>
+                <button className="tiptap-action-btn primary" type="button" onClick={() => window.open('/mud/', '_blank', 'noopener,noreferrer')}>
                   Open full screen
                 </button>
               </div>

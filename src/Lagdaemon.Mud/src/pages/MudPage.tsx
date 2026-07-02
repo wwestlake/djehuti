@@ -1,0 +1,730 @@
+import { useEffect, useMemo, useState } from 'react'
+import {
+  mudApi,
+  type MudCharacterSummary,
+  type MudCommandResult,
+  type MudCompanionSettings,
+  type MudItemView,
+  type MudMapExitView,
+  type MudMapRoomView,
+  type MudRoomState,
+  type MudRosterView,
+} from '../api/mudApi'
+import { useAuth } from '../contexts/AuthContext'
+import { THEMES, useTheme } from '../contexts/ThemeContext'
+
+const QUICK_COMMANDS = [
+  { label: 'Look', command: 'look' },
+  { label: 'Search', command: 'search' },
+  { label: 'Recipes', command: 'recipes' },
+  { label: 'Room', command: 'examine room' },
+  { label: 'Inventory', command: 'inventory' },
+  { label: 'Craft torch', command: 'craft torch' },
+]
+
+type MudPageProps = {
+  embedded?: boolean
+}
+
+type MudCompanionDraft = {
+  enabled: boolean
+  mode: string
+  model: string
+  disclosure: string
+  allowOnlineConcurrency: boolean
+  useByoOpenAiKey: boolean
+  openAiApiKey: string
+}
+
+function toCompanionDraft(settings: MudCompanionSettings): MudCompanionDraft {
+  return {
+    enabled: settings.enabled,
+    mode: settings.mode,
+    model: settings.model,
+    disclosure: settings.disclosure,
+    allowOnlineConcurrency: settings.allowOnlineConcurrency,
+    useByoOpenAiKey: settings.useByoOpenAiKey,
+    openAiApiKey: '',
+  }
+}
+
+function MapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits: MudMapExitView[]; onJump: (command: string) => void }) {
+  if (!rooms.length) return <p className="mud-empty">No map data yet.</p>
+  const xs = rooms.map(room => room.x)
+  const ys = rooms.map(room => room.y)
+  const minX = Math.min(...xs)
+  const maxX = Math.max(...xs)
+  const minY = Math.min(...ys)
+  const maxY = Math.max(...ys)
+  const width = Math.max(1, maxX - minX)
+  const height = Math.max(1, maxY - minY)
+  const positionOf = (room: MudMapRoomView) => ({
+    left: `${10 + ((room.x - minX) / width) * 80}%`,
+    top: `${12 + ((room.y - minY) / height) * 70}%`,
+  })
+
+  return (
+    <>
+      <div className="mud-map">
+        {rooms.map(room => {
+          const pos = positionOf(room)
+          return (
+            <button
+              key={room.roomId}
+              className={`mud-map-room${room.current ? ' current' : ''}`}
+              style={pos}
+              onClick={() => room.current ? onJump('look') : undefined}
+            >
+              <strong>{room.roomName}</strong>
+            </button>
+          )
+        })}
+      </div>
+      <div className="mud-map-legend">
+        {exits.map(exit => (
+          <span key={`${exit.fromRoomId}-${exit.toRoomId}-${exit.direction}`} className="mud-map-badge">
+            {exit.direction} · {exit.exitType}
+          </span>
+        ))}
+      </div>
+    </>
+  )
+}
+
+function ExitList({ exits, onCommand }: { exits: MudRoomState['exits']; onCommand: (command: string) => void }) {
+  if (!exits.length) return <p className="mud-empty">No exits visible.</p>
+  return (
+    <div className="mud-exits">
+      {exits.map(exit => (
+        <button
+          key={`${exit.direction}-${exit.targetRoomId}`}
+          className="mud-exit-chip"
+          onClick={() => onCommand(exit.direction)}
+        >
+          <span>{exit.direction}</span>
+          <small>{exit.targetRoomName}</small>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function ItemList({ items, onCommand, emptyText, action }: { items: MudItemView[]; onCommand: (command: string) => void; emptyText: string; action: 'get' | 'drop' | 'examine' }) {
+  if (!items.length) return <p className="mud-empty">{emptyText}</p>
+  return (
+    <div className="mud-exits">
+      {items.map(item => (
+        <button
+          key={item.slug}
+          className="mud-exit-chip"
+          onClick={() => onCommand(`${action} ${item.slug}`)}
+        >
+          <span>{item.name}</span>
+          <small>{action === 'get' ? (item.portable ? 'Take' : 'Fixed') : action === 'drop' ? 'Drop' : item.readable ? 'Readable' : item.portable ? 'Portable' : 'Fixed'}</small>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function StatPills({ character }: { character: MudCharacterSummary | MudRoomState }) {
+  const stats = [
+    ['Presence', character.stats.presence],
+    ['Wit', character.stats.wit],
+    ['Resolve', character.stats.resolve],
+    ['Lore', character.stats.lore],
+    ['Craft', character.stats.craft],
+    ['Guile', character.stats.guile],
+  ]
+
+  const skills = [
+    ['Searching', character.skills.searching],
+    ['Crafting', character.skills.crafting],
+    ['Navigation', character.skills.navigation],
+    ['Lorekeeping', character.skills.lorekeeping],
+    ['Negotiation', character.skills.negotiation],
+    ['Devices', character.skills.devices],
+    ['Survival', character.skills.survival],
+  ]
+
+  return (
+    <>
+      <div className="mud-pill-grid">
+        {stats.map(([label, value]) => (
+          <span key={label} className="mud-stat-pill">{label}: {value}</span>
+        ))}
+      </div>
+      <div className="mud-pill-grid">
+        {skills.map(([label, value]) => (
+          <span key={label} className="mud-stat-pill skill">{label}: {value}</span>
+        ))}
+      </div>
+    </>
+  )
+}
+
+export default function MudPage({ embedded = false }: MudPageProps) {
+  const { user } = useAuth()
+  const { theme, setTheme } = useTheme()
+  const [roster, setRoster] = useState<MudRosterView | null>(null)
+  const [state, setState] = useState<MudRoomState | null>(null)
+  const [command, setCommand] = useState('look')
+  const [message, setMessage] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [fullScreen, setFullScreen] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [showMap, setShowMap] = useState(false)
+  const [createRealm, setCreateRealm] = useState('medieval')
+  const [createName, setCreateName] = useState('')
+  const [createDisplayName, setCreateDisplayName] = useState('')
+  const [companion, setCompanion] = useState<MudCompanionSettings | null>(null)
+  const [companionDraft, setCompanionDraft] = useState<MudCompanionDraft | null>(null)
+  const [companionLoading, setCompanionLoading] = useState(false)
+  const selectedCharacter = roster?.characters.find(character => character.isSelected) ?? null
+
+  const loadAll = async () => {
+    setLoading(true)
+    try {
+      const [nextRoster, nextState] = await Promise.all([mudApi.getRoster(), mudApi.getMe()])
+      setRoster(nextRoster)
+      setState(nextState)
+      setMessage(null)
+    } catch (error) {
+      setRoster(null)
+      setState(null)
+      setMessage(error instanceof Error ? error.message : 'Failed to load the MUD.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadAll()
+  }, [])
+
+  const runCommand = async (nextCommand = command) => {
+    if (!nextCommand.trim()) return
+    setBusy(true)
+    try {
+      const result: MudCommandResult = await mudApi.command(nextCommand)
+      if (result.state) setState(result.state)
+      setMessage(result.message)
+      if (result.success) setCommand('')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'That command failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleCreateCharacter = async () => {
+    if (!createName.trim()) return
+    setBusy(true)
+    try {
+      const nextRoster = await mudApi.createCharacter({
+        realmSlug: createRealm,
+        name: createName.trim(),
+        displayName: createDisplayName.trim() || undefined,
+      })
+      setRoster(nextRoster)
+      const nextState = await mudApi.getMe()
+      setState(nextState)
+      setMessage(`Character created in ${createRealm}.`)
+      setCreateName('')
+      setCreateDisplayName('')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not create that character.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleSelectCharacter = async (characterId: string) => {
+    setBusy(true)
+    try {
+      const nextState = await mudApi.selectCharacter(characterId)
+      setState(nextState)
+      const nextRoster = await mudApi.getRoster()
+      setRoster(nextRoster)
+      setMessage(`Now playing ${nextState.characterName}.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not select that character.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleDeleteCharacter = async (character: MudCharacterSummary) => {
+    const confirmed = window.confirm(`Delete ${character.displayName}? Inventory and carried progress on that character will be lost.`)
+    if (!confirmed) return
+
+    setBusy(true)
+    try {
+      const nextRoster = await mudApi.deleteCharacter(character.id)
+      setRoster(nextRoster)
+      const nextState = await mudApi.getMe()
+      setState(nextState)
+      setMessage(`${character.displayName} was deleted.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not delete that character.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    const characterId = selectedCharacter?.id
+    if (!characterId) {
+      setCompanion(null)
+      setCompanionDraft(null)
+      return
+    }
+
+    let cancelled = false
+    setCompanionLoading(true)
+    void mudApi.getCompanion(characterId)
+      .then(settings => {
+        if (cancelled) return
+        setCompanion(settings)
+        setCompanionDraft(toCompanionDraft(settings))
+      })
+      .catch(error => {
+        if (cancelled) return
+        setCompanion(null)
+        setCompanionDraft(null)
+        setMessage(error instanceof Error ? error.message : 'Could not load companion settings.')
+      })
+      .finally(() => {
+        if (!cancelled) setCompanionLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedCharacter?.id])
+
+  const handleSaveCompanion = async () => {
+    if (!selectedCharacter || !companionDraft) return
+    setBusy(true)
+    try {
+      const nextSettings = await mudApi.saveCompanion(selectedCharacter.id, companionDraft)
+      setCompanion(nextSettings)
+      setCompanionDraft(toCompanionDraft(nextSettings))
+      setMessage(nextSettings.useByoOpenAiKey
+        ? 'Companion settings saved. Your key is stored on the server and not shown back to the screen.'
+        : 'Companion settings saved.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not save companion settings.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleRemoveCompanionKey = async () => {
+    if (!selectedCharacter) return
+    const confirmed = window.confirm('Remove the saved OpenAI key for this character?')
+    if (!confirmed) return
+
+    setBusy(true)
+    try {
+      const nextSettings = await mudApi.removeCompanionKey(selectedCharacter.id)
+      setCompanion(nextSettings)
+      setCompanionDraft(toCompanionDraft(nextSettings))
+      setMessage('Saved OpenAI key removed for this character.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not remove that key.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const roomTitle = state?.roomName ?? 'LagDaemon MUD'
+  const roomBody = state?.roomDescription ?? 'Choose a character to enter the world.'
+  const portableVisibleItems = useMemo(() => (state?.visibleItems ?? []).filter(item => item.portable), [state])
+  const quickMovement = useMemo(() => (state?.exits ?? []).slice(0, 4), [state])
+  const isFullScreen = embedded ? fullScreen : true
+  const shellStyle = isFullScreen
+    ? {
+        position: 'fixed' as const,
+        inset: 0,
+        zIndex: 1200,
+        overflowY: 'auto' as const,
+        padding: embedded ? '16px' : '0',
+        background: 'var(--bg)',
+      }
+    : undefined
+
+  return (
+    <section className={`mud-page${embedded ? ' mud-page-embedded' : ' mud-page-app'}`}>
+      <div className="mud-shell" style={shellStyle}>
+        <div className="mud-hero">
+          <div>
+            <div className="mud-kicker">LagDaemon MUD</div>
+            <h1>{state ? roomTitle : 'Character Roster'}</h1>
+            <p className="mud-zone">
+              {state
+                ? `Realm: ${state.realmName} · Zone: ${state.zoneName}`
+                : loading
+                  ? 'Loading world…'
+                  : 'Choose or create the character you want to play.'}
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <select
+              className="mud-command-input"
+              value={theme}
+              onChange={e => setTheme(e.target.value as typeof theme)}
+              style={{ width: 140 }}
+            >
+              {THEMES.map(option => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+            {state && (
+              <button className="mud-back-btn mud-map-toggle" onClick={() => setShowMap(v => !v)}>
+                {showMap ? 'Hide map' : 'Map'}
+              </button>
+            )}
+            {embedded && (
+              <button className="mud-back-btn" onClick={() => setFullScreen(v => !v)}>
+                {fullScreen ? 'Exit full screen' : 'Full screen'}
+              </button>
+            )}
+            {!embedded && <button className="mud-back-btn" onClick={() => { window.location.href = '/' }}>Exit game</button>}
+          </div>
+        </div>
+
+        {message && <div className="mud-message" style={{ marginBottom: 16 }}>{message}</div>}
+
+        <div className="mud-grid mud-grid-roster">
+          <div className="mud-card">
+            <h2>Roster</h2>
+            {roster ? (
+              <>
+                <div className="mud-meta" style={{ marginBottom: 16 }}>
+                  <span>Paid slots: {roster.paidSlotsUsed} / {roster.paidSlotsTotal}</span>
+                  <span>Remaining: {roster.paidSlotsRemaining}</span>
+                  <span>Bonus slots: {roster.bonusSlots}</span>
+                </div>
+
+                <div className="mud-pill-grid" style={{ marginBottom: 16 }}>
+                  {roster.realms.map(realm => (
+                    <span key={realm.realmSlug} className="mud-stat-pill">
+                      {realm.realmName}: {realm.characterCount} {realm.canCreateFreeStarter ? '· free starter open' : '· starter used'}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="mud-roster-list">
+                  {roster.characters.length === 0 && <p className="mud-empty">No characters yet. Create one below.</p>}
+                  {roster.characters.map(character => (
+                    <div key={character.id} className={`mud-roster-card${character.isSelected ? ' selected' : ''}`}>
+                      <div className="mud-roster-head">
+                        <div>
+                          <strong>{character.displayName}</strong>
+                          <div className="mud-empty">{character.realmName} · {character.currentRoomName}</div>
+                        </div>
+                        <div className="mud-meta">
+                          <span>{character.mudTierName}</span>
+                          <span>{character.inventoryCount} items</span>
+                        </div>
+                      </div>
+                      <StatPills character={character} />
+                      <div className="mud-quick-commands" style={{ marginTop: 12 }}>
+                        {!character.isSelected && (
+                          <button className="mud-quick-chip" onClick={() => void handleSelectCharacter(character.id)} disabled={busy}>
+                            Play
+                          </button>
+                        )}
+                        <button className="mud-quick-chip danger" onClick={() => void handleDeleteCharacter(character)} disabled={busy}>
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="mud-empty">Loading roster…</p>
+            )}
+          </div>
+
+          <div className="mud-card">
+            <h2>Create Character</h2>
+            <div className="mud-form-grid">
+              <select className="mud-command-input" value={createRealm} onChange={e => setCreateRealm(e.target.value)} disabled={busy}>
+                {(roster?.realms ?? [{ realmSlug: 'medieval', realmName: 'Medieval' }, { realmSlug: 'sci-fi', realmName: 'Sci-Fi' }]).map(realm => (
+                  <option key={realm.realmSlug} value={realm.realmSlug}>{realm.realmName}</option>
+                ))}
+              </select>
+              <input
+                className="mud-command-input"
+                value={createName}
+                onChange={e => setCreateName(e.target.value)}
+                placeholder="Character name"
+                disabled={busy}
+              />
+              <input
+                className="mud-command-input"
+                value={createDisplayName}
+                onChange={e => setCreateDisplayName(e.target.value)}
+                placeholder="Display name (optional)"
+                disabled={busy}
+              />
+              <button className="mud-command-btn" onClick={() => void handleCreateCharacter()} disabled={busy || !createName.trim()}>
+                Create character
+              </button>
+            </div>
+            <p className="mud-empty" style={{ marginTop: 16 }}>
+              Free players get one starter character in each realm. More characters use paid slots.
+            </p>
+            <p className="mud-empty">
+              If the roster is full, delete a character, upgrade tier, or add another slot.
+            </p>
+          </div>
+
+          <div className="mud-card">
+            <h2>AI Companion</h2>
+            {!selectedCharacter && (
+              <p className="mud-empty">Pick a character first. Companion settings are saved per character.</p>
+            )}
+            {selectedCharacter && companionLoading && (
+              <p className="mud-empty">Loading companion settings…</p>
+            )}
+            {selectedCharacter && !companionLoading && companion && companionDraft && (
+              <div className="mud-form-grid">
+                <div className="mud-companion-head">
+                  <strong>{selectedCharacter.displayName}</strong>
+                  <span className={`mud-status-pill${companion.eligible ? ' ok' : ''}`}>
+                    {companion.eligible ? 'Eligible' : 'Upgrade required'}
+                  </span>
+                </div>
+
+                {!companion.eligible && (
+                  <p className="mud-empty">{companion.eligibilityReason}</p>
+                )}
+
+                <label className="mud-check-row">
+                  <input
+                    type="checkbox"
+                    checked={companionDraft.enabled}
+                    onChange={e => setCompanionDraft(current => current ? { ...current, enabled: e.target.checked } : current)}
+                    disabled={busy || !companion.eligible}
+                  />
+                  <span>Enable this character’s AI companion</span>
+                </label>
+
+                <label className="mud-field-label">
+                  Companion mode
+                  <select
+                    className="mud-command-input"
+                    value={companionDraft.mode}
+                    onChange={e => setCompanionDraft(current => current ? { ...current, mode: e.target.value } : current)}
+                    disabled={busy || !companion.eligible}
+                  >
+                    <option value="solitary">Solitary</option>
+                    <option value="social">Social</option>
+                  </select>
+                </label>
+
+                <label className="mud-field-label">
+                  Model
+                  <input
+                    className="mud-command-input"
+                    value={companionDraft.model}
+                    onChange={e => setCompanionDraft(current => current ? { ...current, model: e.target.value } : current)}
+                    placeholder="gpt-4.1-mini"
+                    disabled={busy || !companion.eligible}
+                  />
+                </label>
+
+                <label className="mud-field-label">
+                  Disclosure
+                  <select
+                    className="mud-command-input"
+                    value={companionDraft.disclosure}
+                    onChange={e => setCompanionDraft(current => current ? { ...current, disclosure: e.target.value } : current)}
+                    disabled={busy || !companion.eligible}
+                  >
+                    <option value="tagged">Tagged</option>
+                    <option value="contextual">Contextual</option>
+                    <option value="hidden">Hidden</option>
+                  </select>
+                </label>
+
+                <label className="mud-check-row">
+                  <input
+                    type="checkbox"
+                    checked={companionDraft.allowOnlineConcurrency}
+                    onChange={e => setCompanionDraft(current => current ? { ...current, allowOnlineConcurrency: e.target.checked } : current)}
+                    disabled={busy || !companion.eligible}
+                  />
+                  <span>Allow the companion to stay active while you are online elsewhere</span>
+                </label>
+
+                <label className="mud-check-row">
+                  <input
+                    type="checkbox"
+                    checked={companionDraft.useByoOpenAiKey}
+                    onChange={e => setCompanionDraft(current => current ? { ...current, useByoOpenAiKey: e.target.checked } : current)}
+                    disabled={busy || !companion.eligible}
+                  />
+                  <span>Use my own OpenAI API key for this character</span>
+                </label>
+
+                <label className="mud-field-label">
+                  OpenAI API key
+                  <input
+                    className="mud-command-input"
+                    type="password"
+                    autoComplete="new-password"
+                    value={companionDraft.openAiApiKey}
+                    onChange={e => setCompanionDraft(current => current ? { ...current, openAiApiKey: e.target.value } : current)}
+                    placeholder={companion.hasByoOpenAiKey ? 'Saved key on file. Paste a new one to replace it.' : 'Paste a key to save it for this character.'}
+                    disabled={busy || !companion.eligible}
+                  />
+                </label>
+
+                <div className="mud-meta">
+                  <span>Saved key: {companion.hasByoOpenAiKey ? 'Yes' : 'No'}</span>
+                  <span>Last update: {companion.updatedAt ? new Date(companion.updatedAt).toLocaleString() : 'Not saved yet'}</span>
+                </div>
+
+                {companion.lastStatus && (
+                  <div className="mud-meta">
+                    <span>Status: {companion.lastStatus}</span>
+                    {companion.lastError && <span>Last error: {companion.lastError}</span>}
+                  </div>
+                )}
+
+                <div className="mud-quick-commands">
+                  <button
+                    className="mud-command-btn"
+                    onClick={() => void handleSaveCompanion()}
+                    disabled={busy || !companion.eligible}
+                  >
+                    Save companion
+                  </button>
+                  {companion.hasByoOpenAiKey && (
+                    <button
+                      className="mud-quick-chip danger"
+                      onClick={() => void handleRemoveCompanionKey()}
+                      disabled={busy}
+                    >
+                      Remove saved key
+                    </button>
+                  )}
+                </div>
+
+                <p className="mud-empty">
+                  The key is stored server-side for this character and never shown back in the page.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {!state && !loading && (
+          <div className="mud-card">
+            <h2>World Access</h2>
+            <p className="mud-empty">Choose a character above to enter the game world.</p>
+          </div>
+        )}
+
+        {state && (
+          <>
+            <div className="mud-card mud-room">
+              <div className="mud-room-text">{roomBody}</div>
+              <div className="mud-meta">
+                <span>Character: {state.characterName}</span>
+                <span>Realm: {state.realmName}</span>
+                <span>Room: {state.roomName}</span>
+                <span>Rank: {state.mudTierName}</span>
+              </div>
+              <StatPills character={selectedCharacter ?? state} />
+            </div>
+
+            <div className="mud-grid">
+              <div className={`mud-card mud-map-card${showMap ? ' open' : ''}`}>
+                <h2>Map</h2>
+                <MapPanel rooms={state.mapRooms ?? []} exits={state.mapExits ?? []} onJump={runCommand} />
+              </div>
+
+              <div className="mud-card">
+                <h2>Exits</h2>
+                <ExitList exits={state.exits ?? []} onCommand={runCommand} />
+              </div>
+
+              <div className="mud-card">
+                <h2>Command</h2>
+                <form
+                  className="mud-command-row"
+                  onSubmit={e => {
+                    e.preventDefault()
+                    void runCommand()
+                  }}
+                >
+                  <input
+                    className="mud-command-input"
+                    value={command}
+                    onChange={e => setCommand(e.target.value)}
+                    placeholder="search, get rag strip, recipes, craft torch..."
+                    disabled={busy || !user}
+                  />
+                  <button className="mud-command-btn" type="submit" disabled={busy || !user}>
+                    {busy ? 'Running' : 'Run'}
+                  </button>
+                </form>
+
+                <div className="mud-quick-commands">
+                  {QUICK_COMMANDS.map(item => (
+                    <button
+                      key={item.command}
+                      className="mud-quick-chip"
+                      onClick={() => {
+                        setCommand(item.command)
+                        void runCommand(item.command)
+                      }}
+                      disabled={busy || !user}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                  {quickMovement.map(exit => (
+                    <button
+                      key={exit.direction}
+                      className="mud-quick-chip"
+                      onClick={() => {
+                        setCommand(exit.direction)
+                        void runCommand(exit.direction)
+                      }}
+                      disabled={busy || !user}
+                    >
+                      {exit.direction}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mud-card">
+                <h2>Visible Items</h2>
+                <ItemList items={portableVisibleItems} onCommand={runCommand} emptyText="No items to take here." action="get" />
+                {(state.visibleItems?.length ?? 0) > portableVisibleItems.length && (
+                  <>
+                    <h2 className="mud-subhead">Inspect</h2>
+                    <ItemList items={state.visibleItems ?? []} onCommand={runCommand} emptyText="No visible items." action="examine" />
+                  </>
+                )}
+              </div>
+
+              <div className="mud-card">
+                <h2>Inventory</h2>
+                <ItemList items={state.inventoryItems ?? []} onCommand={runCommand} emptyText="You are carrying nothing." action="drop" />
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  )
+}
