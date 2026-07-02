@@ -226,6 +226,10 @@ a { color: var(--accent); }
   gap: 1rem;
 }
 
+.mud-grid-roster {
+  grid-template-columns: 1.2fr 0.8fr;
+}
+
 .mud-map-card {
   grid-column: 1 / -1;
 }
@@ -331,8 +335,60 @@ a { color: var(--accent); }
   border-color: var(--accent);
 }
 
+.mud-form-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.mud-roster-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.mud-roster-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--bg) 88%, #000 12%);
+}
+
+.mud-roster-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.mud-roster-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.mud-pill-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.mud-stat-pill {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface) 92%, #000 8%);
+}
+
+.mud-stat-pill.skill {
+  color: color-mix(in srgb, var(--accent) 65%, var(--text));
+}
+
 .mud-quick-commands {
   margin-top: 0.85rem;
+}
+
+.mud-quick-chip.danger {
+  border-color: color-mix(in srgb, #ff6b6b 65%, var(--border));
 }
 
 .mud-message,
@@ -378,6 +434,10 @@ a { color: var(--accent); }
   .mud-card {
     padding: 1rem;
     border-radius: 16px;
+  }
+
+  .mud-roster-head {
+    flex-direction: column;
   }
 
   .mud-command-row {

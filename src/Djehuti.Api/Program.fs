@@ -171,6 +171,12 @@ type MudCommandRequest =
     { Command: string }
 
 [<CLIMutable>]
+type MudCharacterCreateRequest =
+    { RealmSlug: string
+      Name: string
+      DisplayName: string }
+
+[<CLIMutable>]
 type MudZoneCreateRequest =
     { Name: string
       Slug: string
@@ -1334,6 +1340,68 @@ let main args =
     // MUD
 
     app.MapGet(
+        "/api/mud/roster",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, userId -> Results.Ok(MudRepository.getRoster userId)
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/mud/characters",
+        Func<HttpContext, MudCharacterCreateRequest, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, userId ->
+                    match MudRepository.createCharacter userId body.RealmSlug body.Name (if String.IsNullOrWhiteSpace body.DisplayName then None else Some body.DisplayName) with
+                    | Ok roster -> Results.Ok(roster)
+                    | Error message -> Results.BadRequest(message)
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/mud/characters/{characterId}/select",
+        Func<HttpContext, string, IResult>(fun ctx characterId ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(claims.UserId), Guid.TryParse(characterId) with
+                | (true, userId), (true, selectedCharacterId) ->
+                    match MudRepository.selectCharacter userId selectedCharacterId with
+                    | Some state -> Results.Ok(state)
+                    | None -> Results.NotFound("Character not found")
+                | _ -> Results.BadRequest("Invalid character id")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/mud/characters/{characterId}",
+        Func<HttpContext, string, IResult>(fun ctx characterId ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(claims.UserId), Guid.TryParse(characterId) with
+                | (true, userId), (true, selectedCharacterId) ->
+                    if MudRepository.deleteCharacter userId selectedCharacterId then
+                        Results.Ok(MudRepository.getRoster userId)
+                    else
+                        Results.NotFound("Character not found")
+                | _ -> Results.BadRequest("Invalid character id")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
         "/api/mud/me",
         Func<HttpContext, IResult>(fun ctx ->
             match tryGetAuthClaims ctx with
@@ -1341,13 +1409,9 @@ let main args =
                 match Guid.TryParse(claims.UserId) with
                 | false, _ -> Results.Unauthorized()
                 | true, userId ->
-                    let displayName =
-                        match claims.DisplayName with
-                        | Some s when not (String.IsNullOrWhiteSpace s) -> Some s
-                        | _ -> None
-                    match MudRepository.getOrCreateState userId displayName with
+                    match MudRepository.getState userId with
                     | Some state -> Results.Ok(state)
-                    | None -> Results.Problem(detail = "The MUD world has no rooms yet.", statusCode = 500, title = "MUD unavailable")
+                    | None -> Results.Ok(null)
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )
@@ -1360,12 +1424,7 @@ let main args =
             | Some claims when Permissions.isAdmin claims.Role ->
                 match Guid.TryParse(claims.UserId) with
                 | false, _ -> Results.Unauthorized()
-                | true, userId ->
-                    let displayName =
-                        match claims.DisplayName with
-                        | Some s when not (String.IsNullOrWhiteSpace s) -> Some s
-                        | _ -> None
-                    Results.Ok(MudRepository.handleCommand userId displayName body.Command)
+                | true, userId -> Results.Ok(MudRepository.handleCommand userId body.Command)
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )
