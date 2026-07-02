@@ -323,6 +323,90 @@ let private craftRecipes =
         OutputName = "Survival Pack"
         OutputSlug = "survival-pack"
         OutputDescription = "Warmth and a meal in one bundle — the difference between an emergency and a story you tell later."
+        OutputReadableText = None }
+      { Slug = "dream-candle"
+        Name = "Dream Candle"
+        Ingredients = [ "dream-wax"; "ever-tallow" ]
+        OutputName = "Dream Candle"
+        OutputSlug = "dream-candle"
+        OutputDescription = "A candle of barrow wax on an unshrinking wick. Lit at bedside, it burns the sleeper a kinder dream than the one scheduled."
+        OutputReadableText = None }
+      { Slug = "amber-ward"
+        Name = "Amber Ward"
+        Ingredients = [ "grave-iron"; "root-amber" ]
+        OutputName = "Amber Ward"
+        OutputSlug = "amber-ward"
+        OutputDescription = "Cold iron set in court amber — the hill's two honest materials in one charm. Bargains read fairer when it is in your pocket."
+        OutputReadableText = Some "Scratched inside the amber, very small: THE HILL LET THIS ONE GO." }
+      { Slug = "bottled-echo"
+        Name = "Bottled Echo"
+        Ingredients = [ "echo-water"; "thistle-silk" ]
+        OutputName = "Bottled Echo"
+        OutputSlug = "bottled-echo"
+        OutputDescription = "Echo water stoppered with market silk. Speak into it once, and it will say the words back exactly once, whenever they are needed most."
+        OutputReadableText = None }
+      { Slug = "star-ingot"
+        Name = "Star Ingot"
+        Ingredients = [ "star-iron"; "beacon-coal" ]
+        OutputName = "Star Ingot"
+        OutputSlug = "star-ingot"
+        OutputDescription = "Meteoric iron smelted over signal coal. The ingot still remembers a direction, and it is not north."
+        OutputReadableText = None }
+      { Slug = "message-quill"
+        Name = "Message Quill"
+        Ingredients = [ "falcon-feather"; "beeswax-block" ]
+        OutputName = "Message Quill"
+        OutputSlug = "message-quill"
+        OutputDescription = "A dropped falcon primary sealed in heather wax. Letters written with it have a way of arriving."
+        OutputReadableText = None }
+      { Slug = "weather-glass"
+        Name = "Weather Glass"
+        Ingredients = [ "mist-crystal"; "sky-slate" ]
+        OutputName = "Weather Glass"
+        OutputSlug = "weather-glass"
+        OutputDescription = "A cloudy crystal in a slate frame that shows tomorrow's sky an hour early. The weather stone endorses it, grudgingly."
+        OutputReadableText = None }
+      { Slug = "signal-locket"
+        Name = "Signal Locket"
+        Ingredients = [ "static-pearl"; "packet-shell" ]
+        OutputName = "Signal Locket"
+        OutputSlug = "signal-locket"
+        OutputDescription = "A noise pearl seated in a delivered message's empty casing. Worn close, it plays the one transmission you most need to hear again."
+        OutputReadableText = None }
+      { Slug = "living-index"
+        Name = "Living Index"
+        Ingredients = [ "index-coral"; "carrier-thread" ]
+        OutputName = "Living Index"
+        OutputSlug = "living-index"
+        OutputDescription = "Catalog coral bound with live carrier thread. Ask it where anything is and it points, smugly, in the right direction."
+        OutputReadableText = Some "The coral's newest branch has grown a label: CURRENT LOCATION — WITH YOU." }
+      { Slug = "silent-key"
+        Name = "Silent Key"
+        Ingredients = [ "phantom-code"; "silence-glass" ]
+        OutputName = "Silent Key"
+        OutputSlug = "silent-key"
+        OutputDescription = "Code that finishes nowhere, cast in a pane of kept quiet. It opens things that listen for footsteps."
+        OutputReadableText = None }
+      { Slug = "witness-lens"
+        Name = "Witness Lens"
+        Ingredients = [ "scar-glass"; "lens-shard" ]
+        OutputName = "Witness Lens"
+        OutputSlug = "witness-lens"
+        OutputDescription = "The scar's fused glass ground against the navigator's blister shard. Look through it at any damage and see the moment it happened. Use sparingly."
+        OutputReadableText = Some "Etched on the rim in a careful hand: SOME ANSWERS ARE INJURIES. LOOK ANYWAY. — V.S." }
+      { Slug = "barnacle-anchor"
+        Name = "Barnacle Anchor"
+        Ingredients = [ "void-barnacle"; "mag-bearing" ]
+        OutputName = "Barnacle Anchor"
+        OutputSlug = "barnacle-anchor"
+        OutputDescription = "A void barnacle colony mounted on a frictionless bearing: it grips anything, releases on a twist, and grows fonder of you over time."
+        OutputReadableText = None }
+      { Slug = "solar-kite"
+        Name = "Solar Kite"
+        Ingredients = [ "vane-foil"; "aerial-wire" ]
+        OutputName = "Solar Kite"
+        OutputSlug = "solar-kite"
+        OutputDescription = "Bright foil on a singing wire frame. Flown in any light, it tugs toward the nearest star like it knows something."
         OutputReadableText = None } ]
 
 let private defaultStats =
@@ -730,7 +814,13 @@ let private isResourceSlug (slug: string) =
       "servo-core"; "nutrient-gel"; "sterile-gauze"; "cipher-tape"
       "willow-bark"; "sinew-cord"; "pitch-knot"; "moon-moss"
       "river-clay"; "oak-gall"; "tether-line"; "seal-ring"
-      "nav-crystal"; "thermal-blanket"; "plasma-cell"; "ration-tin" ]
+      "nav-crystal"; "thermal-blanket"; "plasma-cell"; "ration-tin"
+      "grave-iron"; "root-amber"; "thistle-silk"; "dream-wax"
+      "echo-water"; "ever-tallow"; "sky-slate"; "beeswax-block"
+      "beacon-coal"; "falcon-feather"; "mist-crystal"; "star-iron"
+      "static-pearl"; "packet-shell"; "index-coral"; "carrier-thread"
+      "phantom-code"; "silence-glass"; "void-barnacle"; "mag-bearing"
+      "scar-glass"; "aerial-wire"; "vane-foil"; "lens-shard" ]
     |> List.contains slug
 
 let private awardAchievementBySlug (userId: Guid) (slug: string) =
