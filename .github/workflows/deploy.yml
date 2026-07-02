@@ -23,6 +23,7 @@ jobs:
           cache-dependency-path: |
             src/Djehuti.Dashboard/package-lock.json
             src/Lagdaemon.Web/package-lock.json
+            src/Lagdaemon.Mud/package-lock.json
 
       - name: Build dashboard
         working-directory: src/Djehuti.Dashboard
@@ -37,6 +38,16 @@ jobs:
         env:
           VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.VITE_GOOGLE_OAUTH_CLIENT_ID }}
           VITE_GITHUB_OAUTH_CLIENT_ID: ${{ secrets.VITE_GITHUB_OAUTH_CLIENT_ID }}
+        run: |
+          npm install
+          npm run build
+
+      - name: Build LagDaemon MUD app
+        working-directory: src/Lagdaemon.Mud
+        env:
+          VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+          VITE_GITHUB_OAUTH_CLIENT_ID: ${{ secrets.VITE_GITHUB_OAUTH_CLIENT_ID }}
+          VITE_HCAPTCHA_SITE_KEY: ${{ secrets.VITE_HCAPTCHA_SITE_KEY }}
         run: |
           npm install
           npm run build
@@ -75,10 +86,18 @@ jobs:
         run: |
           # --exclude=djehuti preserves the /var/www/lagdaemon/djehuti symlink
           # to /var/www/djehuti that lets lagdaemon.com/djehuti/ serve the dashboard.
-          rsync -az --delete --exclude=djehuti \
+          # --exclude=mud preserves the standalone MUD app served at /mud/.
+          rsync -az --delete --exclude=djehuti --exclude=mud \
             -e "ssh -i ~/.ssh/deploy_key" \
             src/Lagdaemon.Web/dist/ \
             ubuntu@${{ secrets.DEPLOY_HOST }}:/var/www/lagdaemon/
+
+      - name: Sync LagDaemon MUD app
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            src/Lagdaemon.Mud/dist/ \
+            ubuntu@${{ secrets.DEPLOY_HOST }}:/var/www/lagdaemon/mud/
 
       - name: Sync API
         run: |

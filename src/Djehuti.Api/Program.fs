@@ -1136,6 +1136,16 @@ let main args =
     |> ignore
 
     // ── OAuth Endpoints ──────────────────────────────────────────────────────────
+    let safeOAuthRedirectTarget (state: string) =
+        if String.IsNullOrWhiteSpace state then
+            "/"
+        else
+            let decoded = Uri.UnescapeDataString(state.Trim())
+            if decoded.StartsWith("/") && not (decoded.StartsWith("//")) then
+                decoded
+            else
+                "/"
+
     app.MapGet(
         "/api/auth/oauth/google/callback",
         Func<string, string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun code state ctx ->
@@ -1143,6 +1153,7 @@ let main args =
                 if String.IsNullOrWhiteSpace code then
                     return Results.BadRequest("code is required")
                 else
+                    let redirectTarget = safeOAuthRedirectTarget state
                     let googleClientId = Environment.GetEnvironmentVariable("GOOGLE_OAUTH_CLIENT_ID")
                     let googleClientSecret = Environment.GetEnvironmentVariable("GOOGLE_OAUTH_CLIENT_SECRET")
 
@@ -1179,7 +1190,7 @@ let main args =
                                             Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                         )
                                     )
-                                    return Results.Redirect("/")
+                                    return Results.Redirect(redirectTarget)
                                 | None ->
                                     // Link to existing account by email, or create new
                                     let! existingByEmail = UserRepository.tryGetByEmail info.email
@@ -1211,7 +1222,7 @@ let main args =
                                                 Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                             )
                                         )
-                                        return Results.Redirect("/")
+                                        return Results.Redirect(redirectTarget)
                                     | None ->
                                         return Results.Problem(detail = "Failed to create user", statusCode = 500, title = "OAuth login failed")
                             | None ->
@@ -1229,6 +1240,7 @@ let main args =
                 if String.IsNullOrWhiteSpace code then
                     return Results.BadRequest("code is required")
                 else
+                    let redirectTarget = safeOAuthRedirectTarget state
                     let githubClientId = Environment.GetEnvironmentVariable("GH_OAUTH_CLIENT_ID")
                     let githubClientSecret = Environment.GetEnvironmentVariable("GH_OAUTH_CLIENT_SECRET")
 
@@ -1262,7 +1274,7 @@ let main args =
                                             Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                         )
                                     )
-                                    return Results.Redirect("/")
+                                    return Results.Redirect(redirectTarget)
                                 | None ->
                                     let email = info.email |> Option.defaultValue $"{info.login}@github.local"
                                     let! newUser = UserRepository.createUser email None
@@ -1287,7 +1299,7 @@ let main args =
                                                 Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                             )
                                         )
-                                        return Results.Redirect("/")
+                                        return Results.Redirect(redirectTarget)
                                     | None ->
                                         return Results.Problem(detail = "Failed to create user", statusCode = 500, title = "OAuth login failed")
                             | None ->
