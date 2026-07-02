@@ -773,8 +773,23 @@ let main args =
     let app = builder.Build()
     let protector = app.Services.GetRequiredService<IDataProtectionProvider>()
     SecretProtector.initialize protector
+    let runDbMigrations =
+        match Environment.GetEnvironmentVariable("RUN_DB_MIGRATIONS") with
+        | null
+        | "" -> not (app.Environment.IsProduction())
+        | value ->
+            match value.Trim().ToLowerInvariant() with
+            | "1"
+            | "true"
+            | "yes"
+            | "on" -> true
+            | _ -> false
 
-    Database.runMigrations ()
+    if runDbMigrations then
+        Database.runMigrations ()
+    else
+        printfn "[DB] Skipping startup migrations"
+
     AchievementRepository.seedDictionary ()
 
     let datasetDir =
