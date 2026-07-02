@@ -484,6 +484,8 @@ export default function MudPage({ embedded = false }: MudPageProps) {
   const roomBody = state?.roomDescription ?? 'Choose a character to enter the world.'
   const portableVisibleItems = useMemo(() => (state?.visibleItems ?? []).filter(item => item.portable), [state])
   const quickMovement = useMemo(() => (state?.exits ?? []).slice(0, 4), [state])
+  const shareUrl = typeof window !== 'undefined' ? window.location.href : 'https://lagdaemon.com/mud'
+  const facebookShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`
   const isFullScreen = embedded ? fullScreen : true
   const shellStyle = isFullScreen
     ? {
@@ -524,8 +526,24 @@ export default function MudPage({ embedded = false }: MudPageProps) {
         {message && <div className="mud-message" style={{ marginBottom: 16 }}>{message}</div>}
 
         {!state && !loading && (
-          <div className="mud-grid mud-grid-roster">
-            <div className="mud-card">
+          <>
+            <div className="mud-card" style={{ marginBottom: 16 }}>
+              <div className="blog-share-row" style={{ margin: 0, padding: 0, borderTop: 'none', borderBottom: 'none' }}>
+                <span className="blog-share-label">Share</span>
+                <a
+                  className="blog-share-btn"
+                  href={facebookShareUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Share on Facebook"
+                >
+                  Facebook
+                </a>
+              </div>
+            </div>
+
+            <div className="mud-grid mud-grid-roster">
+              <div className="mud-card">
               <h2>Roster</h2>
               {roster ? (
                 <>
@@ -575,42 +593,43 @@ export default function MudPage({ embedded = false }: MudPageProps) {
               ) : (
                 <p className="mud-empty">Loading roster…</p>
               )}
-            </div>
-
-            <div className="mud-card">
-              <h2>Create Character</h2>
-              <div className="mud-form-grid">
-                <select className="mud-command-input" value={createRealm} onChange={e => setCreateRealm(e.target.value)} disabled={busy}>
-                  {(roster?.realms ?? [{ realmSlug: 'medieval', realmName: 'Medieval' }, { realmSlug: 'sci-fi', realmName: 'Sci-Fi' }]).map(realm => (
-                    <option key={realm.realmSlug} value={realm.realmSlug}>{realm.realmName}</option>
-                  ))}
-                </select>
-                <input
-                  className="mud-command-input"
-                  value={createName}
-                  onChange={e => setCreateName(e.target.value)}
-                  placeholder="Character name"
-                  disabled={busy}
-                />
-                <input
-                  className="mud-command-input"
-                  value={createDisplayName}
-                  onChange={e => setCreateDisplayName(e.target.value)}
-                  placeholder="Display name (optional)"
-                  disabled={busy}
-                />
-                <button className="mud-command-btn" onClick={() => void handleCreateCharacter()} disabled={busy || !createName.trim()}>
-                  Create character
-                </button>
               </div>
-              <p className="mud-empty" style={{ marginTop: 16 }}>
-                Free players get one starter character in each realm. More characters use paid slots.
-              </p>
-              <p className="mud-empty">
-                If the roster is full, delete a character, upgrade tier, or add another slot.
-              </p>
+
+              <div className="mud-card">
+                <h2>Create Character</h2>
+                <div className="mud-form-grid">
+                  <select className="mud-command-input" value={createRealm} onChange={e => setCreateRealm(e.target.value)} disabled={busy}>
+                    {(roster?.realms ?? [{ realmSlug: 'medieval', realmName: 'Medieval' }, { realmSlug: 'sci-fi', realmName: 'Sci-Fi' }]).map(realm => (
+                      <option key={realm.realmSlug} value={realm.realmSlug}>{realm.realmName}</option>
+                    ))}
+                  </select>
+                  <input
+                    className="mud-command-input"
+                    value={createName}
+                    onChange={e => setCreateName(e.target.value)}
+                    placeholder="Character name"
+                    disabled={busy}
+                  />
+                  <input
+                    className="mud-command-input"
+                    value={createDisplayName}
+                    onChange={e => setCreateDisplayName(e.target.value)}
+                    placeholder="Display name (optional)"
+                    disabled={busy}
+                  />
+                  <button className="mud-command-btn" onClick={() => void handleCreateCharacter()} disabled={busy || !createName.trim()}>
+                    Create character
+                  </button>
+                </div>
+                <p className="mud-empty" style={{ marginTop: 16 }}>
+                  Free players get one starter character in each realm. More characters use paid slots.
+                </p>
+                <p className="mud-empty">
+                  If the roster is full, delete a character, upgrade tier, or add another slot.
+                </p>
+              </div>
             </div>
-          </div>
+          </>
         )}
 
         {state && (
