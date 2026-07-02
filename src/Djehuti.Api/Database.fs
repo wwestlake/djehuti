@@ -1437,6 +1437,121 @@ let private migrations : (int * string) list =
                 AND i.owner_character_id IS NULL
           );
         """
+
+        42, """
+        ALTER TABLE mud_rooms ADD COLUMN IF NOT EXISTS map_x INT;
+        ALTER TABLE mud_rooms ADD COLUMN IF NOT EXISTS map_y INT;
+
+        ALTER TABLE mud_exits ADD COLUMN IF NOT EXISTS exit_type TEXT NOT NULL DEFAULT 'passage';
+
+        INSERT INTO mud_zones (name, slug, description, position)
+        VALUES ('Realm Threshold', 'realm-threshold', 'A threshold chamber where travelers choose which realm to enter.', -1)
+        ON CONFLICT (slug) DO NOTHING;
+
+        INSERT INTO mud_zones (name, slug, description, position)
+        VALUES ('Star Reach', 'star-reach', 'Cold corridors, transit decks, and machine-lit passages of the science-fiction realm.', 2)
+        ON CONFLICT (slug) DO NOTHING;
+
+        INSERT INTO mud_rooms (zone_id, name, slug, description, position, map_x, map_y)
+        SELECT z.id, 'Threshold of Realms', 'threshold-of-realms',
+               'Two portals stand in the chamber: one of carved stone and torchlight, one of cold metal and blue static.',
+               0, 0, 0
+        FROM mud_zones z
+        WHERE z.slug = 'realm-threshold'
+        ON CONFLICT (zone_id, slug) DO NOTHING;
+
+        INSERT INTO mud_rooms (zone_id, name, slug, description, position, map_x, map_y)
+        SELECT z.id, 'Keep Gate', 'keep-gate',
+               'A stone arch opens into a world of banners, towers, and old iron gates. The threshold portal glows behind you.',
+               0, 0, 0
+        FROM mud_zones z
+        WHERE z.slug = 'central-hub'
+        ON CONFLICT (zone_id, slug) DO NOTHING;
+
+        INSERT INTO mud_rooms (zone_id, name, slug, description, position, map_x, map_y)
+        SELECT z.id, 'Transit Dock', 'transit-dock',
+               'A docking platform hums with power. Conduits pulse in the floor and a return portal flickers at the far bulkhead.',
+               0, 0, 0
+        FROM mud_zones z
+        WHERE z.slug = 'star-reach'
+        ON CONFLICT (zone_id, slug) DO NOTHING;
+
+        UPDATE mud_rooms
+        SET map_x = CASE slug
+            WHEN 'threshold-of-realms' THEN 0
+            WHEN 'keep-gate' THEN -2
+            WHEN 'atrium' THEN 0
+            WHEN 'observatory' THEN 2
+            WHEN 'archive-hall' THEN 0
+            WHEN 'heartbeat-room' THEN 4
+            WHEN 'council-chamber' THEN 2
+            WHEN 'transit-dock' THEN 2
+            ELSE map_x
+        END,
+            map_y = CASE slug
+            WHEN 'threshold-of-realms' THEN 0
+            WHEN 'keep-gate' THEN 0
+            WHEN 'atrium' THEN 0
+            WHEN 'observatory' THEN 0
+            WHEN 'archive-hall' THEN 2
+            WHEN 'heartbeat-room' THEN 0
+            WHEN 'council-chamber' THEN 2
+            WHEN 'transit-dock' THEN 0
+            ELSE map_y
+        END
+        WHERE slug IN ('threshold-of-realms', 'keep-gate', 'atrium', 'observatory', 'archive-hall', 'heartbeat-room', 'council-chamber', 'transit-dock');
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label, exit_type)
+        SELECT r1.id, r2.id, 'medieval', 'Stone portal to the keep', 'portal'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'keep-gate'
+        WHERE r1.slug = 'threshold-of-realms'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label, exit_type)
+        SELECT r1.id, r2.id, 'sci-fi', 'Blue portal to Star Reach', 'portal'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'transit-dock'
+        WHERE r1.slug = 'threshold-of-realms'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label, exit_type)
+        SELECT r1.id, r2.id, 'portal', 'Return to the threshold', 'portal'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'threshold-of-realms'
+        WHERE r1.slug = 'keep-gate'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label, exit_type)
+        SELECT r1.id, r2.id, 'portal', 'Return to the threshold', 'portal'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'threshold-of-realms'
+        WHERE r1.slug = 'transit-dock'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label, exit_type)
+        SELECT r1.id, r2.id, 'east', 'Through the gatehouse', 'gate'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'atrium'
+        WHERE r1.slug = 'keep-gate'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        INSERT INTO mud_exits (from_room_id, to_room_id, direction, label, exit_type)
+        SELECT r1.id, r2.id, 'west', 'Back to the outer gate', 'gate'
+        FROM mud_rooms r1
+        JOIN mud_rooms r2 ON r2.slug = 'keep-gate'
+        WHERE r1.slug = 'atrium'
+        ON CONFLICT (from_room_id, direction) DO NOTHING;
+
+        UPDATE mud_exits
+        SET exit_type = CASE
+            WHEN direction IN ('medieval', 'sci-fi', 'portal') THEN 'portal'
+            WHEN direction IN ('up') THEN 'stairs-up'
+            WHEN direction IN ('down') THEN 'stairs-down'
+            WHEN from_room_id IN (SELECT id FROM mud_rooms WHERE slug IN ('keep-gate', 'atrium')) AND direction IN ('east', 'west') THEN 'gate'
+            ELSE exit_type
+        END;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

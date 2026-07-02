@@ -8,9 +8,25 @@ open Database
 
 type MudExitView =
     { Direction: string
+      ExitType: string
       Label: string option
       TargetRoomId: Guid
       TargetRoomName: string }
+
+type MudMapRoomView =
+    { RoomId: Guid
+      RoomName: string
+      Slug: string
+      X: int
+      Y: int
+      Current: bool }
+
+type MudMapExitView =
+    { FromRoomId: Guid
+      ToRoomId: Guid
+      Direction: string
+      ExitType: string
+      Label: string option }
 
 type MudItemView =
     { Name: string
@@ -29,6 +45,8 @@ type MudRoomState =
       MudTierName: string
       VisibleItems: MudItemView list
       InventoryItems: MudItemView list
+      MapRooms: MudMapRoomView list
+      MapExits: MudMapExitView list
       Exits: MudExitView list }
 
 type MudCommandResult =
@@ -72,6 +90,8 @@ let private readStateBase (r: DbDataReader) =
       MudTierName = "Wanderer"
       VisibleItems = []
       InventoryItems = []
+      MapRooms = []
+      MapExits = []
       Exits = [] }
 
 let private readItemView (r: DbDataReader) =
@@ -113,7 +133,11 @@ let private starterRoomId () =
         """SELECT id
            FROM mud_rooms
            ORDER BY
-             CASE WHEN slug = 'atrium' THEN 0 ELSE 1 END,
+             CASE
+               WHEN slug = 'threshold-of-realms' THEN 0
+               WHEN slug = 'atrium' THEN 1
+               ELSE 2
+             END,
              created_at,
              name
            LIMIT 1""", conn)
@@ -152,7 +176,7 @@ let private loadState (conn: NpgsqlConnection) (userId: Guid) : MudRoomState opt
         let baseState = readStateBase reader
         reader.Close()
         use exitCmd = new NpgsqlCommand(
-            """SELECT e.direction, e.label, e.to_room_id, r.name
+            """SELECT e.direction, e.exit_type, e.label, e.to_room_id, r.name
                FROM mud_exits e
                JOIN mud_rooms r ON r.id = e.to_room_id
                WHERE e.from_room_id = @room_id
@@ -162,9 +186,10 @@ let private loadState (conn: NpgsqlConnection) (userId: Guid) : MudRoomState opt
         let exits =
             [ while exitReader.Read() do
                 yield { Direction = exitReader.GetString(0)
-                        Label = if exitReader.IsDBNull(1) then None else Some (exitReader.GetString(1))
-                        TargetRoomId = exitReader.GetGuid(2)
-                        TargetRoomName = exitReader.GetString(3) } ]
+                        ExitType = exitReader.GetString(1)
+                        Label = if exitReader.IsDBNull(2) then None else Some (exitReader.GetString(2))
+                        TargetRoomId = exitReader.GetGuid(3)
+                        TargetRoomName = exitReader.GetString(4) } ]
         exitReader.Close()
         use roomItemsCmd = new NpgsqlCommand(
             """SELECT name, slug, description, portable, readable_text
@@ -188,8 +213,47 @@ let private loadState (conn: NpgsqlConnection) (userId: Guid) : MudRoomState opt
         let inventoryItems =
             [ while invReader.Read() do
                 yield readItemView invReader ]
+        invReader.Close()
+        use mapRoomsCmd = new NpgsqlCommand(
+            """SELECT r.id, r.name, r.slug, COALESCE(r.map_x, r.position), COALESCE(r.map_y, 0)
+               FROM mud_rooms r
+               WHERE r.zone_id = (
+                   SELECT zone_id FROM mud_rooms WHERE id = @room_id
+               )
+               ORDER BY r.position, r.name""", conn)
+        mapRoomsCmd.Parameters.AddWithValue("room_id", baseState.RoomId) |> ignore
+        use mapRoomsReader = mapRoomsCmd.ExecuteReader()
+        let mapRooms =
+            [ while mapRoomsReader.Read() do
+                let roomId = mapRoomsReader.GetGuid(0)
+                yield { RoomId = roomId
+                        RoomName = mapRoomsReader.GetString(1)
+                        Slug = mapRoomsReader.GetString(2)
+                        X = mapRoomsReader.GetInt32(3)
+                        Y = mapRoomsReader.GetInt32(4)
+                        Current = roomId = baseState.RoomId } ]
+        mapRoomsReader.Close()
+        use mapExitsCmd = new NpgsqlCommand(
+            """SELECT e.from_room_id, e.to_room_id, e.direction, e.exit_type, e.label
+               FROM mud_exits e
+               JOIN mud_rooms rf ON rf.id = e.from_room_id
+               JOIN mud_rooms rt ON rt.id = e.to_room_id
+               WHERE rf.zone_id = (
+                   SELECT zone_id FROM mud_rooms WHERE id = @room_id
+               )
+                 AND rt.zone_id = rf.zone_id
+               ORDER BY e.direction""", conn)
+        mapExitsCmd.Parameters.AddWithValue("room_id", baseState.RoomId) |> ignore
+        use mapExitsReader = mapExitsCmd.ExecuteReader()
+        let mapExits =
+            [ while mapExitsReader.Read() do
+                yield { FromRoomId = mapExitsReader.GetGuid(0)
+                        ToRoomId = mapExitsReader.GetGuid(1)
+                        Direction = mapExitsReader.GetString(2)
+                        ExitType = mapExitsReader.GetString(3)
+                        Label = if mapExitsReader.IsDBNull(4) then None else Some (mapExitsReader.GetString(4)) } ]
         let mudTierName = loadMudTierName userId
-        Some { baseState with Exits = exits; VisibleItems = visibleItems; InventoryItems = inventoryItems; MudTierName = mudTierName }
+        Some { baseState with Exits = exits; VisibleItems = visibleItems; InventoryItems = inventoryItems; MapRooms = mapRooms; MapExits = mapExits; MudTierName = mudTierName }
 
 let private loadCharacter (conn: NpgsqlConnection) (userId: Guid) : MudCharacterRow option =
     use cmd = new NpgsqlCommand(
@@ -383,7 +447,7 @@ let look (userId: Guid) (displayName: string option) : MudCommandResult =
 
 let private findExit (conn: NpgsqlConnection) (roomId: Guid) (direction: string) =
     use cmd = new NpgsqlCommand(
-        """SELECT e.direction, e.label, e.to_room_id, r.name
+        """SELECT e.direction, e.exit_type, e.label, e.to_room_id, r.name
            FROM mud_exits e
            JOIN mud_rooms r ON r.id = e.to_room_id
            WHERE e.from_room_id = @room_id
@@ -394,9 +458,10 @@ let private findExit (conn: NpgsqlConnection) (roomId: Guid) (direction: string)
     use reader = cmd.ExecuteReader()
     if reader.Read() then
         Some { Direction = reader.GetString(0)
-               Label = if reader.IsDBNull(1) then None else Some (reader.GetString(1))
-               TargetRoomId = reader.GetGuid(2)
-               TargetRoomName = reader.GetString(3) }
+               ExitType = reader.GetString(1)
+               Label = if reader.IsDBNull(2) then None else Some (reader.GetString(2))
+               TargetRoomId = reader.GetGuid(3)
+               TargetRoomName = reader.GetString(4) }
     else
         None
 
@@ -774,6 +839,15 @@ let handleCommand (userId: Guid) (displayName: string option) (commandText: stri
                 { Success = false
                   Command = trimmed
                   Message = "Move where?"
+                  State = getState userId }
+            else
+                move userId displayName direction
+        | "enter" ->
+            let direction = if parts.Length > 1 then parts.[1] else ""
+            if String.IsNullOrWhiteSpace(direction) then
+                { Success = false
+                  Command = trimmed
+                  Message = "Enter where?"
                   State = getState userId }
             else
                 move userId displayName direction

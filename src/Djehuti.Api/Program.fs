@@ -205,6 +205,7 @@ type MudExitCreateRequest =
     { FromRoomId: string
       ToRoomId: string
       Direction: string
+      ExitType: string
       Label: string }
 
 [<CLIMutable>]
@@ -1455,7 +1456,8 @@ let main args =
                 match Guid.TryParse(body.FromRoomId), Guid.TryParse(body.ToRoomId) with
                 | (true, fromRoomId), (true, toRoomId) ->
                     let label = if String.IsNullOrWhiteSpace body.Label then None else Some (body.Label.Trim())
-                    match MudAdminRepository.createExit fromRoomId toRoomId body.Direction label with
+                    let exitType = if String.IsNullOrWhiteSpace body.ExitType then "passage" else body.ExitType.Trim()
+                    match MudAdminRepository.createExit fromRoomId toRoomId body.Direction exitType label with
                     | Some exit -> Results.Created($"/api/admin/mud/exits/{exit.Id}", exit)
                     | None -> Results.Problem(detail = "Failed to create exit", statusCode = 500, title = "Error")
                 | _ -> Results.BadRequest("Invalid room id")
