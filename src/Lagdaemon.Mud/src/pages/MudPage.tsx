@@ -94,6 +94,113 @@ function MapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits: Mu
   )
 }
 
+void MapPanel
+
+function ZoneMapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits: MudMapExitView[]; onJump: (command: string) => void }) {
+  if (!rooms.length) return <p className="mud-empty">No map data yet.</p>
+  const xs = rooms.map(room => room.x)
+  const ys = rooms.map(room => room.y)
+  const minX = Math.min(...xs)
+  const maxX = Math.max(...xs)
+  const minY = Math.min(...ys)
+  const maxY = Math.max(...ys)
+  const width = Math.max(1, maxX - minX)
+  const height = Math.max(1, maxY - minY)
+  const positionOf = (room: MudMapRoomView) => {
+    const leftPercent = 10 + ((room.x - minX) / width) * 80
+    const topPercent = 12 + ((room.y - minY) / height) * 70
+    return {
+      left: `${leftPercent}%`,
+      top: `${topPercent}%`,
+      leftPercent,
+      topPercent,
+    }
+  }
+  const roomPositions = Object.fromEntries(rooms.map(room => [room.roomId, positionOf(room)]))
+  const currentRoom = rooms.find(room => room.current) ?? rooms[0]
+  const uniqueExitTypes = Array.from(new Set(exits.map(exit => exit.exitType)))
+
+  const exitTypeGlyph = (exitType: string) => {
+    switch (exitType) {
+      case 'portal':
+        return '◉'
+      case 'stairs-up':
+      case 'stairs-down':
+        return '⇅'
+      case 'elevator':
+        return '▣'
+      case 'gate':
+      case 'door':
+      case 'sealed-door':
+      case 'bulkhead':
+        return '▤'
+      case 'catwalk':
+        return '╌'
+      default:
+        return '—'
+    }
+  }
+
+  return (
+    <>
+      <div className="mud-map mud-map-enhanced">
+        <svg className="mud-map-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          {exits.map(exit => {
+            const from = roomPositions[exit.fromRoomId]
+            const to = roomPositions[exit.toRoomId]
+            if (!from || !to) return null
+            return (
+              <line
+                key={`${exit.fromRoomId}-${exit.toRoomId}-${exit.direction}`}
+                className={`mud-map-line exit-${exit.exitType}`}
+                x1={from.leftPercent}
+                y1={from.topPercent}
+                x2={to.leftPercent}
+                y2={to.topPercent}
+              />
+            )
+          })}
+        </svg>
+        {rooms.map(room => {
+          const pos = roomPositions[room.roomId]
+          return (
+            <button
+              key={room.roomId}
+              className={`mud-map-room${room.current ? ' current' : ''}`}
+              style={{ left: pos.left, top: pos.top }}
+              onClick={() => room.current ? onJump('look') : undefined}
+            >
+              <strong>{room.roomName}</strong>
+              <small>{room.current ? 'You are here' : 'Mapped room'}</small>
+            </button>
+          )
+        })}
+      </div>
+      <div className="mud-map-summary">
+        <span className="mud-map-summary-card">
+          <strong>Current</strong>
+          <span>{currentRoom.roomName}</span>
+        </span>
+        <span className="mud-map-summary-card">
+          <strong>Rooms</strong>
+          <span>{rooms.length}</span>
+        </span>
+        <span className="mud-map-summary-card">
+          <strong>Paths</strong>
+          <span>{exits.length}</span>
+        </span>
+      </div>
+      <div className="mud-map-legend">
+        {uniqueExitTypes.map(exitType => (
+          <span key={exitType} className="mud-map-badge">
+            {exitTypeGlyph(exitType)} {exitType.replace(/-/g, ' ')}
+          </span>
+        ))}
+      </div>
+    </>
+  )
+}
+
 function ExitList({ exits, onCommand }: { exits: MudRoomState['exits']; onCommand: (command: string) => void }) {
   if (!exits.length) return <p className="mud-empty">No exits visible.</p>
   return (
@@ -566,7 +673,7 @@ export default function MudPage({ embedded = false }: MudPageProps) {
                 <div className="mud-game-view">
                   <div className="mud-game-section-head"><h2>Map</h2></div>
                   <div className="mud-card mud-card-flat">
-                    <MapPanel rooms={state.mapRooms ?? []} exits={state.mapExits ?? []} onJump={runCommand} />
+                    <ZoneMapPanel rooms={state.mapRooms ?? []} exits={state.mapExits ?? []} onJump={runCommand} />
                   </div>
                 </div>
               )}
