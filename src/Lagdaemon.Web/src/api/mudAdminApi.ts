@@ -47,9 +47,40 @@ export interface MudWorld {
   exits: MudExit[]
 }
 
+export interface MudRealmMetric {
+  realmSlug: string
+  characterCount: number
+}
+
+export interface MudExitTypeMetric {
+  exitType: string
+  count: number
+}
+
+export interface MudAdminMetrics {
+  zoneCount: number
+  roomCount: number
+  exitCount: number
+  itemCount: number
+  portableItemCount: number
+  readableItemCount: number
+  activeCharacterCount: number
+  retiredCharacterCount: number
+  companionEnabledCount: number
+  byoKeyCount: number
+  emptyZoneCount: number
+  deadEndRoomCount: number
+  averageExitsPerRoom: number
+  realmCharacterCounts: MudRealmMetric[]
+  exitTypeCounts: MudExitTypeMetric[]
+}
+
 export const mudAdminApi = {
   getWorld: (): Promise<MudWorld> =>
     fetch(`${BASE}/world`, opts).then(json),
+
+  getMetrics: (): Promise<MudAdminMetrics> =>
+    fetch(`${BASE}/metrics`, opts).then(json),
 
   createZone: (fields: { name: string; slug: string; description?: string; position: number }): Promise<MudZone> =>
     fetch(`${BASE}/zones`, {

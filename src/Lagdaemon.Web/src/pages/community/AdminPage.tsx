@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { blogApi } from '../../api/blogApi'
 import type { BlogArticle, BlogTag, BlogAuthor, SiteConfigEntry } from '../../api/blogApi'
 import { forumApi } from '../../api/forumApi'
 import type { ForumTag, ForumReport } from '../../api/forumApi'
 import { mudAdminApi } from '../../api/mudAdminApi'
-import type { MudWorld, MudZone, MudRoom, MudExit } from '../../api/mudAdminApi'
+import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics } from '../../api/mudAdminApi'
 import { AdminTable } from '../../components/AdminTable'
 
 const BASE = '/djehuti'
@@ -101,6 +101,7 @@ async function apiFetch(url: string, opts?: RequestInit) {
 
 export default function AdminPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'mud', 'personas', 'heartbeat', 'metrics', 'api-keys']
   const tabFromUrl = searchParams.get('tab') as Tab | null
@@ -189,6 +190,7 @@ export default function AdminPage() {
 
   // MUD
   const [mudWorld, setMudWorld] = useState<MudWorld | null>(null)
+  const [mudMetrics, setMudMetrics] = useState<MudAdminMetrics | null>(null)
   const [mudZoneForm, setMudZoneForm] = useState({ name: '', slug: '', description: '', position: 0 })
   const [editingMudZone, setEditingMudZone] = useState<MudZone | null>(null)
   const [mudRoomForm, setMudRoomForm] = useState({ zoneId: '', name: '', slug: '', description: '', position: 0 })
@@ -277,7 +279,10 @@ export default function AdminPage() {
         setHbConfigEdit({ ...cfg })
         setHbHealth(health)
       },
-      mud: () => mudAdminApi.getWorld().then(setMudWorld),
+      mud: () => Promise.all([
+        mudAdminApi.getWorld().then(setMudWorld),
+        mudAdminApi.getMetrics().then(setMudMetrics),
+      ]).then(() => {}),
       metrics: () => Promise.all([
         apiFetch(`${BASE}/api/admin/metrics`).then(setMetrics),
         apiFetch(`${BASE}/api/admin/metrics/anonymous`).then(setAnonMetrics).catch(() => {}),
@@ -674,6 +679,7 @@ export default function AdminPage() {
       setMudWorld(prev => prev
         ? { ...prev, zones: prev.zones.some(z => z.id === zone.id) ? prev.zones.map(z => z.id === zone.id ? zone : z) : [zone, ...prev.zones] }
         : { zones: [zone], rooms: [], exits: [] })
+      setMudMetrics(await mudAdminApi.getMetrics())
       setMudZoneForm({ name: '', slug: '', description: '', position: 0 })
       setEditingMudZone(null)
     } catch { setError('Failed to create zone') }
@@ -698,6 +704,7 @@ export default function AdminPage() {
       setMudWorld(prev => prev
         ? { ...prev, rooms: prev.rooms.some(r => r.id === room.id) ? prev.rooms.map(r => r.id === room.id ? room : r) : [room, ...prev.rooms] }
         : { zones: [], rooms: [room], exits: [] })
+      setMudMetrics(await mudAdminApi.getMetrics())
       setMudRoomForm({ zoneId: mudRoomForm.zoneId, name: '', slug: '', description: '', position: 0 })
       setEditingMudRoom(null)
     } catch { setError('Failed to save room') }
@@ -716,6 +723,7 @@ export default function AdminPage() {
         label: mudExitForm.label.trim() || undefined,
       })
       setMudWorld(prev => prev ? { ...prev, exits: [exit, ...prev.exits] } : { zones: [], rooms: [], exits: [exit] })
+      setMudMetrics(await mudAdminApi.getMetrics())
       setMudExitForm({ fromRoomId: '', toRoomId: '', direction: '', label: '' })
     } catch { setError('Failed to create exit') }
     finally { setMudSaving(false) }
@@ -726,6 +734,7 @@ export default function AdminPage() {
     try {
       await mudAdminApi.deleteExit(exitId)
       setMudWorld(prev => prev ? { ...prev, exits: prev.exits.filter(exit => exit.id !== exitId) } : prev)
+      setMudMetrics(await mudAdminApi.getMetrics())
     } catch { setError('Failed to delete exit') }
   }
 
@@ -1193,11 +1202,132 @@ export default function AdminPage() {
       {tab === 'mud' && !loading && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
           <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <h3 style={{ margin: 0 }}>MUD World Editor</h3>
-            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-              Keep the MUD admin-only, manage zones and rooms, and wire exits without touching the player shell.
-            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <h3 style={{ margin: 0 }}>MUD World Editor</h3>
+                <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                  Keep the MUD admin-only, manage zones and rooms, and wire exits without touching the player shell.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button className="tiptap-action-btn" type="button" onClick={() => navigate('/mud')}>
+                  Launch game
+                </button>
+                <button className="tiptap-action-btn primary" type="button" onClick={() => window.open('/mud', '_blank', 'noopener,noreferrer')}>
+                  Open full screen
+                </button>
+              </div>
+            </div>
           </section>
+
+          {mudMetrics && (
+            <div className="metrics-root" style={{ gap: 18 }}>
+              <section className="metrics-section">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <h4 className="metrics-section-title" style={{ margin: 0 }}>World Snapshot</h4>
+                </div>
+                <div className="metrics-cards-row">
+                  <div className="metrics-stat-card">
+                    <div className="metrics-stat-label">Zones</div>
+                    <div className="metrics-stat-all">{mudMetrics.zoneCount}</div>
+                  </div>
+                  <div className="metrics-stat-card">
+                    <div className="metrics-stat-label">Rooms</div>
+                    <div className="metrics-stat-all">{mudMetrics.roomCount}</div>
+                  </div>
+                  <div className="metrics-stat-card">
+                    <div className="metrics-stat-label">Exits</div>
+                    <div className="metrics-stat-all">{mudMetrics.exitCount}</div>
+                  </div>
+                  <div className="metrics-stat-card">
+                    <div className="metrics-stat-label">Items</div>
+                    <div className="metrics-stat-all">{mudMetrics.itemCount}</div>
+                    <div className="metrics-stat-split">
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                        {mudMetrics.portableItemCount} portable · {mudMetrics.readableItemCount} readable
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="metrics-section">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <h4 className="metrics-section-title" style={{ margin: 0 }}>Player Snapshot</h4>
+                </div>
+                <div className="metrics-cards-row">
+                  <div className="metrics-stat-card">
+                    <div className="metrics-stat-label">Active Characters</div>
+                    <div className="metrics-stat-all">{mudMetrics.activeCharacterCount}</div>
+                  </div>
+                  <div className="metrics-stat-card">
+                    <div className="metrics-stat-label">Retired Characters</div>
+                    <div className="metrics-stat-all">{mudMetrics.retiredCharacterCount}</div>
+                  </div>
+                  <div className="metrics-stat-card">
+                    <div className="metrics-stat-label">AI Companions</div>
+                    <div className="metrics-stat-all">{mudMetrics.companionEnabledCount}</div>
+                    <div className="metrics-stat-split">
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                        {mudMetrics.byoKeyCount} with saved keys
+                      </span>
+                    </div>
+                  </div>
+                  <div className="metrics-stat-card">
+                    <div className="metrics-stat-label">Avg exits / room</div>
+                    <div className="metrics-stat-all">{mudMetrics.averageExitsPerRoom.toFixed(1)}</div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="metrics-section">
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+                  <div className="admin-table-wrap">
+                    <table className="admin-table">
+                      <thead><tr><th>Realm</th><th>Characters</th></tr></thead>
+                      <tbody>
+                        {mudMetrics.realmCharacterCounts.map(realm => (
+                          <tr key={realm.realmSlug}>
+                            <td>{realm.realmSlug}</td>
+                            <td>{realm.characterCount}</td>
+                          </tr>
+                        ))}
+                        {mudMetrics.realmCharacterCounts.length === 0 && (
+                          <tr><td colSpan={2} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No characters yet.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="admin-table-wrap">
+                    <table className="admin-table">
+                      <thead><tr><th>Exit type</th><th>Count</th></tr></thead>
+                      <tbody>
+                        {mudMetrics.exitTypeCounts.map(exitType => (
+                          <tr key={exitType.exitType}>
+                            <td>{exitType.exitType}</td>
+                            <td>{exitType.count}</td>
+                          </tr>
+                        ))}
+                        {mudMetrics.exitTypeCounts.length === 0 && (
+                          <tr><td colSpan={2} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No exits yet.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div className="metrics-cards-row" style={{ marginTop: 16 }}>
+                  <div className="metrics-stat-card">
+                    <div className="metrics-stat-label">Dead-end rooms</div>
+                    <div className="metrics-stat-all">{mudMetrics.deadEndRoomCount}</div>
+                  </div>
+                  <div className="metrics-stat-card">
+                    <div className="metrics-stat-label">Empty zones</div>
+                    <div className="metrics-stat-all">{mudMetrics.emptyZoneCount}</div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          )}
 
           <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
             <form className="admin-grant-form" onSubmit={saveMudZone}>

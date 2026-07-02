@@ -1519,6 +1519,17 @@ let main args =
         )
     ) |> ignore
 
+    app.MapGet(
+        "/api/admin/mud/metrics",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                Results.Ok(MudAdminRepository.getMetrics())
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
     app.MapPost(
         "/api/admin/mud/zones",
         Func<HttpContext, MudZoneCreateRequest, IResult>(fun ctx body ->
