@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Backpack, Compass, Map, ScrollText, Settings2, UserRound } from 'lucide-react'
+import { Backpack, Compass, Eye, LogOut, Map as MapIcon, Maximize2, Minimize2, ScrollText, Settings2, UserRound } from 'lucide-react'
 import {
   mudApi,
   type MudCharacterSummary,
@@ -19,7 +19,6 @@ const QUICK_COMMANDS = [
   { label: 'Search', command: 'search' },
   { label: 'Recipes', command: 'recipes' },
   { label: 'Room', command: 'examine room' },
-  { label: 'Inventory', command: 'inventory' },
   { label: 'Craft torch', command: 'craft torch' },
 ]
 
@@ -38,6 +37,17 @@ type MudCompanionDraft = {
 }
 
 type GameView = 'world' | 'map' | 'items' | 'inventory' | 'character' | 'settings'
+
+const SUB_VIEWS: Partial<Record<GameView, { id: string; label: string }[]>> = {
+  items: [
+    { id: 'take', label: 'Take' },
+    { id: 'inspect', label: 'Inspect' },
+  ],
+  character: [
+    { id: 'stats', label: 'Stats' },
+    { id: 'roster', label: 'Roster' },
+  ],
+}
 
 function toCompanionDraft(settings: MudCompanionSettings): MudCompanionDraft {
   return {
@@ -201,20 +211,92 @@ function ZoneMapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits
   )
 }
 
-function ExitList({ exits, onCommand }: { exits: MudRoomState['exits']; onCommand: (command: string) => void }) {
-  if (!exits.length) return <p className="mud-empty">No exits visible.</p>
+const COMPASS_ROWS: (string | null)[][] = [
+  ['northwest', 'north', 'northeast'],
+  ['west', null, 'east'],
+  ['southwest', 'south', 'southeast'],
+]
+
+const COMPASS_LABELS: Record<string, string> = {
+  north: 'N',
+  south: 'S',
+  east: 'E',
+  west: 'W',
+  northeast: 'NE',
+  northwest: 'NW',
+  southeast: 'SE',
+  southwest: 'SW',
+  up: 'Up',
+  down: 'Dn',
+}
+
+function CompassPad({ exits, onCommand, disabled }: { exits: MudRoomState['exits']; onCommand: (command: string) => void; disabled: boolean }) {
+  const byDirection = new Map(exits.map(exit => [exit.direction.toLowerCase(), exit]))
+  const otherExits = exits.filter(exit => !(exit.direction.toLowerCase() in COMPASS_LABELS))
+
+  const renderButton = (direction: string) => {
+    const exit = byDirection.get(direction)
+    return (
+      <button
+        key={direction}
+        type="button"
+        className={`mud-compass-btn${exit ? ' available' : ''}`}
+        onClick={() => exit && onCommand(direction)}
+        disabled={disabled || !exit}
+        title={exit ? `${direction} → ${exit.targetRoomName}` : direction}
+        aria-label={exit ? `Go ${direction} to ${exit.targetRoomName}` : `${direction} (no exit)`}
+      >
+        {COMPASS_LABELS[direction]}
+      </button>
+    )
+  }
+
   return (
-    <div className="mud-exits">
-      {exits.map(exit => (
-        <button
-          key={`${exit.direction}-${exit.targetRoomId}`}
-          className="mud-exit-chip"
-          onClick={() => onCommand(exit.direction)}
-        >
-          <span>{exit.direction}</span>
-          <small>{exit.targetRoomName}</small>
-        </button>
-      ))}
+    <div className="mud-compass-block">
+      <div className="mud-compass-wrap">
+        <div className="mud-compass">
+          {COMPASS_ROWS.flatMap(row => row.map(direction => direction
+            ? renderButton(direction)
+            : (
+              <button
+                key="look"
+                type="button"
+                className="mud-compass-btn look"
+                onClick={() => onCommand('look')}
+                disabled={disabled}
+                title="Look"
+                aria-label="Look around"
+              >
+                <Eye size={16} />
+              </button>
+            )))}
+        </div>
+        <div className="mud-compass-vert">
+          {renderButton('up')}
+          {renderButton('down')}
+        </div>
+      </div>
+      {exits.length > 0 ? (
+        <p className="mud-exit-names">
+          {exits.map(exit => `${exit.direction}: ${exit.targetRoomName}`).join(' · ')}
+        </p>
+      ) : (
+        <p className="mud-empty">No exits visible.</p>
+      )}
+      {otherExits.length > 0 && (
+        <div className="mud-quick-commands">
+          {otherExits.map(exit => (
+            <button
+              key={`${exit.direction}-${exit.targetRoomId}`}
+              className="mud-quick-chip"
+              onClick={() => onCommand(exit.direction)}
+              disabled={disabled}
+            >
+              {exit.direction}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -311,6 +393,7 @@ export default function MudPage({ embedded = false }: MudPageProps) {
   const [fullScreen, setFullScreen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [activeView, setActiveView] = useState<GameView>('world')
+  const [subView, setSubView] = useState('')
   const [createRealm, setCreateRealm] = useState('medieval')
   const [createName, setCreateName] = useState('')
   const [createDisplayName, setCreateDisplayName] = useState('')
@@ -339,8 +422,13 @@ export default function MudPage({ embedded = false }: MudPageProps) {
     void loadAll()
   }, [])
 
+  const openView = (view: GameView) => {
+    setActiveView(view)
+    setSubView(SUB_VIEWS[view]?.[0]?.id ?? '')
+  }
+
   useEffect(() => {
-    if (state) setActiveView('world')
+    if (state) openView('world')
   }, [state?.characterId])
 
   const runCommand = async (nextCommand = command) => {
@@ -388,7 +476,7 @@ export default function MudPage({ embedded = false }: MudPageProps) {
       const nextRoster = await mudApi.getRoster()
       setRoster(nextRoster)
       setMessage(`Now playing ${nextState.characterName}.`)
-      setActiveView('world')
+      openView('world')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not select that character.')
     } finally {
@@ -483,7 +571,6 @@ export default function MudPage({ embedded = false }: MudPageProps) {
   const roomTitle = state?.roomName ?? 'LagDaemon MUD'
   const roomBody = state?.roomDescription ?? 'Choose a character to enter the world.'
   const portableVisibleItems = useMemo(() => (state?.visibleItems ?? []).filter(item => item.portable), [state])
-  const quickMovement = useMemo(() => (state?.exits ?? []).slice(0, 4), [state])
   const shareUrl = typeof window !== 'undefined' ? window.location.href : 'https://lagdaemon.com/mud'
   const facebookShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`
   const isFullScreen = embedded ? fullScreen : true
@@ -501,27 +588,56 @@ export default function MudPage({ embedded = false }: MudPageProps) {
   return (
     <section className={`mud-page${embedded ? ' mud-page-embedded' : ' mud-page-app'}`}>
       <div className="mud-shell" style={shellStyle}>
-        <div className="mud-hero">
-          <div>
-            <div className="mud-kicker">LagDaemon MUD</div>
-            <h1>{state ? roomTitle : 'Character Roster'}</h1>
-            <p className="mud-zone">
-              {state
-                ? `Realm: ${state.realmName} · Zone: ${state.zoneName}`
-                : loading
-                  ? 'Loading world…'
-                  : 'Choose or create the character you want to play.'}
-            </p>
+        {state ? (
+          <header className="mud-game-header">
+            <div className="mud-game-header-main">
+              <strong>{roomTitle}</strong>
+              <span className="mud-game-header-meta">
+                {state.characterName} · {state.mudTierName} · {state.realmName} · {state.zoneName}
+              </span>
+            </div>
+            <div className="mud-game-header-actions">
+              {embedded && (
+                <button
+                  className="mud-icon-btn"
+                  onClick={() => setFullScreen(v => !v)}
+                  title={fullScreen ? 'Exit full screen' : 'Full screen'}
+                  aria-label={fullScreen ? 'Exit full screen' : 'Full screen'}
+                >
+                  {fullScreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                </button>
+              )}
+              {!embedded && (
+                <button
+                  className="mud-icon-btn"
+                  onClick={() => { window.location.href = '/' }}
+                  title="Exit game"
+                  aria-label="Exit game"
+                >
+                  <LogOut size={16} />
+                </button>
+              )}
+            </div>
+          </header>
+        ) : (
+          <div className="mud-hero">
+            <div>
+              <div className="mud-kicker">LagDaemon MUD</div>
+              <h1>Character Roster</h1>
+              <p className="mud-zone">
+                {loading ? 'Loading world…' : 'Choose or create the character you want to play.'}
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              {embedded && (
+                <button className="mud-back-btn" onClick={() => setFullScreen(v => !v)}>
+                  {fullScreen ? 'Exit full screen' : 'Full screen'}
+                </button>
+              )}
+              {!embedded && <button className="mud-back-btn" onClick={() => { window.location.href = '/' }}>Exit game</button>}
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {embedded && (
-              <button className="mud-back-btn" onClick={() => setFullScreen(v => !v)}>
-                {fullScreen ? 'Exit full screen' : 'Full screen'}
-              </button>
-            )}
-            {!embedded && <button className="mud-back-btn" onClick={() => { window.location.href = '/' }}>Exit game</button>}
-          </div>
-        </div>
+        )}
 
         {message && <div className="mud-message" style={{ marginBottom: 16 }}>{message}</div>}
 
@@ -634,28 +750,16 @@ export default function MudPage({ embedded = false }: MudPageProps) {
 
         {state && (
           <div className="mud-game-shell">
-            <div className="mud-card mud-room mud-room-hero">
-              <div className="mud-room-text">{roomBody}</div>
-              <div className="mud-meta">
-                <span>Character: {state.characterName}</span>
-                <span>Realm: {state.realmName}</span>
-                <span>Room: {state.roomName}</span>
-                <span>Rank: {state.mudTierName}</span>
-              </div>
-            </div>
-
             <div className="mud-game-panel">
               {activeView === 'world' && (
                 <div className="mud-game-view">
-                  <div className="mud-game-section-head">
-                    <h2>World</h2>
+                  <div className="mud-card mud-card-flat">
+                    <div className="mud-room-text">{roomBody}</div>
                   </div>
                   <div className="mud-card mud-card-flat">
-                    <h2>Exits</h2>
-                    <ExitList exits={state.exits ?? []} onCommand={runCommand} />
+                    <CompassPad exits={state.exits ?? []} onCommand={runCommand} disabled={busy || !user} />
                   </div>
                   <div className="mud-card mud-card-flat">
-                    <h2>Quick actions</h2>
                     <div className="mud-quick-commands">
                       {QUICK_COMMANDS.map(item => (
                         <button
@@ -670,19 +774,6 @@ export default function MudPage({ embedded = false }: MudPageProps) {
                           {item.label}
                         </button>
                       ))}
-                      {quickMovement.map(exit => (
-                        <button
-                          key={exit.direction}
-                          className="mud-quick-chip"
-                          onClick={() => {
-                            setCommand(exit.direction)
-                            void runCommand(exit.direction)
-                          }}
-                          disabled={busy || !user}
-                        >
-                          {exit.direction}
-                        </button>
-                      ))}
                     </div>
                   </div>
                 </div>
@@ -690,7 +781,6 @@ export default function MudPage({ embedded = false }: MudPageProps) {
 
               {activeView === 'map' && (
                 <div className="mud-game-view">
-                  <div className="mud-game-section-head"><h2>Map</h2></div>
                   <div className="mud-card mud-card-flat">
                     <ZoneMapPanel rooms={state.mapRooms ?? []} exits={state.mapExits ?? []} onJump={runCommand} />
                   </div>
@@ -699,14 +789,11 @@ export default function MudPage({ embedded = false }: MudPageProps) {
 
               {activeView === 'items' && (
                 <div className="mud-game-view">
-                  <div className="mud-game-section-head"><h2>Visible items</h2></div>
                   <div className="mud-card mud-card-flat">
-                    <ItemList items={portableVisibleItems} onCommand={runCommand} emptyText="No items to take here." action="get" />
-                    {(state.visibleItems?.length ?? 0) > portableVisibleItems.length && (
-                      <>
-                        <h2 className="mud-subhead">Inspect</h2>
-                        <ItemList items={state.visibleItems ?? []} onCommand={runCommand} emptyText="No visible items." action="examine" />
-                      </>
+                    {subView === 'inspect' ? (
+                      <ItemList items={state.visibleItems ?? []} onCommand={runCommand} emptyText="No visible items." action="examine" />
+                    ) : (
+                      <ItemList items={portableVisibleItems} onCommand={runCommand} emptyText="No items to take here." action="get" />
                     )}
                   </div>
                 </div>
@@ -714,7 +801,6 @@ export default function MudPage({ embedded = false }: MudPageProps) {
 
               {activeView === 'inventory' && (
                 <div className="mud-game-view">
-                  <div className="mud-game-section-head"><h2>Inventory</h2></div>
                   <div className="mud-card mud-card-flat">
                     <ItemList items={state.inventoryItems ?? []} onCommand={runCommand} emptyText="You are carrying nothing." action="drop" />
                   </div>
@@ -723,10 +809,9 @@ export default function MudPage({ embedded = false }: MudPageProps) {
 
               {activeView === 'character' && (
                 <div className="mud-game-view">
-                  <div className="mud-game-section-head"><h2>Character</h2></div>
                   <div className="mud-card mud-card-flat">
-                    <StatPills character={selectedCharacter ?? state} />
-                    {roster && (
+                    {subView !== 'roster' && <StatPills character={selectedCharacter ?? state} />}
+                    {subView === 'roster' && roster && (
                       <div className="mud-roster-list mud-roster-inline">
                         {roster.characters.map(character => (
                           <div key={character.id} className={`mud-roster-card${character.isSelected ? ' selected' : ''}`}>
@@ -760,7 +845,6 @@ export default function MudPage({ embedded = false }: MudPageProps) {
 
               {activeView === 'settings' && (
                 <div className="mud-game-view">
-                  <div className="mud-game-section-head"><h2>Settings</h2></div>
                   <div className="mud-card mud-card-flat">
                     <div className="mud-form-grid">
                       <label className="mud-field-label">
@@ -893,47 +977,64 @@ export default function MudPage({ embedded = false }: MudPageProps) {
               )}
             </div>
 
-            <div className="mud-card mud-game-command-dock">
-              <form
-                className="mud-command-row"
-                onSubmit={e => {
-                  e.preventDefault()
-                  void runCommand()
-                }}
-              >
-                <input
-                  className="mud-command-input"
-                  value={command}
-                  onChange={e => setCommand(e.target.value)}
-                  placeholder="search, get rag strip, recipes, craft torch..."
-                  disabled={busy || !user}
-                />
-                <button className="mud-command-btn" type="submit" disabled={busy || !user}>
-                  {busy ? 'Running' : 'Run'}
-                </button>
-              </form>
-            </div>
+            <div className="mud-game-dock">
+              <div className="mud-card mud-game-command-dock">
+                <form
+                  className="mud-command-row"
+                  onSubmit={e => {
+                    e.preventDefault()
+                    void runCommand()
+                  }}
+                >
+                  <input
+                    className="mud-command-input"
+                    value={command}
+                    onChange={e => setCommand(e.target.value)}
+                    placeholder="search, get rag strip, recipes, craft torch..."
+                    disabled={busy || !user}
+                  />
+                  <button className="mud-command-btn" type="submit" disabled={busy || !user}>
+                    {busy ? 'Running' : 'Run'}
+                  </button>
+                </form>
+              </div>
 
-            <nav className="mud-game-nav">
-              <GameNavButton active={activeView === 'world'} label="World" onClick={() => setActiveView('world')}>
-                <Compass size={18} />
-              </GameNavButton>
-              <GameNavButton active={activeView === 'map'} label="Map" onClick={() => setActiveView('map')}>
-                <Map size={18} />
-              </GameNavButton>
-              <GameNavButton active={activeView === 'items'} label="Items" onClick={() => setActiveView('items')}>
-                <ScrollText size={18} />
-              </GameNavButton>
-              <GameNavButton active={activeView === 'inventory'} label="Inventory" onClick={() => setActiveView('inventory')}>
-                <Backpack size={18} />
-              </GameNavButton>
-              <GameNavButton active={activeView === 'character'} label="Character" onClick={() => setActiveView('character')}>
-                <UserRound size={18} />
-              </GameNavButton>
-              <GameNavButton active={activeView === 'settings'} label="Settings" onClick={() => setActiveView('settings')}>
-                <Settings2 size={18} />
-              </GameNavButton>
-            </nav>
+              {SUB_VIEWS[activeView] && (
+                <div className="mud-game-subnav">
+                  {SUB_VIEWS[activeView]!.map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      className={`mud-subnav-btn${subView === tab.id ? ' active' : ''}`}
+                      onClick={() => setSubView(tab.id)}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <nav className="mud-game-nav">
+                <GameNavButton active={activeView === 'world'} label="World" onClick={() => openView('world')}>
+                  <Compass size={18} />
+                </GameNavButton>
+                <GameNavButton active={activeView === 'map'} label="Map" onClick={() => openView('map')}>
+                  <MapIcon size={18} />
+                </GameNavButton>
+                <GameNavButton active={activeView === 'items'} label="Items" onClick={() => openView('items')}>
+                  <ScrollText size={18} />
+                </GameNavButton>
+                <GameNavButton active={activeView === 'inventory'} label="Inventory" onClick={() => openView('inventory')}>
+                  <Backpack size={18} />
+                </GameNavButton>
+                <GameNavButton active={activeView === 'character'} label="Character" onClick={() => openView('character')}>
+                  <UserRound size={18} />
+                </GameNavButton>
+                <GameNavButton active={activeView === 'settings'} label="Settings" onClick={() => openView('settings')}>
+                  <Settings2 size={18} />
+                </GameNavButton>
+              </nav>
+            </div>
           </div>
         )}
       </div>
