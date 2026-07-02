@@ -7,7 +7,6 @@ import { blogApi } from '../../api/blogApi'
 import type { BlogArticle, BlogComment, BlogTag } from '../../api/blogApi'
 import { useAuth } from '../../contexts/AuthContext'
 
-
 interface TocEntry { id: string; text: string; level: number }
 
 function buildTocFromMarkdown(md: string): TocEntry[] {
@@ -29,8 +28,18 @@ function makeHeadingRenderer(level: 1 | 2 | 3) {
 }
 
 function readingTime(content: string) {
-  const words = (content || '').trim().split(/\s+/).length
+  const words = (content || '').trim().split(/\s+/).filter(Boolean).length
   return `${Math.max(1, Math.round(words / 200))} min read`
+}
+
+function buildShareText(article: BlogArticle | null, url: string) {
+  if (!article) return url
+  const parts = [
+    article.title?.trim(),
+    article.excerpt?.trim(),
+    url,
+  ].filter(Boolean)
+  return parts.join('\n\n')
 }
 
 export default function BlogArticlePage() {
@@ -49,6 +58,7 @@ export default function BlogArticlePage() {
   const [activeToc, setActiveToc] = useState('')
   const [progress, setProgress] = useState(0)
   const [copied, setCopied] = useState(false)
+  const [shareNotice, setShareNotice] = useState<string | null>(null)
   const [moderating, setModerating] = useState(false)
   const [modNote, setModNote] = useState('')
   const [showModNote, setShowModNote] = useState<'reject' | 'revision' | null>(null)
@@ -61,11 +71,13 @@ export default function BlogArticlePage() {
         setToc(buildTocFromMarkdown(a.content || ''))
         return Promise.all([blogApi.getComments(a.id), blogApi.getArticleTags(a.id)])
       })
-      .then(([c, t]) => { setComments(c); setTags(t) })
+      .then(([loadedComments, loadedTags]) => {
+        setComments(loadedComments)
+        setTags(loadedTags)
+      })
       .finally(() => setLoading(false))
   }, [slug])
 
-  // Reading progress
   useEffect(() => {
     const onScroll = () => {
       const el = contentRef.current
@@ -75,7 +87,6 @@ export default function BlogArticlePage() {
       const read = Math.max(0, -rect.top)
       setProgress(Math.min(100, Math.round((read / total) * 100)))
 
-      // Active ToC heading
       const headings = el.querySelectorAll('h1[id],h2[id],h3[id]')
       let active = ''
       headings.forEach(h => {
@@ -92,10 +103,12 @@ export default function BlogArticlePage() {
     if (!article || !commentText.trim()) return
     setSubmitting(true)
     try {
-      const c = await blogApi.createComment(article.id, commentText.trim())
-      setComments(prev => [...prev, c])
+      const created = await blogApi.createComment(article.id, commentText.trim())
+      setComments(prev => [...prev, created])
       setCommentText('')
-    } finally { setSubmitting(false) }
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const handleDeleteComment = async (id: string) => {
@@ -112,26 +125,50 @@ export default function BlogArticlePage() {
       setArticle(updated)
       setShowModNote(null)
       setModNote('')
-    } finally { setModerating(false) }
+    } finally {
+      setModerating(false)
+    }
   }
 
-  const copyLink = () => {
-    navigator.clipboard.writeText(window.location.href)
+  const copyLink = async () => {
+    await navigator.clipboard.writeText(window.location.href)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const shareTwitter = () => {
-    const text = encodeURIComponent(`${article?.title} — ${window.location.href}`)
-    window.open(`https://twitter.com/intent/tweet?text=${text}`, '_blank', 'noopener')
+  const openShareWindow = (url: string) => {
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
-  const shareLinkedIn = () => {
+  const shareTwitter = async () => {
+    const shareText = buildShareText(article, window.location.href)
+    try {
+      await navigator.clipboard.writeText(shareText)
+      setShareNotice('Summary and link copied. If X opens awkwardly after login, paste the copied text into a new post.')
+      setTimeout(() => setShareNotice(null), 5000)
+    } catch {
+      setShareNotice('X opened. If needed, copy the article summary manually.')
+      setTimeout(() => setShareNotice(null), 5000)
+    }
+    const text = encodeURIComponent(shareText)
+    openShareWindow(`https://twitter.com/intent/tweet?text=${text}`)
+  }
+
+  const shareLinkedIn = async () => {
+    const shareText = buildShareText(article, window.location.href)
+    try {
+      await navigator.clipboard.writeText(shareText)
+      setShareNotice('Summary and link copied. Paste into LinkedIn if the composer only shows the link.')
+      setTimeout(() => setShareNotice(null), 5000)
+    } catch {
+      setShareNotice('LinkedIn opened. If needed, copy the article summary manually.')
+      setTimeout(() => setShareNotice(null), 5000)
+    }
     const url = encodeURIComponent(window.location.href)
-    window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${url}`, '_blank', 'noopener')
+    openShareWindow(`https://www.linkedin.com/sharing/share-offsite/?url=${url}`)
   }
 
-  if (loading) return <div className="forum-loading">Loading…</div>
+  if (loading) return <div className="forum-loading">Loading...</div>
   if (!article) return <div className="forum-error-msg">Article not found.</div>
 
   const isAuthor = user?.id === article.authorId
@@ -140,28 +177,28 @@ export default function BlogArticlePage() {
 
   return (
     <div className="blog-reader-shell">
-      {/* Reading progress bar */}
       <div className="blog-progress-bar" style={{ width: `${progress}%` }} />
 
       <div className="blog-reader-layout">
-        {/* ToC sidebar */}
         {toc.length > 2 && (
           <nav className="blog-toc">
             <div className="blog-toc-label">Contents</div>
             {toc.map(entry => (
-              <a key={entry.id} href={`#${entry.id}`}
-                className={`blog-toc-link blog-toc-h${entry.level}${activeToc === entry.id ? ' active' : ''}`}>
+              <a
+                key={entry.id}
+                href={`#${entry.id}`}
+                className={`blog-toc-link blog-toc-h${entry.level}${activeToc === entry.id ? ' active' : ''}`}
+              >
                 {entry.text}
               </a>
             ))}
           </nav>
         )}
 
-        {/* Main content */}
         <article className="blog-reader-main">
           <div className="forum-breadcrumb">
             <button className="breadcrumb-link" onClick={onNavigateBack}>Articles</button>
-            {' › '}<span>{article.title}</span>
+            {' > '}<span>{article.title}</span>
           </div>
 
           {article.coverUrl && (
@@ -187,41 +224,36 @@ export default function BlogArticlePage() {
               By <a className="blog-author-link" href={`/profile/${article.authorId}`}>{article.authorName || 'Anonymous'}</a>
             </div>
 
-            {/* Share */}
             <div className="blog-share-row">
               <span className="blog-share-label">Share</span>
-              <button className="blog-share-btn" onClick={copyLink} title="Copy link">
+              <button className="blog-share-btn" onClick={() => { void copyLink() }} title="Copy link">
                 <Link2 size={15} /> {copied ? 'Copied!' : 'Copy link'}
               </button>
-              <button className="blog-share-btn" onClick={shareTwitter} title="Share on X / Twitter">
+              <button className="blog-share-btn" onClick={() => { void shareTwitter() }} title="Share on X / Twitter">
                 <Twitter size={15} /> X
               </button>
-              <button className="blog-share-btn" onClick={shareLinkedIn} title="Share on LinkedIn">
+              <button className="blog-share-btn" onClick={() => { void shareLinkedIn() }} title="Share on LinkedIn">
                 <Linkedin size={15} /> LinkedIn
               </button>
             </div>
+            {shareNotice && <div className="blog-share-note">{shareNotice}</div>}
 
-            {/* Author / admin actions */}
             {(isAuthor || isAdmin) && (
               <div className="blog-article-actions">
-                {(isAuthor || isAdmin) && article.status !== 'published' && (
+                {article.status !== 'published' && (
                   <button className="tiptap-action-btn secondary" onClick={() => onNavigateEditor(article.id)}>Edit</button>
                 )}
                 {isAuthor && article.status === 'draft' && (
-                  <button className="tiptap-action-btn primary" onClick={() => handleStatus('submitted')}>
+                  <button className="tiptap-action-btn primary" onClick={() => void handleStatus('submitted')}>
                     Submit for Review
                   </button>
                 )}
                 {isAdmin && (article.status === 'submitted' || article.status === 'under_review') && (
                   <>
-                    <button className="tiptap-action-btn primary" disabled={moderating}
-                      onClick={() => handleStatus('approved')}>Approve</button>
-                    <button className="tiptap-action-btn primary" disabled={moderating}
-                      onClick={() => handleStatus('published')}>Publish</button>
-                    <button className="tiptap-action-btn secondary" disabled={moderating}
-                      onClick={() => setShowModNote('revision')}>Request Revision</button>
-                    <button className="tiptap-action-btn secondary" disabled={moderating}
-                      onClick={() => setShowModNote('reject')}>Reject</button>
+                    <button className="tiptap-action-btn primary" disabled={moderating} onClick={() => void handleStatus('approved')}>Approve</button>
+                    <button className="tiptap-action-btn primary" disabled={moderating} onClick={() => void handleStatus('published')}>Publish</button>
+                    <button className="tiptap-action-btn secondary" disabled={moderating} onClick={() => setShowModNote('revision')}>Request Revision</button>
+                    <button className="tiptap-action-btn secondary" disabled={moderating} onClick={() => setShowModNote('reject')}>Reject</button>
                   </>
                 )}
                 {article.status !== 'draft' && (
@@ -230,16 +262,22 @@ export default function BlogArticlePage() {
               </div>
             )}
 
-            {/* Mod note input */}
             {showModNote && (
               <div className="blog-mod-note-row">
-                <textarea className="blog-editor-sidebar-textarea" rows={2} value={modNote}
+                <textarea
+                  className="blog-editor-sidebar-textarea"
+                  rows={2}
+                  value={modNote}
                   onChange={e => setModNote(e.target.value)}
-                  placeholder={showModNote === 'reject' ? 'Reason for rejection (sent to author)…' : 'Describe what needs revision…'} />
+                  placeholder={showModNote === 'reject' ? 'Reason for rejection (sent to author)...' : 'Describe what needs revision...'}
+                />
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="tiptap-action-btn secondary small" onClick={() => setShowModNote(null)}>Cancel</button>
-                  <button className="tiptap-action-btn primary small" disabled={moderating}
-                    onClick={() => handleStatus(showModNote === 'reject' ? 'rejected' : 'needs_revision', modNote)}>
+                  <button
+                    className="tiptap-action-btn primary small"
+                    disabled={moderating}
+                    onClick={() => void handleStatus(showModNote === 'reject' ? 'rejected' : 'needs_revision', modNote)}
+                  >
                     Send
                   </button>
                 </div>
@@ -247,7 +285,6 @@ export default function BlogArticlePage() {
             )}
           </div>
 
-          {/* Article body */}
           <div ref={contentRef} className="blog-article-content">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
@@ -261,26 +298,30 @@ export default function BlogArticlePage() {
             </ReactMarkdown>
           </div>
 
-          {/* Comments */}
           <div className="blog-comments">
             <h3>{comments.length} {comments.length === 1 ? 'Comment' : 'Comments'}</h3>
-            {comments.map(c => (
-              <div key={c.id} className="blog-comment">
-                <p className="blog-comment-content">{c.content}</p>
+            {comments.map(comment => (
+              <div key={comment.id} className="blog-comment">
+                <p className="blog-comment-content">{comment.content}</p>
                 <div className="blog-comment-footer">
-                  <span className="post-meta">{new Date(c.createdAt).toLocaleDateString()}</span>
-                  {(user?.id === c.authorId || isAdmin) && (
-                    <button className="post-action post-action-delete" onClick={() => handleDeleteComment(c.id)}>Delete</button>
+                  <span className="post-meta">{new Date(comment.createdAt).toLocaleDateString()}</span>
+                  {(user?.id === comment.authorId || isAdmin) && (
+                    <button className="post-action post-action-delete" onClick={() => void handleDeleteComment(comment.id)}>Delete</button>
                   )}
                 </div>
               </div>
             ))}
             {user ? (
               <form className="blog-comment-form" onSubmit={handleComment}>
-                <textarea value={commentText} onChange={e => setCommentText(e.target.value)}
-                  placeholder="Add a comment…" rows={4} required />
+                <textarea
+                  value={commentText}
+                  onChange={e => setCommentText(e.target.value)}
+                  placeholder="Add a comment..."
+                  rows={4}
+                  required
+                />
                 <button type="submit" className="tiptap-action-btn primary" disabled={submitting || !commentText.trim()}>
-                  {submitting ? 'Posting…' : 'Post Comment'}
+                  {submitting ? 'Posting...' : 'Post Comment'}
                 </button>
               </form>
             ) : (
