@@ -6,6 +6,23 @@ open System.Text.Json
 open Npgsql
 open Database
 
+type MudStats =
+    { Presence: int
+      Wit: int
+      Resolve: int
+      Lore: int
+      Craft: int
+      Guile: int }
+
+type MudSkills =
+    { Searching: int
+      Crafting: int
+      Navigation: int
+      Lorekeeping: int
+      Negotiation: int
+      Devices: int
+      Survival: int }
+
 type MudExitView =
     { Direction: string
       ExitType: string
@@ -38,6 +55,10 @@ type MudItemView =
 type MudRoomState =
     { CharacterId: Guid
       CharacterName: string
+      RealmSlug: string
+      RealmName: string
+      Stats: MudStats
+      Skills: MudSkills
       RoomId: Guid
       RoomName: string
       RoomDescription: string option
@@ -55,13 +76,57 @@ type MudCommandResult =
       Message: string
       State: MudRoomState option }
 
+type MudRealmAvailability =
+    { RealmSlug: string
+      RealmName: string
+      CharacterCount: int
+      FreeStarterUsed: bool
+      CanCreateFreeStarter: bool }
+
+type MudCharacterSummary =
+    { Id: Guid
+      Name: string
+      DisplayName: string
+      RealmSlug: string
+      RealmName: string
+      IsSelected: bool
+      CurrentRoomName: string
+      MudTierName: string
+      InventoryCount: int
+      Stats: MudStats
+      Skills: MudSkills
+      CreatedAt: DateTime }
+
+type MudRosterView =
+    { SelectedCharacterId: Guid option
+      Characters: MudCharacterSummary list
+      Realms: MudRealmAvailability list
+      PaidSlotsTotal: int
+      PaidSlotsUsed: int
+      PaidSlotsRemaining: int
+      BonusSlots: int }
+
 type private MudCharacterRow =
     { Id: Guid
       UserId: Guid
+      RealmSlug: string
+      Name: string
       DisplayName: string
       CurrentRoomId: Guid
+      Stats: MudStats
+      Skills: MudSkills
       CreatedAt: DateTime
       UpdatedAt: DateTime }
+
+type private MudUserSettings =
+    { ActiveCharacterId: Guid option
+      PatreonTierId: string option
+      BonusSlots: int }
+
+type private MudRealmDefinition =
+    { Slug: string
+      Name: string
+      StartRoomSlug: string }
 
 type private MudCraftRecipe =
     { Slug: string
@@ -72,44 +137,9 @@ type private MudCraftRecipe =
       OutputDescription: string
       OutputReadableText: string option }
 
-let private readCharacter (r: DbDataReader) =
-    { Id = r.GetGuid(0)
-      UserId = r.GetGuid(1)
-      DisplayName = r.GetString(2)
-      CurrentRoomId = r.GetGuid(3)
-      CreatedAt = r.GetFieldValue<DateTime>(4)
-      UpdatedAt = r.GetFieldValue<DateTime>(5) }
-
-let private readStateBase (r: DbDataReader) =
-    { CharacterId = r.GetGuid(0)
-      CharacterName = r.GetString(1)
-      RoomId = r.GetGuid(2)
-      RoomName = r.GetString(3)
-      RoomDescription = if r.IsDBNull(4) then None else Some (r.GetString(4))
-      ZoneName = r.GetString(5)
-      MudTierName = "Wanderer"
-      VisibleItems = []
-      InventoryItems = []
-      MapRooms = []
-      MapExits = []
-      Exits = [] }
-
-let private readItemView (r: DbDataReader) =
-    { Name = r.GetString(0)
-      Slug = r.GetString(1)
-      Description = if r.IsDBNull(2) then None else Some (r.GetString(2))
-      Portable = r.GetBoolean(3)
-      Readable = not (r.IsDBNull(4)) }
-
-let private nonBlank (value: string option) =
-    value |> Option.bind (fun s -> if String.IsNullOrWhiteSpace(s) then None else Some s)
-
-let private payloadOf (pairs: (string * string) list) =
-    let rendered =
-        pairs
-        |> List.map (fun (key, value) -> $"\"{key}\":{JsonSerializer.Serialize(value)}")
-        |> String.concat ","
-    "{" + rendered + "}"
+let private realmDefinitions =
+    [ { Slug = "medieval"; Name = "Medieval"; StartRoomSlug = "keep-gate" }
+      { Slug = "sci-fi"; Name = "Sci-Fi"; StartRoomSlug = "transit-dock" } ]
 
 let private craftRecipes =
     [ { Slug = "torch"
@@ -127,22 +157,98 @@ let private craftRecipes =
         OutputDescription = "A small improvised key of brass and wire. It looks like it belongs in a mechanical slot rather than a lock."
         OutputReadableText = None } ]
 
-let private starterRoomId () =
-    use conn = openConnection ()
-    use cmd = new NpgsqlCommand(
-        """SELECT id
-           FROM mud_rooms
-           ORDER BY
-             CASE
-               WHEN slug = 'threshold-of-realms' THEN 0
-               WHEN slug = 'atrium' THEN 1
-               ELSE 2
-             END,
-             created_at,
-             name
-           LIMIT 1""", conn)
-    let scalar = cmd.ExecuteScalar()
-    if isNull scalar || scalar = box DBNull.Value then None else Some (scalar :?> Guid)
+let private defaultStats =
+    { Presence = 1
+      Wit = 1
+      Resolve = 1
+      Lore = 1
+      Craft = 1
+      Guile = 1 }
+
+let private defaultSkills =
+    { Searching = 1
+      Crafting = 1
+      Navigation = 1
+      Lorekeeping = 1
+      Negotiation = 1
+      Devices = 1
+      Survival = 1 }
+
+let private readStats (r: DbDataReader) startIndex =
+    { Presence = r.GetInt32(startIndex)
+      Wit = r.GetInt32(startIndex + 1)
+      Resolve = r.GetInt32(startIndex + 2)
+      Lore = r.GetInt32(startIndex + 3)
+      Craft = r.GetInt32(startIndex + 4)
+      Guile = r.GetInt32(startIndex + 5) }
+
+let private readSkills (r: DbDataReader) startIndex =
+    { Searching = r.GetInt32(startIndex)
+      Crafting = r.GetInt32(startIndex + 1)
+      Navigation = r.GetInt32(startIndex + 2)
+      Lorekeeping = r.GetInt32(startIndex + 3)
+      Negotiation = r.GetInt32(startIndex + 4)
+      Devices = r.GetInt32(startIndex + 5)
+      Survival = r.GetInt32(startIndex + 6) }
+
+let private readCharacter (r: DbDataReader) =
+    { Id = r.GetGuid(0)
+      UserId = r.GetGuid(1)
+      RealmSlug = r.GetString(2)
+      Name = r.GetString(3)
+      DisplayName = r.GetString(4)
+      CurrentRoomId = r.GetGuid(5)
+      Stats = readStats r 6
+      Skills = readSkills r 12
+      CreatedAt = r.GetFieldValue<DateTime>(19)
+      UpdatedAt = r.GetFieldValue<DateTime>(20) }
+
+let private readStateBase (r: DbDataReader) =
+    { CharacterId = r.GetGuid(0)
+      CharacterName = r.GetString(1)
+      RealmSlug = r.GetString(2)
+      RealmName = r.GetString(3)
+      Stats = readStats r 4
+      Skills = readSkills r 10
+      RoomId = r.GetGuid(17)
+      RoomName = r.GetString(18)
+      RoomDescription = if r.IsDBNull(19) then None else Some (r.GetString(19))
+      ZoneName = r.GetString(20)
+      MudTierName = "Wanderer"
+      VisibleItems = []
+      InventoryItems = []
+      MapRooms = []
+      MapExits = []
+      Exits = [] }
+
+let private readItemView (r: DbDataReader) =
+    { Name = r.GetString(0)
+      Slug = r.GetString(1)
+      Description = if r.IsDBNull(2) then None else Some (r.GetString(2))
+      Portable = r.GetBoolean(3)
+      Readable = not (r.IsDBNull(4)) }
+
+let private nonBlank (value: string option) =
+    value |> Option.bind (fun s -> if String.IsNullOrWhiteSpace(s) then None else Some s)
+
+let private normalizeRealmSlug (value: string) =
+    value.Trim().ToLowerInvariant()
+
+let private realmBySlug slug =
+    realmDefinitions
+    |> List.tryFind (fun realm -> realm.Slug = normalizeRealmSlug slug)
+
+let private realmName slug =
+    realmBySlug slug
+    |> Option.map _.Name
+    |> Option.defaultValue slug
+
+let private payloadOf (pairs: (string * string) list) =
+    let rendered =
+        pairs
+        |> List.map (fun (key, value) -> $"\"{key}\":{JsonSerializer.Serialize(value)}")
+        |> String.concat ","
+    "{" + rendered + "}"
 
 let private loadMudTierName (userId: Guid) =
     use conn = openConnection ()
@@ -156,10 +262,92 @@ let private loadMudTierName (userId: Guid) =
     let scalar = cmd.ExecuteScalar()
     if isNull scalar || scalar = box DBNull.Value then "Wanderer" else scalar :?> string
 
-let private loadState (conn: NpgsqlConnection) (userId: Guid) : MudRoomState option =
+let private paidSlotsForTier = function
+    | Some "curious-mind" -> 3
+    | Some "lab-assistant" -> 6
+    | Some "research-fellow" -> 9
+    | Some "professor" -> 12
+    | Some "dean" -> 15
+    | _ -> 0
+
+let private loadUserSettings (conn: NpgsqlConnection) (userId: Guid) =
+    use cmd = new NpgsqlCommand(
+        """SELECT active_mud_character_id, patreon_tier_id, COALESCE(mud_bonus_character_slots, 0)
+           FROM users
+           WHERE id = @uid""", conn)
+    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+    use reader = cmd.ExecuteReader()
+    if reader.Read() then
+        Some
+            { ActiveCharacterId = if reader.IsDBNull(0) then None else Some (reader.GetGuid(0))
+              PatreonTierId = if reader.IsDBNull(1) then None else Some (reader.GetString(1))
+              BonusSlots = reader.GetInt32(2) }
+    else
+        None
+
+let private characterSelectSql =
+    """SELECT id,
+              user_id,
+              realm_slug,
+              name,
+              display_name,
+              current_room_id,
+              stat_presence,
+              stat_wit,
+              stat_resolve,
+              stat_lore,
+              stat_craft,
+              stat_guile,
+              skill_searching,
+              skill_crafting,
+              skill_navigation,
+              skill_lorekeeping,
+              skill_negotiation,
+              skill_devices,
+              skill_survival,
+              created_at,
+              updated_at
+       FROM mud_characters
+       WHERE user_id = @uid
+         AND deleted_at IS NULL
+       ORDER BY created_at, name"""
+
+let private loadCharacters (conn: NpgsqlConnection) (userId: Guid) =
+    use cmd = new NpgsqlCommand(characterSelectSql, conn)
+    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do
+        yield readCharacter reader ]
+
+let private resolveSelectedCharacter (settings: MudUserSettings option) (characters: MudCharacterRow list) =
+    let byId id = characters |> List.tryFind (fun character -> character.Id = id)
+    match settings |> Option.bind _.ActiveCharacterId |> Option.bind byId with
+    | Some character -> Some character
+    | None -> characters |> List.tryHead
+
+let private loadStateForCharacter (conn: NpgsqlConnection) (userId: Guid) (character: MudCharacterRow) : MudRoomState option =
     use cmd = new NpgsqlCommand(
         """SELECT c.id,
                   c.display_name,
+                  c.realm_slug,
+                  CASE c.realm_slug
+                      WHEN 'medieval' THEN 'Medieval'
+                      WHEN 'sci-fi' THEN 'Sci-Fi'
+                      ELSE initcap(replace(c.realm_slug, '-', ' '))
+                  END,
+                  c.stat_presence,
+                  c.stat_wit,
+                  c.stat_resolve,
+                  c.stat_lore,
+                  c.stat_craft,
+                  c.stat_guile,
+                  c.skill_searching,
+                  c.skill_crafting,
+                  c.skill_navigation,
+                  c.skill_lorekeeping,
+                  c.skill_negotiation,
+                  c.skill_devices,
+                  c.skill_survival,
                   r.id,
                   r.name,
                   r.description,
@@ -167,7 +355,10 @@ let private loadState (conn: NpgsqlConnection) (userId: Guid) : MudRoomState opt
            FROM mud_characters c
            JOIN mud_rooms r ON r.id = c.current_room_id
            JOIN mud_zones z ON z.id = r.zone_id
-           WHERE c.user_id = @uid""", conn)
+           WHERE c.id = @character_id
+             AND c.user_id = @uid
+             AND c.deleted_at IS NULL""", conn)
+    cmd.Parameters.AddWithValue("character_id", character.Id) |> ignore
     cmd.Parameters.AddWithValue("uid", userId) |> ignore
     use reader = cmd.ExecuteReader()
     if not (reader.Read()) then
@@ -175,6 +366,7 @@ let private loadState (conn: NpgsqlConnection) (userId: Guid) : MudRoomState opt
     else
         let baseState = readStateBase reader
         reader.Close()
+
         use exitCmd = new NpgsqlCommand(
             """SELECT e.direction, e.exit_type, e.label, e.to_room_id, r.name
                FROM mud_exits e
@@ -191,6 +383,7 @@ let private loadState (conn: NpgsqlConnection) (userId: Guid) : MudRoomState opt
                         TargetRoomId = exitReader.GetGuid(3)
                         TargetRoomName = exitReader.GetString(4) } ]
         exitReader.Close()
+
         use roomItemsCmd = new NpgsqlCommand(
             """SELECT name, slug, description, portable, readable_text
                FROM mud_items
@@ -203,6 +396,7 @@ let private loadState (conn: NpgsqlConnection) (userId: Guid) : MudRoomState opt
             [ while roomItemsReader.Read() do
                 yield readItemView roomItemsReader ]
         roomItemsReader.Close()
+
         use invCmd = new NpgsqlCommand(
             """SELECT name, slug, description, portable, readable_text
                FROM mud_items
@@ -214,6 +408,7 @@ let private loadState (conn: NpgsqlConnection) (userId: Guid) : MudRoomState opt
             [ while invReader.Read() do
                 yield readItemView invReader ]
         invReader.Close()
+
         use mapRoomsCmd = new NpgsqlCommand(
             """SELECT r.id, r.name, r.slug, COALESCE(r.map_x, r.position), COALESCE(r.map_y, 0)
                FROM mud_rooms r
@@ -233,6 +428,7 @@ let private loadState (conn: NpgsqlConnection) (userId: Guid) : MudRoomState opt
                         Y = mapRoomsReader.GetInt32(4)
                         Current = roomId = baseState.RoomId } ]
         mapRoomsReader.Close()
+
         use mapExitsCmd = new NpgsqlCommand(
             """SELECT e.from_room_id, e.to_room_id, e.direction, e.exit_type, e.label
                FROM mud_exits e
@@ -252,61 +448,46 @@ let private loadState (conn: NpgsqlConnection) (userId: Guid) : MudRoomState opt
                         Direction = mapExitsReader.GetString(2)
                         ExitType = mapExitsReader.GetString(3)
                         Label = if mapExitsReader.IsDBNull(4) then None else Some (mapExitsReader.GetString(4)) } ]
+
         let mudTierName = loadMudTierName userId
-        Some { baseState with Exits = exits; VisibleItems = visibleItems; InventoryItems = inventoryItems; MapRooms = mapRooms; MapExits = mapExits; MudTierName = mudTierName }
+        Some
+            { baseState with
+                Exits = exits
+                VisibleItems = visibleItems
+                InventoryItems = inventoryItems
+                MapRooms = mapRooms
+                MapExits = mapExits
+                MudTierName = mudTierName }
 
-let private loadCharacter (conn: NpgsqlConnection) (userId: Guid) : MudCharacterRow option =
+let private getActiveStateInternal (conn: NpgsqlConnection) (userId: Guid) =
+    let settings = loadUserSettings conn userId
+    let characters = loadCharacters conn userId
+    resolveSelectedCharacter settings characters
+    |> Option.bind (loadStateForCharacter conn userId)
+
+let private loadInventoryItemIds (conn: NpgsqlConnection) (characterId: Guid) =
     use cmd = new NpgsqlCommand(
-        """SELECT id, user_id, display_name, current_room_id, created_at, updated_at
-           FROM mud_characters
-           WHERE user_id = @uid""", conn)
-    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+        """SELECT id, slug
+           FROM mud_items
+           WHERE owner_character_id = @character_id
+           ORDER BY position, created_at, name""", conn)
+    cmd.Parameters.AddWithValue("character_id", characterId) |> ignore
     use reader = cmd.ExecuteReader()
-    if reader.Read() then Some (readCharacter reader) else None
+    [ while reader.Read() do
+        yield reader.GetGuid(0), reader.GetString(1).ToLowerInvariant() ]
 
-let private ensureCharacter (conn: NpgsqlConnection) (userId: Guid) (displayName: string option) : MudCharacterRow option =
-    match loadCharacter conn userId with
-    | Some character -> Some character
-    | None ->
-        match starterRoomId () with
-        | None -> None
-        | Some roomId ->
-            let name =
-                displayName
-                |> nonBlank
-                |> Option.defaultValue "Adventurer"
-            use insertCmd = new NpgsqlCommand(
-                """INSERT INTO mud_characters (user_id, display_name, current_room_id)
-                   VALUES (@uid, @display_name, @room_id)
-                   ON CONFLICT (user_id) DO UPDATE
-                     SET updated_at = now()
-                   RETURNING id, user_id, display_name, current_room_id, created_at, updated_at""", conn)
-            insertCmd.Parameters.AddWithValue("uid", userId) |> ignore
-            insertCmd.Parameters.AddWithValue("display_name", name) |> ignore
-            insertCmd.Parameters.AddWithValue("room_id", roomId) |> ignore
-            use insertReader = insertCmd.ExecuteReader()
-            if insertReader.Read() then Some (readCharacter insertReader) else None
-
-let private logEvent
-    (conn: NpgsqlConnection)
-    (actorUserId: Guid)
-    (actorCharacterId: Guid)
-    (roomId: Guid)
-    (eventType: string)
-    (command: string option)
-    (message: string)
-    (payload: string) =
-    use cmd = new NpgsqlCommand(
-        """INSERT INTO mud_events (actor_type, actor_user_id, actor_character_id, room_id, event_type, command, message, payload)
-           VALUES ('user', @actor_user_id, @actor_character_id, @room_id, @event_type, @command, @message, @payload::jsonb)""", conn)
-    cmd.Parameters.AddWithValue("actor_user_id", actorUserId) |> ignore
-    cmd.Parameters.AddWithValue("actor_character_id", actorCharacterId) |> ignore
-    cmd.Parameters.AddWithValue("room_id", roomId) |> ignore
-    cmd.Parameters.AddWithValue("event_type", eventType) |> ignore
-    cmd.Parameters.AddWithValue("command", command |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
-    cmd.Parameters.AddWithValue("message", message) |> ignore
-    cmd.Parameters.AddWithValue("payload", payload) |> ignore
-    cmd.ExecuteNonQuery() |> ignore
+let private realmStartRoomId (conn: NpgsqlConnection) (realmSlug: string) =
+    match realmBySlug realmSlug with
+    | None -> None
+    | Some realm ->
+        use cmd = new NpgsqlCommand(
+            """SELECT id
+               FROM mud_rooms
+               WHERE slug = @slug
+               LIMIT 1""", conn)
+        cmd.Parameters.AddWithValue("slug", realm.StartRoomSlug) |> ignore
+        let scalar = cmd.ExecuteScalar()
+        if isNull scalar || scalar = box DBNull.Value then None else Some (scalar :?> Guid)
 
 let private describeState (state: MudRoomState) =
     let exitsText =
@@ -386,17 +567,6 @@ let private describeRecipes () =
     |> List.map describeRecipe
     |> String.concat "\n\n"
 
-let private loadInventoryItemIds (conn: NpgsqlConnection) (characterId: Guid) =
-    use cmd = new NpgsqlCommand(
-        """SELECT id, slug
-           FROM mud_items
-           WHERE owner_character_id = @character_id
-           ORDER BY position, created_at, name""", conn)
-    cmd.Parameters.AddWithValue("character_id", characterId) |> ignore
-    use reader = cmd.ExecuteReader()
-    [ while reader.Read() do
-        yield reader.GetGuid(0), reader.GetString(1).ToLowerInvariant() ]
-
 let private tryResolveRecipe (query: string) =
     let normalized = query.Trim().ToLowerInvariant()
     craftRecipes
@@ -405,45 +575,37 @@ let private tryResolveRecipe (query: string) =
         || recipe.Name.ToLowerInvariant() = normalized
         || recipe.Name.ToLowerInvariant().Replace(" ", "-") = normalized)
 
-let private withState (userId: Guid) (displayName: string option) (action: MudRoomState -> MudCommandResult) : MudCommandResult =
+let private logEvent
+    (conn: NpgsqlConnection)
+    (actorUserId: Guid)
+    (actorCharacterId: Guid)
+    (roomId: Guid)
+    (eventType: string)
+    (command: string option)
+    (message: string)
+    (payload: string) =
+    use cmd = new NpgsqlCommand(
+        """INSERT INTO mud_events (actor_type, actor_user_id, actor_character_id, room_id, event_type, command, message, payload)
+           VALUES ('user', @actor_user_id, @actor_character_id, @room_id, @event_type, @command, @message, @payload::jsonb)""", conn)
+    cmd.Parameters.AddWithValue("actor_user_id", actorUserId) |> ignore
+    cmd.Parameters.AddWithValue("actor_character_id", actorCharacterId) |> ignore
+    cmd.Parameters.AddWithValue("room_id", roomId) |> ignore
+    cmd.Parameters.AddWithValue("event_type", eventType) |> ignore
+    cmd.Parameters.AddWithValue("command", command |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("message", message) |> ignore
+    cmd.Parameters.AddWithValue("payload", payload) |> ignore
+    cmd.ExecuteNonQuery() |> ignore
+
+let private withState (userId: Guid) (action: MudRoomState -> MudCommandResult) : MudCommandResult =
     use conn = openConnection ()
-    match ensureCharacter conn userId displayName with
+    match getActiveStateInternal conn userId with
     | None ->
         { Success = false
           Command = ""
-          Message = "The MUD world is not ready yet."
+          Message = "Choose or create a character first."
           State = None }
-    | Some character ->
-        match loadState conn userId with
-        | None ->
-            { Success = false
-              Command = ""
-              Message = "You are not placed in a room yet."
-              State = None }
-        | Some state ->
-            action { state with CharacterId = character.Id; CharacterName = character.DisplayName }
-
-let getState (userId: Guid) : MudRoomState option =
-    use conn = openConnection ()
-    loadState conn userId
-
-let getOrCreateState (userId: Guid) (displayName: string option) : MudRoomState option =
-    use conn = openConnection ()
-    match ensureCharacter conn userId displayName with
-    | None -> None
-    | Some character ->
-        loadState conn userId
-        |> Option.map (fun state -> { state with CharacterId = character.Id; CharacterName = character.DisplayName })
-
-let look (userId: Guid) (displayName: string option) : MudCommandResult =
-    withState userId displayName (fun state ->
-        let message = describeState state
-        use conn = openConnection ()
-        logEvent conn userId state.CharacterId state.RoomId "look" (Some "look") message (payloadOf [ "action", "look" ])
-        { Success = true
-          Command = "look"
-          Message = message
-          State = Some state })
+    | Some state ->
+        action state
 
 let private findExit (conn: NpgsqlConnection) (roomId: Guid) (direction: string) =
     use cmd = new NpgsqlCommand(
@@ -457,61 +619,342 @@ let private findExit (conn: NpgsqlConnection) (roomId: Guid) (direction: string)
     cmd.Parameters.AddWithValue("direction", direction) |> ignore
     use reader = cmd.ExecuteReader()
     if reader.Read() then
-        Some { Direction = reader.GetString(0)
-               ExitType = reader.GetString(1)
-               Label = if reader.IsDBNull(2) then None else Some (reader.GetString(2))
-               TargetRoomId = reader.GetGuid(3)
-               TargetRoomName = reader.GetString(4) }
+        Some
+            { Direction = reader.GetString(0)
+              ExitType = reader.GetString(1)
+              Label = if reader.IsDBNull(2) then None else Some (reader.GetString(2))
+              TargetRoomId = reader.GetGuid(3)
+              TargetRoomName = reader.GetString(4) }
     else
         None
 
-let private moveInternal (userId: Guid) (direction: string) (displayName: string option) : MudCommandResult =
+let private paidSlotsUsed (characters: MudCharacterRow list) =
+    let freeRealmCount =
+        realmDefinitions
+        |> List.sumBy (fun realm ->
+            if characters |> List.exists (fun character -> character.RealmSlug = realm.Slug) then 1 else 0)
+    max 0 (characters.Length - freeRealmCount)
+
+let private buildRoster (userId: Guid) (settings: MudUserSettings option) (characters: MudCharacterRow list) =
+    let selectedCharacter = resolveSelectedCharacter settings characters
+    let selectedCharacterId = selectedCharacter |> Option.map _.Id
+    let mudTierName = loadMudTierName userId
+    let bonusSlots = settings |> Option.map _.BonusSlots |> Option.defaultValue 0
+    let paidSlotsTotal = (settings |> Option.bind _.PatreonTierId |> paidSlotsForTier |> max 0) + bonusSlots
+    let paidUsed = paidSlotsUsed characters
+    let remaining = max 0 (paidSlotsTotal - paidUsed)
+
+    let characterSummaries =
+        use conn = openConnection ()
+        use cmd = new NpgsqlCommand(
+            """SELECT c.id,
+                      c.user_id,
+                      c.realm_slug,
+                      c.name,
+                      c.display_name,
+                      c.current_room_id,
+                      c.stat_presence,
+                      c.stat_wit,
+                      c.stat_resolve,
+                      c.stat_lore,
+                      c.stat_craft,
+                      c.stat_guile,
+                      c.skill_searching,
+                      c.skill_crafting,
+                      c.skill_navigation,
+                      c.skill_lorekeeping,
+                      c.skill_negotiation,
+                      c.skill_devices,
+                      c.skill_survival,
+                      c.created_at,
+                      c.updated_at,
+                      r.name,
+                      COALESCE((
+                          SELECT COUNT(*)
+                          FROM mud_items i
+                          WHERE i.owner_character_id = c.id
+                      ), 0)
+               FROM mud_characters c
+               JOIN mud_rooms r ON r.id = c.current_room_id
+               WHERE c.user_id = @uid
+                 AND c.deleted_at IS NULL
+               ORDER BY c.created_at, c.name""", conn)
+        cmd.Parameters.AddWithValue("uid", userId) |> ignore
+        use reader = cmd.ExecuteReader()
+        [ while reader.Read() do
+            let character = readCharacter reader
+            yield
+                { Id = character.Id
+                  Name = character.Name
+                  DisplayName = character.DisplayName
+                  RealmSlug = character.RealmSlug
+                  RealmName = realmName character.RealmSlug
+                  IsSelected = selectedCharacterId = Some character.Id
+                  CurrentRoomName = reader.GetString(21)
+                  MudTierName = mudTierName
+                  InventoryCount = reader.GetInt32(22)
+                  Stats = character.Stats
+                  Skills = character.Skills
+                  CreatedAt = character.CreatedAt } ]
+
+    let realms =
+        realmDefinitions
+        |> List.map (fun realm ->
+            let count = characters |> List.filter (fun character -> character.RealmSlug = realm.Slug) |> List.length
+            { RealmSlug = realm.Slug
+              RealmName = realm.Name
+              CharacterCount = count
+              FreeStarterUsed = count > 0
+              CanCreateFreeStarter = count = 0 })
+
+    { SelectedCharacterId = selectedCharacterId
+      Characters = characterSummaries
+      Realms = realms
+      PaidSlotsTotal = paidSlotsTotal
+      PaidSlotsUsed = paidUsed
+      PaidSlotsRemaining = remaining
+      BonusSlots = bonusSlots }
+
+let getRoster (userId: Guid) =
     use conn = openConnection ()
-    match ensureCharacter conn userId displayName with
+    let settings = loadUserSettings conn userId
+    let characters = loadCharacters conn userId
+    buildRoster userId settings characters
+
+let getState (userId: Guid) : MudRoomState option =
+    use conn = openConnection ()
+    getActiveStateInternal conn userId
+
+let selectCharacter (userId: Guid) (characterId: Guid) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """UPDATE users
+           SET active_mud_character_id = @character_id
+           WHERE id = @uid
+             AND EXISTS (
+                SELECT 1
+                FROM mud_characters c
+                WHERE c.id = @character_id
+                  AND c.user_id = @uid
+                  AND c.deleted_at IS NULL
+             )""", conn)
+    cmd.Parameters.AddWithValue("character_id", characterId) |> ignore
+    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+    if cmd.ExecuteNonQuery() > 0 then getState userId else None
+
+let private createCharacterAllowed (realmSlug: string) (roster: MudRosterView) =
+    match roster.Realms |> List.tryFind (fun realm -> realm.RealmSlug = realmSlug) with
+    | None -> false, "Unknown realm."
+    | Some realm when realm.CanCreateFreeStarter -> true, ""
+    | Some _ when roster.PaidSlotsRemaining > 0 -> true, ""
+    | Some _ -> false, "Your roster is full. Delete a character, upgrade your tier, or add another slot."
+
+let createCharacter (userId: Guid) (realmSlug: string) (name: string) (displayName: string option) =
+    let trimmedName = name.Trim()
+    if String.IsNullOrWhiteSpace(trimmedName) then
+        Error "Character name is required."
+    else
+        let normalizedRealm = normalizeRealmSlug realmSlug
+        match realmBySlug normalizedRealm with
+        | None -> Error "Unknown realm."
+        | Some realm ->
+            use conn = openConnection ()
+            let settings = loadUserSettings conn userId
+            let characters = loadCharacters conn userId
+            let roster = buildRoster userId settings characters
+            let allowed, message = createCharacterAllowed normalizedRealm roster
+            if not allowed then
+                Error message
+            else
+                match realmStartRoomId conn normalizedRealm with
+                | None -> Error "That realm does not have a start room yet."
+                | Some roomId ->
+                    let chosenDisplayName =
+                        displayName
+                        |> nonBlank
+                        |> Option.defaultValue trimmedName
+                    use cmd = new NpgsqlCommand(
+                        """INSERT INTO mud_characters (
+                               user_id,
+                               realm_slug,
+                               name,
+                               display_name,
+                               current_room_id,
+                               stat_presence,
+                               stat_wit,
+                               stat_resolve,
+                               stat_lore,
+                               stat_craft,
+                               stat_guile,
+                               skill_searching,
+                               skill_crafting,
+                               skill_navigation,
+                               skill_lorekeeping,
+                               skill_negotiation,
+                               skill_devices,
+                               skill_survival
+                           )
+                           VALUES (
+                               @uid,
+                               @realm_slug,
+                               @name,
+                               @display_name,
+                               @room_id,
+                               @stat_presence,
+                               @stat_wit,
+                               @stat_resolve,
+                               @stat_lore,
+                               @stat_craft,
+                               @stat_guile,
+                               @skill_searching,
+                               @skill_crafting,
+                               @skill_navigation,
+                               @skill_lorekeeping,
+                               @skill_negotiation,
+                               @skill_devices,
+                               @skill_survival
+                           )
+                           RETURNING id""", conn)
+                    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+                    cmd.Parameters.AddWithValue("realm_slug", realm.Slug) |> ignore
+                    cmd.Parameters.AddWithValue("name", trimmedName) |> ignore
+                    cmd.Parameters.AddWithValue("display_name", chosenDisplayName) |> ignore
+                    cmd.Parameters.AddWithValue("room_id", roomId) |> ignore
+                    cmd.Parameters.AddWithValue("stat_presence", defaultStats.Presence) |> ignore
+                    cmd.Parameters.AddWithValue("stat_wit", defaultStats.Wit) |> ignore
+                    cmd.Parameters.AddWithValue("stat_resolve", defaultStats.Resolve) |> ignore
+                    cmd.Parameters.AddWithValue("stat_lore", defaultStats.Lore) |> ignore
+                    cmd.Parameters.AddWithValue("stat_craft", defaultStats.Craft) |> ignore
+                    cmd.Parameters.AddWithValue("stat_guile", defaultStats.Guile) |> ignore
+                    cmd.Parameters.AddWithValue("skill_searching", defaultSkills.Searching) |> ignore
+                    cmd.Parameters.AddWithValue("skill_crafting", defaultSkills.Crafting) |> ignore
+                    cmd.Parameters.AddWithValue("skill_navigation", defaultSkills.Navigation) |> ignore
+                    cmd.Parameters.AddWithValue("skill_lorekeeping", defaultSkills.Lorekeeping) |> ignore
+                    cmd.Parameters.AddWithValue("skill_negotiation", defaultSkills.Negotiation) |> ignore
+                    cmd.Parameters.AddWithValue("skill_devices", defaultSkills.Devices) |> ignore
+                    cmd.Parameters.AddWithValue("skill_survival", defaultSkills.Survival) |> ignore
+                    let insertedId = cmd.ExecuteScalar()
+                    if isNull insertedId || insertedId = box DBNull.Value then
+                        Error "Failed to create character."
+                    else
+                        let characterId = insertedId :?> Guid
+                        use selectCmd = new NpgsqlCommand(
+                            """UPDATE users
+                               SET active_mud_character_id = @character_id
+                               WHERE id = @uid""", conn)
+                        selectCmd.Parameters.AddWithValue("character_id", characterId) |> ignore
+                        selectCmd.Parameters.AddWithValue("uid", userId) |> ignore
+                        selectCmd.ExecuteNonQuery() |> ignore
+                        Ok (getRoster userId)
+
+let deleteCharacter (userId: Guid) (characterId: Guid) =
+    use conn = openConnection ()
+    use existsCmd = new NpgsqlCommand(
+        """SELECT current_room_id
+           FROM mud_characters
+           WHERE id = @character_id
+             AND user_id = @uid
+             AND deleted_at IS NULL""", conn)
+    existsCmd.Parameters.AddWithValue("character_id", characterId) |> ignore
+    existsCmd.Parameters.AddWithValue("uid", userId) |> ignore
+    let scalar = existsCmd.ExecuteScalar()
+    if isNull scalar || scalar = box DBNull.Value then
+        false
+    else
+        let currentRoomId = scalar :?> Guid
+        use clearItemsCmd = new NpgsqlCommand("DELETE FROM mud_items WHERE owner_character_id = @character_id", conn)
+        clearItemsCmd.Parameters.AddWithValue("character_id", characterId) |> ignore
+        clearItemsCmd.ExecuteNonQuery() |> ignore
+
+        use deactivateCmd = new NpgsqlCommand(
+            """UPDATE users
+               SET active_mud_character_id = NULL
+               WHERE id = @uid
+                 AND active_mud_character_id = @character_id""", conn)
+        deactivateCmd.Parameters.AddWithValue("uid", userId) |> ignore
+        deactivateCmd.Parameters.AddWithValue("character_id", characterId) |> ignore
+        deactivateCmd.ExecuteNonQuery() |> ignore
+
+        use softDeleteCmd = new NpgsqlCommand(
+            """UPDATE mud_characters
+               SET deleted_at = now(),
+                   updated_at = now()
+               WHERE id = @character_id
+                 AND user_id = @uid
+                 AND deleted_at IS NULL""", conn)
+        softDeleteCmd.Parameters.AddWithValue("character_id", characterId) |> ignore
+        softDeleteCmd.Parameters.AddWithValue("uid", userId) |> ignore
+        let deleted = softDeleteCmd.ExecuteNonQuery() > 0
+
+        if deleted then
+            let characters = loadCharacters conn userId
+            let nextActive = characters |> List.tryHead
+            match nextActive with
+            | Some nextCharacter ->
+                use chooseNextCmd = new NpgsqlCommand(
+                    """UPDATE users
+                       SET active_mud_character_id = @character_id
+                       WHERE id = @uid
+                         AND active_mud_character_id IS NULL""", conn)
+                chooseNextCmd.Parameters.AddWithValue("character_id", nextCharacter.Id) |> ignore
+                chooseNextCmd.Parameters.AddWithValue("uid", userId) |> ignore
+                chooseNextCmd.ExecuteNonQuery() |> ignore
+            | None -> ()
+
+            logEvent conn userId characterId currentRoomId "character-delete" None "Character deleted." (payloadOf [ "character_id", string characterId ])
+
+        deleted
+
+let look (userId: Guid) : MudCommandResult =
+    withState userId (fun state ->
+        let message = describeState state
+        use conn = openConnection ()
+        logEvent conn userId state.CharacterId state.RoomId "look" (Some "look") message (payloadOf [ "action", "look" ])
+        { Success = true
+          Command = "look"
+          Message = message
+          State = Some state })
+
+let private moveInternal (userId: Guid) (direction: string) : MudCommandResult =
+    use conn = openConnection ()
+    match getActiveStateInternal conn userId with
     | None ->
         { Success = false
           Command = $"move {direction}"
-          Message = "The MUD world is not ready yet."
+          Message = "Choose or create a character first."
           State = None }
-    | Some character ->
-        match loadState conn userId with
+    | Some state ->
+        match findExit conn state.RoomId direction with
         | None ->
+            logEvent conn userId state.CharacterId state.RoomId "move-failed" (Some direction) $"No exit in direction '{direction}'." (payloadOf [ "direction", direction ])
             { Success = false
               Command = $"move {direction}"
-              Message = "You are not placed in a room yet."
-              State = None }
-        | Some state ->
-            match findExit conn state.RoomId direction with
-            | None ->
-                logEvent conn userId character.Id state.RoomId "move-failed" (Some direction) $"No exit in direction '{direction}'." (payloadOf [ "direction", direction ])
-                { Success = false
-                  Command = $"move {direction}"
-                  Message = $"There is no exit to the {direction}."
-                  State = Some state }
-            | Some exitView ->
-                use moveCmd = new NpgsqlCommand(
-                    """UPDATE mud_characters
-                       SET current_room_id = @room_id,
-                           updated_at = now()
-                       WHERE id = @id""", conn)
-                moveCmd.Parameters.AddWithValue("room_id", exitView.TargetRoomId) |> ignore
-                moveCmd.Parameters.AddWithValue("id", character.Id) |> ignore
-                moveCmd.ExecuteNonQuery() |> ignore
-                let nextState =
-                    match loadState conn userId with
-                    | Some s -> s
-                    | None -> state
-                logEvent conn userId character.Id nextState.RoomId "move" (Some direction) $"Moved to {nextState.RoomName}." (payloadOf [ "direction", direction; "to_room", exitView.TargetRoomName ])
-                { Success = true
-                  Command = $"move {direction}"
-                  Message = $"You move {direction} to {exitView.TargetRoomName}."
-                  State = Some nextState }
+              Message = $"There is no exit to the {direction}."
+              State = Some state }
+        | Some exitView ->
+            use moveCmd = new NpgsqlCommand(
+                """UPDATE mud_characters
+                   SET current_room_id = @room_id,
+                       updated_at = now()
+                   WHERE id = @id""", conn)
+            moveCmd.Parameters.AddWithValue("room_id", exitView.TargetRoomId) |> ignore
+            moveCmd.Parameters.AddWithValue("id", state.CharacterId) |> ignore
+            moveCmd.ExecuteNonQuery() |> ignore
+            let nextState =
+                match getActiveStateInternal conn userId with
+                | Some s -> s
+                | None -> state
+            logEvent conn userId state.CharacterId nextState.RoomId "move" (Some direction) $"Moved to {nextState.RoomName}." (payloadOf [ "direction", direction; "to_room", exitView.TargetRoomName ])
+            { Success = true
+              Command = $"move {direction}"
+              Message = $"You move {direction} to {exitView.TargetRoomName}."
+              State = Some nextState }
 
-let move (userId: Guid) (displayName: string option) (direction: string) =
-    moveInternal userId direction displayName
+let move (userId: Guid) (direction: string) =
+    moveInternal userId direction
 
-let examine (userId: Guid) (displayName: string option) (query: string) : MudCommandResult =
-    withState userId displayName (fun state ->
+let examine (userId: Guid) (query: string) : MudCommandResult =
+    withState userId (fun state ->
         let trimmed = query.Trim()
         if String.IsNullOrWhiteSpace(trimmed) then
             { Success = false
@@ -541,8 +984,7 @@ let examine (userId: Guid) (displayName: string option) (query: string) : MudCom
                     | Some foundItem, _ -> describeItem foundItem
                     | None, Some exit -> $"Exit {exit.Direction}\n\nIt leads toward {exit.TargetRoomName}."
                     | None, None when lower = "self" || lower = "me" ->
-                        let inventoryCount = state.InventoryItems.Length
-                        $"{state.CharacterName}\n\nRank: {state.MudTierName}\nInventory items: {inventoryCount}"
+                        $"{state.CharacterName}\n\nRealm: {state.RealmName}\nRank: {state.MudTierName}\nPresence: {state.Stats.Presence}\nWit: {state.Stats.Wit}\nResolve: {state.Stats.Resolve}"
                     | None, None -> $"You do not see '{trimmed}' here."
 
             use conn = openConnection ()
@@ -552,8 +994,8 @@ let examine (userId: Guid) (displayName: string option) (query: string) : MudCom
               Message = message
               State = Some state })
 
-let read (userId: Guid) (displayName: string option) (query: string) : MudCommandResult =
-    withState userId displayName (fun state ->
+let read (userId: Guid) (query: string) : MudCommandResult =
+    withState userId (fun state ->
         let trimmed = query.Trim()
         if String.IsNullOrWhiteSpace(trimmed) then
             { Success = false
@@ -572,8 +1014,8 @@ let read (userId: Guid) (displayName: string option) (query: string) : MudComman
               Message = message
               State = Some state })
 
-let inventory (userId: Guid) (displayName: string option) : MudCommandResult =
-    withState userId displayName (fun state ->
+let inventory (userId: Guid) : MudCommandResult =
+    withState userId (fun state ->
         let message =
             match state.InventoryItems with
             | [] -> "You are carrying nothing."
@@ -589,8 +1031,8 @@ let inventory (userId: Guid) (displayName: string option) : MudCommandResult =
           Message = message
           State = Some state })
 
-let search (userId: Guid) (displayName: string option) : MudCommandResult =
-    withState userId displayName (fun state ->
+let search (userId: Guid) : MudCommandResult =
+    withState userId (fun state ->
         let resources =
             state.VisibleItems
             |> List.filter (fun item -> item.Portable || isResourceSlug item.Slug)
@@ -608,8 +1050,8 @@ let search (userId: Guid) (displayName: string option) : MudCommandResult =
           Message = message
           State = Some state })
 
-let recipes (userId: Guid) (displayName: string option) : MudCommandResult =
-    withState userId displayName (fun state ->
+let recipes (userId: Guid) : MudCommandResult =
+    withState userId (fun state ->
         let message = describeRecipes ()
         use conn = openConnection ()
         logEvent conn userId state.CharacterId state.RoomId "recipes" (Some "recipes") message (payloadOf [ "count", string craftRecipes.Length ])
@@ -618,8 +1060,8 @@ let recipes (userId: Guid) (displayName: string option) : MudCommandResult =
           Message = message
           State = Some state })
 
-let craft (userId: Guid) (displayName: string option) (query: string) : MudCommandResult =
-    withState userId displayName (fun state ->
+let craft (userId: Guid) (query: string) : MudCommandResult =
+    withState userId (fun state ->
         let trimmed = query.Trim()
         if String.IsNullOrWhiteSpace(trimmed) then
             { Success = false
@@ -684,8 +1126,8 @@ let craft (userId: Guid) (displayName: string option) (query: string) : MudComma
                       Message = message
                       State = Some nextState })
 
-let getItem (userId: Guid) (displayName: string option) (query: string) : MudCommandResult =
-    withState userId displayName (fun state ->
+let getItem (userId: Guid) (query: string) : MudCommandResult =
+    withState userId (fun state ->
         let trimmed = query.Trim()
         if String.IsNullOrWhiteSpace(trimmed) then
             { Success = false
@@ -727,8 +1169,8 @@ let getItem (userId: Guid) (displayName: string option) (query: string) : MudCom
                   Message = message
                   State = Some nextState })
 
-let dropItem (userId: Guid) (displayName: string option) (query: string) : MudCommandResult =
-    withState userId displayName (fun state ->
+let dropItem (userId: Guid) (query: string) : MudCommandResult =
+    withState userId (fun state ->
         let trimmed = query.Trim()
         if String.IsNullOrWhiteSpace(trimmed) then
             { Success = false
@@ -764,8 +1206,8 @@ let dropItem (userId: Guid) (displayName: string option) (query: string) : MudCo
                   Message = message
                   State = Some nextState })
 
-let say (userId: Guid) (displayName: string option) (text: string) : MudCommandResult =
-    withState userId displayName (fun state ->
+let say (userId: Guid) (text: string) : MudCommandResult =
+    withState userId (fun state ->
         let trimmed = text.Trim()
         if String.IsNullOrWhiteSpace(trimmed) then
             { Success = false
@@ -780,8 +1222,8 @@ let say (userId: Guid) (displayName: string option) (text: string) : MudCommandR
               Message = $"{state.CharacterName} says: {trimmed}"
               State = Some state })
 
-let emote (userId: Guid) (displayName: string option) (text: string) : MudCommandResult =
-    withState userId displayName (fun state ->
+let emote (userId: Guid) (text: string) : MudCommandResult =
+    withState userId (fun state ->
         let trimmed = text.Trim()
         if String.IsNullOrWhiteSpace(trimmed) then
             { Success = false
@@ -797,7 +1239,7 @@ let emote (userId: Guid) (displayName: string option) (text: string) : MudComman
               Message = message
               State = Some state })
 
-let handleCommand (userId: Guid) (displayName: string option) (commandText: string) : MudCommandResult =
+let handleCommand (userId: Guid) (commandText: string) : MudCommandResult =
     let trimmed = if isNull commandText then "" else commandText.Trim()
     if String.IsNullOrWhiteSpace(trimmed) then
         { Success = false
@@ -808,31 +1250,31 @@ let handleCommand (userId: Guid) (displayName: string option) (commandText: stri
         let parts = trimmed.Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
         let verb = parts.[0].ToLowerInvariant()
         match verb with
-        | "look" | "l" -> look userId displayName
-        | "search" | "scan" -> search userId displayName
-        | "recipes" | "recipe" -> recipes userId displayName
+        | "look" | "l" -> look userId
+        | "search" | "scan" -> search userId
+        | "recipes" | "recipe" -> recipes userId
         | "craft" ->
             let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
-            craft userId displayName query
+            craft userId query
         | "examine" | "exam" | "x" ->
             let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
-            examine userId displayName query
+            examine userId query
         | "read" ->
             let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
-            read userId displayName query
-        | "inventory" | "inv" | "i" -> inventory userId displayName
+            read userId query
+        | "inventory" | "inv" | "i" -> inventory userId
         | "get" | "take" ->
             let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
-            getItem userId displayName query
+            getItem userId query
         | "drop" ->
             let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
-            dropItem userId displayName query
+            dropItem userId query
         | "say" ->
             let message = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
-            say userId displayName message
+            say userId message
         | "emote" | "me" ->
             let message = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
-            emote userId displayName message
+            emote userId message
         | "move" | "go" ->
             let direction = if parts.Length > 1 then parts.[1] else ""
             if String.IsNullOrWhiteSpace(direction) then
@@ -841,7 +1283,7 @@ let handleCommand (userId: Guid) (displayName: string option) (commandText: stri
                   Message = "Move where?"
                   State = getState userId }
             else
-                move userId displayName direction
+                move userId direction
         | "enter" ->
             let direction = if parts.Length > 1 then parts.[1] else ""
             if String.IsNullOrWhiteSpace(direction) then
@@ -850,9 +1292,9 @@ let handleCommand (userId: Guid) (displayName: string option) (commandText: stri
                   Message = "Enter where?"
                   State = getState userId }
             else
-                move userId displayName direction
-        | "north" | "south" | "east" | "west" | "up" | "down" | "in" | "out" ->
-            move userId displayName verb
+                move userId direction
+        | "north" | "south" | "east" | "west" | "up" | "down" | "in" | "out" | "portal" | "medieval" | "sci-fi" ->
+            move userId verb
         | _ ->
             { Success = false
               Command = trimmed

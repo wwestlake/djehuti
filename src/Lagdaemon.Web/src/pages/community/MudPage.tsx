@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { mudApi, type MudRoomState, type MudCommandResult, type MudItemView, type MudMapRoomView, type MudMapExitView } from '../../api/mudApi'
+import {
+  mudApi,
+  type MudCharacterSummary,
+  type MudCommandResult,
+  type MudItemView,
+  type MudMapExitView,
+  type MudMapRoomView,
+  type MudRoomState,
+  type MudRosterView,
+} from '../../api/mudApi'
 import { useAuth } from '../../contexts/AuthContext'
 
 const QUICK_COMMANDS = [
@@ -95,9 +104,46 @@ function ItemList({ items, onCommand, emptyText, action }: { items: MudItemView[
   )
 }
 
+function StatPills({ character }: { character: MudCharacterSummary | MudRoomState }) {
+  const stats = [
+    ['Presence', character.stats.presence],
+    ['Wit', character.stats.wit],
+    ['Resolve', character.stats.resolve],
+    ['Lore', character.stats.lore],
+    ['Craft', character.stats.craft],
+    ['Guile', character.stats.guile],
+  ]
+
+  const skills = [
+    ['Searching', character.skills.searching],
+    ['Crafting', character.skills.crafting],
+    ['Navigation', character.skills.navigation],
+    ['Lorekeeping', character.skills.lorekeeping],
+    ['Negotiation', character.skills.negotiation],
+    ['Devices', character.skills.devices],
+    ['Survival', character.skills.survival],
+  ]
+
+  return (
+    <>
+      <div className="mud-pill-grid">
+        {stats.map(([label, value]) => (
+          <span key={label} className="mud-stat-pill">{label}: {value}</span>
+        ))}
+      </div>
+      <div className="mud-pill-grid">
+        {skills.map(([label, value]) => (
+          <span key={label} className="mud-stat-pill skill">{label}: {value}</span>
+        ))}
+      </div>
+    </>
+  )
+}
+
 export default function MudPage({ embedded = false }: MudPageProps) {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [roster, setRoster] = useState<MudRosterView | null>(null)
   const [state, setState] = useState<MudRoomState | null>(null)
   const [command, setCommand] = useState('look')
   const [message, setMessage] = useState<string | null>(null)
@@ -105,22 +151,28 @@ export default function MudPage({ embedded = false }: MudPageProps) {
   const [fullScreen, setFullScreen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showMap, setShowMap] = useState(false)
+  const [createRealm, setCreateRealm] = useState('medieval')
+  const [createName, setCreateName] = useState('')
+  const [createDisplayName, setCreateDisplayName] = useState('')
+
+  const loadAll = async () => {
+    setLoading(true)
+    try {
+      const [nextRoster, nextState] = await Promise.all([mudApi.getRoster(), mudApi.getMe()])
+      setRoster(nextRoster)
+      setState(nextState)
+      setMessage(null)
+    } catch (error) {
+      setRoster(null)
+      setState(null)
+      setMessage(error instanceof Error ? error.message : 'Failed to load the MUD.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true)
-      try {
-        const nextState = await mudApi.getMe()
-        setState(nextState)
-        setMessage(null)
-      } catch (error) {
-        setState(null)
-        setMessage(error instanceof Error ? error.message : 'Failed to load the MUD.')
-      } finally {
-        setLoading(false)
-      }
-    }
-    void load()
+    void loadAll()
   }, [])
 
   const runCommand = async (nextCommand = command) => {
@@ -138,10 +190,66 @@ export default function MudPage({ embedded = false }: MudPageProps) {
     }
   }
 
+  const handleCreateCharacter = async () => {
+    if (!createName.trim()) return
+    setBusy(true)
+    try {
+      const nextRoster = await mudApi.createCharacter({
+        realmSlug: createRealm,
+        name: createName.trim(),
+        displayName: createDisplayName.trim() || undefined,
+      })
+      setRoster(nextRoster)
+      const nextState = await mudApi.getMe()
+      setState(nextState)
+      setMessage(`Character created in ${createRealm}.`)
+      setCreateName('')
+      setCreateDisplayName('')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not create that character.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleSelectCharacter = async (characterId: string) => {
+    setBusy(true)
+    try {
+      const nextState = await mudApi.selectCharacter(characterId)
+      setState(nextState)
+      const nextRoster = await mudApi.getRoster()
+      setRoster(nextRoster)
+      setMessage(`Now playing ${nextState.characterName}.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not select that character.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleDeleteCharacter = async (character: MudCharacterSummary) => {
+    const confirmed = window.confirm(`Delete ${character.displayName}? Inventory and carried progress on that character will be lost.`)
+    if (!confirmed) return
+
+    setBusy(true)
+    try {
+      const nextRoster = await mudApi.deleteCharacter(character.id)
+      setRoster(nextRoster)
+      const nextState = await mudApi.getMe()
+      setState(nextState)
+      setMessage(`${character.displayName} was deleted.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not delete that character.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const roomTitle = state?.roomName ?? 'LagDaemon MUD'
-  const roomBody = state?.roomDescription ?? 'Enter the world and move through the keep.'
+  const roomBody = state?.roomDescription ?? 'Choose a character to enter the world.'
   const portableVisibleItems = useMemo(() => (state?.visibleItems ?? []).filter(item => item.portable), [state])
   const quickMovement = useMemo(() => (state?.exits ?? []).slice(0, 4), [state])
+  const selectedCharacter = roster?.characters.find(character => character.isSelected) ?? null
   const isFullScreen = embedded ? fullScreen : true
   const shellStyle = isFullScreen
     ? {
@@ -160,13 +268,21 @@ export default function MudPage({ embedded = false }: MudPageProps) {
         <div className="mud-hero">
           <div>
             <div className="mud-kicker">LagDaemon MUD</div>
-            <h1>{roomTitle}</h1>
-            <p className="mud-zone">{state ? `Zone: ${state.zoneName}` : loading ? 'Loading world…' : 'Admin-only access for now.'}</p>
+            <h1>{state ? roomTitle : 'Character Roster'}</h1>
+            <p className="mud-zone">
+              {state
+                ? `Realm: ${state.realmName} · Zone: ${state.zoneName}`
+                : loading
+                  ? 'Loading world…'
+                  : 'Choose or create the character you want to play.'}
+            </p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button className="mud-back-btn mud-map-toggle" onClick={() => setShowMap(v => !v)}>
-              {showMap ? 'Hide map' : 'Map'}
-            </button>
+            {state && (
+              <button className="mud-back-btn mud-map-toggle" onClick={() => setShowMap(v => !v)}>
+                {showMap ? 'Hide map' : 'Map'}
+              </button>
+            )}
             {embedded && (
               <button className="mud-back-btn" onClick={() => setFullScreen(v => !v)}>
                 {fullScreen ? 'Exit full screen' : 'Full screen'}
@@ -176,96 +292,196 @@ export default function MudPage({ embedded = false }: MudPageProps) {
           </div>
         </div>
 
-        <div className="mud-card mud-room">
-          <div className="mud-room-text">{roomBody}</div>
-          <div className="mud-meta">
-            <span>Character: {state?.characterName ?? user?.displayName ?? 'Admin'}</span>
-            <span>Room: {state?.roomName ?? (loading ? 'Loading…' : 'Not placed yet')}</span>
-            <span>Rank: {state?.mudTierName ?? 'Wanderer'}</span>
-          </div>
-        </div>
+        {message && <div className="mud-message" style={{ marginBottom: 16 }}>{message}</div>}
 
-        <div className="mud-grid">
-          <div className={`mud-card mud-map-card${showMap ? ' open' : ''}`}>
-            <h2>Map</h2>
-            <MapPanel rooms={state?.mapRooms ?? []} exits={state?.mapExits ?? []} onJump={runCommand} />
-          </div>
-
+        <div className="mud-grid mud-grid-roster">
           <div className="mud-card">
-            <h2>Exits</h2>
-            <ExitList exits={state?.exits ?? []} onCommand={runCommand} />
-          </div>
-
-          <div className="mud-card">
-            <h2>Command</h2>
-            {message && <div className="mud-message">{message}</div>}
-            <form
-              className="mud-command-row"
-              onSubmit={e => {
-                e.preventDefault()
-                void runCommand()
-              }}
-            >
-              <input
-                className="mud-command-input"
-                value={command}
-                onChange={e => setCommand(e.target.value)}
-                placeholder="search, get rag strip, recipes, craft torch..."
-                disabled={busy || !user}
-              />
-              <button className="mud-command-btn" type="submit" disabled={busy || !user}>
-                {busy ? 'Running' : 'Run'}
-              </button>
-            </form>
-
-            <div className="mud-quick-commands">
-              {QUICK_COMMANDS.map(item => (
-                <button
-                  key={item.command}
-                  className="mud-quick-chip"
-                  onClick={() => {
-                    setCommand(item.command)
-                    void runCommand(item.command)
-                  }}
-                  disabled={busy || !user}
-                >
-                  {item.label}
-                </button>
-              ))}
-              {quickMovement.map(exit => (
-                <button
-                  key={exit.direction}
-                  className="mud-quick-chip"
-                  onClick={() => {
-                    setCommand(exit.direction)
-                    void runCommand(exit.direction)
-                  }}
-                  disabled={busy || !user}
-                >
-                  {exit.direction}
-                </button>
-              ))}
-            </div>
-
-            {!user && <p className="mud-empty">Sign in to enter the MUD and issue commands.</p>}
-          </div>
-
-          <div className="mud-card">
-            <h2>Visible Items</h2>
-            <ItemList items={portableVisibleItems} onCommand={runCommand} emptyText="No items to take here." action="get" />
-            {(state?.visibleItems?.length ?? 0) > portableVisibleItems.length && (
+            <h2>Roster</h2>
+            {roster ? (
               <>
-                <h2 className="mud-subhead">Inspect</h2>
-                <ItemList items={state?.visibleItems ?? []} onCommand={runCommand} emptyText="No visible items." action="examine" />
+                <div className="mud-meta" style={{ marginBottom: 16 }}>
+                  <span>Paid slots: {roster.paidSlotsUsed} / {roster.paidSlotsTotal}</span>
+                  <span>Remaining: {roster.paidSlotsRemaining}</span>
+                  <span>Bonus slots: {roster.bonusSlots}</span>
+                </div>
+
+                <div className="mud-pill-grid" style={{ marginBottom: 16 }}>
+                  {roster.realms.map(realm => (
+                    <span key={realm.realmSlug} className="mud-stat-pill">
+                      {realm.realmName}: {realm.characterCount} {realm.canCreateFreeStarter ? '· free starter open' : '· starter used'}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="mud-roster-list">
+                  {roster.characters.length === 0 && <p className="mud-empty">No characters yet. Create one below.</p>}
+                  {roster.characters.map(character => (
+                    <div key={character.id} className={`mud-roster-card${character.isSelected ? ' selected' : ''}`}>
+                      <div className="mud-roster-head">
+                        <div>
+                          <strong>{character.displayName}</strong>
+                          <div className="mud-empty">{character.realmName} · {character.currentRoomName}</div>
+                        </div>
+                        <div className="mud-meta">
+                          <span>{character.mudTierName}</span>
+                          <span>{character.inventoryCount} items</span>
+                        </div>
+                      </div>
+                      <StatPills character={character} />
+                      <div className="mud-quick-commands" style={{ marginTop: 12 }}>
+                        {!character.isSelected && (
+                          <button className="mud-quick-chip" onClick={() => void handleSelectCharacter(character.id)} disabled={busy}>
+                            Play
+                          </button>
+                        )}
+                        <button className="mud-quick-chip danger" onClick={() => void handleDeleteCharacter(character)} disabled={busy}>
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </>
+            ) : (
+              <p className="mud-empty">Loading roster…</p>
             )}
           </div>
 
           <div className="mud-card">
-            <h2>Inventory</h2>
-            <ItemList items={state?.inventoryItems ?? []} onCommand={runCommand} emptyText="You are carrying nothing." action="drop" />
+            <h2>Create Character</h2>
+            <div className="mud-form-grid">
+              <select className="mud-command-input" value={createRealm} onChange={e => setCreateRealm(e.target.value)} disabled={busy}>
+                {(roster?.realms ?? [{ realmSlug: 'medieval', realmName: 'Medieval' }, { realmSlug: 'sci-fi', realmName: 'Sci-Fi' }]).map(realm => (
+                  <option key={realm.realmSlug} value={realm.realmSlug}>{realm.realmName}</option>
+                ))}
+              </select>
+              <input
+                className="mud-command-input"
+                value={createName}
+                onChange={e => setCreateName(e.target.value)}
+                placeholder="Character name"
+                disabled={busy}
+              />
+              <input
+                className="mud-command-input"
+                value={createDisplayName}
+                onChange={e => setCreateDisplayName(e.target.value)}
+                placeholder="Display name (optional)"
+                disabled={busy}
+              />
+              <button className="mud-command-btn" onClick={() => void handleCreateCharacter()} disabled={busy || !createName.trim()}>
+                Create character
+              </button>
+            </div>
+            <p className="mud-empty" style={{ marginTop: 16 }}>
+              Free players get one starter character in each realm. More characters use paid slots.
+            </p>
+            <p className="mud-empty">
+              If the roster is full, delete a character, upgrade tier, or add another slot.
+            </p>
           </div>
         </div>
+
+        {!state && !loading && (
+          <div className="mud-card">
+            <h2>World Access</h2>
+            <p className="mud-empty">Choose a character above to enter the game world.</p>
+          </div>
+        )}
+
+        {state && (
+          <>
+            <div className="mud-card mud-room">
+              <div className="mud-room-text">{roomBody}</div>
+              <div className="mud-meta">
+                <span>Character: {state.characterName}</span>
+                <span>Realm: {state.realmName}</span>
+                <span>Room: {state.roomName}</span>
+                <span>Rank: {state.mudTierName}</span>
+              </div>
+              <StatPills character={selectedCharacter ?? state} />
+            </div>
+
+            <div className="mud-grid">
+              <div className={`mud-card mud-map-card${showMap ? ' open' : ''}`}>
+                <h2>Map</h2>
+                <MapPanel rooms={state.mapRooms ?? []} exits={state.mapExits ?? []} onJump={runCommand} />
+              </div>
+
+              <div className="mud-card">
+                <h2>Exits</h2>
+                <ExitList exits={state.exits ?? []} onCommand={runCommand} />
+              </div>
+
+              <div className="mud-card">
+                <h2>Command</h2>
+                <form
+                  className="mud-command-row"
+                  onSubmit={e => {
+                    e.preventDefault()
+                    void runCommand()
+                  }}
+                >
+                  <input
+                    className="mud-command-input"
+                    value={command}
+                    onChange={e => setCommand(e.target.value)}
+                    placeholder="search, get rag strip, recipes, craft torch..."
+                    disabled={busy || !user}
+                  />
+                  <button className="mud-command-btn" type="submit" disabled={busy || !user}>
+                    {busy ? 'Running' : 'Run'}
+                  </button>
+                </form>
+
+                <div className="mud-quick-commands">
+                  {QUICK_COMMANDS.map(item => (
+                    <button
+                      key={item.command}
+                      className="mud-quick-chip"
+                      onClick={() => {
+                        setCommand(item.command)
+                        void runCommand(item.command)
+                      }}
+                      disabled={busy || !user}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                  {quickMovement.map(exit => (
+                    <button
+                      key={exit.direction}
+                      className="mud-quick-chip"
+                      onClick={() => {
+                        setCommand(exit.direction)
+                        void runCommand(exit.direction)
+                      }}
+                      disabled={busy || !user}
+                    >
+                      {exit.direction}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mud-card">
+                <h2>Visible Items</h2>
+                <ItemList items={portableVisibleItems} onCommand={runCommand} emptyText="No items to take here." action="get" />
+                {(state.visibleItems?.length ?? 0) > portableVisibleItems.length && (
+                  <>
+                    <h2 className="mud-subhead">Inspect</h2>
+                    <ItemList items={state.visibleItems ?? []} onCommand={runCommand} emptyText="No visible items." action="examine" />
+                  </>
+                )}
+              </div>
+
+              <div className="mud-card">
+                <h2>Inventory</h2>
+                <ItemList items={state.inventoryItems ?? []} onCommand={runCommand} emptyText="You are carrying nothing." action="drop" />
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </section>
   )
