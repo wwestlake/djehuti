@@ -3,6 +3,7 @@ open System.IO
 open System.Net.Http
 open System.Text.Json
 open Microsoft.AspNetCore.Builder
+open Microsoft.AspNetCore.DataProtection
 open Microsoft.AspNetCore.Hosting
 open Microsoft.AspNetCore.Http
 open Microsoft.Extensions.DependencyInjection
@@ -175,6 +176,16 @@ type MudCharacterCreateRequest =
     { RealmSlug: string
       Name: string
       DisplayName: string }
+
+[<CLIMutable>]
+type MudCompanionUpdateRequest =
+    { Enabled: bool
+      Mode: string
+      Model: string
+      Disclosure: string
+      AllowOnlineConcurrency: bool
+      UseByoOpenAiKey: bool
+      OpenAiApiKey: string }
 
 [<CLIMutable>]
 type MudZoneCreateRequest =
@@ -755,9 +766,13 @@ let main args =
         options.SerializerOptions.WriteIndented <- true)
     |> ignore
 
+    builder.Services.AddDataProtection() |> ignore
+
     builder.Services.AddHostedService<HeartbeatWorker.HeartbeatWorker>() |> ignore
 
     let app = builder.Build()
+    let protector = app.Services.GetRequiredService<IDataProtectionProvider>()
+    SecretProtector.initialize protector
 
     Database.runMigrations ()
     AchievementRepository.seedDictionary ()
@@ -1395,6 +1410,54 @@ let main args =
                         Results.Ok(MudRepository.getRoster userId)
                     else
                         Results.NotFound("Character not found")
+                | _ -> Results.BadRequest("Invalid character id")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/mud/companions/{characterId}",
+        Func<HttpContext, string, IResult>(fun ctx characterId ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(claims.UserId), Guid.TryParse(characterId) with
+                | (true, userId), (true, parsedCharacterId) ->
+                    match MudCompanionRepository.getSettings userId parsedCharacterId with
+                    | Some settings -> Results.Ok(settings)
+                    | None -> Results.NotFound("Character not found")
+                | _ -> Results.BadRequest("Invalid character id")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPut(
+        "/api/mud/companions/{characterId}",
+        Func<HttpContext, string, MudCompanionUpdateRequest, IResult>(fun ctx characterId body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(claims.UserId), Guid.TryParse(characterId) with
+                | (true, userId), (true, parsedCharacterId) ->
+                    match MudCompanionRepository.upsertSettings userId parsedCharacterId body.Enabled body.Mode body.Model body.Disclosure body.AllowOnlineConcurrency body.UseByoOpenAiKey (if String.IsNullOrWhiteSpace body.OpenAiApiKey then None else Some body.OpenAiApiKey) with
+                    | Ok settings -> Results.Ok(settings)
+                    | Error message -> Results.BadRequest(message)
+                | _ -> Results.BadRequest("Invalid character id")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/mud/companions/{characterId}/key",
+        Func<HttpContext, string, IResult>(fun ctx characterId ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(claims.UserId), Guid.TryParse(characterId) with
+                | (true, userId), (true, parsedCharacterId) ->
+                    match MudCompanionRepository.removeByoKey userId parsedCharacterId with
+                    | Ok settings -> Results.Ok(settings)
+                    | Error message -> Results.BadRequest(message)
                 | _ -> Results.BadRequest("Invalid character id")
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
