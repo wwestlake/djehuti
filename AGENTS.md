@@ -16,7 +16,7 @@ All files — HTML, config, static assets, scripts — must live in this reposit
 
 **Claude runs all migrations — never ask the user to do it.**
 
-The PEM key is at `D:\0000 Turo Business\AppDev\secure\KwestKarz.pem`. The server is `ubuntu@kwestkarz.com`. The database is `djehuti`, owned by `djehuti`, accessed via `sudo -u postgres psql -d djehuti`.
+The PEM key is at `D:\000 LLM Data System\.ssh\KwestKarz.pem` — at the top of this file system, not elsewhere. Do not use PEM copies from other locations. The server is `ubuntu@kwestkarz.com`. The database is `djehuti`, owned by `djehuti`, accessed via `sudo -u postgres psql -d djehuti`.
 
 When a migration is needed:
 1. Write the `.sql` file to `migrations/` in the repo.
