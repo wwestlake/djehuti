@@ -155,6 +155,90 @@ let private craftRecipes =
         OutputName = "Signal Key"
         OutputSlug = "signal-key"
         OutputDescription = "A small improvised key of brass and wire. It looks like it belongs in a mechanical slot rather than a lock."
+        OutputReadableText = None }
+      { Slug = "chalk-charm"
+        Name = "Chalk Charm"
+        Ingredients = [ "rune-chalk"; "wax-seal" ]
+        OutputName = "Chalk Charm"
+        OutputSlug = "chalk-charm"
+        OutputDescription = "A wax-backed charm marked in chalk. It is more ward than ornament, meant to mark a path someone intends to find again."
+        OutputReadableText = Some "Chalk marks wind around the wax in a looping pattern: RETURN, REMEMBER, RETURN." }
+      { Slug = "forge-wrap"
+        Name = "Forge Wrap"
+        Ingredients = [ "rag-strip"; "resin-pitch" ]
+        OutputName = "Forge Wrap"
+        OutputSlug = "forge-wrap"
+        OutputDescription = "A sticky wrap of cloth and resin that can bind handles, seal cracks, or brace a grip for rough work."
+        OutputReadableText = None }
+      { Slug = "patch-cable"
+        Name = "Patch Cable"
+        Ingredients = [ "wire-spool"; "capacitor-cell" ]
+        OutputName = "Patch Cable"
+        OutputSlug = "patch-cable"
+        OutputDescription = "A crude data bridge assembled from scavenged wire and a charge cell. It hums when held near powered fittings."
+        OutputReadableText = None }
+      { Slug = "coolant-beacon"
+        Name = "Coolant Beacon"
+        Ingredients = [ "crystal-vial"; "coolant-canister" ]
+        OutputName = "Coolant Beacon"
+        OutputSlug = "coolant-beacon"
+        OutputDescription = "A chilled beacon tube that glows pale blue. It looks useful for marking safe routes through hot or unstable machinery."
+        OutputReadableText = None }
+      { Slug = "field-satchel"
+        Name = "Field Satchel"
+        Ingredients = [ "fiber-bundle"; "iron-nails" ]
+        OutputName = "Field Satchel"
+        OutputSlug = "field-satchel"
+        OutputDescription = "A reinforced satchel stitched and pinned from whatever was at hand. It is ugly, practical, and made to survive travel."
+        OutputReadableText = None }
+      { Slug = "ward-lantern"
+        Name = "Ward Lantern"
+        Ingredients = [ "torch"; "chalk-charm" ]
+        OutputName = "Ward Lantern"
+        OutputSlug = "ward-lantern"
+        OutputDescription = "A torch wrapped in a marked charm. Its light feels deliberate, like it was built to guide someone back through danger."
+        OutputReadableText = Some "The chalked wax has been scorched into the cloth: HOLD FAST, RETURN LIT." }
+      { Slug = "scribe-kit"
+        Name = "Scribe Kit"
+        Ingredients = [ "charcoal-stick"; "linen-cord" ]
+        OutputName = "Scribe Kit"
+        OutputSlug = "scribe-kit"
+        OutputDescription = "A practical little writing bundle for making notes, marks, and quick field records."
+        OutputReadableText = Some "The cord keeps the charcoal wrapped beside folded scraps for quick notes on the move." }
+      { Slug = "lock-bundle"
+        Name = "Lock Bundle"
+        Ingredients = [ "copper-clasp"; "iron-nails" ]
+        OutputName = "Lock Bundle"
+        OutputSlug = "lock-bundle"
+        OutputDescription = "A bundle of clasps and rough fasteners useful for securing packs, crates, and improvised repairs."
+        OutputReadableText = None }
+      { Slug = "relay-lantern"
+        Name = "Relay Lantern"
+        Ingredients = [ "patch-cable"; "glow-filament" ]
+        OutputName = "Relay Lantern"
+        OutputSlug = "relay-lantern"
+        OutputDescription = "A bright relay lamp built from a live patch and a surviving filament. It throws a steady technical glow."
+        OutputReadableText = Some "A scratch beside the contact points reads: KEEP THE PATH VISIBLE." }
+      { Slug = "hull-patch"
+        Name = "Hull Patch"
+        Ingredients = [ "alloy-plate"; "sealant-foam" ]
+        OutputName = "Hull Patch"
+        OutputSlug = "hull-patch"
+        OutputDescription = "A quick repair plate backed with expanding sealant. It looks ready for leaks, cracks, or stressed panels."
+        OutputReadableText = None }
+      { Slug = "star-chart"
+        Name = "Star Chart"
+        Ingredients = [ "data-shard"; "dock-manifest" ]
+        OutputName = "Star Chart"
+        OutputSlug = "star-chart"
+        OutputDescription = "A reconstructed route chart assembled from fragmented shipping data and surviving dock records."
+        OutputReadableText = Some "Recovered route tags spiral around three marked lanes: approach, relay, return." }
+      { Slug = "pilgrim-badge"
+        Name = "Pilgrim Badge"
+        Ingredients = [ "pilgrim-token"; "copper-clasp" ]
+        OutputName = "Pilgrim Badge"
+        OutputSlug = "pilgrim-badge"
+        OutputDescription = "A travel badge clipped together from a token and clasp, worn more for belonging than protection."
         OutputReadableText = None } ]
 
 let private defaultStats =
@@ -552,8 +636,17 @@ let private loadReadableText (conn: NpgsqlConnection) (state: MudRoomState) (que
     if isNull scalar || scalar = box DBNull.Value then None else Some (scalar :?> string)
 
 let private isResourceSlug (slug: string) =
-    [ "brass-shard"; "wire-spool"; "rag-strip"; "lamp-oil"; "wax-seal" ]
+    [ "brass-shard"; "wire-spool"; "rag-strip"; "lamp-oil"; "wax-seal"
+      "rune-chalk"; "resin-pitch"; "iron-nails"; "fiber-bundle"
+      "capacitor-cell"; "coolant-canister"; "crystal-vial"
+      "charcoal-stick"; "linen-cord"; "copper-clasp"; "pilgrim-token"
+      "alloy-plate"; "glow-filament"; "data-shard"; "sealant-foam" ]
     |> List.contains slug
+
+let private awardAchievementBySlug (userId: Guid) (slug: string) =
+    match AchievementRepository.getAchievementBySlug slug with
+    | Some achievement -> AchievementRepository.awardAchievement userId achievement.Id |> ignore
+    | None -> ()
 
 let private describeRecipe (recipe: MudCraftRecipe) =
     let ingredients =
@@ -944,6 +1037,12 @@ let private moveInternal (userId: Guid) (direction: string) : MudCommandResult =
                 match getActiveStateInternal conn userId with
                 | Some s -> s
                 | None -> state
+            if state.RealmSlug <> nextState.RealmSlug then
+                awardAchievementBySlug userId "mud-realmwalker"
+            match nextState.RoomName with
+            | "Reliquary" | "Warden Vault" -> awardAchievementBySlug userId "mud-vault-delver"
+            | "Reactor Causeway" | "Signal Apex" -> awardAchievementBySlug userId "mud-star-runner"
+            | _ -> ()
             logEvent conn userId state.CharacterId nextState.RoomId "move" (Some direction) $"Moved to {nextState.RoomName}." (payloadOf [ "direction", direction; "to_room", exitView.TargetRoomName ])
             { Success = true
               Command = $"move {direction}"
@@ -1006,11 +1105,40 @@ let read (userId: Guid) (query: string) : MudCommandResult =
             use conn = openConnection ()
             let message =
                 match loadReadableText conn state trimmed with
-                | Some text -> text
+                | Some text ->
+                    awardAchievementBySlug userId "mud-lorekeeper"
+                    text
                 | None -> $"There is nothing readable on '{trimmed}'."
             logEvent conn userId state.CharacterId state.RoomId "read" (Some trimmed) message (payloadOf [ "target", trimmed ])
             { Success = message <> $"There is nothing readable on '{trimmed}'."
               Command = $"read {trimmed}"
+              Message = message
+              State = Some state })
+
+let talk (userId: Guid) (query: string) : MudCommandResult =
+    withState userId (fun state ->
+        let trimmed =
+            query.Trim()
+            |> fun value ->
+                if value.StartsWith("to ", StringComparison.OrdinalIgnoreCase) then value.Substring(3).Trim()
+                else value
+
+        if String.IsNullOrWhiteSpace(trimmed) then
+            { Success = false
+              Command = "talk"
+              Message = "Talk to whom?"
+              State = Some state }
+        else
+            use conn = openConnection ()
+            let message =
+                match loadReadableText conn state trimmed with
+                | Some text ->
+                    awardAchievementBySlug userId "mud-speaks-first"
+                    text
+                | None -> $"'{trimmed}' offers no reply."
+            logEvent conn userId state.CharacterId state.RoomId "talk" (Some trimmed) message (payloadOf [ "target", trimmed ])
+            { Success = not (message.EndsWith("offers no reply."))
+              Command = $"talk {trimmed}"
               Message = message
               State = Some state })
 
@@ -1042,6 +1170,7 @@ let search (userId: Guid) : MudCommandResult =
             | [] -> $"{describeState state}\n\nYou do not spot any loose materials worth taking."
             | items ->
                 let found = items |> String.concat ", "
+                awardAchievementBySlug userId "mud-scrounger"
                 $"{describeState state}\n\nSearch turns up useful materials: {found}."
         use conn = openConnection ()
         logEvent conn userId state.CharacterId state.RoomId "search" (Some "search") message (payloadOf [ "count", string resources.Length ])
@@ -1120,6 +1249,12 @@ let craft (userId: Guid) (query: string) : MudCommandResult =
 
                     let nextState = getState userId |> Option.defaultValue state
                     let message = $"You craft {recipe.OutputName}."
+                    awardAchievementBySlug userId "mud-crafter"
+                    match recipe.OutputSlug with
+                    | "torch" -> awardAchievementBySlug userId "mud-torchbearer"
+                    | "signal-key" | "patch-cable" | "relay-lantern" -> awardAchievementBySlug userId "mud-signal-smith"
+                    | "ward-lantern" | "star-chart" | "hull-patch" -> awardAchievementBySlug userId "mud-master-tinker"
+                    | _ -> ()
                     logEvent conn userId state.CharacterId state.RoomId "craft" (Some trimmed) message (payloadOf [ "recipe", recipe.Slug; "created", recipe.OutputSlug ])
                     { Success = true
                       Command = $"craft {trimmed}"
@@ -1163,6 +1298,14 @@ let getItem (userId: Guid) (query: string) : MudCommandResult =
                 let message =
                     if changed > 0 then $"You pick up {item.Name}."
                     else $"You cannot pick up {item.Name} right now."
+                if changed > 0 && isResourceSlug item.Slug then
+                    awardAchievementBySlug userId "mud-scrounger"
+                    let resourceCount =
+                        nextState.InventoryItems
+                        |> List.filter (fun inventoryItem -> isResourceSlug inventoryItem.Slug)
+                        |> List.length
+                    if resourceCount >= 5 then
+                        awardAchievementBySlug userId "mud-quartermaster"
                 logEvent conn userId state.CharacterId state.RoomId "get" (Some trimmed) message (payloadOf [ "target", trimmed ])
                 { Success = changed > 0
                   Command = $"get {trimmed}"
@@ -1244,7 +1387,7 @@ let handleCommand (userId: Guid) (commandText: string) : MudCommandResult =
     if String.IsNullOrWhiteSpace(trimmed) then
         { Success = false
           Command = ""
-          Message = "Type look, search, recipes, craft <thing>, examine <thing>, read <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, or emote <action>."
+          Message = "Type look, search, recipes, craft <thing>, examine <thing>, read <thing>, talk <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, or emote <action>."
           State = getState userId }
     else
         let parts = trimmed.Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
@@ -1262,6 +1405,9 @@ let handleCommand (userId: Guid) (commandText: string) : MudCommandResult =
         | "read" ->
             let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
             read userId query
+        | "talk" | "ask" | "speak" ->
+            let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
+            talk userId query
         | "inventory" | "inv" | "i" -> inventory userId
         | "get" | "take" ->
             let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
@@ -1298,5 +1444,5 @@ let handleCommand (userId: Guid) (commandText: string) : MudCommandResult =
         | _ ->
             { Success = false
               Command = trimmed
-              Message = "Unknown command. Try look, search, recipes, craft <thing>, examine <thing>, read <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, or emote <action>."
+              Message = "Unknown command. Try look, search, recipes, craft <thing>, examine <thing>, read <thing>, talk <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, or emote <action>."
               State = getState userId }

@@ -80,6 +80,18 @@ let private seedAchievements = [
     "djehuti-code-collab",     "Code Collaborator",  "Djehuti generated a code block in your thread that received an upvote", "djehuti-svg", "gold", "djehuti", 75
     "djehuti-deep-diver",      "Deep Diver",         "Elicited a Djehuti response exceeding 1,000 words",      "djehuti-svg", "gold",      "djehuti", 75
     "djehuti-daily-sync",      "Daily Sync",         "Interacted with Djehuti on 7 or more distinct days",     "djehuti-svg", "platinum",  "djehuti", 100
+    // MUD
+    "mud-scrounger",           "Scrounger",          "Found useful materials while searching the world",        "🔎",         "bronze",    "mud",      15
+    "mud-speaks-first",        "Speaks First",       "Got a response from someone or something in the world",   "💬",         "bronze",    "mud",      15
+    "mud-crafter",             "Maker",              "Crafted your first field item",                           "🛠️",         "bronze",    "mud",      20
+    "mud-torchbearer",         "Torchbearer",        "Crafted a torch from scavenged supplies",                 "🔥",         "silver",    "mud",      30
+    "mud-signal-smith",        "Signal Smith",       "Built a device meant to open paths or carry signals",     "📡",         "silver",    "mud",      30
+    "mud-realmwalker",         "Realmwalker",        "Stepped from one realm into another through a portal",    "🚪",         "silver",    "mud",      35
+    "mud-vault-delver",        "Vault Delver",       "Reached the deepest medieval chambers beneath the keep",  "🗝️",         "gold",      "mud",      50
+    "mud-star-runner",         "Star Runner",        "Reached the far industrial spine of Star Reach",          "🚀",         "gold",      "mud",      50
+    "mud-quartermaster",       "Quartermaster",      "Carried a full spread of scavenged crafting resources",   "🎒",         "gold",      "mud",      60
+    "mud-lorekeeper",          "Lorekeeper",         "Read surviving notes, records, or voices from the world", "📜",         "silver",    "mud",      25
+    "mud-master-tinker",       "Master Tinker",      "Completed an advanced field recipe from scavenged parts", "⚙️",         "gold",      "mud",      45
 ]
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
