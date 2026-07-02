@@ -27,8 +27,10 @@
     <Compile Include="MetricsRepository.fs" />
     <Compile Include="NginxLogParser.fs" />
     <Compile Include="ApiKeyRepository.fs" />
+    <Compile Include="SecretProtector.fs" />
     <Compile Include="PersonaRepository.fs" />
     <Compile Include="MudRepository.fs" />
+    <Compile Include="MudCompanionRepository.fs" />
     <Compile Include="MudAdminRepository.fs" />
     <Compile Include="SponsorsRepository.fs" />
     <Compile Include="HeartbeatWorker.fs" />

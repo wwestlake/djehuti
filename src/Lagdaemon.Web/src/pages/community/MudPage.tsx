@@ -4,6 +4,7 @@ import {
   mudApi,
   type MudCharacterSummary,
   type MudCommandResult,
+  type MudCompanionSettings,
   type MudItemView,
   type MudMapExitView,
   type MudMapRoomView,
@@ -23,6 +24,28 @@ const QUICK_COMMANDS = [
 
 type MudPageProps = {
   embedded?: boolean
+}
+
+type MudCompanionDraft = {
+  enabled: boolean
+  mode: string
+  model: string
+  disclosure: string
+  allowOnlineConcurrency: boolean
+  useByoOpenAiKey: boolean
+  openAiApiKey: string
+}
+
+function toCompanionDraft(settings: MudCompanionSettings): MudCompanionDraft {
+  return {
+    enabled: settings.enabled,
+    mode: settings.mode,
+    model: settings.model,
+    disclosure: settings.disclosure,
+    allowOnlineConcurrency: settings.allowOnlineConcurrency,
+    useByoOpenAiKey: settings.useByoOpenAiKey,
+    openAiApiKey: '',
+  }
 }
 
 function MapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits: MudMapExitView[]; onJump: (command: string) => void }) {
@@ -154,6 +177,10 @@ export default function MudPage({ embedded = false }: MudPageProps) {
   const [createRealm, setCreateRealm] = useState('medieval')
   const [createName, setCreateName] = useState('')
   const [createDisplayName, setCreateDisplayName] = useState('')
+  const [companion, setCompanion] = useState<MudCompanionSettings | null>(null)
+  const [companionDraft, setCompanionDraft] = useState<MudCompanionDraft | null>(null)
+  const [companionLoading, setCompanionLoading] = useState(false)
+  const selectedCharacter = roster?.characters.find(character => character.isSelected) ?? null
 
   const loadAll = async () => {
     setLoading(true)
@@ -245,11 +272,76 @@ export default function MudPage({ embedded = false }: MudPageProps) {
     }
   }
 
+  useEffect(() => {
+    const characterId = selectedCharacter?.id
+    if (!characterId) {
+      setCompanion(null)
+      setCompanionDraft(null)
+      return
+    }
+
+    let cancelled = false
+    setCompanionLoading(true)
+    void mudApi.getCompanion(characterId)
+      .then(settings => {
+        if (cancelled) return
+        setCompanion(settings)
+        setCompanionDraft(toCompanionDraft(settings))
+      })
+      .catch(error => {
+        if (cancelled) return
+        setCompanion(null)
+        setCompanionDraft(null)
+        setMessage(error instanceof Error ? error.message : 'Could not load companion settings.')
+      })
+      .finally(() => {
+        if (!cancelled) setCompanionLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedCharacter?.id])
+
+  const handleSaveCompanion = async () => {
+    if (!selectedCharacter || !companionDraft) return
+    setBusy(true)
+    try {
+      const nextSettings = await mudApi.saveCompanion(selectedCharacter.id, companionDraft)
+      setCompanion(nextSettings)
+      setCompanionDraft(toCompanionDraft(nextSettings))
+      setMessage(nextSettings.useByoOpenAiKey
+        ? 'Companion settings saved. Your key is stored on the server and not shown back to the screen.'
+        : 'Companion settings saved.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not save companion settings.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleRemoveCompanionKey = async () => {
+    if (!selectedCharacter) return
+    const confirmed = window.confirm('Remove the saved OpenAI key for this character?')
+    if (!confirmed) return
+
+    setBusy(true)
+    try {
+      const nextSettings = await mudApi.removeCompanionKey(selectedCharacter.id)
+      setCompanion(nextSettings)
+      setCompanionDraft(toCompanionDraft(nextSettings))
+      setMessage('Saved OpenAI key removed for this character.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not remove that key.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const roomTitle = state?.roomName ?? 'LagDaemon MUD'
   const roomBody = state?.roomDescription ?? 'Choose a character to enter the world.'
   const portableVisibleItems = useMemo(() => (state?.visibleItems ?? []).filter(item => item.portable), [state])
   const quickMovement = useMemo(() => (state?.exits ?? []).slice(0, 4), [state])
-  const selectedCharacter = roster?.characters.find(character => character.isSelected) ?? null
   const isFullScreen = embedded ? fullScreen : true
   const shellStyle = isFullScreen
     ? {
@@ -379,6 +471,146 @@ export default function MudPage({ embedded = false }: MudPageProps) {
             <p className="mud-empty">
               If the roster is full, delete a character, upgrade tier, or add another slot.
             </p>
+          </div>
+
+          <div className="mud-card">
+            <h2>AI Companion</h2>
+            {!selectedCharacter && (
+              <p className="mud-empty">Pick a character first. Companion settings are saved per character.</p>
+            )}
+            {selectedCharacter && companionLoading && (
+              <p className="mud-empty">Loading companion settings…</p>
+            )}
+            {selectedCharacter && !companionLoading && companion && companionDraft && (
+              <div className="mud-form-grid">
+                <div className="mud-companion-head">
+                  <strong>{selectedCharacter.displayName}</strong>
+                  <span className={`mud-status-pill${companion.eligible ? ' ok' : ''}`}>
+                    {companion.eligible ? 'Eligible' : 'Upgrade required'}
+                  </span>
+                </div>
+
+                {!companion.eligible && (
+                  <p className="mud-empty">{companion.eligibilityReason}</p>
+                )}
+
+                <label className="mud-check-row">
+                  <input
+                    type="checkbox"
+                    checked={companionDraft.enabled}
+                    onChange={e => setCompanionDraft(current => current ? { ...current, enabled: e.target.checked } : current)}
+                    disabled={busy || !companion.eligible}
+                  />
+                  <span>Enable this character’s AI companion</span>
+                </label>
+
+                <label className="mud-field-label">
+                  Companion mode
+                  <select
+                    className="mud-command-input"
+                    value={companionDraft.mode}
+                    onChange={e => setCompanionDraft(current => current ? { ...current, mode: e.target.value } : current)}
+                    disabled={busy || !companion.eligible}
+                  >
+                    <option value="solitary">Solitary</option>
+                    <option value="social">Social</option>
+                  </select>
+                </label>
+
+                <label className="mud-field-label">
+                  Model
+                  <input
+                    className="mud-command-input"
+                    value={companionDraft.model}
+                    onChange={e => setCompanionDraft(current => current ? { ...current, model: e.target.value } : current)}
+                    placeholder="gpt-4.1-mini"
+                    disabled={busy || !companion.eligible}
+                  />
+                </label>
+
+                <label className="mud-field-label">
+                  Disclosure
+                  <select
+                    className="mud-command-input"
+                    value={companionDraft.disclosure}
+                    onChange={e => setCompanionDraft(current => current ? { ...current, disclosure: e.target.value } : current)}
+                    disabled={busy || !companion.eligible}
+                  >
+                    <option value="tagged">Tagged</option>
+                    <option value="contextual">Contextual</option>
+                    <option value="hidden">Hidden</option>
+                  </select>
+                </label>
+
+                <label className="mud-check-row">
+                  <input
+                    type="checkbox"
+                    checked={companionDraft.allowOnlineConcurrency}
+                    onChange={e => setCompanionDraft(current => current ? { ...current, allowOnlineConcurrency: e.target.checked } : current)}
+                    disabled={busy || !companion.eligible}
+                  />
+                  <span>Allow the companion to stay active while you are online elsewhere</span>
+                </label>
+
+                <label className="mud-check-row">
+                  <input
+                    type="checkbox"
+                    checked={companionDraft.useByoOpenAiKey}
+                    onChange={e => setCompanionDraft(current => current ? { ...current, useByoOpenAiKey: e.target.checked } : current)}
+                    disabled={busy || !companion.eligible}
+                  />
+                  <span>Use my own OpenAI API key for this character</span>
+                </label>
+
+                <label className="mud-field-label">
+                  OpenAI API key
+                  <input
+                    className="mud-command-input"
+                    type="password"
+                    autoComplete="new-password"
+                    value={companionDraft.openAiApiKey}
+                    onChange={e => setCompanionDraft(current => current ? { ...current, openAiApiKey: e.target.value } : current)}
+                    placeholder={companion.hasByoOpenAiKey ? 'Saved key on file. Paste a new one to replace it.' : 'Paste a key to save it for this character.'}
+                    disabled={busy || !companion.eligible}
+                  />
+                </label>
+
+                <div className="mud-meta">
+                  <span>Saved key: {companion.hasByoOpenAiKey ? 'Yes' : 'No'}</span>
+                  <span>Last update: {companion.updatedAt ? new Date(companion.updatedAt).toLocaleString() : 'Not saved yet'}</span>
+                </div>
+
+                {companion.lastStatus && (
+                  <div className="mud-meta">
+                    <span>Status: {companion.lastStatus}</span>
+                    {companion.lastError && <span>Last error: {companion.lastError}</span>}
+                  </div>
+                )}
+
+                <div className="mud-quick-commands">
+                  <button
+                    className="mud-command-btn"
+                    onClick={() => void handleSaveCompanion()}
+                    disabled={busy || !companion.eligible}
+                  >
+                    Save companion
+                  </button>
+                  {companion.hasByoOpenAiKey && (
+                    <button
+                      className="mud-quick-chip danger"
+                      onClick={() => void handleRemoveCompanionKey()}
+                      disabled={busy}
+                    >
+                      Remove saved key
+                    </button>
+                  )}
+                </div>
+
+                <p className="mud-empty">
+                  The key is stored server-side for this character and never shown back in the page.
+                </p>
+              </div>
+            )}
           </div>
         </div>
 

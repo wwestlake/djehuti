@@ -111,6 +111,23 @@ export interface MudRosterView {
   bonusSlots: number
 }
 
+export interface MudCompanionSettings {
+  characterId: string
+  enabled: boolean
+  mode: string
+  model: string
+  disclosure: string
+  allowOnlineConcurrency: boolean
+  useByoOpenAiKey: boolean
+  hasByoOpenAiKey: boolean
+  keyLastSetAt?: string
+  lastStatus?: string
+  lastError?: string
+  eligible: boolean
+  eligibilityReason: string
+  updatedAt?: string
+}
+
 const opts = { credentials: 'include' as RequestCredentials }
 
 async function readJsonOrThrow<T>(response: Response): Promise<T> {
@@ -159,6 +176,34 @@ export const mudApi = {
       ...opts,
       method: 'DELETE',
     }).then(readJsonOrThrow<MudRosterView>),
+
+  getCompanion: (characterId: string): Promise<MudCompanionSettings> =>
+    fetch(`${BASE}/companions/${characterId}`, opts).then(readJsonOrThrow<MudCompanionSettings>),
+
+  saveCompanion: (
+    characterId: string,
+    body: {
+      enabled: boolean
+      mode: string
+      model: string
+      disclosure: string
+      allowOnlineConcurrency: boolean
+      useByoOpenAiKey: boolean
+      openAiApiKey?: string
+    },
+  ): Promise<MudCompanionSettings> =>
+    fetch(`${BASE}/companions/${characterId}`, {
+      ...opts,
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(readJsonOrThrow<MudCompanionSettings>),
+
+  removeCompanionKey: (characterId: string): Promise<MudCompanionSettings> =>
+    fetch(`${BASE}/companions/${characterId}/key`, {
+      ...opts,
+      method: 'DELETE',
+    }).then(readJsonOrThrow<MudCompanionSettings>),
 
   command: (command: string): Promise<MudCommandResult> =>
     fetch(`${BASE}/command`, {
