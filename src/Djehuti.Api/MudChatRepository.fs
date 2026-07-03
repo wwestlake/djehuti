@@ -95,22 +95,28 @@ let postRoom (userId: Guid) (text: string) : Result<string, string> =
     let body = cleanText text
     if String.IsNullOrWhiteSpace body then Error "Say what?"
     else
-        match tryGetActiveCharacter userId with
-        | None -> Error "Choose or create a character first."
-        | Some actor ->
-            recordRoomMessage actor.CharacterId actor.Name actor.RoomId body
-            Ok $"{actor.Name} says: {body}"
+        match MudConstructionRepository.tryHandleDirectorMessage userId None body with
+        | Some result -> result
+        | None ->
+            match tryGetActiveCharacter userId with
+            | None -> Error "Choose or create a character first."
+            | Some actor ->
+                recordRoomMessage actor.CharacterId actor.Name actor.RoomId body
+                Ok $"{actor.Name} says: {body}"
 
 let postShout (userId: Guid) (text: string) : Result<string, string> =
     let body = cleanText text
     if String.IsNullOrWhiteSpace body then Error "Shout what?"
     else
-        match tryGetActiveCharacter userId with
-        | None -> Error "Choose or create a character first."
-        | Some actor ->
-            use conn = openConnection ()
-            insertMessage conn "shout" (Some actor.CharacterId) actor.Name (Some actor.RoomId) None None None body
-            Ok $"{actor.Name} shouts: {body}"
+        match MudConstructionRepository.tryHandleDirectorMessage userId None body with
+        | Some result -> result
+        | None ->
+            match tryGetActiveCharacter userId with
+            | None -> Error "Choose or create a character first."
+            | Some actor ->
+                use conn = openConnection ()
+                insertMessage conn "shout" (Some actor.CharacterId) actor.Name (Some actor.RoomId) None None None body
+                Ok $"{actor.Name} shouts: {body}"
 
 let postWhisper (userId: Guid) (targetName: string) (text: string) : Result<string, string> =
     let body = cleanText text
@@ -118,29 +124,32 @@ let postWhisper (userId: Guid) (targetName: string) (text: string) : Result<stri
     if String.IsNullOrWhiteSpace target then Error "Whisper to whom?"
     elif String.IsNullOrWhiteSpace body then Error "Whisper what?"
     else
-        match tryGetActiveCharacter userId with
-        | None -> Error "Choose or create a character first."
-        | Some actor ->
-            use conn = openConnection ()
-            use cmd = new NpgsqlCommand(
-                """SELECT c.id, c.display_name
-                   FROM mud_characters c
-                   WHERE lower(c.display_name) = lower(@name)
-                     AND c.deleted_at IS NULL
-                     AND c.id <> @self
-                   LIMIT 2""", conn)
-            cmd.Parameters.AddWithValue("name", target) |> ignore
-            cmd.Parameters.AddWithValue("self", actor.CharacterId) |> ignore
-            let matches =
-                [ use reader = cmd.ExecuteReader()
-                  while reader.Read() do
-                      yield reader.GetGuid(0), reader.GetString(1) ]
-            match matches with
-            | [] -> Error $"No character named '{target}' was found."
-            | [ (recipientId, recipientName) ] ->
-                insertMessage conn "whisper" (Some actor.CharacterId) actor.Name None (Some recipientId) (Some recipientName) None body
-                Ok $"You whisper to {recipientName}: {body}"
-            | _ -> Error $"More than one character answers to '{target}'. Be more specific."
+        match MudConstructionRepository.tryHandleDirectorMessage userId (Some target) body with
+        | Some result -> result
+        | None ->
+            match tryGetActiveCharacter userId with
+            | None -> Error "Choose or create a character first."
+            | Some actor ->
+                use conn = openConnection ()
+                use cmd = new NpgsqlCommand(
+                    """SELECT c.id, c.display_name
+                       FROM mud_characters c
+                       WHERE lower(c.display_name) = lower(@name)
+                         AND c.deleted_at IS NULL
+                         AND c.id <> @self
+                       LIMIT 2""", conn)
+                cmd.Parameters.AddWithValue("name", target) |> ignore
+                cmd.Parameters.AddWithValue("self", actor.CharacterId) |> ignore
+                let matches =
+                    [ use reader = cmd.ExecuteReader()
+                      while reader.Read() do
+                          yield reader.GetGuid(0), reader.GetString(1) ]
+                match matches with
+                | [] -> Error $"No character named '{target}' was found."
+                | [ (recipientId, recipientName) ] ->
+                    insertMessage conn "whisper" (Some actor.CharacterId) actor.Name None (Some recipientId) (Some recipientName) None body
+                    Ok $"You whisper to {recipientName}: {body}"
+                | _ -> Error $"More than one character answers to '{target}'. Be more specific."
 
 let tryGetParty (characterId: Guid) : (Guid * string) option =
     use conn = openConnection ()
