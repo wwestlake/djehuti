@@ -3657,6 +3657,32 @@ let main args =
 
     // ── Papers ────────────────────────────────────────────────────────────────
 
+    // Public read-only surface: published papers are readable by anyone,
+    // including anonymous visitors. All authoring stays behind login below.
+
+    app.MapGet(
+        "/api/papers/public",
+        Func<IResult>(fun () ->
+            use conn = Database.openConnection()
+            Results.Ok(PaperRepository.getPublishedPapers conn)
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/papers/public/{id}",
+        Func<string, IResult>(fun id ->
+            match Guid.TryParse(id) with
+            | false, _ -> Results.BadRequest("Invalid paper id")
+            | true, pid ->
+                use conn = Database.openConnection()
+                match PaperRepository.getPublishedPaperById conn pid with
+                | None -> Results.NotFound()
+                | Some paper ->
+                    let sections = PaperRepository.getSections conn pid
+                    Results.Ok({| Paper = paper; Sections = sections |})
+        )
+    ) |> ignore
+
     app.MapGet(
         "/api/papers",
         Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
