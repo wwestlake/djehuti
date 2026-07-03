@@ -71,7 +71,7 @@ function MudLanding({ onEnter }: { onEnter: () => void }) {
   const { user } = useAuth()
   const [stats, setStats] = useState<MudLandingStats | null>(null)
   const shareUrl = 'https://lagdaemon.com/mud/'
-  const shareText = encodeURIComponent('LagDaemon MUD — two realms, one browser-based world. Medieval keep or drifting star station, your choice.')
+  const shareText = encodeURIComponent('LagDaemon MUD â€” two realms, one browser-based world. Medieval keep or drifting star station, your choice.')
 
   useEffect(() => {
     let cancelled = false
@@ -129,7 +129,7 @@ function MudLanding({ onEnter }: { onEnter: () => void }) {
           <div className="mud-share-row">
             <span className="mud-share-label">Share</span>
             <a className="mud-share-btn" href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${shareText}`} target="_blank" rel="noreferrer">
-              𝕏
+              X
             </a>
             <a className="mud-share-btn" href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`} target="_blank" rel="noreferrer">
               LinkedIn
@@ -180,7 +180,7 @@ function MudLanding({ onEnter }: { onEnter: () => void }) {
           <h2>How to start</h2>
           <ol>
             <li>Create a free account, or sign in with Google or GitHub.</li>
-            <li>Create a character — free players get one starter character in each realm.</li>
+            <li>Create a character â€” free players get one starter character in each realm.</li>
             <li>Step through a portal and type <code>look</code>. The world takes it from there.</li>
           </ol>
         </div>
@@ -365,7 +365,7 @@ function MudAuthScreen({ onBack }: { onBack?: () => void }) {
           </div>
 
           <div className="mud-auth-actions">
-            {onBack && <button className="mud-back-btn" onClick={onBack}>← Game landing</button>}
+            {onBack && <button className="mud-back-btn" onClick={onBack}>â† Game landing</button>}
             <a className="mud-back-btn" href="/">Back to LagDaemon</a>
           </div>
         </div>
@@ -385,22 +385,24 @@ function MudRoot() {
   })
 
   useEffect(() => {
+    if (isLoading) return
     if (screen === 'auth' && user) setScreen('game')
-  }, [screen, user])
+  }, [isLoading, screen, user])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      if (!user && screen === 'game') {
+      if (!isLoading && !user && screen === 'game') {
         window.sessionStorage.setItem(MUD_SCREEN_KEY, 'auth')
       } else {
         window.sessionStorage.setItem(MUD_SCREEN_KEY, screen)
       }
     }
-  }, [screen, user])
+  }, [isLoading, screen, user])
 
   useEffect(() => {
+    if (isLoading) return
     if (!user && screen === 'game') setScreen('auth')
-  }, [screen, user])
+  }, [isLoading, screen, user])
 
   if (isLoading) {
     return (
