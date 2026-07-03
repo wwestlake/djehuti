@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Backpack, Compass, Eye, LogOut, Map as MapIcon, Maximize2, Minimize2, ScrollText, Settings2, UserRound } from 'lucide-react'
 import {
   mudApi,
   type MudCharacterSummary,
+  type MudChatMessageView,
+  type MudChatSyncView,
   type MudCommandResult,
   type MudCompanionSettings,
   type MudItemView,
@@ -40,6 +42,10 @@ type MudCompanionDraft = {
 type GameView = 'world' | 'map' | 'items' | 'inventory' | 'character' | 'settings'
 
 const SUB_VIEWS: Partial<Record<GameView, { id: string; label: string }[]>> = {
+  world: [
+    { id: 'room', label: 'Room' },
+    { id: 'chat', label: 'Chat' },
+  ],
   items: [
     { id: 'take', label: 'Take' },
     { id: 'inspect', label: 'Inspect' },
@@ -48,6 +54,14 @@ const SUB_VIEWS: Partial<Record<GameView, { id: string; label: string }[]>> = {
     { id: 'stats', label: 'Stats' },
     { id: 'roster', label: 'Roster' },
   ],
+}
+
+const CHAT_TAGS: Record<string, string> = {
+  room: 'say',
+  shout: 'shout',
+  whisper: 'whisper',
+  group: 'party',
+  announce: 'notice',
 }
 
 function toCompanionDraft(settings: MudCompanionSettings): MudCompanionDraft {
@@ -398,7 +412,14 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
   const [fullScreen, setFullScreen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [activeView, setActiveView] = useState<GameView>('world')
-  const [subView, setSubView] = useState('')
+  const [subView, setSubView] = useState('room')
+  const [chat, setChat] = useState<MudChatSyncView | null>(null)
+  const [chatMessages, setChatMessages] = useState<MudChatMessageView[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatChannel, setChatChannel] = useState('room')
+  const [chatNotice, setChatNotice] = useState<string | null>(null)
+  const chatSinceRef = useRef<string | null>(null)
+  const chatFeedRef = useRef<HTMLDivElement | null>(null)
   const [createRealm, setCreateRealm] = useState('medieval')
   const [createName, setCreateName] = useState('')
   const [createDisplayName, setCreateDisplayName] = useState('')
@@ -435,6 +456,59 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
   useEffect(() => {
     if (state) openView('world')
   }, [state?.characterId])
+
+  const syncChat = useCallback(async () => {
+    try {
+      const view = await mudApi.chatSync(chatSinceRef.current ?? undefined)
+      if (!view) return
+      chatSinceRef.current = view.serverTime
+      setChat(view)
+      if (view.messages.length) {
+        setChatMessages(current => {
+          const seen = new Set(current.map(item => item.id))
+          const merged = [...current, ...view.messages.filter(item => !seen.has(item.id))]
+          return merged.slice(-100)
+        })
+      }
+    } catch {
+      // polling errors are transient; the next tick retries
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!state?.characterId) return
+    void syncChat()
+    const interval = setInterval(() => { void syncChat() }, 7000)
+    return () => clearInterval(interval)
+  }, [state?.characterId, state?.roomId, syncChat])
+
+  useEffect(() => {
+    const feed = chatFeedRef.current
+    if (feed) feed.scrollTop = feed.scrollHeight
+  }, [chatMessages])
+
+  const sendChat = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const raw = chatInput.trim()
+    if (!raw) return
+    let channel = chatChannel
+    let target: string | undefined
+    let text = raw
+    if (raw.toLowerCase().startsWith('/w ')) {
+      const parts = raw.slice(3).trim().split(/\s+/)
+      target = parts[0]
+      text = parts.slice(1).join(' ')
+      channel = 'whisper'
+    }
+    setChatNotice(null)
+    try {
+      await mudApi.chatPost({ channel, text, target })
+      setChatInput('')
+      await syncChat()
+    } catch (error) {
+      setChatNotice(error instanceof Error ? error.message : 'That message did not send.')
+    }
+  }
 
   const runCommand = async (nextCommand = command) => {
     if (!nextCommand.trim()) return
@@ -599,6 +673,7 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
               <strong>{roomTitle}</strong>
               <span className="mud-game-header-meta">
                 {state.characterName} · {state.mudTierName} · {state.realmName} · {state.zoneName}
+                {chat ? ` · ${chat.onlineCount} online` : ''}
               </span>
             </div>
             <div className="mud-game-header-actions">
@@ -756,10 +831,15 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
         {state && (
           <div className="mud-game-shell">
             <div className="mud-game-panel">
-              {activeView === 'world' && (
+              {activeView === 'world' && subView !== 'chat' && (
                 <div className="mud-game-view">
                   <div className="mud-card mud-card-flat">
                     <div className="mud-room-text">{roomBody}</div>
+                    <p className="mud-presence-line">
+                      {chat && chat.here.length > 0
+                        ? `Also here: ${chat.here.join(', ')}`
+                        : 'No one else is here.'}
+                    </p>
                   </div>
                   <div className="mud-card mud-card-flat">
                     <CompassPad exits={state.exits ?? []} onCommand={runCommand} disabled={busy || !user} />
@@ -780,6 +860,68 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
                         </button>
                       ))}
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {activeView === 'world' && subView === 'chat' && (
+                <div className="mud-game-view">
+                  <div className="mud-card mud-card-flat mud-chat-card">
+                    <div className="mud-chat-presence">
+                      {chat && chat.here.length > 0
+                        ? `Also here: ${chat.here.join(', ')}`
+                        : 'No one else is nearby.'}
+                      {chat && ` · ${chat.onlineCount} online`}
+                      {chat?.partyName && ` · party: ${chat.partyName}`}
+                    </div>
+                    <div className="mud-chat-feed" ref={chatFeedRef}>
+                      {chatMessages.length === 0 && (
+                        <p className="mud-empty">Nothing said yet. Speak up — the room is listening.</p>
+                      )}
+                      {chatMessages.map(item => (
+                        <div key={item.id} className={`mud-chat-line ${item.channel}${item.self ? ' self' : ''}`}>
+                          <span className="mud-chat-tag">{CHAT_TAGS[item.channel] ?? item.channel}</span>{' '}
+                          <strong>{item.senderName}</strong>
+                          {item.channel === 'whisper' && item.recipientName ? ` → ${item.recipientName}` : ''}
+                          {': '}
+                          {item.body}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mud-game-subnav mud-chat-channels">
+                      {['room', 'shout', 'group'].map(channel => (
+                        <button
+                          key={channel}
+                          type="button"
+                          className={`mud-subnav-btn${chatChannel === channel ? ' active' : ''}`}
+                          onClick={() => setChatChannel(channel)}
+                        >
+                          {channel === 'room' ? 'Say' : channel === 'shout' ? 'Shout' : 'Party'}
+                        </button>
+                      ))}
+                      {user?.role === 'admin' && (
+                        <button
+                          type="button"
+                          className={`mud-subnav-btn${chatChannel === 'announce' ? ' active' : ''}`}
+                          onClick={() => setChatChannel('announce')}
+                        >
+                          Announce
+                        </button>
+                      )}
+                    </div>
+                    <form className="mud-command-row" onSubmit={sendChat}>
+                      <input
+                        className="mud-command-input"
+                        value={chatInput}
+                        onChange={e => setChatInput(e.target.value)}
+                        placeholder="Message — or /w <name> <text> to whisper"
+                        disabled={!user}
+                      />
+                      <button className="mud-command-btn" type="submit" disabled={!user || !chatInput.trim()}>
+                        Send
+                      </button>
+                    </form>
+                    {chatNotice && <p className="mud-empty">{chatNotice}</p>}
                   </div>
                 </div>
               )}

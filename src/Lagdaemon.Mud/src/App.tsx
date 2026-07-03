@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
+import landingBg from './assets/landing-bg.jpg'
 import MudPage from './pages/MudPage'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider, THEMES, useTheme } from './contexts/ThemeContext'
@@ -68,7 +69,12 @@ function MudLanding({ onEnter }: { onEnter: () => void }) {
   const { user } = useAuth()
 
   return (
-    <section className="mud-page mud-page-app">
+    <section
+      className="mud-page mud-page-app mud-landing-page"
+      style={{
+        backgroundImage: `linear-gradient(180deg, rgba(4, 7, 16, 0.68) 0%, rgba(4, 7, 16, 0.88) 55%, rgba(4, 7, 16, 0.97) 100%), url(${landingBg})`,
+      }}
+    >
       <div className="mud-shell mud-landing-shell">
         <div className="mud-landing-hero">
           <div className="mud-kicker">LagDaemon MUD</div>

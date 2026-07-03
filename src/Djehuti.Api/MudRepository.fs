@@ -1540,6 +1540,7 @@ let say (userId: Guid) (text: string) : MudCommandResult =
         else
             use conn = openConnection ()
             logEvent conn userId state.CharacterId state.RoomId "say" (Some trimmed) $"{state.CharacterName} says: {trimmed}" (payloadOf [ "text", trimmed ])
+            MudChatRepository.recordRoomMessage state.CharacterId state.CharacterName state.RoomId trimmed
             { Success = true
               Command = "say"
               Message = $"{state.CharacterName} says: {trimmed}"
@@ -1567,7 +1568,7 @@ let handleCommand (userId: Guid) (commandText: string) : MudCommandResult =
     if String.IsNullOrWhiteSpace(trimmed) then
         { Success = false
           Command = ""
-          Message = "Type look, search, recipes, craft <thing>, examine <thing>, read <thing>, talk <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, or emote <action>."
+          Message = "Type look, search, recipes, craft <thing>, examine <thing>, read <thing>, talk <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, shout <message>, whisper <character> <message>, party create/invite/who/leave, gsay <message>, or emote <action>."
           State = getState userId }
     else
         let parts = trimmed.Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
@@ -1601,6 +1602,38 @@ let handleCommand (userId: Guid) (commandText: string) : MudCommandResult =
         | "emote" | "me" ->
             let message = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
             emote userId message
+        | "shout" | "yell" ->
+            let message = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
+            let result = MudChatRepository.postShout userId message
+            match result with
+            | Ok text -> { Success = true; Command = "shout"; Message = text; State = getState userId }
+            | Error text -> { Success = false; Command = "shout"; Message = text; State = getState userId }
+        | "whisper" | "w" | "tell" ->
+            let target = if parts.Length > 1 then parts.[1] else ""
+            let message = if parts.Length > 2 then String.Join(" ", parts.[2..]) else ""
+            let result = MudChatRepository.postWhisper userId target message
+            match result with
+            | Ok text -> { Success = true; Command = "whisper"; Message = text; State = getState userId }
+            | Error text -> { Success = false; Command = "whisper"; Message = text; State = getState userId }
+        | "gsay" | "g" | "psay" ->
+            let message = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
+            let result = MudChatRepository.postGroup userId message
+            match result with
+            | Ok text -> { Success = true; Command = "gsay"; Message = text; State = getState userId }
+            | Error text -> { Success = false; Command = "gsay"; Message = text; State = getState userId }
+        | "party" ->
+            let subcommand = if parts.Length > 1 then parts.[1].ToLowerInvariant() else ""
+            let rest = if parts.Length > 2 then String.Join(" ", parts.[2..]) else ""
+            let result =
+                match subcommand with
+                | "create" | "form" -> MudChatRepository.partyCreate userId rest
+                | "invite" | "add" -> MudChatRepository.partyInvite userId rest
+                | "leave" | "quit" -> MudChatRepository.partyLeave userId
+                | "who" | "" -> MudChatRepository.partyWho userId
+                | other -> Error $"Unknown party command '{other}'. Try: party create <name>, party invite <character>, party who, party leave."
+            match result with
+            | Ok text -> { Success = true; Command = trimmed; Message = text; State = getState userId }
+            | Error text -> { Success = false; Command = trimmed; Message = text; State = getState userId }
         | "move" | "go" ->
             let direction = if parts.Length > 1 then parts.[1] else ""
             if String.IsNullOrWhiteSpace(direction) then
@@ -1624,5 +1657,5 @@ let handleCommand (userId: Guid) (commandText: string) : MudCommandResult =
         | _ ->
             { Success = false
               Command = trimmed
-              Message = "Unknown command. Try look, search, recipes, craft <thing>, examine <thing>, read <thing>, talk <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, or emote <action>."
+              Message = "Unknown command. Try look, search, recipes, craft <thing>, examine <thing>, read <thing>, talk <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, shout <message>, whisper <character> <message>, party create/invite/who/leave, gsay <message>, or emote <action>."
               State = getState userId }
