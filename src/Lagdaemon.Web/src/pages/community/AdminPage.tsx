@@ -211,7 +211,9 @@ export default function AdminPage() {
   const [semanticResults, setSemanticResults] = useState<SemanticChunkHit[]>([])
   const [semanticSearching, setSemanticSearching] = useState(false)
   const [semanticReindexing, setSemanticReindexing] = useState(false)
+  const [semanticMudReindexing, setSemanticMudReindexing] = useState(false)
   const [semanticReindexResult, setSemanticReindexResult] = useState<SemanticReindexSummary | null>(null)
+  const [semanticMudIndexedCount, setSemanticMudIndexedCount] = useState<number | null>(null)
   const [mudZoneForm, setMudZoneForm] = useState({ name: '', slug: '', description: '', position: 0 })
   const [editingMudZone, setEditingMudZone] = useState<MudZone | null>(null)
   const [mudRoomForm, setMudRoomForm] = useState({ zoneId: '', name: '', slug: '', description: '', position: 0 })
@@ -748,6 +750,24 @@ export default function AdminPage() {
       setError('Failed to reindex semantic documents.')
     } finally {
       setSemanticReindexing(false)
+    }
+  }
+
+  const reindexMudSemanticRooms = async () => {
+    setSemanticMudReindexing(true)
+    setSemanticMudIndexedCount(null)
+    try {
+      const result = await semanticAdminApi.reindexMudRooms()
+      setSemanticMudIndexedCount(result.indexed)
+      setSemanticStats(await semanticAdminApi.getStats())
+      if (semanticQuery.trim()) {
+        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
+        setSemanticResults(results)
+      }
+    } catch {
+      setError('Failed to reindex MUD rooms.')
+    } finally {
+      setSemanticMudReindexing(false)
     }
   }
 
@@ -1495,6 +1515,9 @@ export default function AdminPage() {
               <button className="tiptap-action-btn primary" type="button" onClick={reindexSemanticDocuments} disabled={semanticReindexing}>
                 {semanticReindexing ? 'Reindexing…' : 'Reindex indexed content'}
               </button>
+              <button className="tiptap-action-btn" type="button" onClick={reindexMudSemanticRooms} disabled={semanticMudReindexing}>
+                {semanticMudReindexing ? 'Indexing rooms…' : 'Index all MUD rooms'}
+              </button>
             </div>
 
             {semanticStats && (
@@ -1526,7 +1549,13 @@ export default function AdminPage() {
             {semanticReindexResult && (
               <div className="forum-success">
                 Reindexed {semanticReindexResult.documentsIndexed} of {semanticReindexResult.documentsRequested} documents
-                ({semanticReindexResult.forumThreadsIndexed} forum threads, {semanticReindexResult.blogArticlesIndexed} blog articles).
+                ({semanticReindexResult.forumThreadsIndexed} forum threads, {semanticReindexResult.blogArticlesIndexed} blog articles, {semanticReindexResult.mudRoomsIndexed} MUD rooms).
+              </div>
+            )}
+
+            {semanticMudIndexedCount !== null && (
+              <div className="forum-success">
+                Indexed {semanticMudIndexedCount} MUD rooms into the semantic store.
               </div>
             )}
 
@@ -1542,6 +1571,7 @@ export default function AdminPage() {
                   <option value="">All sources</option>
                   <option value="forum-thread">Forum threads</option>
                   <option value="blog-article">Blog articles</option>
+                  <option value="mud-room">MUD rooms</option>
                 </select>
                 <button className="tiptap-action-btn" type="submit" disabled={semanticSearching || !semanticQuery.trim()}>
                   {semanticSearching ? 'Searching…' : 'Search'}
