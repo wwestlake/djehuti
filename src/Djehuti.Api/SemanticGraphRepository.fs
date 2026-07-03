@@ -654,6 +654,23 @@ let getStats () =
           EmbeddingProvider = provider.Name
           EmbeddingReady = provider.IsReady }
 
+let private readChunkHit (reader: DbDataReader) (queryEmbedding: float32 array) =
+    let embedding =
+        if reader.IsDBNull(7) then
+            [||]
+        else
+            reader.GetFieldValue<float32 array>(7)
+
+    let similarity = SemanticEmbeddings.cosineSimilarity queryEmbedding embedding
+    { SourceType = reader.GetString(0)
+      SourceKey = reader.GetString(1)
+      Title = reader.GetString(2)
+      ChunkPosition = reader.GetInt32(3)
+      Content = reader.GetString(4)
+      MatchedTokenCount = reader.GetInt64(5) |> int
+      MatchedWeight = reader.GetInt64(6) |> int
+      Similarity = similarity }
+
 let searchChunks (query: string) (sourceType: string option) (limit: int) =
     let tokens =
         SemanticPreprocessing.tokenize query
@@ -687,23 +704,52 @@ let searchChunks (query: string) (sourceType: string option) (limit: int) =
     cmd.Parameters.AddWithValue("candidateLimit", Math.Max(limit * 10, 50)) |> ignore
 
     use reader = cmd.ExecuteReader()
-    [ while reader.Read() do
-        let embedding =
-            if reader.IsDBNull(7) then
-                [||]
-            else
-                reader.GetFieldValue<float32 array>(7)
+    let coOccurrenceHits =
+        [ while reader.Read() do
+            yield readChunkHit reader queryEmbedding ]
 
-        let similarity = SemanticEmbeddings.cosineSimilarity queryEmbedding embedding
-        yield
-            { SourceType = reader.GetString(0)
-              SourceKey = reader.GetString(1)
-              Title = reader.GetString(2)
-              ChunkPosition = reader.GetInt32(3)
-              Content = reader.GetString(4)
-              MatchedTokenCount = reader.GetInt64(5) |> int
-              MatchedWeight = reader.GetInt64(6) |> int
-              Similarity = similarity } ]
+    reader.Close()
+
+    let isolatedCandidateLimit = Math.Max(limit * 8, 40)
+    use isolatedCmd = new NpgsqlCommand(
+        """SELECT d.source_type,
+                  d.source_key,
+                  d.title,
+                  c.chunk_position,
+                  c.content,
+                  0 AS matched_token_count,
+                  0 AS matched_weight,
+                  c.embedding_values
+           FROM semantic_chunks c
+           JOIN semantic_documents d ON d.id = c.document_id
+           WHERE c.embedding_values IS NOT NULL
+             AND (@sourceType IS NULL OR d.source_type = @sourceType)
+           ORDER BY c.embedded_at DESC NULLS LAST, d.updated_at DESC, c.chunk_position ASC
+           LIMIT @candidateLimit""",
+        conn)
+    isolatedCmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    isolatedCmd.Parameters.AddWithValue("candidateLimit", isolatedCandidateLimit) |> ignore
+
+    use isolatedReader = isolatedCmd.ExecuteReader()
+    let isolatedHits =
+        [ while isolatedReader.Read() do
+            yield readChunkHit isolatedReader queryEmbedding ]
+
+    let coOccurrenceKeys =
+        coOccurrenceHits
+        |> List.map (fun hit -> $"{hit.SourceType}|{hit.SourceKey}|{hit.ChunkPosition}")
+        |> Set.ofList
+
+    let isolatedSweepHits =
+        isolatedHits
+        |> List.filter (fun hit ->
+            let key = $"{hit.SourceType}|{hit.SourceKey}|{hit.ChunkPosition}"
+            not (Set.contains key coOccurrenceKeys))
+        |> List.filter (fun hit -> hit.Similarity > 0.2)
+        |> List.sortByDescending (fun hit -> hit.Similarity)
+        |> List.truncate (Math.Max(limit / 2, 3))
+
+    List.append coOccurrenceHits isolatedSweepHits
     |> List.sortByDescending (fun hit -> hit.Similarity, hit.MatchedTokenCount, hit.MatchedWeight)
     |> List.truncate limit
 
