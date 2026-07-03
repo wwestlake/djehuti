@@ -47,6 +47,26 @@ export interface MudWorld {
   exits: MudExit[]
 }
 
+export interface MudRecipeIngredient {
+  slug: string
+  quantity: number
+  position: number
+}
+
+export interface MudRecipe {
+  id: string
+  slug: string
+  name: string
+  outputName: string
+  outputSlug: string
+  outputDescription: string
+  outputReadableText?: string
+  position: number
+  active: boolean
+  createdAt: string
+  ingredients: MudRecipeIngredient[]
+}
+
 export interface MudRealmMetric {
   realmSlug: string
   characterCount: number
@@ -61,6 +81,7 @@ export interface MudAdminMetrics {
   zoneCount: number
   roomCount: number
   exitCount: number
+  recipeCount: number
   itemCount: number
   portableItemCount: number
   readableItemCount: number
@@ -81,6 +102,54 @@ export const mudAdminApi = {
 
   getMetrics: (): Promise<MudAdminMetrics> =>
     fetch(`${BASE}/metrics`, opts).then(json),
+
+  getRecipes: (): Promise<MudRecipe[]> =>
+    fetch(`${BASE}/recipes`, opts).then(json),
+
+  createRecipe: (fields: {
+    slug: string
+    name: string
+    outputName: string
+    outputSlug: string
+    outputDescription: string
+    outputReadableText?: string
+    position: number
+    active: boolean
+    ingredients: MudRecipeIngredient[]
+  }): Promise<MudRecipe> =>
+    fetch(`${BASE}/recipes`, {
+      ...opts,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...fields,
+        outputReadableText: fields.outputReadableText ?? '',
+      }),
+    }).then(json),
+
+  updateRecipe: (recipeId: string, fields: {
+    slug: string
+    name: string
+    outputName: string
+    outputSlug: string
+    outputDescription: string
+    outputReadableText?: string
+    position: number
+    active: boolean
+    ingredients: MudRecipeIngredient[]
+  }): Promise<MudRecipe> =>
+    fetch(`${BASE}/recipes/${recipeId}`, {
+      ...opts,
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...fields,
+        outputReadableText: fields.outputReadableText ?? '',
+      }),
+    }).then(json),
+
+  deleteRecipe: (recipeId: string): Promise<void> =>
+    fetch(`${BASE}/recipes/${recipeId}`, { ...opts, method: 'DELETE' }).then(() => {}),
 
   createZone: (fields: { name: string; slug: string; description?: string; position: number }): Promise<MudZone> =>
     fetch(`${BASE}/zones`, {
