@@ -212,8 +212,12 @@ export default function AdminPage() {
   const [semanticSearching, setSemanticSearching] = useState(false)
   const [semanticReindexing, setSemanticReindexing] = useState(false)
   const [semanticMudReindexing, setSemanticMudReindexing] = useState(false)
+  const [semanticMudItemReindexing, setSemanticMudItemReindexing] = useState(false)
+  const [semanticMudRecipeReindexing, setSemanticMudRecipeReindexing] = useState(false)
   const [semanticReindexResult, setSemanticReindexResult] = useState<SemanticReindexSummary | null>(null)
   const [semanticMudIndexedCount, setSemanticMudIndexedCount] = useState<number | null>(null)
+  const [semanticMudItemIndexedCount, setSemanticMudItemIndexedCount] = useState<number | null>(null)
+  const [semanticMudRecipeIndexedCount, setSemanticMudRecipeIndexedCount] = useState<number | null>(null)
   const [mudZoneForm, setMudZoneForm] = useState({ name: '', slug: '', description: '', position: 0 })
   const [editingMudZone, setEditingMudZone] = useState<MudZone | null>(null)
   const [mudRoomForm, setMudRoomForm] = useState({ zoneId: '', name: '', slug: '', description: '', position: 0 })
@@ -768,6 +772,34 @@ export default function AdminPage() {
       setError('Failed to reindex MUD rooms.')
     } finally {
       setSemanticMudReindexing(false)
+    }
+  }
+
+  const reindexMudSemanticItems = async () => {
+    setSemanticMudItemReindexing(true)
+    setSemanticMudItemIndexedCount(null)
+    try {
+      const result = await semanticAdminApi.reindexMudItems()
+      setSemanticMudItemIndexedCount(result.indexed)
+      setSemanticStats(await semanticAdminApi.getStats())
+    } catch {
+      setError('Failed to reindex MUD items.')
+    } finally {
+      setSemanticMudItemReindexing(false)
+    }
+  }
+
+  const reindexMudSemanticRecipes = async () => {
+    setSemanticMudRecipeReindexing(true)
+    setSemanticMudRecipeIndexedCount(null)
+    try {
+      const result = await semanticAdminApi.reindexMudRecipes()
+      setSemanticMudRecipeIndexedCount(result.indexed)
+      setSemanticStats(await semanticAdminApi.getStats())
+    } catch {
+      setError('Failed to reindex MUD recipes.')
+    } finally {
+      setSemanticMudRecipeReindexing(false)
     }
   }
 
@@ -1518,6 +1550,12 @@ export default function AdminPage() {
               <button className="tiptap-action-btn" type="button" onClick={reindexMudSemanticRooms} disabled={semanticMudReindexing}>
                 {semanticMudReindexing ? 'Indexing rooms…' : 'Index all MUD rooms'}
               </button>
+              <button className="tiptap-action-btn" type="button" onClick={reindexMudSemanticItems} disabled={semanticMudItemReindexing}>
+                {semanticMudItemReindexing ? 'Indexing items…' : 'Index all MUD items'}
+              </button>
+              <button className="tiptap-action-btn" type="button" onClick={reindexMudSemanticRecipes} disabled={semanticMudRecipeReindexing}>
+                {semanticMudRecipeReindexing ? 'Indexing recipes…' : 'Index all recipes'}
+              </button>
             </div>
 
             {semanticStats && (
@@ -1549,13 +1587,25 @@ export default function AdminPage() {
             {semanticReindexResult && (
               <div className="forum-success">
                 Reindexed {semanticReindexResult.documentsIndexed} of {semanticReindexResult.documentsRequested} documents
-                ({semanticReindexResult.forumThreadsIndexed} forum threads, {semanticReindexResult.blogArticlesIndexed} blog articles, {semanticReindexResult.mudRoomsIndexed} MUD rooms).
+                ({semanticReindexResult.forumThreadsIndexed} forum threads, {semanticReindexResult.blogArticlesIndexed} blog articles, {semanticReindexResult.mudRoomsIndexed} MUD rooms, {semanticReindexResult.mudItemsIndexed} MUD items, {semanticReindexResult.mudRecipesIndexed} recipes).
               </div>
             )}
 
             {semanticMudIndexedCount !== null && (
               <div className="forum-success">
                 Indexed {semanticMudIndexedCount} MUD rooms into the semantic store.
+              </div>
+            )}
+
+            {semanticMudItemIndexedCount !== null && (
+              <div className="forum-success">
+                Indexed {semanticMudItemIndexedCount} MUD items into the semantic store.
+              </div>
+            )}
+
+            {semanticMudRecipeIndexedCount !== null && (
+              <div className="forum-success">
+                Indexed {semanticMudRecipeIndexedCount} recipes into the semantic store.
               </div>
             )}
 
@@ -1572,6 +1622,8 @@ export default function AdminPage() {
                   <option value="forum-thread">Forum threads</option>
                   <option value="blog-article">Blog articles</option>
                   <option value="mud-room">MUD rooms</option>
+                  <option value="mud-item">MUD items</option>
+                  <option value="mud-recipe">Recipes</option>
                 </select>
                 <button className="tiptap-action-btn" type="submit" disabled={semanticSearching || !semanticQuery.trim()}>
                   {semanticSearching ? 'Searching…' : 'Search'}
