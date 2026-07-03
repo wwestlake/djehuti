@@ -11,7 +11,10 @@ open Database
 type SemanticGraphStats =
     { DocumentCount: int
       ChunkCount: int
-      TokenCount: int }
+      TokenCount: int
+      EmbeddedChunkCount: int
+      EmbeddingProvider: string
+      EmbeddingReady: bool }
 
 type SemanticChunkHit =
     { SourceType: string
@@ -20,7 +23,14 @@ type SemanticChunkHit =
       ChunkPosition: int
       Content: string
       MatchedTokenCount: int
-      MatchedWeight: int }
+      MatchedWeight: int
+      Similarity: float }
+
+type SemanticReindexSummary =
+    { DocumentsRequested: int
+      DocumentsIndexed: int
+      ForumThreadsIndexed: int
+      BlogArticlesIndexed: int }
 
 let private sha256 (text: string) =
     use hasher = SHA256.Create()
@@ -57,9 +67,10 @@ let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransacti
     let chunks = SemanticPreprocessing.buildChunks 700 text
 
     for chunk in chunks do
+        let embedding, provider = SemanticEmbeddings.embed chunk.Text
         use chunkCmd = new NpgsqlCommand(
-            """INSERT INTO semantic_chunks (document_id, chunk_position, content, token_count)
-               VALUES (@documentId, @position, @content, @tokenCount)
+            """INSERT INTO semantic_chunks (document_id, chunk_position, content, token_count, embedding_values, embedding_provider, embedding_dimension, embedded_at)
+               VALUES (@documentId, @position, @content, @tokenCount, @embeddingValues, @embeddingProvider, @embeddingDimension, now())
                RETURNING id""",
             conn,
             txn)
@@ -67,6 +78,9 @@ let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransacti
         chunkCmd.Parameters.AddWithValue("position", chunk.Position) |> ignore
         chunkCmd.Parameters.AddWithValue("content", chunk.Text) |> ignore
         chunkCmd.Parameters.AddWithValue("tokenCount", chunk.Tokens.Length) |> ignore
+        chunkCmd.Parameters.AddWithValue("embeddingValues", embedding) |> ignore
+        chunkCmd.Parameters.AddWithValue("embeddingProvider", provider.Name) |> ignore
+        chunkCmd.Parameters.AddWithValue("embeddingDimension", provider.Dimension) |> ignore
         let chunkId = chunkCmd.ExecuteScalar() :?> Guid
 
         chunk.Tokens
@@ -169,21 +183,72 @@ let indexBlogArticle (articleId: Guid) =
         indexTextDocument "blog-article" (string article.Id) article.Title text (Some metadata)
         |> Some
 
+let reindexIndexedDocuments () =
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand(
+        """SELECT source_type, source_key
+           FROM semantic_documents
+           ORDER BY updated_at DESC, created_at DESC""",
+        conn)
+    use reader = cmd.ExecuteReader()
+
+    let documents =
+        [ while reader.Read() do
+            yield reader.GetString(0), reader.GetString(1) ]
+
+    let mutable indexedCount = 0
+    let mutable forumCount = 0
+    let mutable blogCount = 0
+
+    for sourceType, sourceKey in documents do
+        match Guid.TryParse(sourceKey) with
+        | true, sourceId ->
+            match sourceType with
+            | "forum-thread" ->
+                match indexForumThread sourceId with
+                | Some _ ->
+                    indexedCount <- indexedCount + 1
+                    forumCount <- forumCount + 1
+                | None -> ()
+            | "blog-article" ->
+                match indexBlogArticle sourceId with
+                | Some _ ->
+                    indexedCount <- indexedCount + 1
+                    blogCount <- blogCount + 1
+                | None -> ()
+            | _ -> ()
+        | _ -> ()
+
+    { DocumentsRequested = documents.Length
+      DocumentsIndexed = indexedCount
+      ForumThreadsIndexed = forumCount
+      BlogArticlesIndexed = blogCount }
+
 let getStats () =
     use conn = openConnection()
+    let provider = SemanticEmbeddings.getProviderInfo()
     use cmd = new NpgsqlCommand(
         """SELECT
                (SELECT COUNT(*) FROM semantic_documents),
                (SELECT COUNT(*) FROM semantic_chunks),
-               (SELECT COUNT(*) FROM semantic_chunk_tokens)""",
+               (SELECT COUNT(*) FROM semantic_chunk_tokens),
+               (SELECT COUNT(*) FROM semantic_chunks WHERE embedding_values IS NOT NULL)""",
         conn)
     use reader = cmd.ExecuteReader()
     if reader.Read() then
         { DocumentCount = reader.GetInt32(0)
           ChunkCount = reader.GetInt32(1)
-          TokenCount = reader.GetInt32(2) }
+          TokenCount = reader.GetInt32(2)
+          EmbeddedChunkCount = reader.GetInt32(3)
+          EmbeddingProvider = provider.Name
+          EmbeddingReady = provider.IsReady }
     else
-        { DocumentCount = 0; ChunkCount = 0; TokenCount = 0 }
+        { DocumentCount = 0
+          ChunkCount = 0
+          TokenCount = 0
+          EmbeddedChunkCount = 0
+          EmbeddingProvider = provider.Name
+          EmbeddingReady = provider.IsReady }
 
 let searchChunks (query: string) (sourceType: string option) (limit: int) =
     let tokens =
@@ -191,41 +256,52 @@ let searchChunks (query: string) (sourceType: string option) (limit: int) =
         |> List.distinct
         |> List.toArray
 
-    if Array.isEmpty tokens then
-        []
-    else
-        use conn = openConnection()
-        use cmd = new NpgsqlCommand(
-            """SELECT d.source_type,
-                      d.source_key,
-                      d.title,
-                      c.chunk_position,
-                      c.content,
-                      COUNT(DISTINCT t.token) AS matched_token_count,
-                      COALESCE(SUM(t.token_count), 0) AS matched_weight
-               FROM semantic_chunks c
-               JOIN semantic_documents d ON d.id = c.document_id
-               JOIN semantic_chunk_tokens t ON t.chunk_id = c.id
-               WHERE t.token = ANY(@tokens)
-                 AND (@sourceType IS NULL OR d.source_type = @sourceType)
-               GROUP BY d.source_type, d.source_key, d.title, d.updated_at, c.chunk_position, c.content
-               ORDER BY matched_token_count DESC, matched_weight DESC, d.updated_at DESC, c.chunk_position ASC
-               LIMIT @limit""",
-            conn)
-        cmd.Parameters.AddWithValue("tokens", tokens) |> ignore
-        cmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
-        cmd.Parameters.AddWithValue("limit", limit) |> ignore
+    let queryEmbedding, _ = SemanticEmbeddings.embed query
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand(
+        """SELECT d.source_type,
+                  d.source_key,
+                  d.title,
+                  c.chunk_position,
+                  c.content,
+                  COALESCE(COUNT(DISTINCT t.token), 0) AS matched_token_count,
+                  COALESCE(SUM(t.token_count), 0) AS matched_weight,
+                  c.embedding_values
+           FROM semantic_chunks c
+           JOIN semantic_documents d ON d.id = c.document_id
+           LEFT JOIN semantic_chunk_tokens t
+             ON t.chunk_id = c.id
+            AND (cardinality(@tokens) = 0 OR t.token = ANY(@tokens))
+           WHERE c.embedding_values IS NOT NULL
+             AND (@sourceType IS NULL OR d.source_type = @sourceType)
+           GROUP BY d.source_type, d.source_key, d.title, d.updated_at, c.chunk_position, c.content, c.embedding_values
+           ORDER BY matched_token_count DESC, matched_weight DESC, d.updated_at DESC, c.chunk_position ASC
+           LIMIT @candidateLimit""",
+        conn)
+    cmd.Parameters.AddWithValue("tokens", tokens) |> ignore
+    cmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("candidateLimit", Math.Max(limit * 10, 50)) |> ignore
 
-        use reader = cmd.ExecuteReader()
-        [ while reader.Read() do
-            yield
-                { SourceType = reader.GetString(0)
-                  SourceKey = reader.GetString(1)
-                  Title = reader.GetString(2)
-                  ChunkPosition = reader.GetInt32(3)
-                  Content = reader.GetString(4)
-                  MatchedTokenCount = reader.GetInt64(5) |> int
-                  MatchedWeight = reader.GetInt64(6) |> int } ]
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do
+        let embedding =
+            if reader.IsDBNull(7) then
+                [||]
+            else
+                reader.GetFieldValue<float32 array>(7)
+
+        let similarity = SemanticEmbeddings.cosineSimilarity queryEmbedding embedding
+        yield
+            { SourceType = reader.GetString(0)
+              SourceKey = reader.GetString(1)
+              Title = reader.GetString(2)
+              ChunkPosition = reader.GetInt32(3)
+              Content = reader.GetString(4)
+              MatchedTokenCount = reader.GetInt64(5) |> int
+              MatchedWeight = reader.GetInt64(6) |> int
+              Similarity = similarity } ]
+    |> List.sortByDescending (fun hit -> hit.Similarity, hit.MatchedTokenCount, hit.MatchedWeight)
+    |> List.truncate limit
 
 let selectAnalystEvidence (question: string) (context: DjehutiAnalysisContext) (limit: int) =
     Ai.evidenceFromContext context
