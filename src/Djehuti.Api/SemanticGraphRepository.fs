@@ -35,6 +35,18 @@ type SemanticReindexSummary =
       MudItemsIndexed: int
       MudRecipesIndexed: int }
 
+type SemanticBackgroundSyncSummary =
+    { ForumThreadsRequested: int
+      ForumThreadsIndexed: int
+      BlogArticlesRequested: int
+      BlogArticlesIndexed: int
+      MudRoomsRequested: int
+      MudRoomsIndexed: int
+      MudItemsRequested: int
+      MudItemsIndexed: int
+      MudRecipesRequested: int
+      MudRecipesIndexed: int }
+
 let private sha256 (text: string) =
     use hasher = SHA256.Create()
     let bytes = Encoding.UTF8.GetBytes(text)
@@ -418,6 +430,138 @@ let reindexMudRecipes () =
         | Some _ -> indexedCount <- indexedCount + 1
         | None -> ()
     indexedCount
+
+let private readGuidList (cmd: NpgsqlCommand) =
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do
+        yield reader.GetGuid(0) ]
+
+let private staleForumThreadIds (limit: int) =
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand(
+        """SELECT t.id
+           FROM forum_threads t
+           LEFT JOIN semantic_documents d
+             ON d.source_type = 'forum-thread'
+            AND d.source_key = CAST(t.id AS text)
+           WHERE d.id IS NULL
+              OR d.updated_at < t.updated_at
+           ORDER BY t.updated_at DESC, t.created_at DESC
+           LIMIT @limit""",
+        conn)
+    cmd.Parameters.AddWithValue("limit", Math.Max(limit, 0)) |> ignore
+    readGuidList cmd
+
+let private staleBlogArticleIds (limit: int) =
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand(
+        """SELECT a.id
+           FROM blog_articles a
+           LEFT JOIN semantic_documents d
+             ON d.source_type = 'blog-article'
+            AND d.source_key = CAST(a.id AS text)
+           WHERE a.deleted_at IS NULL
+             AND (d.id IS NULL OR d.updated_at < a.updated_at)
+           ORDER BY a.updated_at DESC, a.created_at DESC
+           LIMIT @limit""",
+        conn)
+    cmd.Parameters.AddWithValue("limit", Math.Max(limit, 0)) |> ignore
+    readGuidList cmd
+
+let private missingMudRoomIds (limit: int) =
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand(
+        """SELECT r.id
+           FROM mud_rooms r
+           LEFT JOIN semantic_documents d
+             ON d.source_type = 'mud-room'
+            AND d.source_key = CAST(r.id AS text)
+           WHERE d.id IS NULL
+           ORDER BY r.created_at ASC, r.name ASC
+           LIMIT @limit""",
+        conn)
+    cmd.Parameters.AddWithValue("limit", Math.Max(limit, 0)) |> ignore
+    readGuidList cmd
+
+let private missingMudItemIds (limit: int) =
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand(
+        """SELECT i.id
+           FROM mud_items i
+           LEFT JOIN semantic_documents d
+             ON d.source_type = 'mud-item'
+            AND d.source_key = CAST(i.id AS text)
+           WHERE i.owner_character_id IS NULL
+             AND d.id IS NULL
+           ORDER BY i.created_at ASC, i.name ASC
+           LIMIT @limit""",
+        conn)
+    cmd.Parameters.AddWithValue("limit", Math.Max(limit, 0)) |> ignore
+    readGuidList cmd
+
+let private missingMudRecipeIds (limit: int) =
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand(
+        """SELECT r.id
+           FROM mud_craft_recipes r
+           LEFT JOIN semantic_documents d
+             ON d.source_type = 'mud-recipe'
+            AND d.source_key = CAST(r.id AS text)
+           WHERE d.id IS NULL
+           ORDER BY r.sort_order ASC, r.name ASC
+           LIMIT @limit""",
+        conn)
+    cmd.Parameters.AddWithValue("limit", Math.Max(limit, 0)) |> ignore
+    readGuidList cmd
+
+let runBackgroundSync (forumLimit: int) (blogLimit: int) (mudRoomLimit: int) (mudItemLimit: int) (mudRecipeLimit: int) =
+    let forumIds = staleForumThreadIds forumLimit
+    let blogIds = staleBlogArticleIds blogLimit
+    let mudRoomIds = missingMudRoomIds mudRoomLimit
+    let mudItemIds = missingMudItemIds mudItemLimit
+    let mudRecipeIds = missingMudRecipeIds mudRecipeLimit
+
+    let mutable forumIndexed = 0
+    let mutable blogIndexed = 0
+    let mutable mudRoomsIndexed = 0
+    let mutable mudItemsIndexed = 0
+    let mutable mudRecipesIndexed = 0
+
+    for threadId in forumIds do
+        match indexForumThread threadId with
+        | Some _ -> forumIndexed <- forumIndexed + 1
+        | None -> ()
+
+    for articleId in blogIds do
+        match indexBlogArticle articleId with
+        | Some _ -> blogIndexed <- blogIndexed + 1
+        | None -> ()
+
+    for roomId in mudRoomIds do
+        match indexMudRoom roomId with
+        | Some _ -> mudRoomsIndexed <- mudRoomsIndexed + 1
+        | None -> ()
+
+    for itemId in mudItemIds do
+        match indexMudItem itemId with
+        | Some _ -> mudItemsIndexed <- mudItemsIndexed + 1
+        | None -> ()
+
+    for recipeId in mudRecipeIds do
+        match indexMudRecipe recipeId with
+        | Some _ -> mudRecipesIndexed <- mudRecipesIndexed + 1
+        | None -> ()
+
+    { ForumThreadsRequested = forumIds.Length
+      ForumThreadsIndexed = forumIndexed
+      BlogArticlesRequested = blogIds.Length
+      BlogArticlesIndexed = blogIndexed
+      MudRoomsRequested = mudRoomIds.Length
+      MudRoomsIndexed = mudRoomsIndexed
+      MudItemsRequested = mudItemIds.Length
+      MudItemsIndexed = mudItemsIndexed
+      MudRecipesRequested = mudRecipeIds.Length
+      MudRecipesIndexed = mudRecipesIndexed }
 
 let reindexIndexedDocuments () =
     use conn = openConnection()

@@ -798,6 +798,7 @@ let main args =
 
     builder.Services.AddHostedService<HeartbeatWorker.HeartbeatWorker>() |> ignore
     builder.Services.AddHostedService<GameWorldWorker.GameWorldWorker>() |> ignore
+    builder.Services.AddHostedService<SemanticIngestionWorker.SemanticIngestionWorker>() |> ignore
 
     let app = builder.Build()
     let protector = app.Services.GetRequiredService<IDataProtectionProvider>()
