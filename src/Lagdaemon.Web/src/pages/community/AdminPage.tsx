@@ -7,6 +7,8 @@ import { forumApi } from '../../api/forumApi'
 import type { ForumTag, ForumReport } from '../../api/forumApi'
 import { mudAdminApi } from '../../api/mudAdminApi'
 import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics, MudRecipe, MudRecipeIngredient } from '../../api/mudAdminApi'
+import { semanticAdminApi } from '../../api/semanticAdminApi'
+import type { SemanticGraphStats, SemanticChunkHit, SemanticReindexSummary } from '../../api/semanticAdminApi'
 import { AdminTable } from '../../components/AdminTable'
 
 const BASE = '/djehuti'
@@ -203,6 +205,13 @@ export default function AdminPage() {
   const [mudWorld, setMudWorld] = useState<MudWorld | null>(null)
   const [mudMetrics, setMudMetrics] = useState<MudAdminMetrics | null>(null)
   const [mudRecipes, setMudRecipes] = useState<MudRecipe[]>([])
+  const [semanticStats, setSemanticStats] = useState<SemanticGraphStats | null>(null)
+  const [semanticQuery, setSemanticQuery] = useState('')
+  const [semanticSourceType, setSemanticSourceType] = useState('')
+  const [semanticResults, setSemanticResults] = useState<SemanticChunkHit[]>([])
+  const [semanticSearching, setSemanticSearching] = useState(false)
+  const [semanticReindexing, setSemanticReindexing] = useState(false)
+  const [semanticReindexResult, setSemanticReindexResult] = useState<SemanticReindexSummary | null>(null)
   const [mudZoneForm, setMudZoneForm] = useState({ name: '', slug: '', description: '', position: 0 })
   const [editingMudZone, setEditingMudZone] = useState<MudZone | null>(null)
   const [mudRoomForm, setMudRoomForm] = useState({ zoneId: '', name: '', slug: '', description: '', position: 0 })
@@ -302,6 +311,7 @@ export default function AdminPage() {
         mudAdminApi.getWorld().then(setMudWorld),
         mudAdminApi.getMetrics().then(setMudMetrics),
         mudAdminApi.getRecipes().then(setMudRecipes),
+        semanticAdminApi.getStats().then(setSemanticStats),
       ]).then(() => {}),
       metrics: () => Promise.all([
         apiFetch(`${BASE}/api/admin/metrics`).then(setMetrics),
@@ -704,6 +714,41 @@ export default function AdminPage() {
       setEditingMudZone(null)
     } catch { setError('Failed to create zone') }
     finally { setMudSaving(false) }
+  }
+
+  const runSemanticSearch = async (e?: React.FormEvent) => {
+    e?.preventDefault()
+    if (!semanticQuery.trim()) {
+      setSemanticResults([])
+      return
+    }
+    setSemanticSearching(true)
+    try {
+      const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
+      setSemanticResults(results)
+    } catch {
+      setError('Failed to search semantic index.')
+    } finally {
+      setSemanticSearching(false)
+    }
+  }
+
+  const reindexSemanticDocuments = async () => {
+    setSemanticReindexing(true)
+    setSemanticReindexResult(null)
+    try {
+      const result = await semanticAdminApi.reindexIndexed()
+      setSemanticReindexResult(result)
+      setSemanticStats(await semanticAdminApi.getStats())
+      if (semanticQuery.trim()) {
+        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
+        setSemanticResults(results)
+      }
+    } catch {
+      setError('Failed to reindex semantic documents.')
+    } finally {
+      setSemanticReindexing(false)
+    }
   }
 
   const saveMudRoom = async (e: React.FormEvent) => {
@@ -1438,6 +1483,104 @@ export default function AdminPage() {
               </section>
             </div>
           )}
+
+          <section className="admin-grant-form" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <h4 style={{ margin: 0 }}>Semantic Index</h4>
+                <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                  Check embedding health, refresh indexed content, and inspect semantic retrieval under the MUD admin area.
+                </p>
+              </div>
+              <button className="tiptap-action-btn primary" type="button" onClick={reindexSemanticDocuments} disabled={semanticReindexing}>
+                {semanticReindexing ? 'Reindexing…' : 'Reindex indexed content'}
+              </button>
+            </div>
+
+            {semanticStats && (
+              <div className="metrics-cards-row">
+                <div className="metrics-stat-card">
+                  <div className="metrics-stat-label">Documents</div>
+                  <div className="metrics-stat-all">{semanticStats.documentCount}</div>
+                </div>
+                <div className="metrics-stat-card">
+                  <div className="metrics-stat-label">Chunks</div>
+                  <div className="metrics-stat-all">{semanticStats.chunkCount}</div>
+                </div>
+                <div className="metrics-stat-card">
+                  <div className="metrics-stat-label">Embedded chunks</div>
+                  <div className="metrics-stat-all">{semanticStats.embeddedChunkCount}</div>
+                </div>
+                <div className="metrics-stat-card">
+                  <div className="metrics-stat-label">Provider</div>
+                  <div className="metrics-stat-all" style={{ fontSize: '1.15rem' }}>{semanticStats.embeddingProvider}</div>
+                  <div className="metrics-stat-split">
+                    <span style={{ color: semanticStats.embeddingReady ? '#56d364' : 'var(--text-muted)', fontSize: '0.75rem' }}>
+                      {semanticStats.embeddingReady ? 'ready' : 'fallback active'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {semanticReindexResult && (
+              <div className="forum-success">
+                Reindexed {semanticReindexResult.documentsIndexed} of {semanticReindexResult.documentsRequested} documents
+                ({semanticReindexResult.forumThreadsIndexed} forum threads, {semanticReindexResult.blogArticlesIndexed} blog articles).
+              </div>
+            )}
+
+            <form onSubmit={runSemanticSearch} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div className="admin-grant-fields" style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) 220px 120px', gap: 8 }}>
+                <input
+                  className="papers-new-input"
+                  placeholder="Search semantic index"
+                  value={semanticQuery}
+                  onChange={e => setSemanticQuery(e.target.value)}
+                />
+                <select className="admin-role-select" value={semanticSourceType} onChange={e => setSemanticSourceType(e.target.value)}>
+                  <option value="">All sources</option>
+                  <option value="forum-thread">Forum threads</option>
+                  <option value="blog-article">Blog articles</option>
+                </select>
+                <button className="tiptap-action-btn" type="submit" disabled={semanticSearching || !semanticQuery.trim()}>
+                  {semanticSearching ? 'Searching…' : 'Search'}
+                </button>
+              </div>
+            </form>
+
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Source</th>
+                    <th>Title</th>
+                    <th>Similarity</th>
+                    <th>Token hits</th>
+                    <th>Excerpt</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {semanticResults.map(result => (
+                    <tr key={`${result.sourceType}:${result.sourceKey}:${result.chunkPosition}`}>
+                      <td>{result.sourceType}</td>
+                      <td>{result.title}</td>
+                      <td>{result.similarity.toFixed(3)}</td>
+                      <td>{result.matchedTokenCount}</td>
+                      <td style={{ maxWidth: 540, whiteSpace: 'normal' }}>{result.content}</td>
+                    </tr>
+                  ))}
+                  {!semanticResults.length && (
+                    <tr>
+                      <td colSpan={5} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>
+                        {semanticQuery.trim() ? 'No semantic results yet.' : 'Run a search to inspect the index.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
           <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
             <form className="admin-grant-form" onSubmit={saveMudZone}>
