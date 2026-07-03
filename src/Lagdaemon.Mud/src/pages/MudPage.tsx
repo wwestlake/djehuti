@@ -24,6 +24,7 @@ const QUICK_COMMANDS = [
 
 type MudPageProps = {
   embedded?: boolean
+  onExit?: () => void
 }
 
 type MudCompanionDraft = {
@@ -382,8 +383,12 @@ function GameNavButton(
   )
 }
 
-export default function MudPage({ embedded = false }: MudPageProps) {
+export default function MudPage({ embedded = false, onExit }: MudPageProps) {
   const { user } = useAuth()
+  const handleExit = () => {
+    if (onExit) onExit()
+    else window.location.href = '/'
+  }
   const { theme, setTheme } = useTheme()
   const [roster, setRoster] = useState<MudRosterView | null>(null)
   const [state, setState] = useState<MudRoomState | null>(null)
@@ -610,7 +615,7 @@ export default function MudPage({ embedded = false }: MudPageProps) {
               {!embedded && (
                 <button
                   className="mud-icon-btn"
-                  onClick={() => { window.location.href = '/' }}
+                  onClick={handleExit}
                   title="Exit game"
                   aria-label="Exit game"
                 >
@@ -634,7 +639,7 @@ export default function MudPage({ embedded = false }: MudPageProps) {
                   {fullScreen ? 'Exit full screen' : 'Full screen'}
                 </button>
               )}
-              {!embedded && <button className="mud-back-btn" onClick={() => { window.location.href = '/' }}>Exit game</button>}
+              {!embedded && <button className="mud-back-btn" onClick={handleExit}>Exit game</button>}
             </div>
           </div>
         )}
