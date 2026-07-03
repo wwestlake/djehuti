@@ -753,6 +753,31 @@ let searchChunks (query: string) (sourceType: string option) (limit: int) =
     |> List.sortByDescending (fun hit -> hit.Similarity, hit.MatchedTokenCount, hit.MatchedWeight)
     |> List.truncate limit
 
+let private semanticEvidenceLabel (hit: SemanticChunkHit) =
+    $"{hit.SourceType} · {hit.Title}"
+
+let private semanticEvidenceValue (hit: SemanticChunkHit) =
+    let scoreText =
+        $"similarity={hit.Similarity:F3}; matchedTokens={hit.MatchedTokenCount}; matchedWeight={hit.MatchedWeight}"
+    $"{scoreText}; content={hit.Content}"
+
+let selectSemanticEvidence (question: string) (sourceType: string option) (limit: int) =
+    searchChunks question sourceType limit
+    |> List.mapi (fun index hit ->
+        { Label = $"semantic {index + 1} · {semanticEvidenceLabel hit}"
+          Value = semanticEvidenceValue hit
+          Source = None })
+
+let buildAnalystContextPacket (question: string) (context: DjehutiAnalysisContext) (contextLimit: int) (semanticLimit: int) =
+    let localEvidence =
+        Ai.evidenceFromContext context
+        |> SemanticPreprocessing.selectEvidence question contextLimit
+
+    let semanticEvidence =
+        selectSemanticEvidence question None semanticLimit
+
+    List.append localEvidence semanticEvidence
+
 let selectAnalystEvidence (question: string) (context: DjehutiAnalysisContext) (limit: int) =
     Ai.evidenceFromContext context
     |> SemanticPreprocessing.selectEvidence question limit
