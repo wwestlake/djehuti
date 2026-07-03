@@ -12,6 +12,9 @@ type SemanticGraphStats =
     { DocumentCount: int
       ChunkCount: int
       TokenCount: int
+      NodeCount: int
+      ChunkNodeCount: int
+      EdgeCount: int
       EmbeddedChunkCount: int
       EmbeddingProvider: string
       EmbeddingReady: bool }
@@ -55,6 +58,105 @@ let private sha256 (text: string) =
 
 let private opt (value: string option) : obj =
     value |> Option.map box |> Option.defaultValue (box DBNull.Value)
+
+let private getOrCreateSemanticNodeId (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (nodeKey: string) =
+    use selectCmd = new NpgsqlCommand(
+        """SELECT id
+           FROM semantic_nodes
+           WHERE node_key = @nodeKey""",
+        conn,
+        txn)
+    selectCmd.Parameters.AddWithValue("nodeKey", nodeKey) |> ignore
+
+    match selectCmd.ExecuteScalar() with
+    | null
+    | :? DBNull ->
+        use insertCmd = new NpgsqlCommand(
+            """INSERT INTO semantic_nodes (node_key, node_type, display_text, updated_at)
+               VALUES (@nodeKey, 'token', @displayText, now())
+               ON CONFLICT (node_key) DO UPDATE
+               SET display_text = EXCLUDED.display_text,
+                   updated_at = now()
+               RETURNING id""",
+            conn,
+            txn)
+        insertCmd.Parameters.AddWithValue("nodeKey", nodeKey) |> ignore
+        insertCmd.Parameters.AddWithValue("displayText", nodeKey) |> ignore
+        insertCmd.ExecuteScalar() :?> Guid
+    | value -> value :?> Guid
+
+let private rebuildChunkGraphFromMetrics
+    (conn: NpgsqlConnection)
+    (txn: NpgsqlTransaction)
+    (chunkId: Guid)
+    (tokenMetrics: (string * int * int) list) =
+    use deleteEdgesCmd = new NpgsqlCommand("DELETE FROM semantic_node_edges WHERE chunk_id = @chunkId", conn, txn)
+    deleteEdgesCmd.Parameters.AddWithValue("chunkId", chunkId) |> ignore
+    deleteEdgesCmd.ExecuteNonQuery() |> ignore
+
+    use deleteNodesCmd = new NpgsqlCommand("DELETE FROM semantic_chunk_nodes WHERE chunk_id = @chunkId", conn, txn)
+    deleteNodesCmd.Parameters.AddWithValue("chunkId", chunkId) |> ignore
+    deleteNodesCmd.ExecuteNonQuery() |> ignore
+
+    let graphNodes =
+        tokenMetrics
+        |> List.map (fun (token, weight, firstPosition) ->
+            let nodeId = getOrCreateSemanticNodeId conn txn token
+
+            use linkCmd = new NpgsqlCommand(
+                """INSERT INTO semantic_chunk_nodes (chunk_id, node_id, node_weight, first_position)
+                   VALUES (@chunkId, @nodeId, @nodeWeight, @firstPosition)
+                   ON CONFLICT (chunk_id, node_id) DO UPDATE
+                   SET node_weight = EXCLUDED.node_weight,
+                       first_position = EXCLUDED.first_position""",
+                conn,
+                txn)
+            linkCmd.Parameters.AddWithValue("chunkId", chunkId) |> ignore
+            linkCmd.Parameters.AddWithValue("nodeId", nodeId) |> ignore
+            linkCmd.Parameters.AddWithValue("nodeWeight", weight) |> ignore
+            linkCmd.Parameters.AddWithValue("firstPosition", firstPosition) |> ignore
+            linkCmd.ExecuteNonQuery() |> ignore
+
+            token, nodeId, weight)
+
+    let nodeArray = graphNodes |> List.toArray
+
+    for leftIndex = 0 to nodeArray.Length - 1 do
+        let _, leftNodeId, leftWeight = nodeArray[leftIndex]
+
+        for rightIndex = leftIndex + 1 to nodeArray.Length - 1 do
+            let _, rightNodeId, rightWeight = nodeArray[rightIndex]
+            let edgeWeight = Math.Max(leftWeight * rightWeight, 1)
+
+            use edgeCmd = new NpgsqlCommand(
+                """INSERT INTO semantic_node_edges (chunk_id, from_node_id, to_node_id, edge_type, edge_weight)
+                   VALUES (@chunkId, @fromNodeId, @toNodeId, 'cooccurrence', @edgeWeight)
+                   ON CONFLICT (chunk_id, from_node_id, to_node_id, edge_type) DO UPDATE
+                   SET edge_weight = EXCLUDED.edge_weight""",
+                conn,
+                txn)
+            edgeCmd.Parameters.AddWithValue("chunkId", chunkId) |> ignore
+            edgeCmd.Parameters.AddWithValue("fromNodeId", leftNodeId) |> ignore
+            edgeCmd.Parameters.AddWithValue("toNodeId", rightNodeId) |> ignore
+            edgeCmd.Parameters.AddWithValue("edgeWeight", edgeWeight) |> ignore
+            edgeCmd.ExecuteNonQuery() |> ignore
+
+let private rebuildChunkGraph
+    (conn: NpgsqlConnection)
+    (txn: NpgsqlTransaction)
+    (chunkId: Guid)
+    (tokens: string list) =
+    let tokenMetrics =
+        tokens
+        |> List.mapi (fun position token -> token, position)
+        |> List.groupBy fst
+        |> List.map (fun (token, positions) ->
+            token,
+            positions.Length,
+            positions |> List.map snd |> List.min)
+        |> List.sortBy (fun (token, _, _) -> token)
+
+    rebuildChunkGraphFromMetrics conn txn chunkId tokenMetrics
 
 let private buildForumThreadText (thread: ForumRepository.ForumThread) (posts: ForumRepository.ForumPost list) =
     let builder = StringBuilder()
@@ -177,6 +279,8 @@ let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransacti
             tokenCmd.Parameters.AddWithValue("tokenCount", count) |> ignore
             tokenCmd.Parameters.AddWithValue("position", index) |> ignore
             tokenCmd.ExecuteNonQuery() |> ignore)
+
+        rebuildChunkGraph conn txn chunkId chunk.Tokens
 
 let indexTextDocument (sourceType: string) (sourceKey: string) (title: string) (text: string) (metadataJson: string option) =
     use conn = openConnection()
@@ -563,6 +667,49 @@ let runBackgroundSync (forumLimit: int) (blogLimit: int) (mudRoomLimit: int) (mu
       MudRecipesRequested = mudRecipeIds.Length
       MudRecipesIndexed = mudRecipesIndexed }
 
+let backfillGraphChunks (limit: int) =
+    use conn = openConnection()
+    use selectCmd = new NpgsqlCommand(
+        """SELECT scn.chunk_id
+           FROM semantic_chunk_tokens scn
+           LEFT JOIN semantic_chunk_nodes cn ON cn.chunk_id = scn.chunk_id
+           LEFT JOIN semantic_node_edges ne ON ne.chunk_id = scn.chunk_id
+           GROUP BY scn.chunk_id
+           HAVING COUNT(cn.id) = 0 OR COUNT(ne.id) = 0
+           ORDER BY scn.chunk_id
+           LIMIT @limit""",
+        conn)
+    selectCmd.Parameters.AddWithValue("limit", Math.Max(limit, 0)) |> ignore
+    let chunkIds = readGuidList selectCmd
+
+    let mutable rebuiltCount = 0
+
+    for chunkId in chunkIds do
+        use txn = conn.BeginTransaction()
+        try
+            use metricsCmd = new NpgsqlCommand(
+                """SELECT token, token_count, position
+                   FROM semantic_chunk_tokens
+                   WHERE chunk_id = @chunkId
+                   ORDER BY token ASC, position ASC""",
+                conn,
+                txn)
+            metricsCmd.Parameters.AddWithValue("chunkId", chunkId) |> ignore
+            use reader = metricsCmd.ExecuteReader()
+            let tokenMetrics =
+                [ while reader.Read() do
+                    yield reader.GetString(0), reader.GetInt32(1), reader.GetInt32(2) ]
+            reader.Close()
+
+            rebuildChunkGraphFromMetrics conn txn chunkId tokenMetrics
+            txn.Commit()
+            rebuiltCount <- rebuiltCount + 1
+        with ex ->
+            txn.Rollback()
+            raise ex
+
+    rebuiltCount
+
 let reindexIndexedDocuments () =
     use conn = openConnection()
     use cmd = new NpgsqlCommand(
@@ -636,6 +783,9 @@ let getStats () =
                (SELECT COUNT(*) FROM semantic_documents),
                (SELECT COUNT(*) FROM semantic_chunks),
                (SELECT COUNT(*) FROM semantic_chunk_tokens),
+               (SELECT COUNT(*) FROM semantic_nodes),
+               (SELECT COUNT(*) FROM semantic_chunk_nodes),
+               (SELECT COUNT(*) FROM semantic_node_edges),
                (SELECT COUNT(*) FROM semantic_chunks WHERE embedding_values IS NOT NULL)""",
         conn)
     use reader = cmd.ExecuteReader()
@@ -643,13 +793,19 @@ let getStats () =
         { DocumentCount = reader.GetInt32(0)
           ChunkCount = reader.GetInt32(1)
           TokenCount = reader.GetInt32(2)
-          EmbeddedChunkCount = reader.GetInt32(3)
+          NodeCount = reader.GetInt32(3)
+          ChunkNodeCount = reader.GetInt32(4)
+          EdgeCount = reader.GetInt32(5)
+          EmbeddedChunkCount = reader.GetInt32(6)
           EmbeddingProvider = provider.Name
           EmbeddingReady = provider.IsReady }
     else
         { DocumentCount = 0
           ChunkCount = 0
           TokenCount = 0
+          NodeCount = 0
+          ChunkNodeCount = 0
+          EdgeCount = 0
           EmbeddedChunkCount = 0
           EmbeddingProvider = provider.Name
           EmbeddingReady = provider.IsReady }
@@ -679,36 +835,83 @@ let searchChunks (query: string) (sourceType: string option) (limit: int) =
 
     let queryEmbedding, _ = SemanticEmbeddings.embed query
     use conn = openConnection()
-    use cmd = new NpgsqlCommand(
-        """SELECT d.source_type,
-                  d.source_key,
-                  d.title,
-                  c.chunk_position,
-                  c.content,
-                  COALESCE(COUNT(DISTINCT t.token), 0) AS matched_token_count,
-                  COALESCE(SUM(t.token_count), 0) AS matched_weight,
-                  c.embedding_values
-           FROM semantic_chunks c
-           JOIN semantic_documents d ON d.id = c.document_id
-           LEFT JOIN semantic_chunk_tokens t
-             ON t.chunk_id = c.id
-            AND (cardinality(@tokens) = 0 OR t.token = ANY(@tokens))
-           WHERE c.embedding_values IS NOT NULL
-             AND (@sourceType IS NULL OR d.source_type = @sourceType)
-           GROUP BY d.source_type, d.source_key, d.title, d.updated_at, c.chunk_position, c.content, c.embedding_values
-           ORDER BY matched_token_count DESC, matched_weight DESC, d.updated_at DESC, c.chunk_position ASC
-           LIMIT @candidateLimit""",
-        conn)
-    cmd.Parameters.AddWithValue("tokens", tokens) |> ignore
-    cmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
-    cmd.Parameters.AddWithValue("candidateLimit", Math.Max(limit * 10, 50)) |> ignore
-
-    use reader = cmd.ExecuteReader()
     let coOccurrenceHits =
-        [ while reader.Read() do
-            yield readChunkHit reader queryEmbedding ]
+        try
+            use cmd = new NpgsqlCommand(
+                """WITH query_nodes AS (
+                       SELECT id, node_key
+                       FROM semantic_nodes
+                       WHERE node_key = ANY(@tokens)
+                   ),
+                   neighbor_nodes AS (
+                       SELECT
+                           CASE
+                               WHEN e.from_node_id = q.id THEN e.to_node_id
+                               ELSE e.from_node_id
+                           END AS node_id,
+                           SUM(e.edge_weight) AS neighbor_weight
+                       FROM semantic_node_edges e
+                       JOIN query_nodes q
+                         ON e.from_node_id = q.id
+                         OR e.to_node_id = q.id
+                       GROUP BY 1
+                   )
+                   SELECT d.source_type,
+                          d.source_key,
+                          d.title,
+                          c.chunk_position,
+                          c.content,
+                          COUNT(DISTINCT qn.id) AS matched_token_count,
+                          COALESCE(SUM(CASE WHEN qn.id IS NOT NULL THEN scn.node_weight ELSE 0 END), 0)
+                            + COALESCE(SUM(CASE WHEN nn.node_id IS NOT NULL THEN nn.neighbor_weight ELSE 0 END), 0) AS matched_weight,
+                          c.embedding_values
+                   FROM semantic_chunks c
+                   JOIN semantic_documents d ON d.id = c.document_id
+                   LEFT JOIN semantic_chunk_nodes scn ON scn.chunk_id = c.id
+                   LEFT JOIN query_nodes qn ON qn.id = scn.node_id
+                   LEFT JOIN neighbor_nodes nn ON nn.node_id = scn.node_id
+                   WHERE c.embedding_values IS NOT NULL
+                     AND (@sourceType IS NULL OR d.source_type = @sourceType)
+                     AND (qn.id IS NOT NULL OR nn.node_id IS NOT NULL)
+                   GROUP BY d.source_type, d.source_key, d.title, d.updated_at, c.chunk_position, c.content, c.embedding_values
+                   ORDER BY matched_token_count DESC, matched_weight DESC, d.updated_at DESC, c.chunk_position ASC
+                   LIMIT @candidateLimit""",
+                conn)
+            cmd.Parameters.AddWithValue("tokens", tokens) |> ignore
+            cmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+            cmd.Parameters.AddWithValue("candidateLimit", Math.Max(limit * 10, 50)) |> ignore
 
-    reader.Close()
+            use reader = cmd.ExecuteReader()
+            [ while reader.Read() do
+                yield readChunkHit reader queryEmbedding ]
+        with _ ->
+            use fallbackCmd = new NpgsqlCommand(
+                """SELECT d.source_type,
+                          d.source_key,
+                          d.title,
+                          c.chunk_position,
+                          c.content,
+                          COALESCE(COUNT(DISTINCT t.token), 0) AS matched_token_count,
+                          COALESCE(SUM(t.token_count), 0) AS matched_weight,
+                          c.embedding_values
+                   FROM semantic_chunks c
+                   JOIN semantic_documents d ON d.id = c.document_id
+                   LEFT JOIN semantic_chunk_tokens t
+                     ON t.chunk_id = c.id
+                    AND (cardinality(@tokens) = 0 OR t.token = ANY(@tokens))
+                   WHERE c.embedding_values IS NOT NULL
+                     AND (@sourceType IS NULL OR d.source_type = @sourceType)
+                   GROUP BY d.source_type, d.source_key, d.title, d.updated_at, c.chunk_position, c.content, c.embedding_values
+                   ORDER BY matched_token_count DESC, matched_weight DESC, d.updated_at DESC, c.chunk_position ASC
+                   LIMIT @candidateLimit""",
+                conn)
+            fallbackCmd.Parameters.AddWithValue("tokens", tokens) |> ignore
+            fallbackCmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+            fallbackCmd.Parameters.AddWithValue("candidateLimit", Math.Max(limit * 10, 50)) |> ignore
+
+            use fallbackReader = fallbackCmd.ExecuteReader()
+            [ while fallbackReader.Read() do
+                yield readChunkHit fallbackReader queryEmbedding ]
 
     let isolatedCandidateLimit = Math.Max(limit * 8, 40)
     use isolatedCmd = new NpgsqlCommand(
