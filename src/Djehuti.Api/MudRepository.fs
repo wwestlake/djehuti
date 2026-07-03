@@ -106,6 +106,11 @@ type MudRosterView =
       PaidSlotsRemaining: int
       BonusSlots: int }
 
+type MudLandingStats =
+    { RoomCount: int
+      ZoneCount: int
+      RecipeCount: int }
+
 type private MudCharacterRow =
     { Id: Guid
       UserId: Guid
@@ -993,6 +998,22 @@ let getRoster (userId: Guid) =
     let settings = loadUserSettings conn userId
     let characters = loadCharacters conn userId
     buildRoster userId settings characters
+
+let getLandingStats () =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """SELECT
+               (SELECT COUNT(*)::int FROM mud_rooms),
+               (SELECT COUNT(*)::int FROM mud_zones)""", conn)
+    use reader = cmd.ExecuteReader()
+    if reader.Read() then
+        { RoomCount = reader.GetInt32(0)
+          ZoneCount = reader.GetInt32(1)
+          RecipeCount = craftRecipes.Length }
+    else
+        { RoomCount = 0
+          ZoneCount = 0
+          RecipeCount = craftRecipes.Length }
 
 let getState (userId: Guid) : MudRoomState option =
     use conn = openConnection ()

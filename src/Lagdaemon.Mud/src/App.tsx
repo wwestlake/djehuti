@@ -4,6 +4,7 @@ import landingBg from './assets/landing-bg.jpg'
 import MudPage from './pages/MudPage'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider, THEMES, useTheme } from './contexts/ThemeContext'
+import { mudApi, type MudLandingStats } from './api/mudApi'
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID || ''
 const GITHUB_CLIENT_ID = import.meta.env.VITE_GITHUB_OAUTH_CLIENT_ID || ''
@@ -67,6 +68,23 @@ function OAuthButtons() {
 
 function MudLanding({ onEnter }: { onEnter: () => void }) {
   const { user } = useAuth()
+  const [stats, setStats] = useState<MudLandingStats | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    mudApi.getLandingStats()
+      .then(data => {
+        if (!cancelled) setStats(data)
+      })
+      .catch(() => {
+        if (!cancelled) setStats(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   return (
     <section
@@ -114,8 +132,10 @@ function MudLanding({ onEnter }: { onEnter: () => void }) {
           <div className="mud-card mud-card-flat">
             <h2>Gather and Craft</h2>
             <p className="mud-landing-copy">
-              75 rooms across 13 zones, stocked with materials and 38 recipes — torches,
-              wards, medkits, a lens that shows how the damage happened.
+              {stats
+                ? `${stats.roomCount} rooms across ${stats.zoneCount} zones, stocked with materials and ${stats.recipeCount} recipes`
+                : 'A growing world of rooms, zones, and crafting paths'}
+              {' '}plus torches, wards, medkits, and a lens that shows how the damage happened.
             </p>
           </div>
           <div className="mud-card mud-card-flat">
@@ -361,3 +381,4 @@ export default function App() {
     </ThemeProvider>
   )
 }
+
