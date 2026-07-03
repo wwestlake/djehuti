@@ -1958,6 +1958,18 @@ footer a:hover { text-decoration: underline; }
 .paper-card-title { font-size: 1rem; font-weight: 700; margin: 0; flex: 1; }
 .paper-card-abstract { font-size: 0.85rem; color: var(--text-muted); margin: 0; }
 .paper-card-footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; }
+.paper-public-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.paper-public-intro { color: var(--text-muted); margin: 4px 0 20px; }
+.paper-read { max-width: 820px; }
+.paper-read-meta { color: var(--text-muted); font-size: 0.9rem; margin: -8px 0 24px; }
+.paper-read-abstract { border: 1px solid var(--border); border-radius: 8px; padding: 18px 20px; background: var(--surface); margin-bottom: 24px; }
+.paper-read-abstract h2 { margin: 0 0 10px; font-size: 1.05rem; }
+.paper-read-section { margin-bottom: 28px; }
+.paper-read-section h2 { font-size: 1.2rem; margin: 0 0 10px; }
+.paper-read-body { line-height: 1.7; color: var(--text); overflow-wrap: anywhere; }
+.paper-read-body p { margin: 0 0 12px; }
+.paper-read-body h3 { font-size: 1.02rem; margin: 18px 0 8px; }
+.paper-read-body code { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 0.9em; }
 .paper-workspace { display: flex; height: calc(100vh - 120px); gap: 0; overflow: hidden; }
 .paper-workspace-sidebar { width: 220px; flex-shrink: 0; border-right: 1px solid var(--border); padding: 16px 12px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
 .paper-workspace-title { font-size: 0.95rem; font-weight: 700; color: var(--text); word-break: break-word; }

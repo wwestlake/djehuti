@@ -22,6 +22,7 @@ import BlogArticlePage from './pages/community/BlogArticlePage'
 import BlogEditorPage from './pages/community/BlogEditorPage'
 import PapersListPage from './pages/community/PapersListPage'
 import PaperWorkspacePage from './pages/community/PaperWorkspacePage'
+import PublicPapersPage, { PublicPaperReadPage } from './pages/community/PublicPapersPage'
 import ProfilePage from './pages/community/ProfilePage'
 import AdminPage from './pages/community/AdminPage'
 import AnnouncementsPage from './pages/community/AnnouncementsPage'
@@ -551,8 +552,10 @@ function AppInner() {
             <Route path="/blog/editor" element={<ProtectedRoute><BlogEditorPage /></ProtectedRoute>} />
             <Route path="/blog/editor/:articleId" element={<ProtectedRoute><BlogEditorPage /></ProtectedRoute>} />
             <Route path="/blog/:slug" element={<BlogArticlePage />} />
-            <Route path="/papers" element={<PapersListPage />} />
-            <Route path="/papers/:paperId" element={<PaperWorkspacePage />} />
+            <Route path="/papers" element={<PublicPapersPage />} />
+            <Route path="/papers/read/:paperId" element={<PublicPaperReadPage />} />
+            <Route path="/papers/workspace" element={<ProtectedRoute><PapersListPage /></ProtectedRoute>} />
+            <Route path="/papers/:paperId" element={<ProtectedRoute><PaperWorkspacePage /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             <Route path="/achievements" element={<ProtectedRoute><AchievementsPage /></ProtectedRoute>} />
             <Route path="/supporters" element={<SupportersPage />} />
