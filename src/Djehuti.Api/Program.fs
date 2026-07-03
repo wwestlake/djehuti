@@ -172,6 +172,12 @@ type MudCommandRequest =
     { Command: string }
 
 [<CLIMutable>]
+type MudChatPostRequest =
+    { Channel: string
+      Text: string
+      Target: string }
+
+[<CLIMutable>]
 type MudCharacterCreateRequest =
     { RealmSlug: string
       Name: string
@@ -1506,7 +1512,61 @@ let main args =
             | Some claims ->
                 match Guid.TryParse(claims.UserId) with
                 | false, _ -> Results.Unauthorized()
-                | true, userId -> Results.Ok(MudRepository.handleCommand userId body.Command)
+                | true, userId ->
+                    MudChatRepository.touchPresence userId
+                    Results.Ok(MudRepository.handleCommand userId body.Command)
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/mud/chat/sync",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, userId ->
+                    MudChatRepository.touchPresence userId
+                    let since =
+                        match ctx.Request.Query.TryGetValue("since") with
+                        | true, values when values.Count > 0 ->
+                            match DateTime.TryParse(values.[0], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind) with
+                            | true, parsed -> Some (DateTime.SpecifyKind(parsed, DateTimeKind.Utc))
+                            | _ -> None
+                        | _ -> None
+                    match MudChatRepository.sync userId since with
+                    | Some view -> Results.Ok(view)
+                    | None -> Results.Ok(null)
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/mud/chat",
+        Func<HttpContext, MudChatPostRequest, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, userId ->
+                    MudChatRepository.touchPresence userId
+                    let channel = if isNull body.Channel then "" else body.Channel.Trim().ToLowerInvariant()
+                    let result =
+                        match channel with
+                        | "room" -> MudChatRepository.postRoom userId body.Text
+                        | "shout" -> MudChatRepository.postShout userId body.Text
+                        | "whisper" -> MudChatRepository.postWhisper userId body.Target body.Text
+                        | "group" -> MudChatRepository.postGroup userId body.Text
+                        | "announce" ->
+                            if Permissions.isAdmin claims.Role then
+                                MudChatRepository.postAnnounce userId body.Text
+                            else
+                                Error "Only administrators can post announcements."
+                        | _ -> Error "Unknown chat channel."
+                    match result with
+                    | Ok message -> Results.Ok({| Success = true; Message = message |})
+                    | Error message -> Results.BadRequest({| Success = false; Message = message |})
             | None -> Results.Unauthorized()
         )
     ) |> ignore

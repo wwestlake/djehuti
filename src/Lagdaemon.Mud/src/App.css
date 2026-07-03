@@ -142,6 +142,17 @@ a { color: var(--accent); }
   min-height: 100vh;
 }
 
+.mud-landing-page {
+  background-size: cover;
+  background-position: center top;
+  background-repeat: no-repeat;
+}
+
+.mud-landing-page .mud-card-flat {
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  backdrop-filter: blur(2px);
+}
+
 .mud-landing-shell {
   max-width: 860px;
   margin: 0 auto;
@@ -2809,6 +2820,80 @@ footer a:hover { text-decoration: underline; }
   justify-content: center;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.mud-presence-line {
+  margin: 0.55rem 0 0;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+.mud-chat-card {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.mud-chat-presence {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.mud-chat-feed {
+  max-height: 44vh;
+  min-height: 8rem;
+  overflow-y: auto;
+  display: grid;
+  gap: 0.4rem;
+  align-content: start;
+  padding-right: 0.25rem;
+}
+
+.mud-chat-line {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.mud-chat-tag {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  padding: 0.08rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  vertical-align: middle;
+}
+
+.mud-chat-line.self strong {
+  color: var(--accent);
+}
+
+.mud-chat-line.shout .mud-chat-tag {
+  color: #ffb86b;
+  border-color: color-mix(in srgb, #ffb86b 55%, var(--border));
+}
+
+.mud-chat-line.group .mud-chat-tag {
+  color: #7ee787;
+  border-color: color-mix(in srgb, #7ee787 45%, var(--border));
+}
+
+.mud-chat-line.whisper {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.mud-chat-line.announce {
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 10px;
+  padding: 0.4rem 0.6rem;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.mud-chat-channels {
+  justify-content: flex-start;
 }
 
 .mud-subnav-btn {
