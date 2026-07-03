@@ -1521,6 +1521,13 @@ let main args =
     ) |> ignore
 
     app.MapGet(
+        "/api/mud/landing-stats",
+        Func<IResult>(fun () ->
+            Results.Ok(MudRepository.getLandingStats())
+        )
+    ) |> ignore
+
+    app.MapGet(
         "/api/mud/chat/sync",
         Func<HttpContext, IResult>(fun ctx ->
             match tryGetAuthClaims ctx with
