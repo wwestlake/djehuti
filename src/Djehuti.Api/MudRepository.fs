@@ -1539,11 +1539,15 @@ let say (userId: Guid) (text: string) : MudCommandResult =
               State = Some state }
         else
             use conn = openConnection ()
-            logEvent conn userId state.CharacterId state.RoomId "say" (Some trimmed) $"{state.CharacterName} says: {trimmed}" (payloadOf [ "text", trimmed ])
-            MudChatRepository.recordRoomMessage state.CharacterId state.CharacterName state.RoomId trimmed
-            { Success = true
+            let result = MudChatRepository.postRoom userId trimmed
+            let message =
+                match result with
+                | Ok text -> text
+                | Error text -> text
+            logEvent conn userId state.CharacterId state.RoomId "say" (Some trimmed) message (payloadOf [ "text", trimmed ])
+            { Success = result.IsOk
               Command = "say"
-              Message = $"{state.CharacterName} says: {trimmed}"
+              Message = message
               State = Some state })
 
 let emote (userId: Guid) (text: string) : MudCommandResult =
@@ -1568,7 +1572,7 @@ let handleCommand (userId: Guid) (commandText: string) : MudCommandResult =
     if String.IsNullOrWhiteSpace(trimmed) then
         { Success = false
           Command = ""
-          Message = "Type look, search, recipes, craft <thing>, examine <thing>, read <thing>, talk <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, shout <message>, whisper <character> <message>, party create/invite/who/leave, gsay <message>, or emote <action>."
+          Message = "Type look, search, recipes, craft <thing>, examine <thing>, read <thing>, talk <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, shout <message>, whisper <character> <message>, party create/invite/who/leave, gsay <message>, emote <action>, or direct the builders with @headmaster/@hm or @firstspeaker/@fs."
           State = getState userId }
     else
         let parts = trimmed.Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
@@ -1657,5 +1661,5 @@ let handleCommand (userId: Guid) (commandText: string) : MudCommandResult =
         | _ ->
             { Success = false
               Command = trimmed
-              Message = "Unknown command. Try look, search, recipes, craft <thing>, examine <thing>, read <thing>, talk <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, shout <message>, whisper <character> <message>, party create/invite/who/leave, gsay <message>, or emote <action>."
+              Message = "Unknown command. Try look, search, recipes, craft <thing>, examine <thing>, read <thing>, talk <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, shout <message>, whisper <character> <message>, party create/invite/who/leave, gsay <message>, emote <action>, or direct the builders with @headmaster/@hm or @firstspeaker/@fs."
               State = getState userId }
