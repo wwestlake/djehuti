@@ -142,6 +142,22 @@ type private MudCraftRecipe =
       OutputDescription: string
       OutputReadableText: string option }
 
+type private MudCraftRecipeIngredient =
+    { Slug: string
+      Quantity: int
+      Position: int }
+
+type private MudCraftRecipeDefinition =
+    { Slug: string
+      Name: string
+      Ingredients: MudCraftRecipeIngredient list
+      OutputName: string
+      OutputSlug: string
+      OutputDescription: string
+      OutputReadableText: string option
+      Position: int
+      Active: bool }
+
 let private realmDefinitions =
     [ { Slug = "medieval"; Name = "Medieval"; StartRoomSlug = "keep-gate" }
       { Slug = "sci-fi"; Name = "Sci-Fi"; StartRoomSlug = "transit-dock" } ]
@@ -412,7 +428,351 @@ let private craftRecipes =
         OutputName = "Solar Kite"
         OutputSlug = "solar-kite"
         OutputDescription = "Bright foil on a singing wire frame. Flown in any light, it tugs toward the nearest star like it knows something."
+        OutputReadableText = None }
+      { Slug = "orchard-tonic"
+        Name = "Orchard Tonic"
+        Ingredients = [ "orchard-apple"; "spring-water" ]
+        OutputName = "Orchard Tonic"
+        OutputSlug = "orchard-tonic"
+        OutputDescription = "A bright restorative drink of pressed orchard apple and cold spring water. It tastes like a decision to keep going."
+        OutputReadableText = Some "A neat chalk note circles the stopper: FOR LONG ROADS, HARD STAIRS, AND ANY DAY THAT STARTED TOO EARLY." }
+      { Slug = "roost-signet"
+        Name = "Roost Signet"
+        Ingredients = [ "falcon-feather"; "copper-clasp" ]
+        OutputName = "Roost Signet"
+        OutputSlug = "roost-signet"
+        OutputDescription = "A feather clasped into a travel badge, carried by messengers who prefer the sky to the road."
+        OutputReadableText = Some "The reverse is scratched with one promise: IF IT FLIES, IT RETURNS." }
+      { Slug = "barrow-lamp"
+        Name = "Barrow Lamp"
+        Ingredients = [ "dream-wax"; "lamp-oil" ]
+        OutputName = "Barrow Lamp"
+        OutputSlug = "barrow-lamp"
+        OutputDescription = "A slow-burning lamp fed by dream wax and old oil. It keeps a calm flame where ordinary fire grows nervous."
+        OutputReadableText = None }
+      { Slug = "weather-ribbon"
+        Name = "Weather Ribbon"
+        Ingredients = [ "mist-crystal"; "linen-cord" ]
+        OutputName = "Weather Ribbon"
+        OutputSlug = "weather-ribbon"
+        OutputDescription = "A corded crystal streamer that twists toward tomorrow's wind before the rest of the valley notices."
+        OutputReadableText = Some "The ribbon flutters a warning in one direction only: rain before dusk." }
+      { Slug = "sunspool"
+        Name = "Sunspool"
+        Ingredients = [ "vane-foil"; "wire-spool" ]
+        OutputName = "Sunspool"
+        OutputSlug = "sunspool"
+        OutputDescription = "A tight spool of reflective foil and fine wire used to throw light into places that do not deserve the dark."
+        OutputReadableText = None }
+      { Slug = "packet-lure"
+        Name = "Packet Lure"
+        Ingredients = [ "packet-shell"; "glow-filament" ]
+        OutputName = "Packet Lure"
+        OutputSlug = "packet-lure"
+        OutputDescription = "A blinking shell lure that draws service drones and curious signals out of hiding."
+        OutputReadableText = Some "Boot prompt: PING ONCE. WAIT. LET CURIOSITY DO THE WALKING." }
+      { Slug = "bearing-hook"
+        Name = "Bearing Hook"
+        Ingredients = [ "mag-bearing"; "alloy-plate" ]
+        OutputName = "Bearing Hook"
+        OutputSlug = "bearing-hook"
+        OutputDescription = "A magnetic utility hook built for hull work, salvage pulls, and stubborn cargo."
+        OutputReadableText = None }
+      { Slug = "hush-visor"
+        Name = "Hush Visor"
+        Ingredients = [ "silence-glass"; "fiber-bundle" ]
+        OutputName = "Hush Visor"
+        OutputSlug = "hush-visor"
+        OutputDescription = "A woven visor plated with silence glass. It blunts glare, static, and conversations you never agreed to hear."
+        OutputReadableText = None }
+      { Slug = "stable-kit"
+        Name = "Stable Kit"
+        Ingredients = [ "stable-nails"; "leather-strap" ]
+        OutputName = "Stable Kit"
+        OutputSlug = "stable-kit"
+        OutputDescription = "A rolled stable repair bundle with nails, strap, and the smell of horses and weather."
+        OutputReadableText = None }
+      { Slug = "farrier-mark"
+        Name = "Farrier Mark"
+        Ingredients = [ "hoof-iron"; "copper-clasp" ]
+        OutputName = "Farrier Mark"
+        OutputSlug = "farrier-mark"
+        OutputDescription = "A stamped token of worked iron clipped with a clasp. Carters treat it as proof that your kit is in order."
+        OutputReadableText = Some "One side bears a tiny hammered anvil and the words: SHOD, FED, READY." }
+      { Slug = "cistern-draught"
+        Name = "Cistern Draught"
+        Ingredients = [ "cistern-salt"; "spring-water" ]
+        OutputName = "Cistern Draught"
+        OutputSlug = "cistern-draught"
+        OutputDescription = "A mineral tonic mixed from clean water and old ward salt. It tastes like stone, then strength."
+        OutputReadableText = None }
+      { Slug = "silk-bandolier"
+        Name = "Silk Bandolier"
+        Ingredients = [ "spool-silk"; "hemp-twine" ]
+        OutputName = "Silk Bandolier"
+        OutputSlug = "silk-bandolier"
+        OutputDescription = "A cross-body carry strap braided from market silk and field twine. Lighter than it has any right to be."
+        OutputReadableText = None }
+      { Slug = "fern-poultice"
+        Name = "Fern Poultice"
+        Ingredients = [ "fern-frond"; "dried-herbs" ]
+        OutputName = "Fern Poultice"
+        OutputSlug = "fern-poultice"
+        OutputDescription = "A cool woodland poultice that smells green even after dark."
+        OutputReadableText = None }
+      { Slug = "moonreed-flute"
+        Name = "Moonreed Flute"
+        Ingredients = [ "moon-reed"; "river-clay" ]
+        OutputName = "Moonreed Flute"
+        OutputSlug = "moonreed-flute"
+        OutputDescription = "A narrow reed flute sealed in river clay. It plays best beside water and poorly under orders."
+        OutputReadableText = Some "A fingernail score along the stem reads: CALL ONLY WHAT YOU CAN GREET." }
+      { Slug = "briar-hook"
+        Name = "Briar Hook"
+        Ingredients = [ "briar-thorn"; "sinew-cord" ]
+        OutputName = "Briar Hook"
+        OutputSlug = "briar-hook"
+        OutputDescription = "A thorned field hook tied off with cured sinew. Excellent for pulling what does not want to be found."
+        OutputReadableText = None }
+      { Slug = "owl-charm"
+        Name = "Owl Charm"
+        Ingredients = [ "owl-pellet"; "rune-chalk" ]
+        OutputName = "Owl Charm"
+        OutputSlug = "owl-charm"
+        OutputDescription = "A chalk-marked bundle that keeps stillness close and foolish noise farther away."
+        OutputReadableText = Some "Drawn in chalk around the wrapping: WATCH FIRST. STEP SECOND." }
+      { Slug = "grave-incense"
+        Name = "Grave Incense"
+        Ingredients = [ "grave-bloom"; "tallow-cake" ]
+        OutputName = "Grave Incense"
+        OutputSlug = "grave-incense"
+        OutputDescription = "A slow smoke of hillflower and rendered tallow, used when you want the dead calm rather than curious."
+        OutputReadableText = None }
+      { Slug = "rill-lantern"
+        Name = "Rill Lantern"
+        Ingredients = [ "rill-glass"; "lamp-oil" ]
+        OutputName = "Rill Lantern"
+        OutputSlug = "rill-lantern"
+        OutputDescription = "A clear lantern of stream glass that turns even nervous light soft and usable."
+        OutputReadableText = None }
+      { Slug = "oath-token"
+        Name = "Oath Token"
+        Ingredients = [ "oath-stone"; "brass-shard" ]
+        OutputName = "Oath Token"
+        OutputSlug = "oath-token"
+        OutputDescription = "A speaking-stone chip set in brass. It feels heavier in the hand whenever you lie."
+        OutputReadableText = Some "The brass lip is etched with a warning: SPEAK ONLY WHAT YOU CAN CARRY." }
+      { Slug = "fen-cloak"
+        Name = "Fen Cloak"
+        Ingredients = [ "fen-sedge"; "linen-cord" ]
+        OutputName = "Fen Cloak"
+        OutputSlug = "fen-cloak"
+        OutputDescription = "A marsh weave that sheds mist, hangs light, and smells like someplace mapmakers avoid."
+        OutputReadableText = None }
+      { Slug = "recycler-coil"
+        Name = "Recycler Coil"
+        Ingredients = [ "recycler-mesh"; "capacitor-cell" ]
+        OutputName = "Recycler Coil"
+        OutputSlug = "recycler-coil"
+        OutputDescription = "A jury-rigged recycler coil with one more honest use left in it."
+        OutputReadableText = None }
+      { Slug = "rail-lure"
+        Name = "Rail Lure"
+        Ingredients = [ "rail-spark"; "mag-clamp" ]
+        OutputName = "Rail Lure"
+        OutputSlug = "rail-lure"
+        OutputDescription = "A magnetic lure that throws a quick flash and a cleaner line than panic ever will."
+        OutputReadableText = None }
+      { Slug = "pulse-battery"
+        Name = "Pulse Battery"
+        Ingredients = [ "pulse-fruit"; "coolant-canister" ]
+        OutputName = "Pulse Battery"
+        OutputSlug = "pulse-battery"
+        OutputDescription = "A bioelectric reserve wrapped in coolant skin. The station gardeners swear it is safer than it looks."
+        OutputReadableText = Some "Printed on the improvised casing: FEED LOW DRAW ONLY. DO NOT TAUNT." }
+      { Slug = "quarantine-seal"
+        Name = "Quarantine Seal"
+        Ingredients = [ "quarantine-tag"; "sealant-foam" ]
+        OutputName = "Quarantine Seal"
+        OutputSlug = "quarantine-seal"
+        OutputDescription = "A bright emergency seal for lockers, wounds, doors, or any situation that improves with one firm boundary."
+        OutputReadableText = None }
+      { Slug = "foam-lantern"
+        Name = "Foam Lantern"
+        Ingredients = [ "foam-amber"; "glow-filament" ]
+        OutputName = "Foam Lantern"
+        OutputSlug = "foam-lantern"
+        OutputDescription = "A softly glowing bulb of tide amber wound with filament. It shines like a memory that survived vacuum."
+        OutputReadableText = None }
+      { Slug = "tide-key"
+        Name = "Tide Key"
+        Ingredients = [ "switch-fuse"; "data-shard" ]
+        OutputName = "Tide Key"
+        OutputSlug = "tide-key"
+        OutputDescription = "A switch fuse encoded with old sea logic. It opens systems that still think in currents."
+        OutputReadableText = Some "Recovered command line: WAIT FOR THE TIDE. THEN TURN." }
+      { Slug = "hush-weave"
+        Name = "Hush Weave"
+        Ingredients = [ "hush-algae"; "fiber-bundle" ]
+        OutputName = "Hush Weave"
+        OutputSlug = "hush-weave"
+        OutputDescription = "A quiet fabric spun from sea growth and ship fiber. It absorbs static and small mistakes."
+        OutputReadableText = None }
+      { Slug = "beacon-antenna"
+        Name = "Beacon Antenna"
+        Ingredients = [ "beacon-kelp"; "aerial-wire" ]
+        OutputName = "Beacon Antenna"
+        OutputSlug = "beacon-antenna"
+        OutputDescription = "A flexible signal wand grown from pressure kelp and tuned with aerial wire."
+        OutputReadableText = None }
+      { Slug = "shrine-relay"
+        Name = "Shrine Relay"
+        Ingredients = [ "shrine-bolt"; "patch-cable" ]
+        OutputName = "Shrine Relay"
+        OutputSlug = "shrine-relay"
+        OutputDescription = "A votive relay node built from a surviving captain's bolt and a practical cable. Reverent, but not sentimental."
+        OutputReadableText = Some "The relay cycles one old shipboard blessing: MAY THE RETURN BE CLEAN." }
+      { Slug = "cryo-bell"
+        Name = "Cryo Bell"
+        Ingredients = [ "cryo-chime"; "silence-glass" ]
+        OutputName = "Cryo Bell"
+        OutputSlug = "cryo-bell"
+        OutputDescription = "A tone vessel cut to ring through frost without shattering it."
+        OutputReadableText = None }
+      { Slug = "ballast-anchor"
+        Name = "Ballast Anchor"
+        Ingredients = [ "ballast-pearl"; "mag-bearing" ]
+        OutputName = "Ballast Anchor"
+        OutputSlug = "ballast-anchor"
+        OutputDescription = "A dense little anchor head that settles whatever line, thought, or cargo you attach it to."
+        OutputReadableText = None }
+      { Slug = "ash-tablet"
+        Name = "Ash Tablet"
+        Ingredients = [ "ash-carbon"; "lens-shard" ]
+        OutputName = "Ash Tablet"
+        OutputSlug = "ash-tablet"
+        OutputDescription = "A black recording slate that takes notes in pale etched lines and never seems impressed by them."
         OutputReadableText = None } ]
+
+let private bootstrapRecipeDefinitions =
+    craftRecipes
+    |> List.mapi (fun index recipe ->
+        { Slug = recipe.Slug
+          Name = recipe.Name
+          Ingredients =
+            recipe.Ingredients
+            |> List.mapi (fun ingredientIndex slug ->
+                { Slug = slug
+                  Quantity = 1
+                  Position = ingredientIndex })
+          OutputName = recipe.OutputName
+          OutputSlug = recipe.OutputSlug
+          OutputDescription = recipe.OutputDescription
+          OutputReadableText = recipe.OutputReadableText
+          Position = index
+          Active = true })
+
+let private insertBootstrapRecipe (conn: NpgsqlConnection) (recipe: MudCraftRecipeDefinition) =
+    use recipeCmd = new NpgsqlCommand(
+        """INSERT INTO mud_craft_recipes (slug, name, output_name, output_slug, output_description, output_readable_text, sort_order, active)
+           VALUES (@slug, @name, @output_name, @output_slug, @output_description, @output_readable_text, @sort_order, @active)
+           ON CONFLICT (slug) DO UPDATE
+           SET name = EXCLUDED.name,
+               output_name = EXCLUDED.output_name,
+               output_slug = EXCLUDED.output_slug,
+               output_description = EXCLUDED.output_description,
+               output_readable_text = EXCLUDED.output_readable_text,
+               sort_order = EXCLUDED.sort_order,
+               active = EXCLUDED.active
+           RETURNING id""", conn)
+    recipeCmd.Parameters.AddWithValue("slug", recipe.Slug) |> ignore
+    recipeCmd.Parameters.AddWithValue("name", recipe.Name) |> ignore
+    recipeCmd.Parameters.AddWithValue("output_name", recipe.OutputName) |> ignore
+    recipeCmd.Parameters.AddWithValue("output_slug", recipe.OutputSlug) |> ignore
+    recipeCmd.Parameters.AddWithValue("output_description", recipe.OutputDescription) |> ignore
+    recipeCmd.Parameters.AddWithValue("output_readable_text", recipe.OutputReadableText |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    recipeCmd.Parameters.AddWithValue("sort_order", recipe.Position) |> ignore
+    recipeCmd.Parameters.AddWithValue("active", recipe.Active) |> ignore
+    let recipeId = recipeCmd.ExecuteScalar() :?> Guid
+
+    use deleteIngredientsCmd = new NpgsqlCommand("DELETE FROM mud_craft_recipe_ingredients WHERE recipe_id = @recipe_id", conn)
+    deleteIngredientsCmd.Parameters.AddWithValue("recipe_id", recipeId) |> ignore
+    deleteIngredientsCmd.ExecuteNonQuery() |> ignore
+
+    for ingredient in recipe.Ingredients do
+        use ingredientCmd = new NpgsqlCommand(
+            """INSERT INTO mud_craft_recipe_ingredients (recipe_id, ingredient_slug, quantity, position)
+               VALUES (@recipe_id, @ingredient_slug, @quantity, @position)""", conn)
+        ingredientCmd.Parameters.AddWithValue("recipe_id", recipeId) |> ignore
+        ingredientCmd.Parameters.AddWithValue("ingredient_slug", ingredient.Slug) |> ignore
+        ingredientCmd.Parameters.AddWithValue("quantity", ingredient.Quantity) |> ignore
+        ingredientCmd.Parameters.AddWithValue("position", ingredient.Position) |> ignore
+        ingredientCmd.ExecuteNonQuery() |> ignore
+
+let ensureCraftRecipeCatalogSeeded (conn: NpgsqlConnection) =
+    try
+        use countCmd = new NpgsqlCommand("SELECT COUNT(*) FROM mud_craft_recipes", conn)
+        let recipeCount = countCmd.ExecuteScalar() :?> int64
+        if recipeCount = 0L then
+            for recipe in bootstrapRecipeDefinitions do
+                insertBootstrapRecipe conn recipe
+        true
+    with _ ->
+        false
+
+let private loadCraftRecipes (conn: NpgsqlConnection) =
+    if not (ensureCraftRecipeCatalogSeeded conn) then
+        bootstrapRecipeDefinitions
+    else
+        use cmd = new NpgsqlCommand(
+            """SELECT r.slug,
+                      r.name,
+                      r.output_name,
+                      r.output_slug,
+                      r.output_description,
+                      r.output_readable_text,
+                      r.sort_order,
+                      r.active,
+                      i.ingredient_slug,
+                      i.quantity,
+                      i.position
+               FROM mud_craft_recipes r
+               LEFT JOIN mud_craft_recipe_ingredients i ON i.recipe_id = r.id
+               WHERE r.active = TRUE
+               ORDER BY r.sort_order, r.name, i.position, i.ingredient_slug""", conn)
+        use reader = cmd.ExecuteReader()
+        let recipes = ResizeArray<MudCraftRecipeDefinition>()
+        let bySlug = Collections.Generic.Dictionary<string, int>()
+
+        while reader.Read() do
+            let slug = reader.GetString(0)
+            let recipeIndex =
+                match bySlug.TryGetValue(slug) with
+                | true, index -> index
+                | false, _ ->
+                    let index = recipes.Count
+                    recipes.Add(
+                        { Slug = slug
+                          Name = reader.GetString(1)
+                          Ingredients = []
+                          OutputName = reader.GetString(2)
+                          OutputSlug = reader.GetString(3)
+                          OutputDescription = reader.GetString(4)
+                          OutputReadableText = if reader.IsDBNull(5) then None else Some (reader.GetString(5))
+                          Position = reader.GetInt32(6)
+                          Active = reader.GetBoolean(7) })
+                    bySlug.Add(slug, index)
+                    index
+
+            if not (reader.IsDBNull(8)) then
+                let existing = recipes.[recipeIndex]
+                let ingredient =
+                    { Slug = reader.GetString(8)
+                      Quantity = reader.GetInt32(9)
+                      Position = reader.GetInt32(10) }
+                recipes.[recipeIndex] <- { existing with Ingredients = existing.Ingredients @ [ ingredient ] }
+
+        recipes |> Seq.toList
 
 let private defaultStats =
     { Presence = 1
@@ -808,7 +1168,7 @@ let private loadReadableText (conn: NpgsqlConnection) (state: MudRoomState) (que
     let scalar = cmd.ExecuteScalar()
     if isNull scalar || scalar = box DBNull.Value then None else Some (scalar :?> string)
 
-let private isResourceSlug (slug: string) =
+let private legacyResourceSlugs =
     [ "brass-shard"; "wire-spool"; "rag-strip"; "lamp-oil"; "wax-seal"
       "rune-chalk"; "resin-pitch"; "iron-nails"; "fiber-bundle"
       "capacitor-cell"; "coolant-canister"; "crystal-vial"
@@ -826,28 +1186,48 @@ let private isResourceSlug (slug: string) =
       "static-pearl"; "packet-shell"; "index-coral"; "carrier-thread"
       "phantom-code"; "silence-glass"; "void-barnacle"; "mag-bearing"
       "scar-glass"; "aerial-wire"; "vane-foil"; "lens-shard" ]
-    |> List.contains slug
+
+let private isResourceSlug (conn: NpgsqlConnection) (slug: string) =
+    try
+        if ensureCraftRecipeCatalogSeeded conn then
+            use cmd = new NpgsqlCommand(
+                """SELECT EXISTS(
+                       SELECT 1
+                       FROM mud_craft_recipe_ingredients i
+                       JOIN mud_craft_recipes r ON r.id = i.recipe_id
+                       WHERE r.active = TRUE
+                         AND lower(i.ingredient_slug) = lower(@slug)
+                   )""", conn)
+            cmd.Parameters.AddWithValue("slug", slug) |> ignore
+            cmd.ExecuteScalar() :?> bool
+        else
+            legacyResourceSlugs |> List.contains slug
+    with _ ->
+        legacyResourceSlugs |> List.contains slug
 
 let private awardAchievementBySlug (userId: Guid) (slug: string) =
     match AchievementRepository.getAchievementBySlug slug with
     | Some achievement -> AchievementRepository.awardAchievement userId achievement.Id |> ignore
     | None -> ()
 
-let private describeRecipe (recipe: MudCraftRecipe) =
+let private describeRecipe (recipe: MudCraftRecipeDefinition) =
     let ingredients =
         recipe.Ingredients
-        |> List.map (fun slug -> slug.Replace("-", " "))
+        |> List.map (fun ingredient ->
+            let quantityPrefix = if ingredient.Quantity > 1 then $"{ingredient.Quantity}x " else ""
+            let ingredientText = ingredient.Slug.Replace("-", " ")
+            quantityPrefix + ingredientText)
         |> String.concat ", "
     $"{recipe.Name}\n\nIngredients: {ingredients}\nCreates: {recipe.OutputName}"
 
-let private describeRecipes () =
-    craftRecipes
+let private describeRecipes (conn: NpgsqlConnection) =
+    loadCraftRecipes conn
     |> List.map describeRecipe
     |> String.concat "\n\n"
 
-let private tryResolveRecipe (query: string) =
+let private tryResolveRecipe (conn: NpgsqlConnection) (query: string) =
     let normalized = query.Trim().ToLowerInvariant()
-    craftRecipes
+    loadCraftRecipes conn
     |> List.tryFind (fun recipe ->
         recipe.Slug = normalized
         || recipe.Name.ToLowerInvariant() = normalized
@@ -1001,6 +1381,15 @@ let getRoster (userId: Guid) =
 
 let getLandingStats () =
     use conn = openConnection ()
+    let recipeCount =
+        try
+            if ensureCraftRecipeCatalogSeeded conn then
+                use recipeCmd = new NpgsqlCommand("SELECT COUNT(*)::int FROM mud_craft_recipes WHERE active = TRUE", conn)
+                recipeCmd.ExecuteScalar() :?> int
+            else
+                craftRecipes.Length
+        with _ ->
+            craftRecipes.Length
     use cmd = new NpgsqlCommand(
         """SELECT
                (SELECT COUNT(*)::int FROM mud_rooms),
@@ -1009,11 +1398,11 @@ let getLandingStats () =
     if reader.Read() then
         { RoomCount = reader.GetInt32(0)
           ZoneCount = reader.GetInt32(1)
-          RecipeCount = craftRecipes.Length }
+          RecipeCount = recipeCount }
     else
         { RoomCount = 0
           ZoneCount = 0
-          RecipeCount = craftRecipes.Length }
+          RecipeCount = recipeCount }
 
 let getState (userId: Guid) : MudRoomState option =
     use conn = openConnection ()
@@ -1362,9 +1751,10 @@ let inventory (userId: Guid) : MudCommandResult =
 
 let search (userId: Guid) : MudCommandResult =
     withState userId (fun state ->
+        use conn = openConnection ()
         let resources =
             state.VisibleItems
-            |> List.filter (fun item -> item.Portable || isResourceSlug item.Slug)
+            |> List.filter (fun item -> item.Portable || isResourceSlug conn item.Slug)
             |> List.map _.Name
         let message =
             match resources with
@@ -1373,7 +1763,6 @@ let search (userId: Guid) : MudCommandResult =
                 let found = items |> String.concat ", "
                 awardAchievementBySlug userId "mud-scrounger"
                 $"{describeState state}\n\nSearch turns up useful materials: {found}."
-        use conn = openConnection ()
         logEvent conn userId state.CharacterId state.RoomId "search" (Some "search") message (payloadOf [ "count", string resources.Length ])
         { Success = true
           Command = "search"
@@ -1382,9 +1771,10 @@ let search (userId: Guid) : MudCommandResult =
 
 let recipes (userId: Guid) : MudCommandResult =
     withState userId (fun state ->
-        let message = describeRecipes ()
         use conn = openConnection ()
-        logEvent conn userId state.CharacterId state.RoomId "recipes" (Some "recipes") message (payloadOf [ "count", string craftRecipes.Length ])
+        let recipes = loadCraftRecipes conn
+        let message = recipes |> List.map describeRecipe |> String.concat "\n\n"
+        logEvent conn userId state.CharacterId state.RoomId "recipes" (Some "recipes") message (payloadOf [ "count", string recipes.Length ])
         { Success = true
           Command = "recipes"
           Message = message
@@ -1399,26 +1789,27 @@ let craft (userId: Guid) (query: string) : MudCommandResult =
               Message = "Craft what? Try recipes."
               State = Some state }
         else
-            match tryResolveRecipe trimmed with
+            use conn = openConnection ()
+            match tryResolveRecipe conn trimmed with
             | None ->
                 { Success = false
                   Command = $"craft {trimmed}"
                   Message = $"Unknown recipe '{trimmed}'. Try recipes."
                   State = Some state }
             | Some recipe ->
-                use conn = openConnection ()
                 let inventoryRows = loadInventoryItemIds conn state.CharacterId
                 let mutable available = inventoryRows
                 let mutable missing = []
                 let mutable consumeIds : Guid list = []
 
                 for ingredient in recipe.Ingredients do
-                    match available |> List.tryFind (fun (_, slug) -> slug = ingredient) with
-                    | Some (id, _) ->
-                        consumeIds <- id :: consumeIds
-                        available <- available |> List.filter (fun (rowId, _) -> rowId <> id)
-                    | None ->
-                        missing <- ingredient :: missing
+                    for _ in 1 .. ingredient.Quantity do
+                        match available |> List.tryFind (fun (_, slug) -> slug = ingredient.Slug) with
+                        | Some (id, _) ->
+                            consumeIds <- id :: consumeIds
+                            available <- available |> List.filter (fun (rowId, _) -> rowId <> id)
+                        | None ->
+                            missing <- ingredient.Slug :: missing
 
                 if not missing.IsEmpty then
                     let missingText =
@@ -1499,11 +1890,11 @@ let getItem (userId: Guid) (query: string) : MudCommandResult =
                 let message =
                     if changed > 0 then $"You pick up {item.Name}."
                     else $"You cannot pick up {item.Name} right now."
-                if changed > 0 && isResourceSlug item.Slug then
+                if changed > 0 && isResourceSlug conn item.Slug then
                     awardAchievementBySlug userId "mud-scrounger"
                     let resourceCount =
                         nextState.InventoryItems
-                        |> List.filter (fun inventoryItem -> isResourceSlug inventoryItem.Slug)
+                        |> List.filter (fun inventoryItem -> isResourceSlug conn inventoryItem.Slug)
                         |> List.length
                     if resourceCount >= 5 then
                         awardAchievementBySlug userId "mud-quartermaster"

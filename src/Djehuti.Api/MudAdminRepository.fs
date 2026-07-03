@@ -43,6 +43,24 @@ type MudWorld =
       Rooms: MudRoom list
       Exits: MudExit list }
 
+type MudRecipeIngredient =
+    { Slug: string
+      Quantity: int
+      Position: int }
+
+type MudRecipe =
+    { Id: Guid
+      Slug: string
+      Name: string
+      OutputName: string
+      OutputSlug: string
+      OutputDescription: string
+      OutputReadableText: string option
+      Position: int
+      Active: bool
+      CreatedAt: DateTime
+      Ingredients: MudRecipeIngredient list }
+
 type MudRealmMetric =
     { RealmSlug: string
       CharacterCount: int }
@@ -55,6 +73,7 @@ type MudAdminMetrics =
     { ZoneCount: int
       RoomCount: int
       ExitCount: int
+      RecipeCount: int
       ItemCount: int
       PortableItemCount: int
       ReadableItemCount: int
@@ -99,6 +118,19 @@ let private readExit (r: DbDataReader) =
       ExitType = r.GetString(8)
       Label = if r.IsDBNull(9) then None else Some (r.GetString(9))
       CreatedAt = r.GetFieldValue<DateTime>(10) }
+
+let private readRecipeBase (r: DbDataReader) =
+    { Id = r.GetGuid(0)
+      Slug = r.GetString(1)
+      Name = r.GetString(2)
+      OutputName = r.GetString(3)
+      OutputSlug = r.GetString(4)
+      OutputDescription = r.GetString(5)
+      OutputReadableText = if r.IsDBNull(6) then None else Some (r.GetString(6))
+      Position = r.GetInt32(7)
+      Active = r.GetBoolean(8)
+      CreatedAt = r.GetFieldValue<DateTime>(9)
+      Ingredients = [] }
 
 let private slugify (value: string) =
     let normalized =
@@ -157,6 +189,133 @@ let getWorld () =
             yield readExit exitsReader ]
 
     { Zones = zones; Rooms = rooms; Exits = exits }
+
+let getRecipes () =
+    use conn = openConnection ()
+    MudRepository.ensureCraftRecipeCatalogSeeded conn |> ignore
+    use cmd = new NpgsqlCommand(
+        """SELECT r.id,
+                  r.slug,
+                  r.name,
+                  r.output_name,
+                  r.output_slug,
+                  r.output_description,
+                  r.output_readable_text,
+                  r.sort_order,
+                  r.active,
+                  r.created_at,
+                  i.ingredient_slug,
+                  i.quantity,
+                  i.position
+           FROM mud_craft_recipes r
+           LEFT JOIN mud_craft_recipe_ingredients i ON i.recipe_id = r.id
+           ORDER BY r.sort_order, r.name, i.position, i.ingredient_slug""", conn)
+    use reader = cmd.ExecuteReader()
+    let recipes = ResizeArray<MudRecipe>()
+    let byId = Collections.Generic.Dictionary<Guid, int>()
+
+    while reader.Read() do
+        let recipeId = reader.GetGuid(0)
+        let recipeIndex =
+            match byId.TryGetValue(recipeId) with
+            | true, index -> index
+            | false, _ ->
+                let index = recipes.Count
+                recipes.Add(readRecipeBase reader)
+                byId.Add(recipeId, index)
+                index
+
+        if not (reader.IsDBNull(10)) then
+            let ingredient =
+                { Slug = reader.GetString(10)
+                  Quantity = reader.GetInt32(11)
+                  Position = reader.GetInt32(12) }
+            let recipe = recipes.[recipeIndex]
+            recipes.[recipeIndex] <- { recipe with Ingredients = recipe.Ingredients @ [ ingredient ] }
+
+    recipes |> Seq.toList
+
+let private upsertRecipeIngredients (conn: NpgsqlConnection) (recipeId: Guid) (ingredients: MudRecipeIngredient list) =
+    use deleteCmd = new NpgsqlCommand("DELETE FROM mud_craft_recipe_ingredients WHERE recipe_id = @recipe_id", conn)
+    deleteCmd.Parameters.AddWithValue("recipe_id", recipeId) |> ignore
+    deleteCmd.ExecuteNonQuery() |> ignore
+
+    for ingredient in ingredients do
+        use insertCmd = new NpgsqlCommand(
+            """INSERT INTO mud_craft_recipe_ingredients (recipe_id, ingredient_slug, quantity, position)
+               VALUES (@recipe_id, @ingredient_slug, @quantity, @position)""", conn)
+        insertCmd.Parameters.AddWithValue("recipe_id", recipeId) |> ignore
+        insertCmd.Parameters.AddWithValue("ingredient_slug", ingredient.Slug.Trim().ToLowerInvariant()) |> ignore
+        insertCmd.Parameters.AddWithValue("quantity", max 1 ingredient.Quantity) |> ignore
+        insertCmd.Parameters.AddWithValue("position", ingredient.Position) |> ignore
+        insertCmd.ExecuteNonQuery() |> ignore
+
+let createRecipe (recipe: MudRecipe) =
+    use conn = openConnection ()
+    MudRepository.ensureCraftRecipeCatalogSeeded conn |> ignore
+    use cmd = new NpgsqlCommand(
+        """INSERT INTO mud_craft_recipes (slug, name, output_name, output_slug, output_description, output_readable_text, sort_order, active)
+           VALUES (@slug, @name, @output_name, @output_slug, @output_description, @output_readable_text, @sort_order, @active)
+           RETURNING id, slug, name, output_name, output_slug, output_description, output_readable_text, sort_order, active, created_at""", conn)
+    cmd.Parameters.AddWithValue("slug", cleanSlug recipe.Name recipe.Slug) |> ignore
+    cmd.Parameters.AddWithValue("name", recipe.Name.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("output_name", recipe.OutputName.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("output_slug", cleanSlug recipe.OutputName recipe.OutputSlug) |> ignore
+    cmd.Parameters.AddWithValue("output_description", recipe.OutputDescription.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("output_readable_text", recipe.OutputReadableText |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("sort_order", recipe.Position) |> ignore
+    cmd.Parameters.AddWithValue("active", recipe.Active) |> ignore
+    try
+        use reader = cmd.ExecuteReader()
+        if reader.Read() then
+            let created = readRecipeBase reader
+            reader.Close()
+            upsertRecipeIngredients conn created.Id recipe.Ingredients
+            Some { created with Ingredients = recipe.Ingredients }
+        else None
+    with _ ->
+        None
+
+let updateRecipe (recipeId: Guid) (recipe: MudRecipe) =
+    use conn = openConnection ()
+    MudRepository.ensureCraftRecipeCatalogSeeded conn |> ignore
+    use cmd = new NpgsqlCommand(
+        """UPDATE mud_craft_recipes
+           SET slug = @slug,
+               name = @name,
+               output_name = @output_name,
+               output_slug = @output_slug,
+               output_description = @output_description,
+               output_readable_text = @output_readable_text,
+               sort_order = @sort_order,
+               active = @active
+           WHERE id = @id
+           RETURNING id, slug, name, output_name, output_slug, output_description, output_readable_text, sort_order, active, created_at""", conn)
+    cmd.Parameters.AddWithValue("id", recipeId) |> ignore
+    cmd.Parameters.AddWithValue("slug", cleanSlug recipe.Name recipe.Slug) |> ignore
+    cmd.Parameters.AddWithValue("name", recipe.Name.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("output_name", recipe.OutputName.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("output_slug", cleanSlug recipe.OutputName recipe.OutputSlug) |> ignore
+    cmd.Parameters.AddWithValue("output_description", recipe.OutputDescription.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("output_readable_text", recipe.OutputReadableText |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("sort_order", recipe.Position) |> ignore
+    cmd.Parameters.AddWithValue("active", recipe.Active) |> ignore
+    try
+        use reader = cmd.ExecuteReader()
+        if reader.Read() then
+            let updated = readRecipeBase reader
+            reader.Close()
+            upsertRecipeIngredients conn recipeId recipe.Ingredients
+            Some { updated with Ingredients = recipe.Ingredients }
+        else None
+    with _ ->
+        None
+
+let deleteRecipe (recipeId: Guid) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand("DELETE FROM mud_craft_recipes WHERE id = @id", conn)
+    cmd.Parameters.AddWithValue("id", recipeId) |> ignore
+    cmd.ExecuteNonQuery() > 0
 
 let createZone (name: string) (slug: string) (description: string option) (position: int) =
     use conn = openConnection ()
@@ -275,6 +434,7 @@ let getMetrics () =
                (SELECT COUNT(*) FROM mud_zones),
                (SELECT COUNT(*) FROM mud_rooms),
                (SELECT COUNT(*) FROM mud_exits),
+               (SELECT COUNT(*) FROM mud_craft_recipes WHERE active = TRUE),
                (SELECT COUNT(*) FROM mud_items),
                (SELECT COUNT(*) FROM mud_items WHERE portable = TRUE),
                (SELECT COUNT(*) FROM mud_items WHERE readable_text IS NOT NULL AND btrim(readable_text) <> ''),
@@ -300,22 +460,24 @@ let getMetrics () =
             { ZoneCount = summaryReader.GetInt32(0)
               RoomCount = summaryReader.GetInt32(1)
               ExitCount = summaryReader.GetInt32(2)
-              ItemCount = summaryReader.GetInt32(3)
-              PortableItemCount = summaryReader.GetInt32(4)
-              ReadableItemCount = summaryReader.GetInt32(5)
-              ActiveCharacterCount = summaryReader.GetInt32(6)
-              RetiredCharacterCount = summaryReader.GetInt32(7)
-              CompanionEnabledCount = summaryReader.GetInt32(8)
-              ByoKeyCount = summaryReader.GetInt32(9)
-              EmptyZoneCount = summaryReader.GetInt32(10)
-              DeadEndRoomCount = summaryReader.GetInt32(11)
-              AverageExitsPerRoom = summaryReader.GetDouble(12)
+              RecipeCount = summaryReader.GetInt32(3)
+              ItemCount = summaryReader.GetInt32(4)
+              PortableItemCount = summaryReader.GetInt32(5)
+              ReadableItemCount = summaryReader.GetInt32(6)
+              ActiveCharacterCount = summaryReader.GetInt32(7)
+              RetiredCharacterCount = summaryReader.GetInt32(8)
+              CompanionEnabledCount = summaryReader.GetInt32(9)
+              ByoKeyCount = summaryReader.GetInt32(10)
+              EmptyZoneCount = summaryReader.GetInt32(11)
+              DeadEndRoomCount = summaryReader.GetInt32(12)
+              AverageExitsPerRoom = summaryReader.GetDouble(13)
               RealmCharacterCounts = []
               ExitTypeCounts = [] }
         else
             { ZoneCount = 0
               RoomCount = 0
               ExitCount = 0
+              RecipeCount = 0
               ItemCount = 0
               PortableItemCount = 0
               ReadableItemCount = 0

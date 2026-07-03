@@ -232,6 +232,24 @@ type MudExitCreateRequest =
       Label: string }
 
 [<CLIMutable>]
+type MudRecipeIngredientRequest =
+    { Slug: string
+      Quantity: int
+      Position: int }
+
+[<CLIMutable>]
+type MudRecipeUpsertRequest =
+    { Slug: string
+      Name: string
+      OutputName: string
+      OutputSlug: string
+      OutputDescription: string
+      OutputReadableText: string
+      Position: int
+      Active: bool
+      Ingredients: MudRecipeIngredientRequest array }
+
+[<CLIMutable>]
 type UpdateProfileRequest =
     { DisplayName: string option
       Bio: string option
@@ -1596,6 +1614,104 @@ let main args =
             match tryGetAuthClaims ctx with
             | Some claims when Permissions.isAdmin claims.Role ->
                 Results.Ok(MudAdminRepository.getMetrics())
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/mud/recipes",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                Results.Ok(MudAdminRepository.getRecipes())
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/mud/recipes",
+        Func<HttpContext, MudRecipeUpsertRequest, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let ingredients : MudAdminRepository.MudRecipeIngredient list =
+                    if isNull body.Ingredients then []
+                    else
+                        body.Ingredients
+                        |> Array.toList
+                        |> List.filter (fun ingredient -> not (String.IsNullOrWhiteSpace ingredient.Slug))
+                        |> List.map (fun ingredient ->
+                            { Slug = ingredient.Slug.Trim().ToLowerInvariant()
+                              Quantity = max 1 ingredient.Quantity
+                              Position = ingredient.Position })
+                let recipe : MudAdminRepository.MudRecipe =
+                    { Id = Guid.Empty
+                      Slug = body.Slug
+                      Name = body.Name
+                      OutputName = body.OutputName
+                      OutputSlug = body.OutputSlug
+                      OutputDescription = body.OutputDescription
+                      OutputReadableText = if String.IsNullOrWhiteSpace body.OutputReadableText then None else Some (body.OutputReadableText.Trim())
+                      Position = body.Position
+                      Active = body.Active
+                      CreatedAt = DateTime.UtcNow
+                      Ingredients = ingredients }
+                match MudAdminRepository.createRecipe recipe with
+                | Some created -> Results.Created($"/api/admin/mud/recipes/{created.Id}", created)
+                | None -> Results.Problem(detail = "Failed to create recipe", statusCode = 500, title = "Error")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/admin/mud/recipes/{recipeId}",
+        Func<string, HttpContext, MudRecipeUpsertRequest, IResult>(fun recipeId ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(recipeId) with
+                | false, _ -> Results.BadRequest("Invalid recipe id")
+                | true, recipeGuid ->
+                    let ingredients : MudAdminRepository.MudRecipeIngredient list =
+                        if isNull body.Ingredients then []
+                        else
+                            body.Ingredients
+                            |> Array.toList
+                            |> List.filter (fun ingredient -> not (String.IsNullOrWhiteSpace ingredient.Slug))
+                            |> List.map (fun ingredient ->
+                                { Slug = ingredient.Slug.Trim().ToLowerInvariant()
+                                  Quantity = max 1 ingredient.Quantity
+                                  Position = ingredient.Position })
+                    let recipe : MudAdminRepository.MudRecipe =
+                        { Id = recipeGuid
+                          Slug = body.Slug
+                          Name = body.Name
+                          OutputName = body.OutputName
+                          OutputSlug = body.OutputSlug
+                          OutputDescription = body.OutputDescription
+                          OutputReadableText = if String.IsNullOrWhiteSpace body.OutputReadableText then None else Some (body.OutputReadableText.Trim())
+                          Position = body.Position
+                          Active = body.Active
+                          CreatedAt = DateTime.UtcNow
+                          Ingredients = ingredients }
+                    match MudAdminRepository.updateRecipe recipeGuid recipe with
+                    | Some updated -> Results.Ok(updated)
+                    | None -> Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/admin/mud/recipes/{recipeId}",
+        Func<string, HttpContext, IResult>(fun recipeId ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(recipeId) with
+                | true, recipeGuid ->
+                    if MudAdminRepository.deleteRecipe recipeGuid then Results.Ok() else Results.NotFound()
+                | _ -> Results.BadRequest("Invalid recipe id")
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )

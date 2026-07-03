@@ -6,7 +6,7 @@ import type { BlogArticle, BlogTag, BlogAuthor, SiteConfigEntry } from '../../ap
 import { forumApi } from '../../api/forumApi'
 import type { ForumTag, ForumReport } from '../../api/forumApi'
 import { mudAdminApi } from '../../api/mudAdminApi'
-import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics } from '../../api/mudAdminApi'
+import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics, MudRecipe, MudRecipeIngredient } from '../../api/mudAdminApi'
 import { AdminTable } from '../../components/AdminTable'
 
 const BASE = '/djehuti'
@@ -91,6 +91,18 @@ const makeEmptyPersonaForm = () => ({
   workWindowHours: '',
   avatarUrl: '',
   forumIds: '',
+})
+
+const makeEmptyMudRecipeForm = () => ({
+  slug: '',
+  name: '',
+  outputName: '',
+  outputSlug: '',
+  outputDescription: '',
+  outputReadableText: '',
+  position: 0,
+  active: true,
+  ingredients: [{ slug: '', quantity: 1, position: 0 }] as MudRecipeIngredient[],
 })
 
 async function apiFetch(url: string, opts?: RequestInit) {
@@ -190,11 +202,14 @@ export default function AdminPage() {
   // MUD
   const [mudWorld, setMudWorld] = useState<MudWorld | null>(null)
   const [mudMetrics, setMudMetrics] = useState<MudAdminMetrics | null>(null)
+  const [mudRecipes, setMudRecipes] = useState<MudRecipe[]>([])
   const [mudZoneForm, setMudZoneForm] = useState({ name: '', slug: '', description: '', position: 0 })
   const [editingMudZone, setEditingMudZone] = useState<MudZone | null>(null)
   const [mudRoomForm, setMudRoomForm] = useState({ zoneId: '', name: '', slug: '', description: '', position: 0 })
   const [editingMudRoom, setEditingMudRoom] = useState<MudRoom | null>(null)
   const [mudExitForm, setMudExitForm] = useState({ fromRoomId: '', toRoomId: '', direction: '', label: '' })
+  const [mudRecipeForm, setMudRecipeForm] = useState(makeEmptyMudRecipeForm())
+  const [editingMudRecipe, setEditingMudRecipe] = useState<MudRecipe | null>(null)
   const [mudSaving, setMudSaving] = useState(false)
 
   // Metrics
@@ -281,6 +296,7 @@ export default function AdminPage() {
       mud: () => Promise.all([
         mudAdminApi.getWorld().then(setMudWorld),
         mudAdminApi.getMetrics().then(setMudMetrics),
+        mudAdminApi.getRecipes().then(setMudRecipes),
       ]).then(() => {}),
       metrics: () => Promise.all([
         apiFetch(`${BASE}/api/admin/metrics`).then(setMetrics),
@@ -728,6 +744,45 @@ export default function AdminPage() {
     finally { setMudSaving(false) }
   }
 
+  const saveMudRecipe = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!mudRecipeForm.name.trim() || !mudRecipeForm.outputName.trim()) return
+    const ingredients = mudRecipeForm.ingredients
+      .map((ingredient, index) => ({
+        slug: ingredient.slug.trim().toLowerCase(),
+        quantity: Math.max(1, Number(ingredient.quantity || 1)),
+        position: index,
+      }))
+      .filter(ingredient => ingredient.slug)
+    if (!ingredients.length) {
+      setError('Add at least one ingredient')
+      return
+    }
+
+    setMudSaving(true)
+    try {
+      const payload = {
+        slug: mudRecipeForm.slug.trim(),
+        name: mudRecipeForm.name.trim(),
+        outputName: mudRecipeForm.outputName.trim(),
+        outputSlug: mudRecipeForm.outputSlug.trim(),
+        outputDescription: mudRecipeForm.outputDescription.trim(),
+        outputReadableText: mudRecipeForm.outputReadableText.trim() || undefined,
+        position: mudRecipeForm.position,
+        active: mudRecipeForm.active,
+        ingredients,
+      }
+      const recipe = editingMudRecipe
+        ? await mudAdminApi.updateRecipe(editingMudRecipe.id, payload)
+        : await mudAdminApi.createRecipe(payload)
+      setMudRecipes(prev => prev.some(r => r.id === recipe.id) ? prev.map(r => r.id === recipe.id ? recipe : r) : [recipe, ...prev])
+      setMudMetrics(await mudAdminApi.getMetrics())
+      setMudRecipeForm(makeEmptyMudRecipeForm())
+      setEditingMudRecipe(null)
+    } catch { setError('Failed to save recipe') }
+    finally { setMudSaving(false) }
+  }
+
   const deleteMudExit = async (exitId: string) => {
     if (!confirm('Delete this exit?')) return
     try {
@@ -735,6 +790,15 @@ export default function AdminPage() {
       setMudWorld(prev => prev ? { ...prev, exits: prev.exits.filter(exit => exit.id !== exitId) } : prev)
       setMudMetrics(await mudAdminApi.getMetrics())
     } catch { setError('Failed to delete exit') }
+  }
+
+  const deleteMudRecipe = async (recipeId: string) => {
+    if (!confirm('Delete this recipe?')) return
+    try {
+      await mudAdminApi.deleteRecipe(recipeId)
+      setMudRecipes(prev => prev.filter(recipe => recipe.id !== recipeId))
+      setMudMetrics(await mudAdminApi.getMetrics())
+    } catch { setError('Failed to delete recipe') }
   }
 
   const startMudZoneEdit = (zone: MudZone) => {
@@ -758,6 +822,21 @@ export default function AdminPage() {
     })
   }
 
+  const startMudRecipeEdit = (recipe: MudRecipe) => {
+    setEditingMudRecipe(recipe)
+    setMudRecipeForm({
+      slug: recipe.slug,
+      name: recipe.name,
+      outputName: recipe.outputName,
+      outputSlug: recipe.outputSlug,
+      outputDescription: recipe.outputDescription,
+      outputReadableText: recipe.outputReadableText ?? '',
+      position: recipe.position,
+      active: recipe.active,
+      ingredients: recipe.ingredients.length ? recipe.ingredients : [{ slug: '', quantity: 1, position: 0 }],
+    })
+  }
+
   const cancelMudZoneEdit = () => {
     setEditingMudZone(null)
     setMudZoneForm({ name: '', slug: '', description: '', position: 0 })
@@ -766,6 +845,11 @@ export default function AdminPage() {
   const cancelMudRoomEdit = () => {
     setEditingMudRoom(null)
     setMudRoomForm({ zoneId: '', name: '', slug: '', description: '', position: 0 })
+  }
+
+  const cancelMudRecipeEdit = () => {
+    setEditingMudRecipe(null)
+    setMudRecipeForm(makeEmptyMudRecipeForm())
   }
 
   return (
@@ -1239,6 +1323,10 @@ export default function AdminPage() {
                     <div className="metrics-stat-all">{mudMetrics.exitCount}</div>
                   </div>
                   <div className="metrics-stat-card">
+                    <div className="metrics-stat-label">Recipes</div>
+                    <div className="metrics-stat-all">{mudMetrics.recipeCount}</div>
+                  </div>
+                  <div className="metrics-stat-card">
                     <div className="metrics-stat-label">Items</div>
                     <div className="metrics-stat-all">{mudMetrics.itemCount}</div>
                     <div className="metrics-stat-split">
@@ -1373,6 +1461,76 @@ export default function AdminPage() {
                 <button type="submit" className="tiptap-action-btn primary" disabled={mudSaving || !mudExitForm.fromRoomId || !mudExitForm.toRoomId || !mudExitForm.direction.trim()}>Create Exit</button>
               </div>
             </form>
+
+            <form className="admin-grant-form" onSubmit={saveMudRecipe}>
+              <h4 style={{ margin: 0 }}>{editingMudRecipe ? 'Edit Recipe' : 'Create Recipe'}</h4>
+              <div className="admin-grant-fields" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <input className="papers-new-input" placeholder="Recipe name" value={mudRecipeForm.name} onChange={e => setMudRecipeForm(f => ({ ...f, name: e.target.value }))} required />
+                <input className="papers-new-input" placeholder="Recipe slug (optional)" value={mudRecipeForm.slug} onChange={e => setMudRecipeForm(f => ({ ...f, slug: e.target.value }))} />
+                <input className="papers-new-input" placeholder="Created item name" value={mudRecipeForm.outputName} onChange={e => setMudRecipeForm(f => ({ ...f, outputName: e.target.value }))} required />
+                <input className="papers-new-input" placeholder="Created item slug (optional)" value={mudRecipeForm.outputSlug} onChange={e => setMudRecipeForm(f => ({ ...f, outputSlug: e.target.value }))} />
+                <input className="papers-new-input" placeholder="Created item description" value={mudRecipeForm.outputDescription} onChange={e => setMudRecipeForm(f => ({ ...f, outputDescription: e.target.value }))} style={{ gridColumn: '1 / -1' }} required />
+                <input className="papers-new-input" placeholder="Readable text (optional)" value={mudRecipeForm.outputReadableText} onChange={e => setMudRecipeForm(f => ({ ...f, outputReadableText: e.target.value }))} style={{ gridColumn: '1 / -1' }} />
+                <input className="papers-new-input" type="number" placeholder="Position" value={mudRecipeForm.position} onChange={e => setMudRecipeForm(f => ({ ...f, position: Number(e.target.value) }))} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                  <input type="checkbox" checked={mudRecipeForm.active} onChange={e => setMudRecipeForm(f => ({ ...f, active: e.target.checked }))} />
+                  Active recipe
+                </label>
+                <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <strong style={{ fontSize: '0.9rem' }}>Ingredients</strong>
+                  {mudRecipeForm.ingredients.map((ingredient, index) => (
+                    <div key={`${index}-${ingredient.slug}`} style={{ display: 'grid', gridTemplateColumns: '1fr 110px 80px', gap: 8 }}>
+                      <input
+                        className="papers-new-input"
+                        placeholder="Ingredient slug"
+                        value={ingredient.slug}
+                        onChange={e => setMudRecipeForm(f => ({
+                          ...f,
+                          ingredients: f.ingredients.map((row, rowIndex) => rowIndex === index ? { ...row, slug: e.target.value } : row),
+                        }))}
+                      />
+                      <input
+                        className="papers-new-input"
+                        type="number"
+                        min={1}
+                        placeholder="Qty"
+                        value={ingredient.quantity}
+                        onChange={e => setMudRecipeForm(f => ({
+                          ...f,
+                          ingredients: f.ingredients.map((row, rowIndex) => rowIndex === index ? { ...row, quantity: Number(e.target.value) || 1 } : row),
+                        }))}
+                      />
+                      <button
+                        type="button"
+                        className="tiptap-action-btn"
+                        onClick={() => setMudRecipeForm(f => ({
+                          ...f,
+                          ingredients: f.ingredients.length > 1 ? f.ingredients.filter((_, rowIndex) => rowIndex !== index).map((row, rowIndex) => ({ ...row, position: rowIndex })) : [{ slug: '', quantity: 1, position: 0 }],
+                        }))}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="tiptap-action-btn"
+                      onClick={() => setMudRecipeForm(f => ({
+                        ...f,
+                        ingredients: [...f.ingredients, { slug: '', quantity: 1, position: f.ingredients.length }],
+                      }))}
+                    >
+                      Add ingredient
+                    </button>
+                    <button type="submit" className="tiptap-action-btn primary" disabled={mudSaving || !mudRecipeForm.name.trim() || !mudRecipeForm.outputName.trim()}>
+                      {editingMudRecipe ? 'Save Recipe' : 'Create Recipe'}
+                    </button>
+                    {editingMudRecipe && <button type="button" className="tiptap-action-btn" onClick={cancelMudRecipeEdit}>Cancel</button>}
+                  </div>
+                </div>
+              </div>
+            </form>
           </section>
 
           <AdminTable<MudZone>
@@ -1416,6 +1574,26 @@ export default function AdminPage() {
               { key: 'label', label: 'Label', render: exit => exit.label ?? '—' },
               { key: 'createdAt', label: 'Created', render: exit => new Date(exit.createdAt).toLocaleDateString(), sortVal: exit => exit.createdAt },
               { key: 'id', label: '', sortable: false, render: exit => <button className="post-action post-action-delete" onClick={() => deleteMudExit(exit.id)}>Delete</button> },
+            ]}
+          />
+
+          <AdminTable<MudRecipe>
+            data={mudRecipes}
+            rowKey={recipe => recipe.id}
+            searchKeys={['name', 'slug', 'outputName', 'outputSlug', 'outputDescription']}
+            emptyText="No recipes yet."
+            columns={[
+              { key: 'name', label: 'Recipe', render: recipe => <><strong>{recipe.name}</strong><br /><span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{recipe.slug}</span></> },
+              { key: 'outputName', label: 'Creates', render: recipe => <><strong>{recipe.outputName}</strong><br /><span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{recipe.outputSlug}</span></> },
+              { key: 'ingredients', label: 'Ingredients', sortable: false, render: recipe => recipe.ingredients.map(ingredient => `${ingredient.quantity > 1 ? `${ingredient.quantity}x ` : ''}${ingredient.slug}`).join(', ') || '—' },
+              { key: 'position', label: 'Position' },
+              { key: 'active', label: 'Active', render: recipe => recipe.active ? 'Yes' : 'No' },
+              { key: 'id', label: '', sortable: false, render: recipe => (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="post-action" onClick={() => startMudRecipeEdit(recipe)}>Edit</button>
+                  <button className="post-action post-action-delete" onClick={() => deleteMudRecipe(recipe.id)}>Delete</button>
+                </div>
+              ) },
             ]}
           />
         </div>

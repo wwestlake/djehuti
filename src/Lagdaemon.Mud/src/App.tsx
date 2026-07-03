@@ -11,6 +11,7 @@ const GITHUB_CLIENT_ID = import.meta.env.VITE_GITHUB_OAUTH_CLIENT_ID || ''
 const HCAPTCHA_SITE_KEY = import.meta.env.VITE_HCAPTCHA_SITE_KEY || ''
 
 type AuthMode = 'signin' | 'signup' | 'forgot'
+const MUD_SCREEN_KEY = 'lagdaemon.mud.screen'
 
 function ThemePicker() {
   const { theme, setTheme } = useTheme()
@@ -69,6 +70,8 @@ function OAuthButtons() {
 function MudLanding({ onEnter }: { onEnter: () => void }) {
   const { user } = useAuth()
   const [stats, setStats] = useState<MudLandingStats | null>(null)
+  const shareUrl = 'https://lagdaemon.com/mud/'
+  const shareText = encodeURIComponent('LagDaemon MUD — two realms, one browser-based world. Medieval keep or drifting star station, your choice.')
 
   useEffect(() => {
     let cancelled = false
@@ -107,7 +110,33 @@ function MudLanding({ onEnter }: { onEnter: () => void }) {
             <button className="mud-command-btn" onClick={onEnter}>
               {user ? 'Enter the world' : 'Create account / Sign in'}
             </button>
+            <a
+              className="mud-support-btn"
+              href="https://www.patreon.com/lagdaemon"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Support on Patreon
+            </a>
             <a className="mud-back-btn" href="/">Back to LagDaemon.com</a>
+          </div>
+          {!user && (
+            <div className="mud-landing-auth">
+              <div className="mud-landing-auth-copy">Sign in right here with your account, Google, or GitHub.</div>
+              <OAuthButtons />
+            </div>
+          )}
+          <div className="mud-share-row">
+            <span className="mud-share-label">Share</span>
+            <a className="mud-share-btn" href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${shareText}`} target="_blank" rel="noreferrer">
+              𝕏
+            </a>
+            <a className="mud-share-btn" href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`} target="_blank" rel="noreferrer">
+              LinkedIn
+            </a>
+            <a className="mud-share-btn" href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`} target="_blank" rel="noreferrer">
+              Facebook
+            </a>
           </div>
           {user
             ? <p className="mud-landing-note">Signed in as {user.displayName || 'Anonymous'}. Your characters are waiting.</p>
@@ -349,10 +378,28 @@ type MudScreen = 'landing' | 'auth' | 'game'
 
 function MudRoot() {
   const { user, isLoading } = useAuth()
-  const [screen, setScreen] = useState<MudScreen>('landing')
+  const [screen, setScreen] = useState<MudScreen>(() => {
+    if (typeof window === 'undefined') return 'landing'
+    const saved = window.sessionStorage.getItem(MUD_SCREEN_KEY)
+    return saved === 'game' || saved === 'auth' || saved === 'landing' ? saved : 'landing'
+  })
 
   useEffect(() => {
     if (screen === 'auth' && user) setScreen('game')
+  }, [screen, user])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (!user && screen === 'game') {
+        window.sessionStorage.setItem(MUD_SCREEN_KEY, 'auth')
+      } else {
+        window.sessionStorage.setItem(MUD_SCREEN_KEY, screen)
+      }
+    }
+  }, [screen, user])
+
+  useEffect(() => {
+    if (!user && screen === 'game') setScreen('auth')
   }, [screen, user])
 
   if (isLoading) {
