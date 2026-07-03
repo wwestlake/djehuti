@@ -1646,6 +1646,7 @@ let ``embedded analyst sends framework grounding and app context through AI conn
         analyst.Ask
             { Question = "What changed?"
               Context = context
+              PreprocessedEvidence = None
               ConversationId = Some(AiConversationId "analysis-chat")
               Model = Some(ModelId "analysis-model")
               Temperature = Some 0.2
@@ -1719,6 +1720,7 @@ let ``analyst can be initialized with a custom framework profile`` () =
                   AttractorEvents = []
                   Constants = Map.empty
                   Warnings = [] }
+              PreprocessedEvidence = None
               ConversationId = None
               Model = None
               Temperature = None
@@ -1755,6 +1757,7 @@ let ``embedded analyst propagates AI connection errors`` () =
                   AttractorEvents = []
                   Constants = Map.empty
                   Warnings = [] }
+              PreprocessedEvidence = None
               ConversationId = None
               Model = None
               Temperature = None
@@ -1764,3 +1767,17 @@ let ``embedded analyst propagates AI connection errors`` () =
     match result with
     | Error(AiConnectionUnavailable "offline") -> ()
     | other -> failwithf "Expected propagated connection error, got %A" other
+
+[<Fact>]
+let ``semantic preprocessing selects evidence matching the analyst question`` () =
+    let evidence =
+        [ { Label = "turn 0"; Value = "turn 0: prompt=\"Why did the response drift\" response=\"topic jump detected\"" ; Source = None }
+          { Label = "observable 0"; Value = "observable[0] turn=t-0: alpha=0.200, v=0.910, zeta4=0.950" ; Source = None }
+          { Label = "warning"; Value = "logical-time gap detected in upload" ; Source = None }
+          { Label = "report"; Value = "report session-a: beta=0.100 and delta=40.000" ; Source = None } ]
+
+    let selected =
+        SemanticPreprocessing.selectEvidence "Which observable shows drift velocity?" 2 evidence
+
+    Assert.Equal(2, selected.Length)
+    Assert.Contains(selected, fun item -> item.Label = "observable 0")

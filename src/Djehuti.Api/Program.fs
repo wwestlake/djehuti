@@ -745,10 +745,14 @@ module AnalystApi =
                     let maxOutputTokens =
                         if request.MaxOutputTokens.HasValue then Some request.MaxOutputTokens.Value else Some 900
 
+                    let preprocessedEvidence =
+                        SemanticGraphRepository.selectAnalystEvidence request.Question analysisRun.Context 12
+
                     let result =
                         analyst.Ask
                             { Question = request.Question
                               Context = analysisRun.Context
+                              PreprocessedEvidence = Some preprocessedEvidence
                               ConversationId = None
                               Model = model
                               Temperature = temperature
@@ -1593,6 +1597,86 @@ let main args =
                     match result with
                     | Ok message -> Results.Ok({| Success = true; Message = message |})
                     | Error message -> Results.BadRequest({| Success = false; Message = message |})
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/stats",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                Results.Ok(SemanticGraphRepository.getStats())
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/search",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let query =
+                    match ctx.Request.Query.TryGetValue("q") with
+                    | true, values when values.Count > 0 -> values.[0]
+                    | _ -> ""
+
+                let sourceType =
+                    match ctx.Request.Query.TryGetValue("sourceType") with
+                    | true, values when values.Count > 0 && not (String.IsNullOrWhiteSpace values.[0]) -> Some(values.[0].Trim())
+                    | _ -> None
+
+                let limit =
+                    match ctx.Request.Query.TryGetValue("limit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 50
+                        | _ -> 10
+                    | _ -> 10
+
+                if String.IsNullOrWhiteSpace query then
+                    Results.BadRequest("q is required")
+                else
+                    Results.Ok(SemanticGraphRepository.searchChunks query sourceType limit)
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/semantic/index/forum/thread/{threadId}",
+        Func<HttpContext, Guid, IResult>(fun ctx threadId ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match SemanticGraphRepository.indexForumThread threadId with
+                | Some documentId -> Results.Ok({| indexed = true; documentId = documentId |})
+                | None -> Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/semantic/index/blog/article/{articleId}",
+        Func<HttpContext, Guid, IResult>(fun ctx articleId ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match SemanticGraphRepository.indexBlogArticle articleId with
+                | Some documentId -> Results.Ok({| indexed = true; documentId = documentId |})
+                | None -> Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/semantic/reindex/indexed",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                Results.Ok(SemanticGraphRepository.reindexIndexedDocuments())
+            | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )
     ) |> ignore

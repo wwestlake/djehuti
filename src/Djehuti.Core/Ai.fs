@@ -75,6 +75,7 @@ type DjehutiAnalystInitialization =
 type DjehutiAnalystRequest =
     { Question: string
       Context: DjehutiAnalysisContext
+      PreprocessedEvidence: DjehutiAnalystEvidence list option
       ConversationId: AiConversationId option
       Model: ModelId option
       Temperature: float option
@@ -290,7 +291,7 @@ module Ai =
                   Value = warning
                   Source = None }) ]
 
-    let contextSummary (context: DjehutiAnalysisContext) =
+    let contextSummaryWithEvidence (evidence: DjehutiAnalystEvidence list) (context: DjehutiAnalysisContext) =
         let builder = StringBuilder()
         builder.AppendLine("Djehuti analysis context:") |> ignore
         builder.AppendLine($"turns={context.Turns.Length}") |> ignore
@@ -306,7 +307,6 @@ module Ai =
             |> List.truncate 16
             |> List.iter (fun (key, value) -> builder.AppendLine($"- {key}: {value}") |> ignore)
 
-        let evidence = evidenceFromContext context
         if not evidence.IsEmpty then
             builder.AppendLine("evidence:") |> ignore
 
@@ -314,6 +314,12 @@ module Ai =
             |> List.iter (fun item -> builder.AppendLine($"- {item.Label}: {item.Value}") |> ignore)
 
         builder.ToString().Trim()
+
+    let contextSummary (context: DjehutiAnalysisContext) =
+        contextSummaryWithEvidence (evidenceFromContext context) context
+
+    let private evidenceForRequest (request: DjehutiAnalystRequest) =
+        request.PreprocessedEvidence |> Option.defaultWith (fun () -> evidenceFromContext request.Context)
 
     let buildAnalystMessagesWithInitialization initialization question context =
         [ system (frameworkGroundingFromInitialization initialization)
@@ -324,6 +330,17 @@ module Ai =
                     if String.IsNullOrWhiteSpace question then "(no question supplied)" else question.Trim()
                     "Available app data:"
                     contextSummary context
+                    "Answer as a Djehuti analyst. Cite the supplied evidence labels when useful and call out refused or hypothesis-dependent measurements." ]) ]
+
+    let buildAnalystMessagesForRequestWithInitialization initialization (request: DjehutiAnalystRequest) =
+        [ system (frameworkGroundingFromInitialization initialization)
+          user (
+              String.concat
+                  "\n\n"
+                  [ "Question:"
+                    if String.IsNullOrWhiteSpace request.Question then "(no question supplied)" else request.Question.Trim()
+                    "Available app data:"
+                    contextSummaryWithEvidence (evidenceForRequest request) request.Context
                     "Answer as a Djehuti analyst. Cite the supplied evidence labels when useful and call out refused or hypothesis-dependent measurements." ]) ]
 
     let buildAnalystMessages question context =
@@ -340,7 +357,7 @@ module Ai =
                         { ConnectionId = connectionId
                           ConversationId = request.ConversationId
                           Model = request.Model
-                          Messages = buildAnalystMessagesWithInitialization initialization request.Question request.Context
+                          Messages = buildAnalystMessagesForRequestWithInitialization initialization request
                           Temperature = request.Temperature
                           MaxOutputTokens = request.MaxOutputTokens
                           Metadata =
@@ -358,6 +375,6 @@ module Ai =
                         response
                         |> Result.map (fun aiResponse ->
                             { Answer = aiResponse.Content
-                              Evidence = evidenceFromContext request.Context
+                              Evidence = evidenceForRequest request
                               AiResponse = aiResponse })
                 }

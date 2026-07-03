@@ -29,6 +29,8 @@
     <Compile Include="ApiKeyRepository.fs" />
     <Compile Include="SecretProtector.fs" />
     <Compile Include="PersonaRepository.fs" />
+    <Compile Include="SemanticEmbeddings.fs" />
+    <Compile Include="SemanticGraphRepository.fs" />
     <Compile Include="MudConstructionRepository.fs" />
     <Compile Include="MudChatRepository.fs" />
     <Compile Include="MudRepository.fs" />
@@ -47,8 +49,10 @@
 
   <ItemGroup>
     <PackageReference Include="AWSSDK.S3" Version="3.7.400.2" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.22.1" />
     <PackageReference Include="Npgsql" Version="9.0.3" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.4.0" />
+    <PackageReference Include="Tokenizers.HuggingFace" Version="3.23.1" />
     <PackageReference Include="AWSSDK.SimpleEmail" Version="3.7.200.29" />
   </ItemGroup>
 
