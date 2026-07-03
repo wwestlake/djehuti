@@ -746,7 +746,7 @@ module AnalystApi =
                         if request.MaxOutputTokens.HasValue then Some request.MaxOutputTokens.Value else Some 900
 
                     let preprocessedEvidence =
-                        SemanticGraphRepository.selectAnalystEvidence request.Question analysisRun.Context 12
+                        SemanticGraphRepository.buildAnalystContextPacket request.Question analysisRun.Context 12 6
 
                     let result =
                         analyst.Ask
