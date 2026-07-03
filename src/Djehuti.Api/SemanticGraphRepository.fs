@@ -31,7 +31,9 @@ type SemanticReindexSummary =
       DocumentsIndexed: int
       ForumThreadsIndexed: int
       BlogArticlesIndexed: int
-      MudRoomsIndexed: int }
+      MudRoomsIndexed: int
+      MudItemsIndexed: int
+      MudRecipesIndexed: int }
 
 let private sha256 (text: string) =
     use hasher = SHA256.Create()
@@ -90,6 +92,39 @@ let private buildMudRoomText
             itemDescription |> Option.iter (fun value -> builder.AppendLine($"  {value}") |> ignore)
             readableText |> Option.iter (fun value -> builder.AppendLine($"  Readable text: {value}") |> ignore))
 
+    builder.ToString().Trim()
+
+let private buildMudItemText
+    (itemName: string)
+    (itemSlug: string)
+    (description: string option)
+    (readableText: string option)
+    (roomName: string option)
+    (zoneName: string option) =
+    let builder = StringBuilder()
+    builder.AppendLine(itemName) |> ignore
+    builder.AppendLine($"Slug: {itemSlug}") |> ignore
+    roomName |> Option.iter (fun value -> builder.AppendLine($"Room: {value}") |> ignore)
+    zoneName |> Option.iter (fun value -> builder.AppendLine($"Zone: {value}") |> ignore)
+    builder.AppendLine() |> ignore
+    builder.AppendLine(description |> Option.defaultValue "The item has no description yet.") |> ignore
+    readableText |> Option.iter (fun value -> builder.AppendLine().AppendLine($"Readable text: {value}") |> ignore)
+    builder.ToString().Trim()
+
+let private buildMudRecipeText (recipe: MudAdminRepository.MudRecipe) =
+    let builder = StringBuilder()
+    builder.AppendLine(recipe.Name) |> ignore
+    builder.AppendLine($"Creates: {recipe.OutputName}") |> ignore
+    builder.AppendLine($"Recipe slug: {recipe.Slug}") |> ignore
+    builder.AppendLine($"Output slug: {recipe.OutputSlug}") |> ignore
+    builder.AppendLine() |> ignore
+    builder.AppendLine(recipe.OutputDescription) |> ignore
+    recipe.OutputReadableText |> Option.iter (fun value -> builder.AppendLine().AppendLine($"Readable text: {value}") |> ignore)
+    if not recipe.Ingredients.IsEmpty then
+        builder.AppendLine().AppendLine("Ingredients:") |> ignore
+        recipe.Ingredients
+        |> List.sortBy _.Position
+        |> List.iter (fun ingredient -> builder.AppendLine($"- {ingredient.Quantity} x {ingredient.Slug}") |> ignore)
     builder.ToString().Trim()
 
 let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (documentId: Guid) (text: string) =
@@ -296,6 +331,51 @@ let indexMudRoom (roomId: Guid) =
         indexTextDocument "mud-room" (string roomGuid) title text (Some metadata)
         |> Some
 
+let indexMudItem (itemId: Guid) =
+    use conn = openConnection()
+    use itemCmd = new NpgsqlCommand(
+        """SELECT i.id, i.name, i.slug, i.description, i.readable_text,
+                  r.name, z.name
+           FROM mud_items i
+           LEFT JOIN mud_rooms r ON r.id = i.room_id
+           LEFT JOIN mud_zones z ON z.id = r.zone_id
+           WHERE i.id = @itemId AND i.owner_character_id IS NULL""",
+        conn)
+    itemCmd.Parameters.AddWithValue("itemId", itemId) |> ignore
+    use itemReader = itemCmd.ExecuteReader()
+    if not (itemReader.Read()) then
+        None
+    else
+        let itemGuid = itemReader.GetGuid(0)
+        let itemName = itemReader.GetString(1)
+        let itemSlug = itemReader.GetString(2)
+        let description = if itemReader.IsDBNull(3) then None else Some(itemReader.GetString(3))
+        let readableText = if itemReader.IsDBNull(4) then None else Some(itemReader.GetString(4))
+        let roomName = if itemReader.IsDBNull(5) then None else Some(itemReader.GetString(5))
+        let zoneName = if itemReader.IsDBNull(6) then None else Some(itemReader.GetString(6))
+        let roomNameJson =
+            match roomName with
+            | Some value -> $"\"{value}\""
+            | None -> "null"
+        let title =
+            match roomName, zoneName with
+            | Some roomValue, Some zoneValue -> $"{zoneValue} / {roomValue} / {itemName}"
+            | Some roomValue, None -> $"{roomValue} / {itemName}"
+            | _ -> itemName
+        let text = buildMudItemText itemName itemSlug description readableText roomName zoneName
+        let metadata =
+            $"""{{"itemId":"{itemGuid}","itemSlug":"{itemSlug}","roomName":{roomNameJson}}}"""
+        indexTextDocument "mud-item" (string itemGuid) title text (Some metadata)
+        |> Some
+
+let indexMudRecipe (recipeId: Guid) =
+    MudAdminRepository.getRecipes()
+    |> List.tryFind (fun recipe -> recipe.Id = recipeId)
+    |> Option.map (fun recipe ->
+        let text = buildMudRecipeText recipe
+        let metadata = $"""{{"recipeId":"{recipe.Id}","recipeSlug":"{recipe.Slug}","active":{if recipe.Active then "true" else "false"}}}"""
+        indexTextDocument "mud-recipe" (string recipe.Id) recipe.Name text (Some metadata))
+
 let reindexMudRooms () =
     use conn = openConnection()
     use cmd = new NpgsqlCommand("SELECT id FROM mud_rooms ORDER BY created_at ASC, name ASC", conn)
@@ -311,6 +391,32 @@ let reindexMudRooms () =
         | Some _ -> indexedCount <- indexedCount + 1
         | None -> ()
 
+    indexedCount
+
+let reindexMudItems () =
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand(
+        """SELECT id
+           FROM mud_items
+           WHERE owner_character_id IS NULL
+           ORDER BY created_at ASC, name ASC""",
+        conn)
+    use reader = cmd.ExecuteReader()
+    let itemIds = [ while reader.Read() do yield reader.GetGuid(0) ]
+    let mutable indexedCount = 0
+    for itemId in itemIds do
+        match indexMudItem itemId with
+        | Some _ -> indexedCount <- indexedCount + 1
+        | None -> ()
+    indexedCount
+
+let reindexMudRecipes () =
+    let recipes = MudAdminRepository.getRecipes()
+    let mutable indexedCount = 0
+    for recipe in recipes do
+        match indexMudRecipe recipe.Id with
+        | Some _ -> indexedCount <- indexedCount + 1
+        | None -> ()
     indexedCount
 
 let reindexIndexedDocuments () =
@@ -330,6 +436,8 @@ let reindexIndexedDocuments () =
     let mutable forumCount = 0
     let mutable blogCount = 0
     let mutable mudRoomCount = 0
+    let mutable mudItemCount = 0
+    let mutable mudRecipeCount = 0
 
     for sourceType, sourceKey in documents do
         match Guid.TryParse(sourceKey) with
@@ -353,6 +461,18 @@ let reindexIndexedDocuments () =
                     indexedCount <- indexedCount + 1
                     mudRoomCount <- mudRoomCount + 1
                 | None -> ()
+            | "mud-item" ->
+                match indexMudItem sourceId with
+                | Some _ ->
+                    indexedCount <- indexedCount + 1
+                    mudItemCount <- mudItemCount + 1
+                | None -> ()
+            | "mud-recipe" ->
+                match indexMudRecipe sourceId with
+                | Some _ ->
+                    indexedCount <- indexedCount + 1
+                    mudRecipeCount <- mudRecipeCount + 1
+                | None -> ()
             | _ -> ()
         | _ -> ()
 
@@ -360,7 +480,9 @@ let reindexIndexedDocuments () =
       DocumentsIndexed = indexedCount
       ForumThreadsIndexed = forumCount
       BlogArticlesIndexed = blogCount
-      MudRoomsIndexed = mudRoomCount }
+      MudRoomsIndexed = mudRoomCount
+      MudItemsIndexed = mudItemCount
+      MudRecipesIndexed = mudRecipeCount }
 
 let getStats () =
     use conn = openConnection()
