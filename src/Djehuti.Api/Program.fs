@@ -1385,11 +1385,10 @@ let main args =
         "/api/mud/roster",
         Func<HttpContext, IResult>(fun ctx ->
             match tryGetAuthClaims ctx with
-            | Some claims when Permissions.isAdmin claims.Role ->
+            | Some claims ->
                 match Guid.TryParse(claims.UserId) with
                 | false, _ -> Results.Unauthorized()
                 | true, userId -> Results.Ok(MudRepository.getRoster userId)
-            | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )
     ) |> ignore
@@ -1398,14 +1397,13 @@ let main args =
         "/api/mud/characters",
         Func<HttpContext, MudCharacterCreateRequest, IResult>(fun ctx body ->
             match tryGetAuthClaims ctx with
-            | Some claims when Permissions.isAdmin claims.Role ->
+            | Some claims ->
                 match Guid.TryParse(claims.UserId) with
                 | false, _ -> Results.Unauthorized()
                 | true, userId ->
                     match MudRepository.createCharacter userId body.RealmSlug body.Name (if String.IsNullOrWhiteSpace body.DisplayName then None else Some body.DisplayName) with
                     | Ok roster -> Results.Ok(roster)
                     | Error message -> Results.BadRequest(message)
-            | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )
     ) |> ignore
@@ -1414,14 +1412,13 @@ let main args =
         "/api/mud/characters/{characterId}/select",
         Func<HttpContext, string, IResult>(fun ctx characterId ->
             match tryGetAuthClaims ctx with
-            | Some claims when Permissions.isAdmin claims.Role ->
+            | Some claims ->
                 match Guid.TryParse(claims.UserId), Guid.TryParse(characterId) with
                 | (true, userId), (true, selectedCharacterId) ->
                     match MudRepository.selectCharacter userId selectedCharacterId with
                     | Some state -> Results.Ok(state)
                     | None -> Results.NotFound("Character not found")
                 | _ -> Results.BadRequest("Invalid character id")
-            | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )
     ) |> ignore
@@ -1430,7 +1427,7 @@ let main args =
         "/api/mud/characters/{characterId}",
         Func<HttpContext, string, IResult>(fun ctx characterId ->
             match tryGetAuthClaims ctx with
-            | Some claims when Permissions.isAdmin claims.Role ->
+            | Some claims ->
                 match Guid.TryParse(claims.UserId), Guid.TryParse(characterId) with
                 | (true, userId), (true, selectedCharacterId) ->
                     if MudRepository.deleteCharacter userId selectedCharacterId then
@@ -1438,7 +1435,6 @@ let main args =
                     else
                         Results.NotFound("Character not found")
                 | _ -> Results.BadRequest("Invalid character id")
-            | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )
     ) |> ignore
@@ -1447,14 +1443,13 @@ let main args =
         "/api/mud/companions/{characterId}",
         Func<HttpContext, string, IResult>(fun ctx characterId ->
             match tryGetAuthClaims ctx with
-            | Some claims when Permissions.isAdmin claims.Role ->
+            | Some claims ->
                 match Guid.TryParse(claims.UserId), Guid.TryParse(characterId) with
                 | (true, userId), (true, parsedCharacterId) ->
                     match MudCompanionRepository.getSettings userId parsedCharacterId with
                     | Some settings -> Results.Ok(settings)
                     | None -> Results.NotFound("Character not found")
                 | _ -> Results.BadRequest("Invalid character id")
-            | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )
     ) |> ignore
@@ -1463,14 +1458,13 @@ let main args =
         "/api/mud/companions/{characterId}",
         Func<HttpContext, string, MudCompanionUpdateRequest, IResult>(fun ctx characterId body ->
             match tryGetAuthClaims ctx with
-            | Some claims when Permissions.isAdmin claims.Role ->
+            | Some claims ->
                 match Guid.TryParse(claims.UserId), Guid.TryParse(characterId) with
                 | (true, userId), (true, parsedCharacterId) ->
                     match MudCompanionRepository.upsertSettings userId parsedCharacterId body.Enabled body.Mode body.Model body.Disclosure body.AllowOnlineConcurrency body.UseByoOpenAiKey (if String.IsNullOrWhiteSpace body.OpenAiApiKey then None else Some body.OpenAiApiKey) with
                     | Ok settings -> Results.Ok(settings)
                     | Error message -> Results.BadRequest(message)
                 | _ -> Results.BadRequest("Invalid character id")
-            | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )
     ) |> ignore
@@ -1479,14 +1473,13 @@ let main args =
         "/api/mud/companions/{characterId}/key",
         Func<HttpContext, string, IResult>(fun ctx characterId ->
             match tryGetAuthClaims ctx with
-            | Some claims when Permissions.isAdmin claims.Role ->
+            | Some claims ->
                 match Guid.TryParse(claims.UserId), Guid.TryParse(characterId) with
                 | (true, userId), (true, parsedCharacterId) ->
                     match MudCompanionRepository.removeByoKey userId parsedCharacterId with
                     | Ok settings -> Results.Ok(settings)
                     | Error message -> Results.BadRequest(message)
                 | _ -> Results.BadRequest("Invalid character id")
-            | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )
     ) |> ignore
@@ -1495,14 +1488,13 @@ let main args =
         "/api/mud/me",
         Func<HttpContext, IResult>(fun ctx ->
             match tryGetAuthClaims ctx with
-            | Some claims when Permissions.isAdmin claims.Role ->
+            | Some claims ->
                 match Guid.TryParse(claims.UserId) with
                 | false, _ -> Results.Unauthorized()
                 | true, userId ->
                     match MudRepository.getState userId with
                     | Some state -> Results.Ok(state)
                     | None -> Results.Ok(null)
-            | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )
     ) |> ignore
@@ -1511,11 +1503,10 @@ let main args =
         "/api/mud/command",
         Func<HttpContext, MudCommandRequest, IResult>(fun ctx body ->
             match tryGetAuthClaims ctx with
-            | Some claims when Permissions.isAdmin claims.Role ->
+            | Some claims ->
                 match Guid.TryParse(claims.UserId) with
                 | false, _ -> Results.Unauthorized()
                 | true, userId -> Results.Ok(MudRepository.handleCommand userId body.Command)
-            | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )
     ) |> ignore

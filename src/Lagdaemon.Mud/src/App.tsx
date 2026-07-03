@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import MudPage from './pages/MudPage'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -64,26 +64,77 @@ function OAuthButtons() {
   )
 }
 
-function AdminGate() {
+function MudLanding({ onEnter }: { onEnter: () => void }) {
+  const { user } = useAuth()
+
   return (
     <section className="mud-page mud-page-app">
-      <div className="mud-shell mud-auth-shell">
-        <div className="mud-auth-card">
+      <div className="mud-shell mud-landing-shell">
+        <div className="mud-landing-hero">
           <div className="mud-kicker">LagDaemon MUD</div>
-          <h1>Admin access required</h1>
-          <p className="mud-auth-copy">
-            This game entrance is now its own app, but access is still limited to administrators for now.
+          <h1>Two worlds. One door.</h1>
+          <p className="mud-landing-tagline">
+            A text-first multiplayer world you can play from any browser, on any phone.
+            Walk a medieval keep and its haunted forest, or dock at a drifting star station
+            and board the derelict clamped to its ring. Gather, craft, read everything, and
+            leave your mark.
           </p>
-          <div className="mud-auth-actions">
-            <a className="mud-command-btn" href="/">Back to LagDaemon</a>
+          <div className="mud-landing-actions">
+            <button className="mud-command-btn" onClick={onEnter}>
+              {user ? 'Enter the world' : 'Create account / Sign in'}
+            </button>
+            <a className="mud-back-btn" href="/">Back to LagDaemon.com</a>
           </div>
+          {user
+            ? <p className="mud-landing-note">Signed in as {user.displayName || 'Anonymous'}. Your characters are waiting.</p>
+            : <p className="mud-landing-note">Playing requires a free account. Looking around here does not.</p>}
+        </div>
+
+        <div className="mud-landing-grid">
+          <div className="mud-card mud-card-flat">
+            <h2>Medieval Realm</h2>
+            <p className="mud-landing-copy">
+              Enter at the keep gate. Vaults below, a greenwood beyond the walls, a beacon
+              above the clouds, and a barrow door that asks you to knock on your way out.
+            </p>
+          </div>
+          <div className="mud-card mud-card-flat">
+            <h2>Sci-Fi Realm</h2>
+            <p className="mud-landing-copy">
+              Dock at Star Reach. Ride the freight lift to the drift ring, board the Vagrant
+              Star, dive into the Signal Sea, or walk the hull out to the Scar.
+            </p>
+          </div>
+          <div className="mud-card mud-card-flat">
+            <h2>Gather and Craft</h2>
+            <p className="mud-landing-copy">
+              75 rooms across 13 zones, stocked with materials and 38 recipes — torches,
+              wards, medkits, a lens that shows how the damage happened.
+            </p>
+          </div>
+          <div className="mud-card mud-card-flat">
+            <h2>AI Companions</h2>
+            <p className="mud-landing-copy">
+              Eligible characters can enable a personal AI companion that inhabits the world
+              alongside you. Bring your own key or use a supported tier.
+            </p>
+          </div>
+        </div>
+
+        <div className="mud-card mud-card-flat mud-landing-how">
+          <h2>How to start</h2>
+          <ol>
+            <li>Create a free account, or sign in with Google or GitHub.</li>
+            <li>Create a character — free players get one starter character in each realm.</li>
+            <li>Step through a portal and type <code>look</code>. The world takes it from there.</li>
+          </ol>
         </div>
       </div>
     </section>
   )
 }
 
-function MudAuthScreen() {
+function MudAuthScreen({ onBack }: { onBack?: () => void }) {
   const { login, signup, error, clearError, isLoading } = useAuth()
   const [mode, setMode] = useState<AuthMode>('signin')
   const [email, setEmail] = useState('')
@@ -259,6 +310,7 @@ function MudAuthScreen() {
           </div>
 
           <div className="mud-auth-actions">
+            {onBack && <button className="mud-back-btn" onClick={onBack}>← Game landing</button>}
             <a className="mud-back-btn" href="/">Back to LagDaemon</a>
           </div>
         </div>
@@ -267,8 +319,15 @@ function MudAuthScreen() {
   )
 }
 
+type MudScreen = 'landing' | 'auth' | 'game'
+
 function MudRoot() {
   const { user, isLoading } = useAuth()
+  const [screen, setScreen] = useState<MudScreen>('landing')
+
+  useEffect(() => {
+    if (screen === 'auth' && user) setScreen('game')
+  }, [screen, user])
 
   if (isLoading) {
     return (
@@ -282,9 +341,9 @@ function MudRoot() {
     )
   }
 
-  if (!user) return <MudAuthScreen />
-  if (user.role !== 'admin') return <AdminGate />
-  return <MudPage />
+  if (screen === 'game' && user) return <MudPage onExit={() => setScreen('landing')} />
+  if (screen === 'auth' && !user) return <MudAuthScreen onBack={() => setScreen('landing')} />
+  return <MudLanding onEnter={() => setScreen(user ? 'game' : 'auth')} />
 }
 
 export default function App() {
