@@ -30,7 +30,8 @@ type SemanticReindexSummary =
     { DocumentsRequested: int
       DocumentsIndexed: int
       ForumThreadsIndexed: int
-      BlogArticlesIndexed: int }
+      BlogArticlesIndexed: int
+      MudRoomsIndexed: int }
 
 let private sha256 (text: string) =
     use hasher = SHA256.Create()
@@ -57,6 +58,38 @@ let private buildBlogArticleText (article: BlogRepository.BlogArticle) =
     article.Subtitle |> Option.iter (fun value -> builder.AppendLine(value) |> ignore)
     article.Excerpt |> Option.iter (fun value -> builder.AppendLine().AppendLine(value) |> ignore)
     builder.AppendLine().AppendLine(article.Content) |> ignore
+    builder.ToString().Trim()
+
+let private buildMudRoomText
+    (zoneName: string)
+    (roomName: string)
+    (description: string option)
+    (exits: (string * string * string option) list)
+    (items: (string * string option * string option) list) =
+    let builder = StringBuilder()
+    builder.AppendLine(roomName) |> ignore
+    builder.AppendLine($"Zone: {zoneName}") |> ignore
+    builder.AppendLine() |> ignore
+    builder.AppendLine(description |> Option.defaultValue "The room has no description yet.") |> ignore
+
+    if not exits.IsEmpty then
+        builder.AppendLine().AppendLine("Exits:") |> ignore
+        exits
+        |> List.iter (fun (direction, targetRoomName, label) ->
+            match label with
+            | Some value when not (String.IsNullOrWhiteSpace value) ->
+                builder.AppendLine($"- {direction}: {targetRoomName} ({value})") |> ignore
+            | _ ->
+                builder.AppendLine($"- {direction}: {targetRoomName}") |> ignore)
+
+    if not items.IsEmpty then
+        builder.AppendLine().AppendLine("Visible items:") |> ignore
+        items
+        |> List.iter (fun (name, itemDescription, readableText) ->
+            builder.AppendLine($"- {name}") |> ignore
+            itemDescription |> Option.iter (fun value -> builder.AppendLine($"  {value}") |> ignore)
+            readableText |> Option.iter (fun value -> builder.AppendLine($"  Readable text: {value}") |> ignore))
+
     builder.ToString().Trim()
 
 let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (documentId: Guid) (text: string) =
@@ -183,6 +216,103 @@ let indexBlogArticle (articleId: Guid) =
         indexTextDocument "blog-article" (string article.Id) article.Title text (Some metadata)
         |> Some
 
+let indexMudRoom (roomId: Guid) =
+    use conn = openConnection()
+
+    use roomCmd = new NpgsqlCommand(
+        """SELECT r.id, r.name, r.slug, r.description, z.id, z.name, z.slug
+           FROM mud_rooms r
+           JOIN mud_zones z ON z.id = r.zone_id
+           WHERE r.id = @roomId""",
+        conn)
+    roomCmd.Parameters.AddWithValue("roomId", roomId) |> ignore
+    use roomReader = roomCmd.ExecuteReader()
+
+    let roomData =
+        if roomReader.Read() then
+            let roomDescription =
+                if roomReader.IsDBNull(3) then None else Some(roomReader.GetString(3))
+            Some(
+                roomReader.GetGuid(0),
+                roomReader.GetString(1),
+                roomReader.GetString(2),
+                roomDescription,
+                roomReader.GetGuid(4),
+                roomReader.GetString(5),
+                roomReader.GetString(6))
+        else
+            None
+
+    roomReader.Close()
+
+    match roomData with
+    | None -> None
+    | Some(roomGuid, roomName, roomSlug, description, zoneGuid, zoneName, zoneSlug) ->
+        use exitsCmd = new NpgsqlCommand(
+            """SELECT e.direction, rt.name, e.label
+               FROM mud_exits e
+               JOIN mud_rooms rt ON rt.id = e.to_room_id
+               WHERE e.from_room_id = @roomId
+               ORDER BY e.direction, rt.name""",
+            conn)
+        exitsCmd.Parameters.AddWithValue("roomId", roomGuid) |> ignore
+        use exitsReader = exitsCmd.ExecuteReader()
+        let exits =
+            [ while exitsReader.Read() do
+                let exitLabel =
+                    if exitsReader.IsDBNull(2) then None else Some(exitsReader.GetString(2))
+                yield (
+                    exitsReader.GetString(0),
+                    exitsReader.GetString(1),
+                    exitLabel
+                ) ]
+        exitsReader.Close()
+
+        use itemsCmd = new NpgsqlCommand(
+            """SELECT name, description, readable_text
+               FROM mud_items
+               WHERE room_id = @roomId
+               ORDER BY position, name""",
+            conn)
+        itemsCmd.Parameters.AddWithValue("roomId", roomGuid) |> ignore
+        use itemsReader = itemsCmd.ExecuteReader()
+        let items =
+            [ while itemsReader.Read() do
+                let itemDescription =
+                    if itemsReader.IsDBNull(1) then None else Some(itemsReader.GetString(1))
+                let readableText =
+                    if itemsReader.IsDBNull(2) then None else Some(itemsReader.GetString(2))
+                yield (
+                    itemsReader.GetString(0),
+                    itemDescription,
+                    readableText
+                ) ]
+        itemsReader.Close()
+
+        let title = $"{zoneName} / {roomName}"
+        let text = buildMudRoomText zoneName roomName description exits items
+        let metadata =
+            $"""{{"roomId":"{roomGuid}","roomSlug":"{roomSlug}","zoneId":"{zoneGuid}","zoneSlug":"{zoneSlug}"}}"""
+        indexTextDocument "mud-room" (string roomGuid) title text (Some metadata)
+        |> Some
+
+let reindexMudRooms () =
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand("SELECT id FROM mud_rooms ORDER BY created_at ASC, name ASC", conn)
+    use reader = cmd.ExecuteReader()
+
+    let roomIds =
+        [ while reader.Read() do
+            yield reader.GetGuid(0) ]
+
+    let mutable indexedCount = 0
+    for roomId in roomIds do
+        match indexMudRoom roomId with
+        | Some _ -> indexedCount <- indexedCount + 1
+        | None -> ()
+
+    indexedCount
+
 let reindexIndexedDocuments () =
     use conn = openConnection()
     use cmd = new NpgsqlCommand(
@@ -199,6 +329,7 @@ let reindexIndexedDocuments () =
     let mutable indexedCount = 0
     let mutable forumCount = 0
     let mutable blogCount = 0
+    let mutable mudRoomCount = 0
 
     for sourceType, sourceKey in documents do
         match Guid.TryParse(sourceKey) with
@@ -216,13 +347,20 @@ let reindexIndexedDocuments () =
                     indexedCount <- indexedCount + 1
                     blogCount <- blogCount + 1
                 | None -> ()
+            | "mud-room" ->
+                match indexMudRoom sourceId with
+                | Some _ ->
+                    indexedCount <- indexedCount + 1
+                    mudRoomCount <- mudRoomCount + 1
+                | None -> ()
             | _ -> ()
         | _ -> ()
 
     { DocumentsRequested = documents.Length
       DocumentsIndexed = indexedCount
       ForumThreadsIndexed = forumCount
-      BlogArticlesIndexed = blogCount }
+      BlogArticlesIndexed = blogCount
+      MudRoomsIndexed = mudRoomCount }
 
 let getStats () =
     use conn = openConnection()

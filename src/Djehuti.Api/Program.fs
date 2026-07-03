@@ -1681,6 +1681,31 @@ let main args =
         )
     ) |> ignore
 
+    app.MapPost(
+        "/api/admin/semantic/index/mud/room/{roomId}",
+        Func<HttpContext, Guid, IResult>(fun ctx roomId ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match SemanticGraphRepository.indexMudRoom roomId with
+                | Some documentId -> Results.Ok({| indexed = true; documentId = documentId |})
+                | None -> Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/semantic/reindex/mud/rooms",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let indexed = SemanticGraphRepository.reindexMudRooms()
+                Results.Ok({| indexed = indexed |})
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
     app.MapGet(
         "/api/admin/mud/world",
         Func<HttpContext, IResult>(fun ctx ->
