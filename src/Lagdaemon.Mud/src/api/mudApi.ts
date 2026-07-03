@@ -128,6 +128,12 @@ export interface MudCompanionSettings {
   updatedAt?: string
 }
 
+export interface MudLandingStats {
+  roomCount: number
+  zoneCount: number
+  recipeCount: number
+}
+
 export interface MudChatMessageView {
   id: string
   channel: string
@@ -170,6 +176,9 @@ async function readJsonOrThrow<T>(response: Response): Promise<T> {
 }
 
 export const mudApi = {
+  getLandingStats: (): Promise<MudLandingStats> =>
+    fetch(`${BASE}/landing-stats`).then(readJsonOrThrow<MudLandingStats>),
+
   getRoster: (): Promise<MudRosterView> =>
     fetch(`${BASE}/roster`, opts).then(readJsonOrThrow<MudRosterView>),
 
