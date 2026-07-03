@@ -29,6 +29,7 @@
     <Compile Include="ApiKeyRepository.fs" />
     <Compile Include="SecretProtector.fs" />
     <Compile Include="PersonaRepository.fs" />
+    <Compile Include="SemanticGraphRepository.fs" />
     <Compile Include="MudConstructionRepository.fs" />
     <Compile Include="MudChatRepository.fs" />
     <Compile Include="MudRepository.fs" />
