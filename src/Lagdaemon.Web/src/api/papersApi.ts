@@ -31,6 +31,19 @@ export interface PaperCollaborator {
   addedAt: string
 }
 
+export interface PublicPaper {
+  id: string
+  title: string
+  abstract: string | null
+  authorName: string
+  updatedAt: string
+}
+
+export interface PublicPaperDetail {
+  paper: PublicPaper
+  sections: PaperSection[]
+}
+
 async function apiFetch(url: string, init?: RequestInit) {
   const res = await fetch(url, { ...opts, ...init })
   if (!res.ok) throw new Error(res.statusText)
@@ -48,6 +61,9 @@ const json = (body: unknown) => ({
 })
 
 export const papersApi = {
+  publicList: (): Promise<PublicPaper[]> => apiFetch(`${BASE}/public`),
+  publicGet: (id: string): Promise<PublicPaperDetail> => apiFetch(`${BASE}/public/${id}`),
+
   list: (): Promise<Paper[]> => apiFetch(BASE),
   get: (id: string): Promise<Paper> => apiFetch(`${BASE}/${id}`),
   create: (title: string, summary: string): Promise<Paper> => apiFetch(BASE, { method: 'POST', ...json({ title, summary }) }),

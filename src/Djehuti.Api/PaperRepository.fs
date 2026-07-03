@@ -64,6 +64,49 @@ let private readSection (r: DbDataReader) : PaperSection = {
     UpdatedAt = r.GetDateTime(r.GetOrdinal("updated_at"))
 }
 
+type PublicPaper = {
+    Id:         Guid
+    Title:      string
+    Abstract:   string option
+    AuthorName: string
+    UpdatedAt:  DateTime
+}
+
+let private readPublicPaper (r: DbDataReader) : PublicPaper = {
+    Id         = r.GetGuid(r.GetOrdinal("id"))
+    Title      = r.GetString(r.GetOrdinal("title"))
+    Abstract   = if r.IsDBNull(r.GetOrdinal("abstract")) then None else Some(r.GetString(r.GetOrdinal("abstract")))
+    AuthorName = r.GetString(r.GetOrdinal("author_name"))
+    UpdatedAt  = r.GetDateTime(r.GetOrdinal("updated_at"))
+}
+
+// Public read surface: published papers only, author shown by display name
+// (user_profiles.display_name -> users.display_name -> 'Anonymous'; never email).
+
+let getPublishedPapers (conn: NpgsqlConnection) : PublicPaper list =
+    use cmd = new NpgsqlCommand("""
+        SELECT p.id, p.title, p.abstract, p.updated_at,
+               COALESCE(NULLIF(up.display_name, ''), NULLIF(u.display_name, ''), 'Anonymous') AS author_name
+        FROM papers p
+        JOIN users u ON u.id = p.owner_id
+        LEFT JOIN user_profiles up ON up.user_id = u.id
+        WHERE p.status = 'published'
+        ORDER BY p.updated_at DESC""", conn)
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do yield readPublicPaper reader ]
+
+let getPublishedPaperById (conn: NpgsqlConnection) (paperId: Guid) : PublicPaper option =
+    use cmd = new NpgsqlCommand("""
+        SELECT p.id, p.title, p.abstract, p.updated_at,
+               COALESCE(NULLIF(up.display_name, ''), NULLIF(u.display_name, ''), 'Anonymous') AS author_name
+        FROM papers p
+        JOIN users u ON u.id = p.owner_id
+        LEFT JOIN user_profiles up ON up.user_id = u.id
+        WHERE p.id = @id AND p.status = 'published'""", conn)
+    cmd.Parameters.AddWithValue("id", paperId) |> ignore
+    use reader = cmd.ExecuteReader()
+    if reader.Read() then Some(readPublicPaper reader) else None
+
 let getPapersByOwner (conn: NpgsqlConnection) (ownerId: Guid) : Paper list =
     use cmd = new NpgsqlCommand(
         "SELECT * FROM papers WHERE owner_id = @oid ORDER BY updated_at DESC", conn)
