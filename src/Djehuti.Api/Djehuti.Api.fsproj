@@ -29,11 +29,13 @@
     <Compile Include="ApiKeyRepository.fs" />
     <Compile Include="SecretProtector.fs" />
     <Compile Include="PersonaRepository.fs" />
+    <Compile Include="MudConstructionRepository.fs" />
     <Compile Include="MudChatRepository.fs" />
     <Compile Include="MudRepository.fs" />
     <Compile Include="MudCompanionRepository.fs" />
     <Compile Include="MudAdminRepository.fs" />
     <Compile Include="SponsorsRepository.fs" />
+    <Compile Include="GameWorldWorker.fs" />
     <Compile Include="HeartbeatWorker.fs" />
     <Compile Include="PatreonService.fs" />
     <Compile Include="Program.fs" />

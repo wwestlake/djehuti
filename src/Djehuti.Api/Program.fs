@@ -775,6 +775,7 @@ let main args =
     builder.Services.AddDataProtection() |> ignore
 
     builder.Services.AddHostedService<HeartbeatWorker.HeartbeatWorker>() |> ignore
+    builder.Services.AddHostedService<GameWorldWorker.GameWorldWorker>() |> ignore
 
     let app = builder.Build()
     let protector = app.Services.GetRequiredService<IDataProtectionProvider>()
