@@ -66,6 +66,15 @@ the user-level `credential.helper` was set to `manager-core` and was corrected t
 
 ---
 
+## Respond Before Working
+
+**When the user sends a message, respond to them in words first — then work.**
+Do not launch straight into tool calls or code when addressed. Acknowledge the message, give a short status or answer, and only then continue the task. The user should never have to interrupt work to ask what is happening.
+
+**Why:** During the builder-crew implementation the user sent messages and got silent tool activity in response, and had to interrupt to ask for a status.
+
+---
+
 ## Communication Style
 
 Use plain, precise language. Avoid slang and informal shorthand. The user has a DoD background and expects clear, unambiguous communication — define terms before using them, and do not assume shared informal vocabulary.
