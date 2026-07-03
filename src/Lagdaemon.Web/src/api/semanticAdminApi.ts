@@ -32,6 +32,8 @@ export interface SemanticReindexSummary {
   forumThreadsIndexed: number
   blogArticlesIndexed: number
   mudRoomsIndexed: number
+  mudItemsIndexed: number
+  mudRecipesIndexed: number
 }
 
 export const semanticAdminApi = {
@@ -49,4 +51,10 @@ export const semanticAdminApi = {
 
   reindexMudRooms: (): Promise<{ indexed: number }> =>
     fetch(`${BASE}/reindex/mud/rooms`, { ...opts, method: 'POST' }).then(json),
+
+  reindexMudItems: (): Promise<{ indexed: number }> =>
+    fetch(`${BASE}/reindex/mud/items`, { ...opts, method: 'POST' }).then(json),
+
+  reindexMudRecipes: (): Promise<{ indexed: number }> =>
+    fetch(`${BASE}/reindex/mud/recipes`, { ...opts, method: 'POST' }).then(json),
 }
