@@ -128,6 +128,25 @@ export interface MudCompanionSettings {
   updatedAt?: string
 }
 
+export interface MudChatMessageView {
+  id: string
+  channel: string
+  senderName: string
+  recipientName?: string
+  roomName?: string
+  body: string
+  createdAt: string
+  self: boolean
+}
+
+export interface MudChatSyncView {
+  messages: MudChatMessageView[]
+  here: string[]
+  onlineCount: number
+  partyName?: string
+  serverTime: string
+}
+
 const opts = { credentials: 'include' as RequestCredentials }
 
 async function readJsonOrThrow<T>(response: Response): Promise<T> {
@@ -212,4 +231,16 @@ export const mudApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ command }),
     }).then(readJsonOrThrow<MudCommandResult>),
+
+  chatSync: (since?: string): Promise<MudChatSyncView | null> =>
+    fetch(`${BASE}/chat/sync${since ? `?since=${encodeURIComponent(since)}` : ''}`, opts)
+      .then(readJsonOrThrow<MudChatSyncView | null>),
+
+  chatPost: (body: { channel: string; text: string; target?: string }): Promise<{ success: boolean; message: string }> =>
+    fetch(`${BASE}/chat`, {
+      ...opts,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(readJsonOrThrow<{ success: boolean; message: string }>),
 }
