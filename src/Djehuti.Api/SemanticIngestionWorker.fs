@@ -44,6 +44,7 @@ type SemanticIngestionWorker(logger: ILogger<SemanticIngestionWorker>) =
             let mudRoomLimit = envInt "SEMANTIC_SYNC_MUD_ROOM_LIMIT" 32
             let mudItemLimit = envInt "SEMANTIC_SYNC_MUD_ITEM_LIMIT" 64
             let mudRecipeLimit = envInt "SEMANTIC_SYNC_MUD_RECIPE_LIMIT" 32
+            let graphBackfillLimit = envInt "SEMANTIC_GRAPH_BACKFILL_LIMIT" 8
 
             while not ct.IsCancellationRequested do
                 try
@@ -55,6 +56,9 @@ type SemanticIngestionWorker(logger: ILogger<SemanticIngestionWorker>) =
                                 mudRoomLimit
                                 mudItemLimit
                                 mudRecipeLimit
+
+                        let graphBackfilled =
+                            SemanticGraphRepository.backfillGraphChunks graphBackfillLimit
 
                         if hasWork summary then
                             logger.LogInformation(
@@ -69,6 +73,11 @@ type SemanticIngestionWorker(logger: ILogger<SemanticIngestionWorker>) =
                                 summary.MudItemsRequested,
                                 summary.MudRecipesIndexed,
                                 summary.MudRecipesRequested)
+
+                        if graphBackfilled > 0 then
+                            logger.LogInformation(
+                                "Semantic graph backfill rebuilt {ChunkCount} chunk graphs",
+                                graphBackfilled)
 
                     do! Task.Delay(TimeSpan.FromSeconds(float intervalSeconds), ct)
                 with
