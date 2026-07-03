@@ -2012,6 +2012,19 @@ footer a:hover { text-decoration: underline; }
 .admin-inline-input { padding: 7px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.875rem; }
 .admin-inline-input:focus { outline: none; border-color: var(--accent); }
 
+.admin-room-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.admin-room-link {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start; text-align: left;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 12px; cursor: pointer; transition: border-color 120ms ease;
+}
+.admin-room-link:hover { border-color: var(--accent); }
+.admin-room-link strong { color: var(--accent); font-size: 0.9rem; }
+.admin-room-link span { color: var(--text-muted); font-size: 0.74rem; }
+.admin-room-field { display: flex; flex-direction: column; gap: 5px; font-size: 0.78rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.admin-room-field input, .admin-room-field select, .admin-room-field textarea { font-weight: 400; text-transform: none; letter-spacing: normal; }
+.admin-room-field textarea { resize: vertical; }
+
 /* ── Blog Feed ────────────────────────────────────────────────────────────── */
 .blog-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .blog-search-bar { position: relative; display: flex; align-items: center; margin-bottom: 14px; }

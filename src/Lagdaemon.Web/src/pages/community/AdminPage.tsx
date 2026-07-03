@@ -211,6 +211,11 @@ export default function AdminPage() {
   const [mudRecipeForm, setMudRecipeForm] = useState(makeEmptyMudRecipeForm())
   const [editingMudRecipe, setEditingMudRecipe] = useState<MudRecipe | null>(null)
   const [mudSaving, setMudSaving] = useState(false)
+  const [roomModal, setRoomModal] = useState<MudRoom | null>(null)
+  const [roomModalForm, setRoomModalForm] = useState({ zoneId: '', name: '', slug: '', description: '', position: 0 })
+  const [roomModalSaving, setRoomModalSaving] = useState(false)
+  const [roomListFilter, setRoomListFilter] = useState('')
+  const [roomListPage, setRoomListPage] = useState(1)
 
   // Metrics
   const [metrics, setMetrics] = useState<SiteMetrics | null>(null)
@@ -811,15 +816,33 @@ export default function AdminPage() {
     })
   }
 
-  const startMudRoomEdit = (room: MudRoom) => {
-    setEditingMudRoom(room)
-    setMudRoomForm({
+  const openRoomEditor = (room: MudRoom) => {
+    setRoomModal(room)
+    setRoomModalForm({
       zoneId: room.zoneId,
       name: room.name,
       slug: room.slug,
       description: room.description ?? '',
       position: room.position,
     })
+  }
+
+  const saveRoomModal = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!roomModal || !roomModalForm.zoneId || !roomModalForm.name.trim()) return
+    setRoomModalSaving(true)
+    try {
+      const room = await mudAdminApi.updateRoom(roomModal.id, {
+        zoneId: roomModalForm.zoneId,
+        name: roomModalForm.name.trim(),
+        slug: roomModalForm.slug.trim(),
+        description: roomModalForm.description.trim() || undefined,
+        position: roomModalForm.position,
+      })
+      setMudWorld(prev => prev ? { ...prev, rooms: prev.rooms.map(r => r.id === room.id ? room : r) } : prev)
+      setRoomModal(null)
+    } catch { setError('Failed to save room') }
+    finally { setRoomModalSaving(false) }
   }
 
   const startMudRecipeEdit = (recipe: MudRecipe) => {
@@ -1547,20 +1570,96 @@ export default function AdminPage() {
             ]}
           />
 
-          <AdminTable<MudRoom>
-            data={mudWorld?.rooms ?? []}
-            rowKey={room => room.id}
-            searchKeys={['name', 'slug', 'zoneName', 'zoneSlug', 'description']}
-            emptyText="No rooms yet."
-            columns={[
-              { key: 'name', label: 'Room', render: room => <><strong>{room.name}</strong><br /><span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{room.slug}</span></> },
-              { key: 'zoneName', label: 'Zone', render: room => <span>{room.zoneName}</span> },
-              { key: 'description', label: 'Description', render: room => room.description ?? '—' },
-              { key: 'position', label: 'Position' },
-              { key: 'createdAt', label: 'Created', render: room => new Date(room.createdAt).toLocaleDateString(), sortVal: room => room.createdAt },
-              { key: 'id', label: '', sortable: false, render: room => <button className="post-action" onClick={() => startMudRoomEdit(room)}>Edit</button> },
-            ]}
-          />
+          {(() => {
+            const allRooms = mudWorld?.rooms ?? []
+            const filter = roomListFilter.trim().toLowerCase()
+            const filtered = filter
+              ? allRooms.filter(room =>
+                  room.name.toLowerCase().includes(filter)
+                  || room.slug.toLowerCase().includes(filter)
+                  || room.zoneName.toLowerCase().includes(filter))
+              : allRooms
+            const pageSize = 25
+            const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+            const page = Math.min(roomListPage, pageCount)
+            const visible = filtered.slice((page - 1) * pageSize, page * pageSize)
+            return (
+              <section className="admin-grant-form" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <h4 style={{ margin: 0 }}>Rooms ({filtered.length})</h4>
+                  <input
+                    className="papers-new-input"
+                    placeholder="Filter by name, slug, or zone…"
+                    value={roomListFilter}
+                    onChange={e => { setRoomListFilter(e.target.value); setRoomListPage(1) }}
+                    style={{ maxWidth: 260 }}
+                  />
+                </div>
+                {visible.length === 0 && <p className="forum-empty">No rooms match.</p>}
+                <div className="admin-room-list">
+                  {visible.map(room => (
+                    <button key={room.id} type="button" className="admin-room-link" onClick={() => openRoomEditor(room)}>
+                      <strong>{room.name}</strong>
+                      <span>{room.zoneName} · {room.slug}</span>
+                    </button>
+                  ))}
+                </div>
+                {pageCount > 1 && (
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'center' }}>
+                    <button type="button" className="tiptap-action-btn" disabled={page <= 1} onClick={() => setRoomListPage(page - 1)}>‹ Prev</button>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Page {page} of {pageCount}</span>
+                    <button type="button" className="tiptap-action-btn" disabled={page >= pageCount} onClick={() => setRoomListPage(page + 1)}>Next ›</button>
+                  </div>
+                )}
+              </section>
+            )
+          })()}
+
+          {roomModal && (
+            <div className="admin-modal-backdrop" onClick={() => setRoomModal(null)}>
+              <div className="admin-modal" onClick={e => e.stopPropagation()}>
+                <div className="admin-modal-header">
+                  <h3 style={{ margin: 0 }}>Edit Room</h3>
+                  <button className="admin-modal-close" onClick={() => setRoomModal(null)}>✕</button>
+                </div>
+                <form onSubmit={saveRoomModal} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <label className="admin-room-field">
+                    Zone
+                    <select className="admin-role-select" value={roomModalForm.zoneId}
+                      onChange={e => setRoomModalForm(f => ({ ...f, zoneId: e.target.value }))} required>
+                      {(mudWorld?.zones ?? []).map(zone => <option key={zone.id} value={zone.id}>{zone.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="admin-room-field">
+                    Name
+                    <input className="papers-new-input" value={roomModalForm.name}
+                      onChange={e => setRoomModalForm(f => ({ ...f, name: e.target.value }))} required />
+                  </label>
+                  <label className="admin-room-field">
+                    Slug
+                    <input className="papers-new-input" value={roomModalForm.slug}
+                      onChange={e => setRoomModalForm(f => ({ ...f, slug: e.target.value }))} />
+                  </label>
+                  <label className="admin-room-field">
+                    Description
+                    <textarea className="papers-new-input" rows={5} value={roomModalForm.description}
+                      onChange={e => setRoomModalForm(f => ({ ...f, description: e.target.value }))} />
+                  </label>
+                  <label className="admin-room-field" style={{ maxWidth: 140 }}>
+                    Position
+                    <input className="papers-new-input" type="number" value={roomModalForm.position}
+                      onChange={e => setRoomModalForm(f => ({ ...f, position: Number(e.target.value) }))} />
+                  </label>
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                    <button type="button" className="tiptap-action-btn" onClick={() => setRoomModal(null)}>Cancel</button>
+                    <button type="submit" className="tiptap-action-btn primary" disabled={roomModalSaving || !roomModalForm.name.trim() || !roomModalForm.zoneId}>
+                      {roomModalSaving ? 'Saving…' : 'Save Room'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
 
           <AdminTable<MudExit>
             data={mudWorld?.exits ?? []}
