@@ -59,6 +59,20 @@ let private sha256 (text: string) =
 let private opt (value: string option) : obj =
     value |> Option.map box |> Option.defaultValue (box DBNull.Value)
 
+let private createSourceRecord
+    (sourceType: string)
+    (sourceKey: string)
+    (title: string)
+    (text: string)
+    (metadataJson: string option)
+    (provenance: (string * string) list) =
+    { SourceType = sourceType
+      SourceKey = sourceKey
+      Title = title
+      Text = text
+      MetadataJson = metadataJson
+      Provenance = provenance |> Map.ofList }
+
 let private getOrCreateSemanticNodeId (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (nodeKey: string) =
     use selectCmd = new NpgsqlCommand(
         """SELECT id
@@ -241,15 +255,15 @@ let private buildMudRecipeText (recipe: MudAdminRepository.MudRecipe) =
         |> List.iter (fun ingredient -> builder.AppendLine($"- {ingredient.Quantity} x {ingredient.Slug}") |> ignore)
     builder.ToString().Trim()
 
-let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (documentId: Guid) (text: string) =
+let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (documentId: Guid) (source: SemanticSourceRecord) =
     use deleteCmd = new NpgsqlCommand("DELETE FROM semantic_chunks WHERE document_id = @documentId", conn, txn)
     deleteCmd.Parameters.AddWithValue("documentId", documentId) |> ignore
     deleteCmd.ExecuteNonQuery() |> ignore
 
-    let chunks = SemanticPreprocessing.buildChunks 700 text
+    let chunks = SemanticRecords.buildChunkRecords 700 source
 
     for chunk in chunks do
-        let embedding, provider = SemanticEmbeddings.embed chunk.Text
+        let embedding, provider = SemanticEmbeddings.embed chunk.ChunkText
         use chunkCmd = new NpgsqlCommand(
             """INSERT INTO semantic_chunks (document_id, chunk_position, content, token_count, embedding_values, embedding_provider, embedding_dimension, embedded_at)
                VALUES (@documentId, @position, @content, @tokenCount, @embeddingValues, @embeddingProvider, @embeddingDimension, now())
@@ -257,8 +271,8 @@ let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransacti
             conn,
             txn)
         chunkCmd.Parameters.AddWithValue("documentId", documentId) |> ignore
-        chunkCmd.Parameters.AddWithValue("position", chunk.Position) |> ignore
-        chunkCmd.Parameters.AddWithValue("content", chunk.Text) |> ignore
+        chunkCmd.Parameters.AddWithValue("position", chunk.ChunkPosition) |> ignore
+        chunkCmd.Parameters.AddWithValue("content", chunk.ChunkText) |> ignore
         chunkCmd.Parameters.AddWithValue("tokenCount", chunk.Tokens.Length) |> ignore
         chunkCmd.Parameters.AddWithValue("embeddingValues", embedding) |> ignore
         chunkCmd.Parameters.AddWithValue("embeddingProvider", provider.Name) |> ignore
@@ -282,12 +296,12 @@ let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransacti
 
         rebuildChunkGraph conn txn chunkId chunk.Tokens
 
-let indexTextDocument (sourceType: string) (sourceKey: string) (title: string) (text: string) (metadataJson: string option) =
+let indexSourceDocument (source: SemanticSourceRecord) =
     use conn = openConnection()
     use txn = conn.BeginTransaction()
 
     try
-        let contentHash = sha256 text
+        let contentHash = sha256 source.Text
 
         use selectCmd = new NpgsqlCommand(
             """SELECT id, content_hash
@@ -295,8 +309,8 @@ let indexTextDocument (sourceType: string) (sourceKey: string) (title: string) (
                WHERE source_type = @sourceType AND source_key = @sourceKey""",
             conn,
             txn)
-        selectCmd.Parameters.AddWithValue("sourceType", sourceType) |> ignore
-        selectCmd.Parameters.AddWithValue("sourceKey", sourceKey) |> ignore
+        selectCmd.Parameters.AddWithValue("sourceType", source.SourceType) |> ignore
+        selectCmd.Parameters.AddWithValue("sourceKey", source.SourceKey) |> ignore
 
         use reader = selectCmd.ExecuteReader()
         let existing =
@@ -320,11 +334,11 @@ let indexTextDocument (sourceType: string) (sourceKey: string) (title: string) (
                     conn,
                     txn)
                 updateCmd.Parameters.AddWithValue("id", id) |> ignore
-                updateCmd.Parameters.AddWithValue("title", title) |> ignore
+                updateCmd.Parameters.AddWithValue("title", source.Title) |> ignore
                 updateCmd.Parameters.AddWithValue("contentHash", contentHash) |> ignore
-                updateCmd.Parameters.AddWithValue("metadataJson", opt metadataJson) |> ignore
+                updateCmd.Parameters.AddWithValue("metadataJson", opt source.MetadataJson) |> ignore
                 updateCmd.ExecuteNonQuery() |> ignore
-                replaceDocumentChunks conn txn id text
+                replaceDocumentChunks conn txn id source
                 id
             | None ->
                 use insertCmd = new NpgsqlCommand(
@@ -333,13 +347,13 @@ let indexTextDocument (sourceType: string) (sourceKey: string) (title: string) (
                        RETURNING id""",
                     conn,
                     txn)
-                insertCmd.Parameters.AddWithValue("sourceType", sourceType) |> ignore
-                insertCmd.Parameters.AddWithValue("sourceKey", sourceKey) |> ignore
-                insertCmd.Parameters.AddWithValue("title", title) |> ignore
+                insertCmd.Parameters.AddWithValue("sourceType", source.SourceType) |> ignore
+                insertCmd.Parameters.AddWithValue("sourceKey", source.SourceKey) |> ignore
+                insertCmd.Parameters.AddWithValue("title", source.Title) |> ignore
                 insertCmd.Parameters.AddWithValue("contentHash", contentHash) |> ignore
-                insertCmd.Parameters.AddWithValue("metadataJson", opt metadataJson) |> ignore
+                insertCmd.Parameters.AddWithValue("metadataJson", opt source.MetadataJson) |> ignore
                 let id = insertCmd.ExecuteScalar() :?> Guid
-                replaceDocumentChunks conn txn id text
+                replaceDocumentChunks conn txn id source
                 id
 
         txn.Commit()
@@ -355,7 +369,16 @@ let indexForumThread (threadId: Guid) =
         let posts = ForumRepository.getPostsByThread threadId 1 500
         let text = buildForumThreadText thread posts
         let metadata = $"""{{"threadId":"{thread.Id}","forumId":"{thread.ForumId}"}}"""
-        indexTextDocument "forum-thread" (string thread.Id) thread.Title text (Some metadata)
+        createSourceRecord
+            "forum-thread"
+            (string thread.Id)
+            thread.Title
+            text
+            (Some metadata)
+            [ "surface", "forum"
+              "threadId", string thread.Id
+              "forumId", string thread.ForumId ]
+        |> indexSourceDocument
         |> Some
 
 let indexBlogArticle (articleId: Guid) =
@@ -364,7 +387,17 @@ let indexBlogArticle (articleId: Guid) =
     | Some article ->
         let text = buildBlogArticleText article
         let metadata = $"""{{"articleId":"{article.Id}","sectionId":"{article.SectionId}","status":"{article.Status}"}}"""
-        indexTextDocument "blog-article" (string article.Id) article.Title text (Some metadata)
+        createSourceRecord
+            "blog-article"
+            (string article.Id)
+            article.Title
+            text
+            (Some metadata)
+            [ "surface", "blog"
+              "articleId", string article.Id
+              "sectionId", string article.SectionId
+              "status", string article.Status ]
+        |> indexSourceDocument
         |> Some
 
 let indexMudRoom (roomId: Guid) =
@@ -444,7 +477,19 @@ let indexMudRoom (roomId: Guid) =
         let text = buildMudRoomText zoneName roomName description exits items
         let metadata =
             $"""{{"roomId":"{roomGuid}","roomSlug":"{roomSlug}","zoneId":"{zoneGuid}","zoneSlug":"{zoneSlug}"}}"""
-        indexTextDocument "mud-room" (string roomGuid) title text (Some metadata)
+        createSourceRecord
+            "mud-room"
+            (string roomGuid)
+            title
+            text
+            (Some metadata)
+            [ "surface", "mud"
+              "entity", "room"
+              "roomId", string roomGuid
+              "roomSlug", roomSlug
+              "zoneId", string zoneGuid
+              "zoneSlug", zoneSlug ]
+        |> indexSourceDocument
         |> Some
 
 let indexMudItem (itemId: Guid) =
@@ -481,7 +526,17 @@ let indexMudItem (itemId: Guid) =
         let text = buildMudItemText itemName itemSlug description readableText roomName zoneName
         let metadata =
             $"""{{"itemId":"{itemGuid}","itemSlug":"{itemSlug}","roomName":{roomNameJson}}}"""
-        indexTextDocument "mud-item" (string itemGuid) title text (Some metadata)
+        createSourceRecord
+            "mud-item"
+            (string itemGuid)
+            title
+            text
+            (Some metadata)
+            [ "surface", "mud"
+              "entity", "item"
+              "itemId", string itemGuid
+              "itemSlug", itemSlug ]
+        |> indexSourceDocument
         |> Some
 
 let indexMudRecipe (recipeId: Guid) =
@@ -490,7 +545,17 @@ let indexMudRecipe (recipeId: Guid) =
     |> Option.map (fun recipe ->
         let text = buildMudRecipeText recipe
         let metadata = $"""{{"recipeId":"{recipe.Id}","recipeSlug":"{recipe.Slug}","active":{if recipe.Active then "true" else "false"}}}"""
-        indexTextDocument "mud-recipe" (string recipe.Id) recipe.Name text (Some metadata))
+        createSourceRecord
+            "mud-recipe"
+            (string recipe.Id)
+            recipe.Name
+            text
+            (Some metadata)
+            [ "surface", "mud"
+              "entity", "recipe"
+              "recipeId", string recipe.Id
+              "recipeSlug", recipe.Slug ]
+        |> indexSourceDocument)
 
 let reindexMudRooms () =
     use conn = openConnection()
