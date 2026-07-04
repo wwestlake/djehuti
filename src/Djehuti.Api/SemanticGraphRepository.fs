@@ -54,6 +54,7 @@ type SemanticTokenSplitProposal =
 type SemanticAdminActionRecord =
     { Id: Guid
       AdminUserId: Guid
+      AdminDisplayName: string
       Action: string
       Token: string option
       ScopeKind: string option
@@ -1600,17 +1601,19 @@ let listSemanticAdminActions (limit: int) =
     use conn = openConnection()
     use cmd = new NpgsqlCommand(
         """SELECT id,
-                  admin_user_id,
-                  action,
-                  token,
-                  scope_kind,
-                  scope_value,
-                  variant_key,
-                  created_count,
-                  proposal_count,
-                  details_json::text,
-                  created_at
-           FROM semantic_admin_action_log
+                  sal.admin_user_id,
+                  COALESCE(NULLIF(u.display_name, ''), 'Anonymous') AS admin_display_name,
+                  sal.action,
+                  sal.token,
+                  sal.scope_kind,
+                  sal.scope_value,
+                  sal.variant_key,
+                  sal.created_count,
+                  sal.proposal_count,
+                  sal.details_json::text,
+                  sal.created_at
+           FROM semantic_admin_action_log sal
+           JOIN users u ON u.id = sal.admin_user_id
            ORDER BY created_at DESC
            LIMIT @limit""",
         conn)
@@ -1621,12 +1624,13 @@ let listSemanticAdminActions (limit: int) =
         yield
             { Id = reader.GetGuid(0)
               AdminUserId = reader.GetGuid(1)
-              Action = reader.GetString(2)
-              Token = if reader.IsDBNull(3) then None else Some(reader.GetString(3))
-              ScopeKind = if reader.IsDBNull(4) then None else Some(reader.GetString(4))
-              ScopeValue = if reader.IsDBNull(5) then None else Some(reader.GetString(5))
-              VariantKey = if reader.IsDBNull(6) then None else Some(reader.GetString(6))
-              CreatedCount = reader.GetInt32(7)
-              ProposalCount = reader.GetInt32(8)
-              DetailsJson = if reader.IsDBNull(9) then "{}" else reader.GetString(9)
-              CreatedAt = reader.GetFieldValue<DateTimeOffset>(10) } ]
+              AdminDisplayName = reader.GetString(2)
+              Action = reader.GetString(3)
+              Token = if reader.IsDBNull(4) then None else Some(reader.GetString(4))
+              ScopeKind = if reader.IsDBNull(5) then None else Some(reader.GetString(5))
+              ScopeValue = if reader.IsDBNull(6) then None else Some(reader.GetString(6))
+              VariantKey = if reader.IsDBNull(7) then None else Some(reader.GetString(7))
+              CreatedCount = reader.GetInt32(8)
+              ProposalCount = reader.GetInt32(9)
+              DetailsJson = if reader.IsDBNull(10) then "{}" else reader.GetString(10)
+              CreatedAt = reader.GetFieldValue<DateTimeOffset>(11) } ]

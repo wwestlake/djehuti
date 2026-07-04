@@ -1962,6 +1962,7 @@ export default function AdminPage() {
                   <thead>
                     <tr>
                       <th>When</th>
+                      <th>Admin</th>
                       <th>Action</th>
                       <th>Token</th>
                       <th>Scope</th>
@@ -1973,6 +1974,7 @@ export default function AdminPage() {
                     {semanticAdminHistory.map(entry => (
                       <tr key={entry.id}>
                         <td>{new Date(entry.createdAt).toLocaleString()}</td>
+                        <td>{entry.adminDisplayName}</td>
                         <td>{entry.action}</td>
                         <td>{entry.token || '—'}</td>
                         <td>{entry.scopeKind ? `${entry.scopeKind}${entry.scopeValue ? `: ${entry.scopeValue}` : ''}` : '—'}</td>

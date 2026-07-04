@@ -81,6 +81,7 @@ export interface SemanticSplitApplyResult {
 export interface SemanticAdminActionRecord {
   id: string
   adminUserId: string
+  adminDisplayName: string
   action: string
   token: string | null
   scopeKind: string | null
