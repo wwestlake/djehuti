@@ -221,6 +221,7 @@ export default function AdminPage() {
   const [semanticSplitResult, setSemanticSplitResult] = useState<{ created: number; rebuilt: number } | null>(null)
   const [semanticManualSplitResult, setSemanticManualSplitResult] = useState<{ rebuilt: number } | null>(null)
   const [semanticSplitForm, setSemanticSplitForm] = useState({ token: '', scopeKind: 'source-type', scopeValue: '', variantKey: '' })
+  const [editingSemanticSplitKey, setEditingSemanticSplitKey] = useState<string | null>(null)
   const [semanticMudIndexedCount, setSemanticMudIndexedCount] = useState<number | null>(null)
   const [semanticMudItemIndexedCount, setSemanticMudItemIndexedCount] = useState<number | null>(null)
   const [semanticMudRecipeIndexedCount, setSemanticMudRecipeIndexedCount] = useState<number | null>(null)
@@ -856,11 +857,27 @@ export default function AdminPage() {
         setSemanticResults(results)
       }
       setSemanticSplitForm({ token: '', scopeKind: 'source-type', scopeValue: '', variantKey: '' })
+      setEditingSemanticSplitKey(null)
     } catch {
       setError('Failed to save semantic token split.')
     } finally {
       setSemanticSplitting(false)
     }
+  }
+
+  const startEditSemanticTokenSplit = (split: SemanticTokenSplitRecord) => {
+    setSemanticSplitForm({
+      token: split.token,
+      scopeKind: split.scopeKind,
+      scopeValue: split.scopeValue,
+      variantKey: split.variantKey,
+    })
+    setEditingSemanticSplitKey(`${split.token}:${split.scopeKind}:${split.scopeValue}`)
+  }
+
+  const cancelEditSemanticTokenSplit = () => {
+    setSemanticSplitForm({ token: '', scopeKind: 'source-type', scopeValue: '', variantKey: '' })
+    setEditingSemanticSplitKey(null)
   }
 
   const deleteSemanticTokenSplit = async (token: string, scopeKind: string, scopeValue: string) => {
@@ -1690,7 +1707,7 @@ export default function AdminPage() {
               </div>
             )}
 
-            <form onSubmit={saveSemanticTokenSplit} style={{ display: 'grid', gridTemplateColumns: '1fr 180px 1fr 1fr 140px', gap: 8 }}>
+            <form onSubmit={saveSemanticTokenSplit} style={{ display: 'grid', gridTemplateColumns: '1fr 180px 1fr 1fr 140px 120px', gap: 8 }}>
               <input
                 className="papers-new-input"
                 placeholder="Token"
@@ -1719,7 +1736,10 @@ export default function AdminPage() {
                 onChange={e => setSemanticSplitForm(prev => ({ ...prev, variantKey: e.target.value }))}
               />
               <button className="tiptap-action-btn" type="submit" disabled={semanticSplitting}>
-                Save split
+                {editingSemanticSplitKey ? 'Update split' : 'Save split'}
+              </button>
+              <button className="tiptap-action-btn" type="button" onClick={cancelEditSemanticTokenSplit} disabled={semanticSplitting || !editingSemanticSplitKey}>
+                Cancel
               </button>
             </form>
 
@@ -1763,7 +1783,7 @@ export default function AdminPage() {
                       <th>Scope</th>
                       <th>Value</th>
                       <th>Variant key</th>
-                      <th>Action</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1774,6 +1794,15 @@ export default function AdminPage() {
                         <td>{split.scopeValue}</td>
                         <td>{split.variantKey}</td>
                         <td>
+                          <button
+                            className="tiptap-action-btn"
+                            type="button"
+                            onClick={() => startEditSemanticTokenSplit(split)}
+                            disabled={semanticSplitting}
+                            style={{ marginRight: 8 }}
+                          >
+                            Edit
+                          </button>
                           <button
                             className="tiptap-action-btn"
                             type="button"
