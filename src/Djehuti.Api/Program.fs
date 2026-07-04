@@ -1704,7 +1704,12 @@ let main args =
                         | _ -> 3
                     | _ -> 3
 
-                Results.Ok(SemanticGraphRepository.getTokenSplitProposals limit minChunkCount)
+                let scopeKind =
+                    match ctx.Request.Query.TryGetValue("scopeKind") with
+                    | true, values when values.Count > 0 && not (String.IsNullOrWhiteSpace values.[0]) -> Some(values.[0].Trim().ToLowerInvariant())
+                    | _ -> None
+
+                Results.Ok(SemanticGraphRepository.getTokenSplitProposals limit minChunkCount scopeKind)
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )
@@ -1779,7 +1784,12 @@ let main args =
                         | _ -> 3
                     | _ -> 3
 
-                let created, proposalsApplied = SemanticGraphRepository.applyTokenSplitProposals limit minChunkCount
+                let scopeKind =
+                    match ctx.Request.Query.TryGetValue("scopeKind") with
+                    | true, values when values.Count > 0 && not (String.IsNullOrWhiteSpace values.[0]) -> Some(values.[0].Trim().ToLowerInvariant())
+                    | _ -> None
+
+                let created, proposalsApplied = SemanticGraphRepository.applyTokenSplitProposals limit minChunkCount scopeKind
                 let rebuilt = SemanticGraphRepository.backfillGraphChunks 1000
                 Results.Ok({| created = created; proposalsApplied = proposalsApplied; rebuilt = rebuilt |})
             | Some _ -> Results.Forbid()

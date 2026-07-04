@@ -96,8 +96,9 @@ export const semanticAdminApi = {
   getTokenSplits: (): Promise<SemanticTokenSplitRecord[]> =>
     fetch(`${BASE}/splits`, opts).then(json),
 
-  getTokenSplitProposals: (limit = 12, minChunkCount = 3): Promise<SemanticTokenSplitProposal[]> => {
+  getTokenSplitProposals: (limit = 12, minChunkCount = 3, scopeKind?: string): Promise<SemanticTokenSplitProposal[]> => {
     const params = new URLSearchParams({ limit: String(limit), minChunkCount: String(minChunkCount) })
+    if (scopeKind && scopeKind.trim()) params.set('scopeKind', scopeKind.trim())
     return fetch(`${BASE}/splits/proposals?${params.toString()}`, opts).then(json)
   },
 
@@ -109,8 +110,9 @@ export const semanticAdminApi = {
       body: JSON.stringify(payload),
     }).then(json),
 
-  applyAllTokenSplitProposals: (limit = 12, minChunkCount = 3): Promise<SemanticSplitApplyResult> => {
+  applyAllTokenSplitProposals: (limit = 12, minChunkCount = 3, scopeKind?: string): Promise<SemanticSplitApplyResult> => {
     const params = new URLSearchParams({ limit: String(limit), minChunkCount: String(minChunkCount) })
+    if (scopeKind && scopeKind.trim()) params.set('scopeKind', scopeKind.trim())
     return fetch(`${BASE}/splits/proposals/apply-all?${params.toString()}`, { ...opts, method: 'POST' }).then(json)
   },
 
