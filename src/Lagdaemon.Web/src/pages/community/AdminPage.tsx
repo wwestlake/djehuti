@@ -8,7 +8,7 @@ import type { ForumTag, ForumReport } from '../../api/forumApi'
 import { mudAdminApi } from '../../api/mudAdminApi'
 import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics, MudRecipe, MudRecipeIngredient } from '../../api/mudAdminApi'
 import { semanticAdminApi } from '../../api/semanticAdminApi'
-import type { SemanticGraphStats, SemanticChunkHit, SemanticReindexSummary, SemanticTokenDispersionCandidate, SemanticTokenSplitProposal, SemanticTokenSplitRecord } from '../../api/semanticAdminApi'
+import type { SemanticGraphStats, SemanticChunkHit, SemanticReindexSummary, SemanticSplitApplyResult, SemanticTokenDispersionCandidate, SemanticTokenSplitProposal, SemanticTokenSplitRecord } from '../../api/semanticAdminApi'
 import { AdminTable } from '../../components/AdminTable'
 
 const BASE = '/djehuti'
@@ -219,7 +219,7 @@ export default function AdminPage() {
   const [semanticMudRecipeReindexing, setSemanticMudRecipeReindexing] = useState(false)
   const [semanticSplitting, setSemanticSplitting] = useState(false)
   const [semanticReindexResult, setSemanticReindexResult] = useState<SemanticReindexSummary | null>(null)
-  const [semanticSplitResult, setSemanticSplitResult] = useState<{ created: number; rebuilt: number } | null>(null)
+  const [semanticSplitResult, setSemanticSplitResult] = useState<SemanticSplitApplyResult | null>(null)
   const [semanticManualSplitResult, setSemanticManualSplitResult] = useState<{ rebuilt: number } | null>(null)
   const [semanticSplitForm, setSemanticSplitForm] = useState({ token: '', scopeKind: 'source-type', scopeValue: '', variantKey: '' })
   const [editingSemanticSplitKey, setEditingSemanticSplitKey] = useState<string | null>(null)
@@ -925,6 +925,28 @@ export default function AdminPage() {
       }
     } catch {
       setError('Failed to apply semantic split proposal.')
+    } finally {
+      setSemanticSplitting(false)
+    }
+  }
+
+  const applyAllSemanticSplitProposals = async () => {
+    if (!semanticSplitProposals.length) return
+    setSemanticSplitting(true)
+    setError(null)
+    try {
+      const result = await semanticAdminApi.applyAllTokenSplitProposals()
+      setSemanticSplitResult(result)
+      setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
+      setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
+      setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals())
+      if (semanticQuery.trim()) {
+        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
+        setSemanticResults(results)
+      }
+    } catch {
+      setError('Failed to apply semantic split proposals.')
     } finally {
       setSemanticSplitting(false)
     }
@@ -1727,7 +1749,9 @@ export default function AdminPage() {
 
             {semanticSplitResult && (
               <div className="forum-success">
-                Created {semanticSplitResult.created} token split variants and rebuilt {semanticSplitResult.rebuilt} chunk graphs.
+                Created {semanticSplitResult.created} token split variants
+                {semanticSplitResult.proposalsApplied !== undefined ? ` across ${semanticSplitResult.proposalsApplied} proposals` : ''}
+                {' '}and rebuilt {semanticSplitResult.rebuilt} chunk graphs.
               </div>
             )}
 
@@ -1739,6 +1763,16 @@ export default function AdminPage() {
 
             {!!semanticSplitProposals.length && (
               <div className="admin-table-wrap">
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                  <button
+                    className="tiptap-action-btn primary"
+                    type="button"
+                    onClick={applyAllSemanticSplitProposals}
+                    disabled={semanticSplitting}
+                  >
+                    {semanticSplitting ? 'Applying…' : `Apply all ${semanticSplitProposals.length} proposals`}
+                  </button>
+                </div>
                 <table className="admin-table">
                   <thead>
                     <tr>
