@@ -1223,6 +1223,26 @@ let private insertTokenSplitVariants
 
     createdCount
 
+let private selectSplitScopeAssessment
+    (scopeKindFilter: string option)
+    (scopeOptions: (string * (string * int) list) list) =
+    let normalizedFilter =
+        scopeKindFilter
+        |> Option.map (fun value -> value.Trim().ToLowerInvariant())
+        |> Option.filter (String.IsNullOrWhiteSpace >> not)
+
+    let filteredScopeOptions =
+        match normalizedFilter with
+        | Some scopeKind ->
+            scopeOptions
+            |> List.filter (fun (candidateScopeKind, _) -> candidateScopeKind = scopeKind)
+        | None -> scopeOptions
+
+    filteredScopeOptions
+    |> List.tryPick (fun (scopeKind, rows) ->
+        choosePreferredSplitScope rows 2
+        |> Option.map (fun assessment -> scopeKind, assessment))
+
 let materializeSourceTypeTokenSplits (limit: int) (minChunkCount: int) =
     use conn = openConnection()
     use txn = conn.BeginTransaction()
@@ -1238,10 +1258,7 @@ let materializeSourceTypeTokenSplits (limit: int) (minChunkCount: int) =
             let scopeOptions = loadTokenScopeCounts conn txn candidate.Token
 
             let selectedScope =
-                scopeOptions
-                |> List.tryPick (fun (scopeKind, rows) ->
-                    choosePreferredSplitScope rows 2
-                    |> Option.map (fun assessment -> scopeKind, assessment))
+                selectSplitScopeAssessment None scopeOptions
 
             match selectedScope with
             | Some(scopeKind, assessment) ->
@@ -1264,11 +1281,8 @@ let applyTokenSplitProposal (token: string) (scopeKind: string) =
         let scopeOptions = loadTokenScopeCounts conn txn normalizedToken
 
         let createdCount =
-            scopeOptions
-            |> List.tryFind (fun (candidateScopeKind, _) -> candidateScopeKind = normalizedScopeKind)
-            |> Option.bind (fun (_, rows) ->
-                choosePreferredSplitScope rows 2)
-            |> Option.map (fun assessment ->
+            selectSplitScopeAssessment (Some normalizedScopeKind) scopeOptions
+            |> Option.map (fun (_, assessment) ->
                 insertTokenSplitVariants conn txn normalizedToken normalizedScopeKind assessment.Rows)
             |> Option.defaultValue 0
 
@@ -1278,7 +1292,7 @@ let applyTokenSplitProposal (token: string) (scopeKind: string) =
         txn.Rollback()
         raise ex
 
-let applyTokenSplitProposals (limit: int) (minChunkCount: int) =
+let applyTokenSplitProposals (limit: int) (minChunkCount: int) (scopeKindFilter: string option) =
     use conn = openConnection()
     use txn = conn.BeginTransaction()
 
@@ -1294,10 +1308,7 @@ let applyTokenSplitProposals (limit: int) (minChunkCount: int) =
             let scopeOptions = loadTokenScopeCounts conn txn candidate.Token
 
             let selectedScope =
-                scopeOptions
-                |> List.tryPick (fun (scopeKind, rows) ->
-                    choosePreferredSplitScope rows 2
-                    |> Option.map (fun assessment -> scopeKind, assessment))
+                selectSplitScopeAssessment scopeKindFilter scopeOptions
 
             match selectedScope with
             | Some(scopeKind, assessment) ->
@@ -1313,7 +1324,7 @@ let applyTokenSplitProposals (limit: int) (minChunkCount: int) =
         txn.Rollback()
         raise ex
 
-let getTokenSplitProposals (limit: int) (minChunkCount: int) =
+let getTokenSplitProposals (limit: int) (minChunkCount: int) (scopeKindFilter: string option) =
     use conn = openConnection()
     use txn = conn.BeginTransaction()
 
@@ -1324,10 +1335,8 @@ let getTokenSplitProposals (limit: int) (minChunkCount: int) =
             |> List.choose (fun candidate ->
                 let scopeOptions = loadTokenScopeCounts conn txn candidate.Token
 
-                scopeOptions
-                |> List.tryPick (fun (scopeKind, rows) ->
-                    choosePreferredSplitScope rows 2
-                    |> Option.map (fun assessment ->
+                selectSplitScopeAssessment scopeKindFilter scopeOptions
+                |> Option.map (fun (scopeKind, assessment) ->
                         { Token = candidate.Token
                           ScopeKind = scopeKind
                           ChunkCount = candidate.ChunkCount
@@ -1347,7 +1356,7 @@ let getTokenSplitProposals (limit: int) (minChunkCount: int) =
                                   scopeKind
                                   candidate.Token
                                   assessment.DistinctCount
-                                  (assessment.TopShare * 100.0) })))
+                                  (assessment.TopShare * 100.0) }))
 
         txn.Commit()
         proposals
