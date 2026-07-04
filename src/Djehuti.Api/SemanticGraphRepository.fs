@@ -35,6 +35,22 @@ type SemanticTokenSplitRecord =
       ScopeValue: string
       VariantKey: string }
 
+type SemanticTokenSplitProposalValue =
+    { ScopeValue: string
+      ChunkCount: int }
+
+type SemanticTokenSplitProposal =
+    { Token: string
+      ScopeKind: string
+      ChunkCount: int
+      DocumentCount: int
+      SourceTypeCount: int
+      DispersionScore: float
+      DispersionBand: string
+      ScopeValueCount: int
+      ScopeValues: SemanticTokenSplitProposalValue list
+      Reason: string }
+
 type SemanticChunkHit =
     { SourceType: string
       SourceKey: string
@@ -1084,6 +1100,12 @@ let getDispersionCandidates (limit: int) (minChunkCount: int) =
               DispersionScore = evaluated.DispersionScore
               DispersionBand = evaluated.DispersionBand } ]
 
+type private SemanticSplitScopeAssessment =
+    { Rows: (string * int) list
+      DistinctCount: int
+      TotalCount: int
+      TopShare: float }
+
 let private choosePreferredSplitScope
     (rows: (string * int) list)
     (minimumDistinctValues: int) =
@@ -1107,7 +1129,11 @@ let private choosePreferredSplitScope
         if topShare >= 0.85 then
             None
         else
-            Some cleaned
+            Some
+                { Rows = cleaned
+                  DistinctCount = distinctCount
+                  TotalCount = totalCount
+                  TopShare = topShare }
 
 let private loadTokenScopeCounts (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (token: string) =
     let readScopeCounts (sql: string) (parameterName: string) =
@@ -1181,11 +1207,11 @@ let materializeSourceTypeTokenSplits (limit: int) (minChunkCount: int) =
                 scopeOptions
                 |> List.tryPick (fun (scopeKind, rows) ->
                     choosePreferredSplitScope rows 2
-                    |> Option.map (fun chosen -> scopeKind, chosen))
+                    |> Option.map (fun assessment -> scopeKind, assessment))
 
             match selectedScope with
-            | Some(scopeKind, rows) ->
-                for scopeValue, _ in rows do
+            | Some(scopeKind, assessment) ->
+                for scopeValue, _ in assessment.Rows do
                     let variantKey =
                         match scopeKind with
                         | "source-type" -> SemanticSplitting.buildSourceTypeVariantKey candidate.Token scopeValue
@@ -1212,6 +1238,48 @@ let materializeSourceTypeTokenSplits (limit: int) (minChunkCount: int) =
 
         txn.Commit()
         createdCount
+    with ex ->
+        txn.Rollback()
+        raise ex
+
+let getTokenSplitProposals (limit: int) (minChunkCount: int) =
+    use conn = openConnection()
+    use txn = conn.BeginTransaction()
+
+    try
+        let proposals =
+            getDispersionCandidates limit minChunkCount
+            |> List.filter (fun candidate -> candidate.SourceTypeCount >= 2 && candidate.DispersionBand = "high")
+            |> List.choose (fun candidate ->
+                let scopeOptions = loadTokenScopeCounts conn txn candidate.Token
+
+                scopeOptions
+                |> List.tryPick (fun (scopeKind, rows) ->
+                    choosePreferredSplitScope rows 2
+                    |> Option.map (fun assessment ->
+                        { Token = candidate.Token
+                          ScopeKind = scopeKind
+                          ChunkCount = candidate.ChunkCount
+                          DocumentCount = candidate.DocumentCount
+                          SourceTypeCount = candidate.SourceTypeCount
+                          DispersionScore = candidate.DispersionScore
+                          DispersionBand = candidate.DispersionBand
+                          ScopeValueCount = assessment.DistinctCount
+                          ScopeValues =
+                              assessment.Rows
+                              |> List.map (fun (scopeValue, chunkCount) ->
+                                  { ScopeValue = scopeValue
+                                    ChunkCount = chunkCount })
+                          Reason =
+                              sprintf
+                                  "Selected %s because %s spans %d values and the busiest value carries %.1f%% of chunk coverage."
+                                  scopeKind
+                                  candidate.Token
+                                  assessment.DistinctCount
+                                  (assessment.TopShare * 100.0) })))
+
+        txn.Commit()
+        proposals
     with ex ->
         txn.Rollback()
         raise ex
