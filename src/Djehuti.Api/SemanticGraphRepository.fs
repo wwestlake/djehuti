@@ -31,7 +31,8 @@ type SemanticTokenDispersionCandidate =
 
 type SemanticTokenSplitRecord =
     { Token: string
-      SourceType: string
+      ScopeKind: string
+      ScopeValue: string
       VariantKey: string }
 
 type SemanticChunkHit =
@@ -79,39 +80,45 @@ let private getSemanticTokenSplits (conn: NpgsqlConnection) (txn: NpgsqlTransact
         match txn with
         | Some transaction ->
             new NpgsqlCommand(
-                """SELECT token, source_type, variant_key
+                """SELECT token, scope_kind, scope_value, variant_key
                    FROM semantic_token_splits
-                   ORDER BY token ASC, source_type ASC""",
+                   ORDER BY token ASC, scope_kind ASC, scope_value ASC""",
                 conn,
                 transaction)
         | None ->
             new NpgsqlCommand(
-                """SELECT token, source_type, variant_key
+                """SELECT token, scope_kind, scope_value, variant_key
                    FROM semantic_token_splits
-                   ORDER BY token ASC, source_type ASC""",
+                   ORDER BY token ASC, scope_kind ASC, scope_value ASC""",
                 conn)
 
     use reader = cmd.ExecuteReader()
     [ while reader.Read() do
         yield
             { Token = reader.GetString(0)
-              SourceType = reader.GetString(1)
-              VariantKey = reader.GetString(2) } ]
+              ScopeKind = reader.GetString(1)
+              ScopeValue = reader.GetString(2)
+              VariantKey = reader.GetString(3) } ]
 
 let listTokenSplits () =
     use conn = openConnection()
     getSemanticTokenSplits conn None
 
-let private resolveTokensForSource (sourceType: string) (splits: SemanticTokenSplitRecord list) (tokens: string list) =
+let private resolveTokensForSource (sourceType: string) (provenance: Map<string, string>) (splits: SemanticTokenSplitRecord list) (tokens: string list) =
+    let context =
+        provenance
+        |> Map.add "source-type" sourceType
+
     let coreSplits : SemanticTokenSplit list =
         splits
         |> List.map (fun split ->
             { Token = split.Token
-              SourceType = split.SourceType
+              ScopeKind = split.ScopeKind
+              ScopeValue = split.ScopeValue
               VariantKey = split.VariantKey })
 
     tokens
-    |> List.map (SemanticSplitting.resolveTokenForSource sourceType coreSplits)
+    |> List.map (SemanticSplitting.resolveTokenForContext context coreSplits)
 
 let private createSourceRecord
     (sourceType: string)
@@ -321,7 +328,7 @@ let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransacti
 
     for chunk in chunks do
         let embedding, provider = SemanticEmbeddings.embed chunk.ChunkText
-        let resolvedTokens = resolveTokensForSource source.SourceType splits chunk.Tokens
+        let resolvedTokens = resolveTokensForSource source.SourceType source.Provenance splits chunk.Tokens
         use chunkCmd = new NpgsqlCommand(
             """INSERT INTO semantic_chunks (document_id, chunk_position, content, token_count, embedding_values, embedding_provider, embedding_dimension, embedded_at)
                VALUES (@documentId, @position, @content, @tokenCount, @embeddingValues, @embeddingProvider, @embeddingDimension, now())
@@ -842,7 +849,7 @@ let backfillGraphChunks (limit: int) =
                 tokenMetrics
                 |> List.map (fun (token, count, position) ->
                     let resolved =
-                        resolveTokensForSource sourceType splits [ token ]
+                        resolveTokensForSource sourceType Map.empty splits [ token ]
                         |> List.tryHead
                         |> Option.defaultValue token
                     resolved, token, count, position)
@@ -1044,8 +1051,8 @@ let materializeSourceTypeTokenSplits (limit: int) (minChunkCount: int) =
             for sourceType in sourceTypes do
                 let variantKey = SemanticSplitting.buildSourceTypeVariantKey candidate.Token sourceType
                 use insertCmd = new NpgsqlCommand(
-                    """INSERT INTO semantic_token_splits (token, source_type, variant_key)
-                       VALUES (@token, @sourceType, @variantKey)
+                    """INSERT INTO semantic_token_splits (token, source_type, scope_kind, scope_value, variant_key)
+                       VALUES (@token, @sourceType, 'source-type', @sourceType, @variantKey)
                        ON CONFLICT (token, source_type) DO NOTHING""",
                     conn,
                     txn)
@@ -1069,7 +1076,8 @@ let expandQueryTokens (sourceType: string option) (tokens: string list) =
         splits
         |> List.map (fun split ->
             { Token = split.Token
-              SourceType = split.SourceType
+              ScopeKind = split.ScopeKind
+              ScopeValue = split.ScopeValue
               VariantKey = split.VariantKey })
 
     tokens

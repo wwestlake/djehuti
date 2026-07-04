@@ -28,7 +28,8 @@ export interface SemanticTokenDispersionCandidate {
 
 export interface SemanticTokenSplitRecord {
   token: string
-  sourceType: string
+  scopeKind: string
+  scopeValue: string
   variantKey: string
 }
 
