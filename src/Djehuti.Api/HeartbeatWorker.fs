@@ -10,6 +10,7 @@ open System.Text.Json.Serialization
 open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.Logging
 open Djehuti.Core
+open Djehuti.Api
 
 // OpenAI helpers
 
@@ -114,6 +115,7 @@ type CreateThreadPayload = {
 
 type HeartbeatWorker(logger: ILogger<HeartbeatWorker>) =
     inherit BackgroundService()
+    let mutable consecutiveDbFailures = 0
 
     let jsonOpts =
         let o = JsonSerializerOptions()
@@ -708,8 +710,18 @@ Return only the JSON object, no other text.""" payload.TopicHint
                     // Phase B: Patreon reconciliation (no OpenAI key needed, runs daily)
                     do! runPatreonReconciliation()
 
+                    consecutiveDbFailures <- 0
+
                     do! System.Threading.Tasks.Task.Delay(TimeSpan.FromMinutes(float intervalMin), ct) |> Async.AwaitTask
                 with
                 | :? System.Threading.Tasks.TaskCanceledException -> ()
-                | ex -> logger.LogError(ex, "HeartbeatWorker iteration error")
+                | ex ->
+                    if WorkerResilience.isDatabaseException ex then
+                        consecutiveDbFailures <- consecutiveDbFailures + 1
+                        let delay = WorkerResilience.backoffDelay consecutiveDbFailures
+                        logger.LogWarning(ex, "HeartbeatWorker database failure. Backing off for {DelaySeconds} seconds (attempt {Attempt})", int delay.TotalSeconds, consecutiveDbFailures)
+                        do! System.Threading.Tasks.Task.Delay(delay, ct) |> Async.AwaitTask
+                    else
+                        logger.LogError(ex, "HeartbeatWorker iteration error")
+                        do! System.Threading.Tasks.Task.Delay(WorkerResilience.shortRecoveryDelay, ct) |> Async.AwaitTask
         }

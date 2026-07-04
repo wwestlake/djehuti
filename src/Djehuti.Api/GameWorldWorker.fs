@@ -7,6 +7,7 @@ open System.Threading.Tasks
 open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.Logging
 open Djehuti.Core
+open Djehuti.Api
 
 let private aiErrorText error =
     match error with
@@ -87,6 +88,7 @@ Build one room that this worker could add today."""
 
 type GameWorldWorker(logger: ILogger<GameWorldWorker>) =
     inherit BackgroundService()
+    let mutable consecutiveDbFailures = 0
 
     override _.ExecuteAsync(ct) =
         task {
@@ -144,11 +146,19 @@ type GameWorldWorker(logger: ILogger<GameWorldWorker>) =
                                         logger.LogError(ex, "GameWorldWorker failed to apply build plan for job {JobId}", job.Id)
                                         MudConstructionRepository.failBuildJob job.Id ex.Message job.RetryCount
 
+                    consecutiveDbFailures <- 0
+
                     do! Task.Delay(TimeSpan.FromMinutes(5.0), ct)
                 with
                 | :? TaskCanceledException -> ()
                 | ex ->
-                    logger.LogError(ex, "GameWorldWorker iteration error")
-                    do! Task.Delay(TimeSpan.FromSeconds(30.0), ct)
+                    if WorkerResilience.isDatabaseException ex then
+                        consecutiveDbFailures <- consecutiveDbFailures + 1
+                        let delay = WorkerResilience.backoffDelay consecutiveDbFailures
+                        logger.LogWarning(ex, "GameWorldWorker database failure. Backing off for {DelaySeconds} seconds (attempt {Attempt})", int delay.TotalSeconds, consecutiveDbFailures)
+                        do! Task.Delay(delay, ct)
+                    else
+                        logger.LogError(ex, "GameWorldWorker iteration error")
+                        do! Task.Delay(WorkerResilience.shortRecoveryDelay, ct)
             return ()
         }
