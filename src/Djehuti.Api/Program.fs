@@ -1740,6 +1740,25 @@ let main args =
     ) |> ignore
 
     app.MapPost(
+        "/api/admin/semantic/splits/proposals/apply",
+        Func<HttpContext, SemanticGraphRepository.SemanticTokenSplitProposal, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let token = body.Token.Trim().ToLowerInvariant()
+                let scopeKind = body.ScopeKind.Trim().ToLowerInvariant()
+
+                if String.IsNullOrWhiteSpace token || String.IsNullOrWhiteSpace scopeKind then
+                    Results.BadRequest("token and scopeKind are required")
+                else
+                    let created = SemanticGraphRepository.applyTokenSplitProposal token scopeKind
+                    let rebuilt = SemanticGraphRepository.backfillGraphChunks 1000
+                    Results.Ok({| created = created; rebuilt = rebuilt |})
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
         "/api/admin/semantic/splits",
         Func<HttpContext, SemanticGraphRepository.SemanticTokenSplitRecord, IResult>(fun ctx body ->
             match tryGetAuthClaims ctx with

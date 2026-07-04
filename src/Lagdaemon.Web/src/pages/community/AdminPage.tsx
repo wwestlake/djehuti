@@ -909,6 +909,27 @@ export default function AdminPage() {
     }
   }
 
+  const applySemanticSplitProposal = async (token: string, scopeKind: string) => {
+    setSemanticSplitting(true)
+    setError(null)
+    try {
+      const result = await semanticAdminApi.applyTokenSplitProposal({ token, scopeKind })
+      setSemanticSplitResult(result)
+      setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
+      setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
+      setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals())
+      if (semanticQuery.trim()) {
+        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
+        setSemanticResults(results)
+      }
+    } catch {
+      setError('Failed to apply semantic split proposal.')
+    } finally {
+      setSemanticSplitting(false)
+    }
+  }
+
   const saveMudRoom = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!mudRoomForm.zoneId || !mudRoomForm.name.trim()) return
@@ -1726,6 +1747,7 @@ export default function AdminPage() {
                       <th>Coverage</th>
                       <th>Values</th>
                       <th>Why this split</th>
+                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1736,6 +1758,16 @@ export default function AdminPage() {
                         <td>{proposal.chunkCount} chunks / {proposal.documentCount} docs</td>
                         <td>{proposal.scopeValues.map(value => `${value.scopeValue} (${value.chunkCount})`).join(', ')}</td>
                         <td>{proposal.reason}</td>
+                        <td>
+                          <button
+                            className="tiptap-action-btn"
+                            type="button"
+                            onClick={() => applySemanticSplitProposal(proposal.token, proposal.scopeKind)}
+                            disabled={semanticSplitting}
+                          >
+                            Apply
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
