@@ -162,6 +162,44 @@ let ``decomposition exposes words sentences lines and frequencies`` () =
     Assert.Equal(2, parts.WordFrequencies["hello"])
 
 [<Fact>]
+let ``semantic source chunk records preserve provenance and source identity`` () =
+    let source =
+        { SourceType = "mud-room"
+          SourceKey = "room-1"
+          Title = "North Hall"
+          Text = "North Hall\n\nA long corridor lined with torch brackets.\n\nExits east and south."
+          MetadataJson = Some """{"roomId":"room-1"}"""
+          Provenance = Map.ofList [ "surface", "mud"; "entity", "room" ] }
+
+    let chunks = SemanticRecords.buildChunkRecords 40 source
+
+    Assert.Equal(4, chunks.Length)
+    Assert.All(chunks, fun chunk ->
+        Assert.Equal("mud-room", chunk.SourceType)
+        Assert.Equal("room-1", chunk.SourceKey)
+        Assert.Equal("North Hall", chunk.Title)
+        Assert.Equal(Some """{"roomId":"room-1"}""", chunk.MetadataJson)
+        Assert.Equal("mud", chunk.Provenance["surface"])
+        Assert.Equal("room", chunk.Provenance["entity"]))
+
+[<Fact>]
+let ``semantic source chunk records tokenize each chunk locally`` () =
+    let source =
+        { SourceType = "forum-thread"
+          SourceKey = "thread-1"
+          Title = "Fruit Stand Ideas"
+          Text = "Fruit stands are popular. Add more fruit carts near the square."
+          MetadataJson = None
+          Provenance = Map.ofList [ "surface", "forum" ] }
+
+    let chunks = SemanticRecords.buildChunkRecords 120 source
+
+    Assert.Single(chunks) |> ignore
+    Assert.Contains("fruit", chunks.Head.Tokens)
+    Assert.Contains("stands", chunks.Head.Tokens)
+    Assert.Contains("popular", chunks.Head.Tokens)
+
+[<Fact>]
 let ``comparison metrics compare typed prompt response values`` () =
     let prompt = Domain.prompt "p1" "alpha beta beta"
     let response = Domain.response "r1" "alpha gamma"
