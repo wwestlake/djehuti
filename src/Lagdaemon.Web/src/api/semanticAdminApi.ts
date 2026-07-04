@@ -33,6 +33,24 @@ export interface SemanticTokenSplitRecord {
   variantKey: string
 }
 
+export interface SemanticTokenSplitProposalValue {
+  scopeValue: string
+  chunkCount: number
+}
+
+export interface SemanticTokenSplitProposal {
+  token: string
+  scopeKind: string
+  chunkCount: number
+  documentCount: number
+  sourceTypeCount: number
+  dispersionScore: number
+  dispersionBand: string
+  scopeValueCount: number
+  scopeValues: SemanticTokenSplitProposalValue[]
+  reason: string
+}
+
 export interface SemanticChunkHit {
   sourceType: string
   sourceKey: string
@@ -71,6 +89,11 @@ export const semanticAdminApi = {
 
   getTokenSplits: (): Promise<SemanticTokenSplitRecord[]> =>
     fetch(`${BASE}/splits`, opts).then(json),
+
+  getTokenSplitProposals: (limit = 12, minChunkCount = 3): Promise<SemanticTokenSplitProposal[]> => {
+    const params = new URLSearchParams({ limit: String(limit), minChunkCount: String(minChunkCount) })
+    return fetch(`${BASE}/splits/proposals?${params.toString()}`, opts).then(json)
+  },
 
   materializeSourceTypeSplits: (limit = 12, minChunkCount = 3): Promise<{ created: number; rebuilt: number }> => {
     const params = new URLSearchParams({ limit: String(limit), minChunkCount: String(minChunkCount) })
