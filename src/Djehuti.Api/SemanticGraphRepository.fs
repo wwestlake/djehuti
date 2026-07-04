@@ -104,6 +104,26 @@ let listTokenSplits () =
     use conn = openConnection()
     getSemanticTokenSplits conn None
 
+let upsertTokenSplit (token: string) (scopeKind: string) (scopeValue: string) (variantKey: string) =
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand(
+        """INSERT INTO semantic_token_splits (token, source_type, scope_kind, scope_value, variant_key)
+           VALUES (@token,
+                   CASE WHEN @scopeKind = 'source-type' THEN @scopeValue ELSE 'custom' END,
+                   @scopeKind,
+                   @scopeValue,
+                   @variantKey)
+           ON CONFLICT (token, source_type) DO UPDATE
+           SET scope_kind = EXCLUDED.scope_kind,
+               scope_value = EXCLUDED.scope_value,
+               variant_key = EXCLUDED.variant_key""",
+        conn)
+    cmd.Parameters.AddWithValue("token", token) |> ignore
+    cmd.Parameters.AddWithValue("scopeKind", scopeKind) |> ignore
+    cmd.Parameters.AddWithValue("scopeValue", scopeValue) |> ignore
+    cmd.Parameters.AddWithValue("variantKey", variantKey) |> ignore
+    cmd.ExecuteNonQuery() |> ignore
+
 let private resolveTokensForSource (sourceType: string) (provenance: Map<string, string>) (splits: SemanticTokenSplitRecord list) (tokens: string list) =
     let context =
         provenance

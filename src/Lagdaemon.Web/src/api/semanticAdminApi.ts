@@ -77,6 +77,14 @@ export const semanticAdminApi = {
     return fetch(`${BASE}/splits/materialize/source-types?${params.toString()}`, { ...opts, method: 'POST' }).then(json)
   },
 
+  saveTokenSplit: (payload: SemanticTokenSplitRecord): Promise<{ saved: boolean; rebuilt: number }> =>
+    fetch(`${BASE}/splits`, {
+      ...opts,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).then(json),
+
   reindexIndexed: (): Promise<SemanticReindexSummary> =>
     fetch(`${BASE}/reindex/indexed`, { ...opts, method: 'POST' }).then(json),
 
