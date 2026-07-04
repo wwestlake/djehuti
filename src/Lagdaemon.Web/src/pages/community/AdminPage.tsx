@@ -8,7 +8,7 @@ import type { ForumTag, ForumReport } from '../../api/forumApi'
 import { mudAdminApi } from '../../api/mudAdminApi'
 import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics, MudRecipe, MudRecipeIngredient } from '../../api/mudAdminApi'
 import { semanticAdminApi } from '../../api/semanticAdminApi'
-import type { SemanticGraphStats, SemanticChunkHit, SemanticReindexSummary } from '../../api/semanticAdminApi'
+import type { SemanticGraphStats, SemanticChunkHit, SemanticReindexSummary, SemanticTokenDispersionCandidate } from '../../api/semanticAdminApi'
 import { AdminTable } from '../../components/AdminTable'
 
 const BASE = '/djehuti'
@@ -209,6 +209,7 @@ export default function AdminPage() {
   const [semanticQuery, setSemanticQuery] = useState('')
   const [semanticSourceType, setSemanticSourceType] = useState('')
   const [semanticResults, setSemanticResults] = useState<SemanticChunkHit[]>([])
+  const [semanticDispersion, setSemanticDispersion] = useState<SemanticTokenDispersionCandidate[]>([])
   const [semanticSearching, setSemanticSearching] = useState(false)
   const [semanticReindexing, setSemanticReindexing] = useState(false)
   const [semanticMudReindexing, setSemanticMudReindexing] = useState(false)
@@ -318,6 +319,7 @@ export default function AdminPage() {
         mudAdminApi.getMetrics().then(setMudMetrics),
         mudAdminApi.getRecipes().then(setMudRecipes),
         semanticAdminApi.getStats().then(setSemanticStats),
+        semanticAdminApi.getDispersionCandidates().then(setSemanticDispersion),
       ]).then(() => {}),
       metrics: () => Promise.all([
         apiFetch(`${BASE}/api/admin/metrics`).then(setMetrics),
@@ -746,6 +748,7 @@ export default function AdminPage() {
       const result = await semanticAdminApi.reindexIndexed()
       setSemanticReindexResult(result)
       setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       if (semanticQuery.trim()) {
         const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
         setSemanticResults(results)
@@ -764,6 +767,7 @@ export default function AdminPage() {
       const result = await semanticAdminApi.reindexMudRooms()
       setSemanticMudIndexedCount(result.indexed)
       setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       if (semanticQuery.trim()) {
         const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
         setSemanticResults(results)
@@ -782,6 +786,7 @@ export default function AdminPage() {
       const result = await semanticAdminApi.reindexMudItems()
       setSemanticMudItemIndexedCount(result.indexed)
       setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
     } catch {
       setError('Failed to reindex MUD items.')
     } finally {
@@ -796,6 +801,7 @@ export default function AdminPage() {
       const result = await semanticAdminApi.reindexMudRecipes()
       setSemanticMudRecipeIndexedCount(result.indexed)
       setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
     } catch {
       setError('Failed to reindex MUD recipes.')
     } finally {
@@ -1588,6 +1594,37 @@ export default function AdminPage() {
               <div className="forum-success">
                 Reindexed {semanticReindexResult.documentsIndexed} of {semanticReindexResult.documentsRequested} documents
                 ({semanticReindexResult.forumThreadsIndexed} forum threads, {semanticReindexResult.blogArticlesIndexed} blog articles, {semanticReindexResult.mudRoomsIndexed} MUD rooms, {semanticReindexResult.mudItemsIndexed} MUD items, {semanticReindexResult.mudRecipesIndexed} recipes).
+              </div>
+            )}
+
+            {!!semanticDispersion.length && (
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Token</th>
+                      <th>Score</th>
+                      <th>Band</th>
+                      <th>Chunks</th>
+                      <th>Docs</th>
+                      <th>Sources</th>
+                      <th>Neighbors</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {semanticDispersion.map(candidate => (
+                      <tr key={candidate.token}>
+                        <td>{candidate.token}</td>
+                        <td>{candidate.dispersionScore.toFixed(3)}</td>
+                        <td style={{ textTransform: 'capitalize' }}>{candidate.dispersionBand}</td>
+                        <td>{candidate.chunkCount}</td>
+                        <td>{candidate.documentCount}</td>
+                        <td>{candidate.sourceTypeCount}</td>
+                        <td>{candidate.neighborCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
 

@@ -1645,6 +1645,33 @@ let main args =
         )
     ) |> ignore
 
+    app.MapGet(
+        "/api/admin/semantic/dispersion",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let limit =
+                    match ctx.Request.Query.TryGetValue("limit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 50
+                        | _ -> 12
+                    | _ -> 12
+
+                let minChunkCount =
+                    match ctx.Request.Query.TryGetValue("minChunkCount") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 100
+                        | _ -> 3
+                    | _ -> 3
+
+                Results.Ok(SemanticGraphRepository.getDispersionCandidates limit minChunkCount)
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
     app.MapPost(
         "/api/admin/semantic/index/forum/thread/{threadId}",
         Func<HttpContext, Guid, IResult>(fun ctx threadId ->

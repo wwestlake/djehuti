@@ -19,6 +19,15 @@ type SemanticGraphStats =
       EmbeddingProvider: string
       EmbeddingReady: bool }
 
+type SemanticTokenDispersionCandidate =
+    { Token: string
+      ChunkCount: int
+      DocumentCount: int
+      SourceTypeCount: int
+      NeighborCount: int
+      DispersionScore: float
+      DispersionBand: string }
+
 type SemanticChunkHit =
     { SourceType: string
       SourceKey: string
@@ -874,6 +883,60 @@ let getStats () =
           EmbeddedChunkCount = 0
           EmbeddingProvider = provider.Name
           EmbeddingReady = provider.IsReady }
+
+let getDispersionCandidates (limit: int) (minChunkCount: int) =
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand(
+        """SELECT n.node_key,
+                  COUNT(DISTINCT scn.chunk_id) AS chunk_count,
+                  COUNT(DISTINCT sc.document_id) AS document_count,
+                  COUNT(DISTINCT d.source_type) AS source_type_count,
+                  COUNT(DISTINCT CASE
+                      WHEN e.from_node_id = n.id THEN e.to_node_id
+                      WHEN e.to_node_id = n.id THEN e.from_node_id
+                      ELSE NULL
+                  END) AS neighbor_count
+           FROM semantic_nodes n
+           JOIN semantic_chunk_nodes scn ON scn.node_id = n.id
+           JOIN semantic_chunks sc ON sc.id = scn.chunk_id
+           JOIN semantic_documents d ON d.id = sc.document_id
+           LEFT JOIN semantic_node_edges e
+             ON e.from_node_id = n.id
+             OR e.to_node_id = n.id
+           WHERE n.node_type = 'token'
+           GROUP BY n.node_key, n.id
+           HAVING COUNT(DISTINCT scn.chunk_id) >= @minChunkCount
+           ORDER BY COUNT(DISTINCT d.source_type) DESC,
+                    COUNT(DISTINCT CASE
+                        WHEN e.from_node_id = n.id THEN e.to_node_id
+                        WHEN e.to_node_id = n.id THEN e.from_node_id
+                        ELSE NULL
+                    END) DESC,
+                    COUNT(DISTINCT sc.document_id) DESC,
+                    n.node_key ASC
+           LIMIT @limit""",
+        conn)
+    cmd.Parameters.AddWithValue("limit", Math.Max(1, limit)) |> ignore
+    cmd.Parameters.AddWithValue("minChunkCount", Math.Max(1, minChunkCount)) |> ignore
+    use reader = cmd.ExecuteReader()
+
+    [ while reader.Read() do
+        let evaluated =
+            { Token = reader.GetString(0)
+              ChunkCount = reader.GetInt32(1)
+              DocumentCount = reader.GetInt32(2)
+              SourceTypeCount = reader.GetInt32(3)
+              NeighborCount = reader.GetInt32(4) }
+            |> SemanticDispersion.evaluate
+
+        yield
+            { Token = evaluated.Token
+              ChunkCount = evaluated.ChunkCount
+              DocumentCount = evaluated.DocumentCount
+              SourceTypeCount = evaluated.SourceTypeCount
+              NeighborCount = evaluated.NeighborCount
+              DispersionScore = evaluated.DispersionScore
+              DispersionBand = evaluated.DispersionBand } ]
 
 let private readChunkHit (reader: DbDataReader) (queryEmbedding: float32 array) =
     let embedding =
