@@ -144,6 +144,19 @@ let upsertTokenSplit (token: string) (scopeKind: string) (scopeValue: string) (v
     cmd.Parameters.AddWithValue("variantKey", variantKey) |> ignore
     cmd.ExecuteNonQuery() |> ignore
 
+let deleteTokenSplit (token: string) (scopeKind: string) (scopeValue: string) =
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand(
+        """DELETE FROM semantic_token_splits
+           WHERE token = @token
+             AND scope_kind = @scopeKind
+             AND scope_value = @scopeValue""",
+        conn)
+    cmd.Parameters.AddWithValue("token", token) |> ignore
+    cmd.Parameters.AddWithValue("scopeKind", scopeKind) |> ignore
+    cmd.Parameters.AddWithValue("scopeValue", scopeValue) |> ignore
+    cmd.ExecuteNonQuery()
+
 let private resolveTokensForSource (sourceType: string) (provenance: Map<string, string>) (splits: SemanticTokenSplitRecord list) (tokens: string list) =
     let context = buildScopeContext sourceType provenance
 
