@@ -1715,6 +1715,25 @@ let main args =
         )
     ) |> ignore
 
+    app.MapGet(
+        "/api/admin/semantic/splits/history",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let limit =
+                    match ctx.Request.Query.TryGetValue("limit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 100
+                        | _ -> 25
+                    | _ -> 25
+
+                Results.Ok(SemanticGraphRepository.listSemanticAdminActions limit)
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
     app.MapPost(
         "/api/admin/semantic/splits/materialize/source-types",
         Func<HttpContext, IResult>(fun ctx ->
@@ -1738,6 +1757,10 @@ let main args =
 
                 let created = SemanticGraphRepository.materializeSourceTypeTokenSplits limit minChunkCount
                 let rebuilt = SemanticGraphRepository.backfillGraphChunks 1000
+                match Guid.TryParse(claims.UserId) with
+                | true, adminUserId ->
+                    SemanticGraphRepository.logSemanticAdminAction adminUserId "materialize_auto" None None None None created 0 (Some(sprintf """{"limit":%d,"minChunkCount":%d}""" limit minChunkCount))
+                | _ -> ()
                 Results.Ok({| created = created; rebuilt = rebuilt |})
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
@@ -1757,6 +1780,10 @@ let main args =
                 else
                     let created = SemanticGraphRepository.applyTokenSplitProposal token scopeKind
                     let rebuilt = SemanticGraphRepository.backfillGraphChunks 1000
+                    match Guid.TryParse(claims.UserId) with
+                    | true, adminUserId ->
+                        SemanticGraphRepository.logSemanticAdminAction adminUserId "proposal_apply" (Some token) (Some scopeKind) None None created 1 None
+                    | _ -> ()
                     Results.Ok({| created = created; rebuilt = rebuilt |})
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
@@ -1791,6 +1818,10 @@ let main args =
 
                 let created, proposalsApplied = SemanticGraphRepository.applyTokenSplitProposals limit minChunkCount scopeKind
                 let rebuilt = SemanticGraphRepository.backfillGraphChunks 1000
+                match Guid.TryParse(claims.UserId) with
+                | true, adminUserId ->
+                    SemanticGraphRepository.logSemanticAdminAction adminUserId "proposal_apply_all" None scopeKind None None created proposalsApplied (Some(sprintf """{"limit":%d,"minChunkCount":%d}""" limit minChunkCount))
+                | _ -> ()
                 Results.Ok({| created = created; proposalsApplied = proposalsApplied; rebuilt = rebuilt |})
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
@@ -1812,6 +1843,10 @@ let main args =
                 else
                     SemanticGraphRepository.upsertTokenSplit token scopeKind scopeValue variantKey
                     let rebuilt = SemanticGraphRepository.backfillGraphChunks 1000
+                    match Guid.TryParse(claims.UserId) with
+                    | true, adminUserId ->
+                        SemanticGraphRepository.logSemanticAdminAction adminUserId "split_save" (Some token) (Some scopeKind) (Some scopeValue) (Some variantKey) 1 0 None
+                    | _ -> ()
                     Results.Ok({| saved = true; rebuilt = rebuilt |})
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
@@ -1843,6 +1878,11 @@ let main args =
                 else
                     let deleted = SemanticGraphRepository.deleteTokenSplit token scopeKind scopeValue
                     let rebuilt = SemanticGraphRepository.backfillGraphChunks 1000
+                    if deleted > 0 then
+                        match Guid.TryParse(claims.UserId) with
+                        | true, adminUserId ->
+                            SemanticGraphRepository.logSemanticAdminAction adminUserId "split_delete" (Some token) (Some scopeKind) (Some scopeValue) None deleted 0 None
+                        | _ -> ()
                     Results.Ok({| deleted = deleted; rebuilt = rebuilt |})
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()

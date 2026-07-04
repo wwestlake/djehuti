@@ -78,6 +78,20 @@ export interface SemanticSplitApplyResult {
   proposalsApplied?: number
 }
 
+export interface SemanticAdminActionRecord {
+  id: string
+  adminUserId: string
+  action: string
+  token: string | null
+  scopeKind: string | null
+  scopeValue: string | null
+  variantKey: string | null
+  createdCount: number
+  proposalCount: number
+  detailsJson: string
+  createdAt: string
+}
+
 export const semanticAdminApi = {
   getStats: (): Promise<SemanticGraphStats> =>
     fetch(`${BASE}/stats`, opts).then(json),
@@ -95,6 +109,11 @@ export const semanticAdminApi = {
 
   getTokenSplits: (): Promise<SemanticTokenSplitRecord[]> =>
     fetch(`${BASE}/splits`, opts).then(json),
+
+  getSemanticAdminHistory: (limit = 25): Promise<SemanticAdminActionRecord[]> => {
+    const params = new URLSearchParams({ limit: String(limit) })
+    return fetch(`${BASE}/splits/history?${params.toString()}`, opts).then(json)
+  },
 
   getTokenSplitProposals: (limit = 12, minChunkCount = 3, scopeKind?: string): Promise<SemanticTokenSplitProposal[]> => {
     const params = new URLSearchParams({ limit: String(limit), minChunkCount: String(minChunkCount) })

@@ -51,6 +51,19 @@ type SemanticTokenSplitProposal =
       ScopeValues: SemanticTokenSplitProposalValue list
       Reason: string }
 
+type SemanticAdminActionRecord =
+    { Id: Guid
+      AdminUserId: Guid
+      Action: string
+      Token: string option
+      ScopeKind: string option
+      ScopeValue: string option
+      VariantKey: string option
+      CreatedCount: int
+      ProposalCount: int
+      DetailsJson: string
+      CreatedAt: DateTimeOffset }
+
 type SemanticChunkHit =
     { SourceType: string
       SourceKey: string
@@ -1554,3 +1567,66 @@ let buildAnalystContextPacket (question: string) (context: DjehutiAnalysisContex
 let selectAnalystEvidence (question: string) (context: DjehutiAnalysisContext) (limit: int) =
     Ai.evidenceFromContext context
     |> SemanticPreprocessing.selectEvidence question limit
+
+let logSemanticAdminAction
+    (adminUserId: Guid)
+    (action: string)
+    (token: string option)
+    (scopeKind: string option)
+    (scopeValue: string option)
+    (variantKey: string option)
+    (createdCount: int)
+    (proposalCount: int)
+    (detailsJson: string option) =
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand(
+        """INSERT INTO semantic_admin_action_log (
+               admin_user_id, action, token, scope_kind, scope_value, variant_key, created_count, proposal_count, details_json
+           )
+           VALUES (@adminUserId, @action, @token, @scopeKind, @scopeValue, @variantKey, @createdCount, @proposalCount, CAST(@detailsJson AS jsonb))""",
+        conn)
+    cmd.Parameters.AddWithValue("adminUserId", adminUserId) |> ignore
+    cmd.Parameters.AddWithValue("action", action.Trim().ToLowerInvariant()) |> ignore
+    cmd.Parameters.AddWithValue("token", opt token) |> ignore
+    cmd.Parameters.AddWithValue("scopeKind", opt scopeKind) |> ignore
+    cmd.Parameters.AddWithValue("scopeValue", opt scopeValue) |> ignore
+    cmd.Parameters.AddWithValue("variantKey", opt variantKey) |> ignore
+    cmd.Parameters.AddWithValue("createdCount", createdCount) |> ignore
+    cmd.Parameters.AddWithValue("proposalCount", proposalCount) |> ignore
+    cmd.Parameters.AddWithValue("detailsJson", defaultArg detailsJson "{}") |> ignore
+    cmd.ExecuteNonQuery() |> ignore
+
+let listSemanticAdminActions (limit: int) =
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand(
+        """SELECT id,
+                  admin_user_id,
+                  action,
+                  token,
+                  scope_kind,
+                  scope_value,
+                  variant_key,
+                  created_count,
+                  proposal_count,
+                  details_json::text,
+                  created_at
+           FROM semantic_admin_action_log
+           ORDER BY created_at DESC
+           LIMIT @limit""",
+        conn)
+    cmd.Parameters.AddWithValue("limit", Math.Max(1, limit)) |> ignore
+    use reader = cmd.ExecuteReader()
+
+    [ while reader.Read() do
+        yield
+            { Id = reader.GetGuid(0)
+              AdminUserId = reader.GetGuid(1)
+              Action = reader.GetString(2)
+              Token = if reader.IsDBNull(3) then None else Some(reader.GetString(3))
+              ScopeKind = if reader.IsDBNull(4) then None else Some(reader.GetString(4))
+              ScopeValue = if reader.IsDBNull(5) then None else Some(reader.GetString(5))
+              VariantKey = if reader.IsDBNull(6) then None else Some(reader.GetString(6))
+              CreatedCount = reader.GetInt32(7)
+              ProposalCount = reader.GetInt32(8)
+              DetailsJson = if reader.IsDBNull(9) then "{}" else reader.GetString(9)
+              CreatedAt = reader.GetFieldValue<DateTimeOffset>(10) } ]

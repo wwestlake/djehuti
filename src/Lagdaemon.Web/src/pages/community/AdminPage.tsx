@@ -8,7 +8,7 @@ import type { ForumTag, ForumReport } from '../../api/forumApi'
 import { mudAdminApi } from '../../api/mudAdminApi'
 import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics, MudRecipe, MudRecipeIngredient } from '../../api/mudAdminApi'
 import { semanticAdminApi } from '../../api/semanticAdminApi'
-import type { SemanticGraphStats, SemanticChunkHit, SemanticReindexSummary, SemanticSplitApplyResult, SemanticTokenDispersionCandidate, SemanticTokenSplitProposal, SemanticTokenSplitRecord } from '../../api/semanticAdminApi'
+import type { SemanticAdminActionRecord, SemanticGraphStats, SemanticChunkHit, SemanticReindexSummary, SemanticSplitApplyResult, SemanticTokenDispersionCandidate, SemanticTokenSplitProposal, SemanticTokenSplitRecord } from '../../api/semanticAdminApi'
 import { AdminTable } from '../../components/AdminTable'
 
 const BASE = '/djehuti'
@@ -213,6 +213,7 @@ export default function AdminPage() {
   const [semanticSplitProposals, setSemanticSplitProposals] = useState<SemanticTokenSplitProposal[]>([])
   const [semanticProposalScopeKind, setSemanticProposalScopeKind] = useState('')
   const [semanticTokenSplits, setSemanticTokenSplits] = useState<SemanticTokenSplitRecord[]>([])
+  const [semanticAdminHistory, setSemanticAdminHistory] = useState<SemanticAdminActionRecord[]>([])
   const [semanticSearching, setSemanticSearching] = useState(false)
   const [semanticReindexing, setSemanticReindexing] = useState(false)
   const [semanticMudReindexing, setSemanticMudReindexing] = useState(false)
@@ -338,6 +339,7 @@ export default function AdminPage() {
         semanticAdminApi.getDispersionCandidates().then(setSemanticDispersion),
         semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined).then(setSemanticSplitProposals),
         semanticAdminApi.getTokenSplits().then(setSemanticTokenSplits),
+        semanticAdminApi.getSemanticAdminHistory().then(setSemanticAdminHistory),
       ]).then(() => {}),
       metrics: () => Promise.all([
         apiFetch(`${BASE}/api/admin/metrics`).then(setMetrics),
@@ -768,6 +770,7 @@ export default function AdminPage() {
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
+      setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
       if (semanticQuery.trim()) {
         const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
         setSemanticResults(results)
@@ -788,6 +791,7 @@ export default function AdminPage() {
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
+      setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
       if (semanticQuery.trim()) {
         const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
         setSemanticResults(results)
@@ -808,6 +812,7 @@ export default function AdminPage() {
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
+      setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
     } catch {
       setError('Failed to reindex MUD items.')
     } finally {
@@ -824,6 +829,7 @@ export default function AdminPage() {
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
+      setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
     } catch {
       setError('Failed to reindex MUD recipes.')
     } finally {
@@ -841,6 +847,7 @@ export default function AdminPage() {
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
+      setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
       if (semanticQuery.trim()) {
         const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
         setSemanticResults(results)
@@ -869,6 +876,7 @@ export default function AdminPage() {
       setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
+      setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
       if (semanticQuery.trim()) {
         const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
         setSemanticResults(results)
@@ -907,6 +915,7 @@ export default function AdminPage() {
       setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
+      setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
       if (semanticQuery.trim()) {
         const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
         setSemanticResults(results)
@@ -928,6 +937,7 @@ export default function AdminPage() {
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
+      setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
       if (semanticQuery.trim()) {
         const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
         setSemanticResults(results)
@@ -950,6 +960,7 @@ export default function AdminPage() {
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
+      setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
       if (semanticQuery.trim()) {
         const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
         setSemanticResults(results)
@@ -1938,6 +1949,35 @@ export default function AdminPage() {
                             Remove
                           </button>
                         </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {!!semanticAdminHistory.length && (
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>When</th>
+                      <th>Action</th>
+                      <th>Token</th>
+                      <th>Scope</th>
+                      <th>Count</th>
+                      <th>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {semanticAdminHistory.map(entry => (
+                      <tr key={entry.id}>
+                        <td>{new Date(entry.createdAt).toLocaleString()}</td>
+                        <td>{entry.action}</td>
+                        <td>{entry.token || '—'}</td>
+                        <td>{entry.scopeKind ? `${entry.scopeKind}${entry.scopeValue ? `: ${entry.scopeValue}` : ''}` : '—'}</td>
+                        <td>{entry.proposalCount > 0 ? `${entry.createdCount} / ${entry.proposalCount}` : entry.createdCount}</td>
+                        <td>{entry.variantKey || entry.detailsJson}</td>
                       </tr>
                     ))}
                   </tbody>
