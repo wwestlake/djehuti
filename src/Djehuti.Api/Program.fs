@@ -1713,6 +1713,27 @@ let main args =
     ) |> ignore
 
     app.MapPost(
+        "/api/admin/semantic/splits",
+        Func<HttpContext, SemanticGraphRepository.SemanticTokenSplitRecord, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let token = body.Token.Trim().ToLowerInvariant()
+                let scopeKind = body.ScopeKind.Trim().ToLowerInvariant()
+                let scopeValue = body.ScopeValue.Trim()
+                let variantKey = body.VariantKey.Trim().ToLowerInvariant()
+
+                if String.IsNullOrWhiteSpace token || String.IsNullOrWhiteSpace scopeKind || String.IsNullOrWhiteSpace scopeValue || String.IsNullOrWhiteSpace variantKey then
+                    Results.BadRequest("token, scopeKind, scopeValue, and variantKey are required")
+                else
+                    SemanticGraphRepository.upsertTokenSplit token scopeKind scopeValue variantKey
+                    let rebuilt = SemanticGraphRepository.backfillGraphChunks 1000
+                    Results.Ok({| saved = true; rebuilt = rebuilt |})
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
         "/api/admin/semantic/index/forum/thread/{threadId}",
         Func<HttpContext, Guid, IResult>(fun ctx threadId ->
             match tryGetAuthClaims ctx with

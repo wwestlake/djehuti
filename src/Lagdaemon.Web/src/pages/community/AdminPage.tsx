@@ -219,6 +219,8 @@ export default function AdminPage() {
   const [semanticSplitting, setSemanticSplitting] = useState(false)
   const [semanticReindexResult, setSemanticReindexResult] = useState<SemanticReindexSummary | null>(null)
   const [semanticSplitResult, setSemanticSplitResult] = useState<{ created: number; rebuilt: number } | null>(null)
+  const [semanticManualSplitResult, setSemanticManualSplitResult] = useState<{ rebuilt: number } | null>(null)
+  const [semanticSplitForm, setSemanticSplitForm] = useState({ token: '', scopeKind: 'source-type', scopeValue: '', variantKey: '' })
   const [semanticMudIndexedCount, setSemanticMudIndexedCount] = useState<number | null>(null)
   const [semanticMudItemIndexedCount, setSemanticMudItemIndexedCount] = useState<number | null>(null)
   const [semanticMudRecipeIndexedCount, setSemanticMudRecipeIndexedCount] = useState<number | null>(null)
@@ -828,6 +830,34 @@ export default function AdminPage() {
       }
     } catch {
       setError('Failed to materialize semantic token splits.')
+    } finally {
+      setSemanticSplitting(false)
+    }
+  }
+
+  const saveSemanticTokenSplit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!semanticSplitForm.token.trim() || !semanticSplitForm.scopeKind.trim() || !semanticSplitForm.scopeValue.trim()) return
+    setSemanticSplitting(true)
+    setError(null)
+    try {
+      const variantKey = semanticSplitForm.variantKey.trim() || `${semanticSplitForm.token.trim().toLowerCase()}::${semanticSplitForm.scopeKind.trim().toLowerCase()}::${semanticSplitForm.scopeValue.trim().toLowerCase()}`
+      const result = await semanticAdminApi.saveTokenSplit({
+        token: semanticSplitForm.token.trim().toLowerCase(),
+        scopeKind: semanticSplitForm.scopeKind.trim().toLowerCase(),
+        scopeValue: semanticSplitForm.scopeValue.trim(),
+        variantKey,
+      })
+      setSemanticManualSplitResult({ rebuilt: result.rebuilt })
+      setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
+      setSemanticStats(await semanticAdminApi.getStats())
+      if (semanticQuery.trim()) {
+        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
+        setSemanticResults(results)
+      }
+      setSemanticSplitForm({ token: '', scopeKind: 'source-type', scopeValue: '', variantKey: '' })
+    } catch {
+      setError('Failed to save semantic token split.')
     } finally {
       setSemanticSplitting(false)
     }
@@ -1633,6 +1663,45 @@ export default function AdminPage() {
                 Created {semanticSplitResult.created} token split variants and rebuilt {semanticSplitResult.rebuilt} chunk graphs.
               </div>
             )}
+
+            {semanticManualSplitResult && (
+              <div className="forum-success">
+                Saved manual token split rule and rebuilt {semanticManualSplitResult.rebuilt} chunk graphs.
+              </div>
+            )}
+
+            <form onSubmit={saveSemanticTokenSplit} style={{ display: 'grid', gridTemplateColumns: '1fr 180px 1fr 1fr 140px', gap: 8 }}>
+              <input
+                className="papers-new-input"
+                placeholder="Token"
+                value={semanticSplitForm.token}
+                onChange={e => setSemanticSplitForm(prev => ({ ...prev, token: e.target.value }))}
+              />
+              <select
+                className="admin-role-select"
+                value={semanticSplitForm.scopeKind}
+                onChange={e => setSemanticSplitForm(prev => ({ ...prev, scopeKind: e.target.value }))}
+              >
+                <option value="source-type">Source type</option>
+                <option value="realm">Realm</option>
+                <option value="zone-slug">Zone slug</option>
+              </select>
+              <input
+                className="papers-new-input"
+                placeholder="Scope value"
+                value={semanticSplitForm.scopeValue}
+                onChange={e => setSemanticSplitForm(prev => ({ ...prev, scopeValue: e.target.value }))}
+              />
+              <input
+                className="papers-new-input"
+                placeholder="Variant key (optional)"
+                value={semanticSplitForm.variantKey}
+                onChange={e => setSemanticSplitForm(prev => ({ ...prev, variantKey: e.target.value }))}
+              />
+              <button className="tiptap-action-btn" type="submit" disabled={semanticSplitting}>
+                Save split
+              </button>
+            </form>
 
             {!!semanticDispersion.length && (
               <div className="admin-table-wrap">
