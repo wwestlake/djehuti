@@ -293,6 +293,19 @@ let ``semantic splitting resolves realm scoped variants`` () =
     Assert.Equal("field::realm::sci-fi", resolved)
 
 [<Fact>]
+let ``semantic splitting leaves unresolved token unchanged when scope key mismatches`` () =
+    let splits =
+        [ { Token = "gate"; ScopeKind = "zone-slug"; ScopeValue = "inner-keep"; VariantKey = "gate::zone::inner-keep" } ]
+
+    let resolved =
+        SemanticSplitting.resolveTokenForContext
+            (Map.ofList [ "zone-slug", "outer-yard"; "source-type", "mud-room" ])
+            splits
+            "gate"
+
+    Assert.Equal("gate", resolved)
+
+[<Fact>]
 let ``comparison metrics compare typed prompt response values`` () =
     let prompt = Domain.prompt "p1" "alpha beta beta"
     let response = Domain.response "r1" "alpha gamma"
