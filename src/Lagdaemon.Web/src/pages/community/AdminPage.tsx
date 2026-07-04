@@ -8,7 +8,7 @@ import type { ForumTag, ForumReport } from '../../api/forumApi'
 import { mudAdminApi } from '../../api/mudAdminApi'
 import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics, MudRecipe, MudRecipeIngredient } from '../../api/mudAdminApi'
 import { semanticAdminApi } from '../../api/semanticAdminApi'
-import type { SemanticAdminActionRecord, SemanticAutomationStatus, SemanticGraphStats, SemanticChunkHit, SemanticReindexSummary, SemanticSplitApplyResult, SemanticTokenDispersionCandidate, SemanticTokenSplitProposal, SemanticTokenSplitRecord } from '../../api/semanticAdminApi'
+import type { SemanticAdminActionRecord, SemanticAutomationRunResult, SemanticAutomationStatus, SemanticGraphStats, SemanticChunkHit, SemanticReindexSummary, SemanticSplitApplyResult, SemanticTokenDispersionCandidate, SemanticTokenSplitProposal, SemanticTokenSplitRecord } from '../../api/semanticAdminApi'
 import { AdminTable } from '../../components/AdminTable'
 
 const BASE = '/djehuti'
@@ -207,6 +207,7 @@ export default function AdminPage() {
   const [mudRecipes, setMudRecipes] = useState<MudRecipe[]>([])
   const [semanticStats, setSemanticStats] = useState<SemanticGraphStats | null>(null)
   const [semanticAutomationStatus, setSemanticAutomationStatus] = useState<SemanticAutomationStatus | null>(null)
+  const [semanticAutomationResult, setSemanticAutomationResult] = useState<SemanticAutomationRunResult | null>(null)
   const [semanticQuery, setSemanticQuery] = useState('')
   const [semanticSourceType, setSemanticSourceType] = useState('')
   const [semanticResults, setSemanticResults] = useState<SemanticChunkHit[]>([])
@@ -221,6 +222,7 @@ export default function AdminPage() {
   const [semanticMudItemReindexing, setSemanticMudItemReindexing] = useState(false)
   const [semanticMudRecipeReindexing, setSemanticMudRecipeReindexing] = useState(false)
   const [semanticSplitting, setSemanticSplitting] = useState(false)
+  const [semanticAutomationRunning, setSemanticAutomationRunning] = useState(false)
   const [semanticReindexResult, setSemanticReindexResult] = useState<SemanticReindexSummary | null>(null)
   const [semanticSplitResult, setSemanticSplitResult] = useState<SemanticSplitApplyResult | null>(null)
   const [semanticManualSplitResult, setSemanticManualSplitResult] = useState<{ rebuilt: number } | null>(null)
@@ -983,6 +985,29 @@ export default function AdminPage() {
     }
   }
 
+  const runSemanticAutomationPass = async () => {
+    setSemanticAutomationRunning(true)
+    setError(null)
+    try {
+      const result = await semanticAdminApi.runAutomationPass()
+      setSemanticAutomationResult(result)
+      setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
+      setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
+      setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
+      setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
+      setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
+      if (semanticQuery.trim()) {
+        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
+        setSemanticResults(results)
+      }
+    } catch {
+      setError('Failed to run semantic automation pass.')
+    } finally {
+      setSemanticAutomationRunning(false)
+    }
+  }
+
   const saveMudRoom = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!mudRoomForm.zoneId || !mudRoomForm.name.trim()) return
@@ -1739,6 +1764,9 @@ export default function AdminPage() {
               <button className="tiptap-action-btn" type="button" onClick={materializeSemanticSourceTypeSplits} disabled={semanticSplitting}>
                 {semanticSplitting ? 'Splitting…' : 'Split high-dispersion tokens'}
               </button>
+              <button className="tiptap-action-btn" type="button" onClick={runSemanticAutomationPass} disabled={semanticAutomationRunning}>
+                {semanticAutomationRunning ? 'Running…' : 'Run automation now'}
+              </button>
             </div>
 
             {semanticStats && (
@@ -1830,6 +1858,18 @@ export default function AdminPage() {
               <div className="forum-success">
                 Reindexed {semanticReindexResult.documentsIndexed} of {semanticReindexResult.documentsRequested} documents
                 ({semanticReindexResult.forumThreadsIndexed} forum threads, {semanticReindexResult.blogArticlesIndexed} blog articles, {semanticReindexResult.mudRoomsIndexed} MUD rooms, {semanticReindexResult.mudItemsIndexed} MUD items, {semanticReindexResult.mudRecipesIndexed} recipes).
+              </div>
+            )}
+
+            {semanticAutomationResult && (
+              <div className="forum-success">
+                Automation pass indexed {semanticAutomationResult.forumThreadsIndexed}/{semanticAutomationResult.forumThreadsRequested} forum threads,
+                {' '}{semanticAutomationResult.blogArticlesIndexed}/{semanticAutomationResult.blogArticlesRequested} blog articles,
+                {' '}{semanticAutomationResult.mudRoomsIndexed}/{semanticAutomationResult.mudRoomsRequested} rooms,
+                {' '}{semanticAutomationResult.mudItemsIndexed}/{semanticAutomationResult.mudItemsRequested} items,
+                {' '}{semanticAutomationResult.mudRecipesIndexed}/{semanticAutomationResult.mudRecipesRequested} recipes,
+                rebuilt {semanticAutomationResult.graphBackfilled} chunk graphs,
+                and created {semanticAutomationResult.autoSplitCreatedCount} split variants across {semanticAutomationResult.autoSplitProposalCount} proposals.
               </div>
             )}
 

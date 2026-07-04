@@ -33,6 +33,22 @@ export interface SemanticAutomationStatus {
   lastAutoSplitProposalCount: number
 }
 
+export interface SemanticAutomationRunResult {
+  forumThreadsRequested: number
+  forumThreadsIndexed: number
+  blogArticlesRequested: number
+  blogArticlesIndexed: number
+  mudRoomsRequested: number
+  mudRoomsIndexed: number
+  mudItemsRequested: number
+  mudItemsIndexed: number
+  mudRecipesRequested: number
+  mudRecipesIndexed: number
+  graphBackfilled: number
+  autoSplitCreatedCount: number
+  autoSplitProposalCount: number
+}
+
 export interface SemanticTokenDispersionCandidate {
   token: string
   chunkCount: number
@@ -116,6 +132,9 @@ export const semanticAdminApi = {
 
   getAutomationStatus: (): Promise<SemanticAutomationStatus> =>
     fetch(`${BASE}/automation/status`, opts).then(json),
+
+  runAutomationPass: (): Promise<SemanticAutomationRunResult> =>
+    fetch(`${BASE}/automation/run`, { ...opts, method: 'POST' }).then(json),
 
   search: (query: string, sourceType?: string, limit = 10): Promise<SemanticChunkHit[]> => {
     const params = new URLSearchParams({ q: query, limit: String(limit) })
