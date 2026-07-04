@@ -200,6 +200,47 @@ let ``semantic source chunk records tokenize each chunk locally`` () =
     Assert.Contains("popular", chunks.Head.Tokens)
 
 [<Fact>]
+let ``semantic dispersion scores broader context spread higher`` () =
+    let narrow =
+        { Token = "torch"
+          ChunkCount = 3
+          DocumentCount = 2
+          SourceTypeCount = 1
+          NeighborCount = 4 }
+
+    let broad =
+        { Token = "field"
+          ChunkCount = 8
+          DocumentCount = 7
+          SourceTypeCount = 3
+          NeighborCount = 12 }
+
+    let narrowScore = SemanticDispersion.scoreObservation narrow
+    let broadScore = SemanticDispersion.scoreObservation broad
+
+    Assert.True(broadScore > narrowScore)
+    Assert.Equal("low", SemanticDispersion.classify narrowScore)
+    Assert.Equal("high", SemanticDispersion.classify broadScore)
+
+[<Fact>]
+let ``semantic dispersion evaluation preserves counts and adds rounded score`` () =
+    let evaluated =
+        { Token = "gate"
+          ChunkCount = 5
+          DocumentCount = 4
+          SourceTypeCount = 2
+          NeighborCount = 9 }
+        |> SemanticDispersion.evaluate
+
+    Assert.Equal("gate", evaluated.Token)
+    Assert.Equal(5, evaluated.ChunkCount)
+    Assert.Equal(4, evaluated.DocumentCount)
+    Assert.Equal(2, evaluated.SourceTypeCount)
+    Assert.Equal(9, evaluated.NeighborCount)
+    Assert.True(evaluated.DispersionScore > 0.0)
+    Assert.Contains(evaluated.DispersionBand, [| "low"; "medium"; "high" |])
+
+[<Fact>]
 let ``comparison metrics compare typed prompt response values`` () =
     let prompt = Domain.prompt "p1" "alpha beta beta"
     let response = Domain.response "r1" "alpha gamma"
