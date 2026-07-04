@@ -1733,6 +1733,37 @@ let main args =
         )
     ) |> ignore
 
+    app.MapDelete(
+        "/api/admin/semantic/splits",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let token =
+                    match ctx.Request.Query.TryGetValue("token") with
+                    | true, values when values.Count > 0 -> values.[0].Trim().ToLowerInvariant()
+                    | _ -> ""
+
+                let scopeKind =
+                    match ctx.Request.Query.TryGetValue("scopeKind") with
+                    | true, values when values.Count > 0 -> values.[0].Trim().ToLowerInvariant()
+                    | _ -> ""
+
+                let scopeValue =
+                    match ctx.Request.Query.TryGetValue("scopeValue") with
+                    | true, values when values.Count > 0 -> values.[0].Trim()
+                    | _ -> ""
+
+                if String.IsNullOrWhiteSpace token || String.IsNullOrWhiteSpace scopeKind || String.IsNullOrWhiteSpace scopeValue then
+                    Results.BadRequest("token, scopeKind, and scopeValue are required")
+                else
+                    let deleted = SemanticGraphRepository.deleteTokenSplit token scopeKind scopeValue
+                    let rebuilt = SemanticGraphRepository.backfillGraphChunks 1000
+                    Results.Ok({| deleted = deleted; rebuilt = rebuilt |})
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
     app.MapPost(
         "/api/admin/semantic/index/forum/thread/{threadId}",
         Func<HttpContext, Guid, IResult>(fun ctx threadId ->

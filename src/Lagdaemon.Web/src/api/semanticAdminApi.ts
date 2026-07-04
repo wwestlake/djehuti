@@ -85,6 +85,11 @@ export const semanticAdminApi = {
       body: JSON.stringify(payload),
     }).then(json),
 
+  deleteTokenSplit: (token: string, scopeKind: string, scopeValue: string): Promise<{ deleted: number; rebuilt: number }> => {
+    const params = new URLSearchParams({ token, scopeKind, scopeValue })
+    return fetch(`${BASE}/splits?${params.toString()}`, { ...opts, method: 'DELETE' }).then(json)
+  },
+
   reindexIndexed: (): Promise<SemanticReindexSummary> =>
     fetch(`${BASE}/reindex/indexed`, { ...opts, method: 'POST' }).then(json),
 

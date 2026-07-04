@@ -863,6 +863,26 @@ export default function AdminPage() {
     }
   }
 
+  const deleteSemanticTokenSplit = async (token: string, scopeKind: string, scopeValue: string) => {
+    if (!confirm(`Remove split rule for ${token} in ${scopeKind} = ${scopeValue}?`)) return
+    setSemanticSplitting(true)
+    setError(null)
+    try {
+      const result = await semanticAdminApi.deleteTokenSplit(token, scopeKind, scopeValue)
+      setSemanticManualSplitResult({ rebuilt: result.rebuilt })
+      setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
+      setSemanticStats(await semanticAdminApi.getStats())
+      if (semanticQuery.trim()) {
+        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
+        setSemanticResults(results)
+      }
+    } catch {
+      setError('Failed to delete semantic token split.')
+    } finally {
+      setSemanticSplitting(false)
+    }
+  }
+
   const saveMudRoom = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!mudRoomForm.zoneId || !mudRoomForm.name.trim()) return
@@ -1743,6 +1763,7 @@ export default function AdminPage() {
                       <th>Scope</th>
                       <th>Value</th>
                       <th>Variant key</th>
+                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1752,6 +1773,16 @@ export default function AdminPage() {
                         <td>{split.scopeKind}</td>
                         <td>{split.scopeValue}</td>
                         <td>{split.variantKey}</td>
+                        <td>
+                          <button
+                            className="tiptap-action-btn"
+                            type="button"
+                            onClick={() => deleteSemanticTokenSplit(split.token, split.scopeKind, split.scopeValue)}
+                            disabled={semanticSplitting}
+                          >
+                            Remove
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
