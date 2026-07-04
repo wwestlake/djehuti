@@ -1084,6 +1084,85 @@ let getDispersionCandidates (limit: int) (minChunkCount: int) =
               DispersionScore = evaluated.DispersionScore
               DispersionBand = evaluated.DispersionBand } ]
 
+let private choosePreferredSplitScope
+    (rows: (string * int) list)
+    (minimumDistinctValues: int) =
+    let cleaned =
+        rows
+        |> List.filter (fun (_, count) -> count > 0)
+        |> List.sortByDescending snd
+
+    let distinctCount = cleaned.Length
+    let totalCount = cleaned |> List.sumBy snd
+
+    if distinctCount < minimumDistinctValues || totalCount <= 0 then
+        None
+    else
+        let topShare =
+            cleaned
+            |> List.head
+            |> snd
+            |> fun top -> float top / float totalCount
+
+        if topShare >= 0.85 then
+            None
+        else
+            Some cleaned
+
+let private loadTokenScopeCounts (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (token: string) =
+    let readScopeCounts (sql: string) (parameterName: string) =
+        use cmd = new NpgsqlCommand(sql, conn, txn)
+        cmd.Parameters.AddWithValue(parameterName, token) |> ignore
+        use reader = cmd.ExecuteReader()
+        let rows =
+            [ while reader.Read() do
+                if not (reader.IsDBNull(0)) then
+                    yield reader.GetString(0), reader.GetInt32(1) ]
+        reader.Close()
+        rows
+
+    let realmCounts =
+        readScopeCounts
+            """SELECT d.metadata_json ->> 'realmSlug' AS scope_value,
+                      COUNT(DISTINCT sc.id)::int
+               FROM semantic_chunk_tokens sct
+               JOIN semantic_chunks sc ON sc.id = sct.chunk_id
+               JOIN semantic_documents d ON d.id = sc.document_id
+               WHERE sct.token = @token
+                 AND d.metadata_json ? 'realmSlug'
+               GROUP BY scope_value
+               ORDER BY COUNT(DISTINCT sc.id) DESC, scope_value ASC"""
+            "token"
+
+    let zoneCounts =
+        readScopeCounts
+            """SELECT d.metadata_json ->> 'zoneSlug' AS scope_value,
+                      COUNT(DISTINCT sc.id)::int
+               FROM semantic_chunk_tokens sct
+               JOIN semantic_chunks sc ON sc.id = sct.chunk_id
+               JOIN semantic_documents d ON d.id = sc.document_id
+               WHERE sct.token = @token
+                 AND d.metadata_json ? 'zoneSlug'
+               GROUP BY scope_value
+               ORDER BY COUNT(DISTINCT sc.id) DESC, scope_value ASC"""
+            "token"
+
+    let sourceTypeCounts =
+        readScopeCounts
+            """SELECT d.source_type,
+                      COUNT(DISTINCT sc.id)::int
+               FROM semantic_chunk_tokens sct
+               JOIN semantic_chunks sc ON sc.id = sct.chunk_id
+               JOIN semantic_documents d ON d.id = sc.document_id
+               WHERE sct.token = @token
+               GROUP BY d.source_type
+               ORDER BY COUNT(DISTINCT sc.id) DESC, d.source_type ASC"""
+            "token"
+
+    [ "zone-slug", zoneCounts
+      "realm", realmCounts
+      "source-type", sourceTypeCounts ]
+
 let materializeSourceTypeTokenSplits (limit: int) (minChunkCount: int) =
     use conn = openConnection()
     use txn = conn.BeginTransaction()
@@ -1096,36 +1175,40 @@ let materializeSourceTypeTokenSplits (limit: int) (minChunkCount: int) =
         let mutable createdCount = 0
 
         for candidate in candidates do
-            use sourceCmd = new NpgsqlCommand(
-                """SELECT DISTINCT d.source_type
-                   FROM semantic_chunk_tokens sct
-                   JOIN semantic_chunks sc ON sc.id = sct.chunk_id
-                   JOIN semantic_documents d ON d.id = sc.document_id
-                   WHERE sct.token = @token
-                   ORDER BY d.source_type ASC""",
-                conn,
-                txn)
-            sourceCmd.Parameters.AddWithValue("token", candidate.Token) |> ignore
-            use sourceReader = sourceCmd.ExecuteReader()
-            let sourceTypes =
-                [ while sourceReader.Read() do
-                    yield sourceReader.GetString(0) ]
-            sourceReader.Close()
+            let scopeOptions = loadTokenScopeCounts conn txn candidate.Token
 
-            for sourceType in sourceTypes do
-                let variantKey = SemanticSplitting.buildSourceTypeVariantKey candidate.Token sourceType
-                use insertCmd = new NpgsqlCommand(
-                    """INSERT INTO semantic_token_splits (token, source_type, scope_kind, scope_value, variant_key)
-                       VALUES (@token, @sourceType, 'source-type', @sourceType, @variantKey)
-                       ON CONFLICT (token, source_type) DO NOTHING""",
-                    conn,
-                    txn)
-                insertCmd.Parameters.AddWithValue("token", candidate.Token) |> ignore
-                insertCmd.Parameters.AddWithValue("sourceType", sourceType) |> ignore
-                insertCmd.Parameters.AddWithValue("variantKey", variantKey) |> ignore
-                let inserted = insertCmd.ExecuteNonQuery()
-                if inserted > 0 then
-                    createdCount <- createdCount + 1
+            let selectedScope =
+                scopeOptions
+                |> List.tryPick (fun (scopeKind, rows) ->
+                    choosePreferredSplitScope rows 2
+                    |> Option.map (fun chosen -> scopeKind, chosen))
+
+            match selectedScope with
+            | Some(scopeKind, rows) ->
+                for scopeValue, _ in rows do
+                    let variantKey =
+                        match scopeKind with
+                        | "source-type" -> SemanticSplitting.buildSourceTypeVariantKey candidate.Token scopeValue
+                        | _ -> $"{candidate.Token}::{scopeKind}::{scopeValue}"
+
+                    use insertCmd = new NpgsqlCommand(
+                        """INSERT INTO semantic_token_splits (token, source_type, scope_kind, scope_value, variant_key)
+                           VALUES (@token,
+                                   CASE WHEN @scopeKind = 'source-type' THEN @scopeValue ELSE 'custom' END,
+                                   @scopeKind,
+                                   @scopeValue,
+                                   @variantKey)
+                           ON CONFLICT (token, source_type) DO NOTHING""",
+                        conn,
+                        txn)
+                    insertCmd.Parameters.AddWithValue("token", candidate.Token) |> ignore
+                    insertCmd.Parameters.AddWithValue("scopeKind", scopeKind) |> ignore
+                    insertCmd.Parameters.AddWithValue("scopeValue", scopeValue) |> ignore
+                    insertCmd.Parameters.AddWithValue("variantKey", variantKey) |> ignore
+                    let inserted = insertCmd.ExecuteNonQuery()
+                    if inserted > 0 then
+                        createdCount <- createdCount + 1
+            | None -> ()
 
         txn.Commit()
         createdCount
