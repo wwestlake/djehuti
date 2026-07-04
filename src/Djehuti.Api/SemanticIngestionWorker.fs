@@ -4,6 +4,7 @@ open System
 open System.Threading.Tasks
 open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.Logging
+open Djehuti.Api
 
 let private envFlag (name: string) (fallback: bool) =
     match Environment.GetEnvironmentVariable(name) with
@@ -32,6 +33,7 @@ let private hasWork (summary: SemanticGraphRepository.SemanticBackgroundSyncSumm
 
 type SemanticIngestionWorker(logger: ILogger<SemanticIngestionWorker>) =
     inherit BackgroundService()
+    let mutable consecutiveDbFailures = 0
 
     override _.ExecuteAsync(ct) =
         task {
@@ -79,12 +81,20 @@ type SemanticIngestionWorker(logger: ILogger<SemanticIngestionWorker>) =
                                 "Semantic graph backfill rebuilt {ChunkCount} chunk graphs",
                                 graphBackfilled)
 
+                        consecutiveDbFailures <- 0
+
                     do! Task.Delay(TimeSpan.FromSeconds(float intervalSeconds), ct)
                 with
                 | :? TaskCanceledException -> ()
                 | ex ->
-                    logger.LogError(ex, "SemanticIngestionWorker iteration error")
-                    do! Task.Delay(TimeSpan.FromSeconds(30.0), ct)
+                    if WorkerResilience.isDatabaseException ex then
+                        consecutiveDbFailures <- consecutiveDbFailures + 1
+                        let delay = WorkerResilience.backoffDelay consecutiveDbFailures
+                        logger.LogWarning(ex, "SemanticIngestionWorker database failure. Backing off for {DelaySeconds} seconds (attempt {Attempt})", int delay.TotalSeconds, consecutiveDbFailures)
+                        do! Task.Delay(delay, ct)
+                    else
+                        logger.LogError(ex, "SemanticIngestionWorker iteration error")
+                        do! Task.Delay(WorkerResilience.shortRecoveryDelay, ct)
 
             return ()
         }
