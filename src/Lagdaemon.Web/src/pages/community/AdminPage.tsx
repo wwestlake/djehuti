@@ -1671,15 +1671,17 @@ export default function AdminPage() {
                   <thead>
                     <tr>
                       <th>Token</th>
-                      <th>Source type</th>
+                      <th>Scope</th>
+                      <th>Value</th>
                       <th>Variant key</th>
                     </tr>
                   </thead>
                   <tbody>
                     {semanticTokenSplits.map(split => (
-                      <tr key={`${split.token}:${split.sourceType}`}>
+                      <tr key={`${split.token}:${split.scopeKind}:${split.scopeValue}`}>
                         <td>{split.token}</td>
-                        <td>{split.sourceType}</td>
+                        <td>{split.scopeKind}</td>
+                        <td>{split.scopeValue}</td>
                         <td>{split.variantKey}</td>
                       </tr>
                     ))}

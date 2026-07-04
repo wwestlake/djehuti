@@ -243,11 +243,11 @@ let ``semantic dispersion evaluation preserves counts and adds rounded score`` (
 [<Fact>]
 let ``semantic splitting resolves source-specific token variants`` () =
     let splits =
-        [ { Token = "field"; SourceType = "mud-room"; VariantKey = "field::source::mud-room" }
-          { Token = "field"; SourceType = "blog-article"; VariantKey = "field::source::blog-article" } ]
+        [ { Token = "field"; ScopeKind = "source-type"; ScopeValue = "mud-room"; VariantKey = "field::source::mud-room" }
+          { Token = "field"; ScopeKind = "source-type"; ScopeValue = "blog-article"; VariantKey = "field::source::blog-article" } ]
 
-    let resolved = SemanticSplitting.resolveTokenForSource "mud-room" splits "field"
-    let untouched = SemanticSplitting.resolveTokenForSource "forum-thread" splits "field"
+    let resolved = SemanticSplitting.resolveTokenForContext (Map.ofList [ "source-type", "mud-room" ]) splits "field"
+    let untouched = SemanticSplitting.resolveTokenForContext (Map.ofList [ "source-type", "forum-thread" ]) splits "field"
 
     Assert.Equal("field::source::mud-room", resolved)
     Assert.Equal("field", untouched)
@@ -255,8 +255,8 @@ let ``semantic splitting resolves source-specific token variants`` () =
 [<Fact>]
 let ``semantic splitting expands query token to include matching variants`` () =
     let splits =
-        [ { Token = "field"; SourceType = "mud-room"; VariantKey = "field::source::mud-room" }
-          { Token = "field"; SourceType = "blog-article"; VariantKey = "field::source::blog-article" } ]
+        [ { Token = "field"; ScopeKind = "source-type"; ScopeValue = "mud-room"; VariantKey = "field::source::mud-room" }
+          { Token = "field"; ScopeKind = "source-type"; ScopeValue = "blog-article"; VariantKey = "field::source::blog-article" } ]
 
     let allMatches = SemanticSplitting.expandQueryToken None splits "field"
     let mudMatches = SemanticSplitting.expandQueryToken (Some "mud-room") splits "field"
