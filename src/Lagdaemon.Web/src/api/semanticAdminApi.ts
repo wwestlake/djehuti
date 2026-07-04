@@ -10,6 +10,7 @@ export interface SemanticGraphStats {
   documentCount: number
   chunkCount: number
   tokenCount: number
+  tokenSplitCount: number
   embeddedChunkCount: number
   embeddingProvider: string
   embeddingReady: boolean
@@ -23,6 +24,12 @@ export interface SemanticTokenDispersionCandidate {
   neighborCount: number
   dispersionScore: number
   dispersionBand: string
+}
+
+export interface SemanticTokenSplitRecord {
+  token: string
+  sourceType: string
+  variantKey: string
 }
 
 export interface SemanticChunkHit {
@@ -59,6 +66,14 @@ export const semanticAdminApi = {
   getDispersionCandidates: (limit = 12, minChunkCount = 3): Promise<SemanticTokenDispersionCandidate[]> => {
     const params = new URLSearchParams({ limit: String(limit), minChunkCount: String(minChunkCount) })
     return fetch(`${BASE}/dispersion?${params.toString()}`, opts).then(json)
+  },
+
+  getTokenSplits: (): Promise<SemanticTokenSplitRecord[]> =>
+    fetch(`${BASE}/splits`, opts).then(json),
+
+  materializeSourceTypeSplits: (limit = 12, minChunkCount = 3): Promise<{ created: number; rebuilt: number }> => {
+    const params = new URLSearchParams({ limit: String(limit), minChunkCount: String(minChunkCount) })
+    return fetch(`${BASE}/splits/materialize/source-types?${params.toString()}`, { ...opts, method: 'POST' }).then(json)
   },
 
   reindexIndexed: (): Promise<SemanticReindexSummary> =>

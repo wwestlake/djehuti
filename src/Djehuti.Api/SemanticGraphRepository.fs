@@ -12,6 +12,7 @@ type SemanticGraphStats =
     { DocumentCount: int
       ChunkCount: int
       TokenCount: int
+      TokenSplitCount: int
       NodeCount: int
       ChunkNodeCount: int
       EdgeCount: int
@@ -27,6 +28,11 @@ type SemanticTokenDispersionCandidate =
       NeighborCount: int
       DispersionScore: float
       DispersionBand: string }
+
+type SemanticTokenSplitRecord =
+    { Token: string
+      SourceType: string
+      VariantKey: string }
 
 type SemanticChunkHit =
     { SourceType: string
@@ -68,6 +74,45 @@ let private sha256 (text: string) =
 let private opt (value: string option) : obj =
     value |> Option.map box |> Option.defaultValue (box DBNull.Value)
 
+let private getSemanticTokenSplits (conn: NpgsqlConnection) (txn: NpgsqlTransaction option) =
+    use cmd =
+        match txn with
+        | Some transaction ->
+            new NpgsqlCommand(
+                """SELECT token, source_type, variant_key
+                   FROM semantic_token_splits
+                   ORDER BY token ASC, source_type ASC""",
+                conn,
+                transaction)
+        | None ->
+            new NpgsqlCommand(
+                """SELECT token, source_type, variant_key
+                   FROM semantic_token_splits
+                   ORDER BY token ASC, source_type ASC""",
+                conn)
+
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do
+        yield
+            { Token = reader.GetString(0)
+              SourceType = reader.GetString(1)
+              VariantKey = reader.GetString(2) } ]
+
+let listTokenSplits () =
+    use conn = openConnection()
+    getSemanticTokenSplits conn None
+
+let private resolveTokensForSource (sourceType: string) (splits: SemanticTokenSplitRecord list) (tokens: string list) =
+    let coreSplits : SemanticTokenSplit list =
+        splits
+        |> List.map (fun split ->
+            { Token = split.Token
+              SourceType = split.SourceType
+              VariantKey = split.VariantKey })
+
+    tokens
+    |> List.map (SemanticSplitting.resolveTokenForSource sourceType coreSplits)
+
 let private createSourceRecord
     (sourceType: string)
     (sourceKey: string)
@@ -82,7 +127,7 @@ let private createSourceRecord
       MetadataJson = metadataJson
       Provenance = provenance |> Map.ofList }
 
-let private getOrCreateSemanticNodeId (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (nodeKey: string) =
+let private getOrCreateSemanticNodeId (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (nodeKey: string) (displayText: string) =
     use selectCmd = new NpgsqlCommand(
         """SELECT id
            FROM semantic_nodes
@@ -104,7 +149,7 @@ let private getOrCreateSemanticNodeId (conn: NpgsqlConnection) (txn: NpgsqlTrans
             conn,
             txn)
         insertCmd.Parameters.AddWithValue("nodeKey", nodeKey) |> ignore
-        insertCmd.Parameters.AddWithValue("displayText", nodeKey) |> ignore
+        insertCmd.Parameters.AddWithValue("displayText", displayText) |> ignore
         insertCmd.ExecuteScalar() :?> Guid
     | value -> value :?> Guid
 
@@ -112,7 +157,7 @@ let private rebuildChunkGraphFromMetrics
     (conn: NpgsqlConnection)
     (txn: NpgsqlTransaction)
     (chunkId: Guid)
-    (tokenMetrics: (string * int * int) list) =
+    (tokenMetrics: (string * string * int * int) list) =
     use deleteEdgesCmd = new NpgsqlCommand("DELETE FROM semantic_node_edges WHERE chunk_id = @chunkId", conn, txn)
     deleteEdgesCmd.Parameters.AddWithValue("chunkId", chunkId) |> ignore
     deleteEdgesCmd.ExecuteNonQuery() |> ignore
@@ -123,8 +168,8 @@ let private rebuildChunkGraphFromMetrics
 
     let graphNodes =
         tokenMetrics
-        |> List.map (fun (token, weight, firstPosition) ->
-            let nodeId = getOrCreateSemanticNodeId conn txn token
+        |> List.map (fun (token, displayToken, weight, firstPosition) ->
+            let nodeId = getOrCreateSemanticNodeId conn txn token displayToken
 
             use linkCmd = new NpgsqlCommand(
                 """INSERT INTO semantic_chunk_nodes (chunk_id, node_id, node_weight, first_position)
@@ -168,16 +213,18 @@ let private rebuildChunkGraph
     (conn: NpgsqlConnection)
     (txn: NpgsqlTransaction)
     (chunkId: Guid)
-    (tokens: string list) =
+    (tokens: string list)
+    (displayTokens: string list) =
     let tokenMetrics =
-        tokens
-        |> List.mapi (fun position token -> token, position)
-        |> List.groupBy fst
+        List.zip tokens displayTokens
+        |> List.mapi (fun position (token, displayToken) -> token, displayToken, position)
+        |> List.groupBy (fun (token, _, _) -> token)
         |> List.map (fun (token, positions) ->
             token,
+            (positions |> List.head |> fun (_, displayToken, _) -> displayToken),
             positions.Length,
-            positions |> List.map snd |> List.min)
-        |> List.sortBy (fun (token, _, _) -> token)
+            positions |> List.map (fun (_, _, position) -> position) |> List.min)
+        |> List.sortBy (fun (token, _, _, _) -> token)
 
     rebuildChunkGraphFromMetrics conn txn chunkId tokenMetrics
 
@@ -270,9 +317,11 @@ let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransacti
     deleteCmd.ExecuteNonQuery() |> ignore
 
     let chunks = SemanticRecords.buildChunkRecords 700 source
+    let splits = getSemanticTokenSplits conn (Some txn)
 
     for chunk in chunks do
         let embedding, provider = SemanticEmbeddings.embed chunk.ChunkText
+        let resolvedTokens = resolveTokensForSource source.SourceType splits chunk.Tokens
         use chunkCmd = new NpgsqlCommand(
             """INSERT INTO semantic_chunks (document_id, chunk_position, content, token_count, embedding_values, embedding_provider, embedding_dimension, embedded_at)
                VALUES (@documentId, @position, @content, @tokenCount, @embeddingValues, @embeddingProvider, @embeddingDimension, now())
@@ -303,7 +352,7 @@ let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransacti
             tokenCmd.Parameters.AddWithValue("position", index) |> ignore
             tokenCmd.ExecuteNonQuery() |> ignore)
 
-        rebuildChunkGraph conn txn chunkId chunk.Tokens
+        rebuildChunkGraph conn txn chunkId resolvedTokens chunk.Tokens
 
 let indexSourceDocument (source: SemanticSourceRecord) =
     use conn = openConnection()
@@ -775,7 +824,30 @@ let backfillGraphChunks (limit: int) =
                     yield reader.GetString(0), reader.GetInt32(1), reader.GetInt32(2) ]
             reader.Close()
 
-            rebuildChunkGraphFromMetrics conn txn chunkId tokenMetrics
+            use sourceTypeCmd = new NpgsqlCommand(
+                """SELECT d.source_type
+                   FROM semantic_chunks c
+                   JOIN semantic_documents d ON d.id = c.document_id
+                   WHERE c.id = @chunkId""",
+                conn,
+                txn)
+            sourceTypeCmd.Parameters.AddWithValue("chunkId", chunkId) |> ignore
+            let sourceType =
+                match sourceTypeCmd.ExecuteScalar() with
+                | :? string as value -> value
+                | _ -> "unknown"
+
+            let splits = getSemanticTokenSplits conn (Some txn)
+            let resolvedMetrics =
+                tokenMetrics
+                |> List.map (fun (token, count, position) ->
+                    let resolved =
+                        resolveTokensForSource sourceType splits [ token ]
+                        |> List.tryHead
+                        |> Option.defaultValue token
+                    resolved, token, count, position)
+
+            rebuildChunkGraphFromMetrics conn txn chunkId resolvedMetrics
             txn.Commit()
             rebuiltCount <- rebuiltCount + 1
         with ex ->
@@ -857,6 +929,7 @@ let getStats () =
                (SELECT COUNT(*) FROM semantic_documents),
                (SELECT COUNT(*) FROM semantic_chunks),
                (SELECT COUNT(*) FROM semantic_chunk_tokens),
+               (SELECT COUNT(*) FROM semantic_token_splits),
                (SELECT COUNT(*) FROM semantic_nodes),
                (SELECT COUNT(*) FROM semantic_chunk_nodes),
                (SELECT COUNT(*) FROM semantic_node_edges),
@@ -867,16 +940,18 @@ let getStats () =
         { DocumentCount = reader.GetInt32(0)
           ChunkCount = reader.GetInt32(1)
           TokenCount = reader.GetInt32(2)
-          NodeCount = reader.GetInt32(3)
-          ChunkNodeCount = reader.GetInt32(4)
-          EdgeCount = reader.GetInt32(5)
-          EmbeddedChunkCount = reader.GetInt32(6)
+          TokenSplitCount = reader.GetInt32(3)
+          NodeCount = reader.GetInt32(4)
+          ChunkNodeCount = reader.GetInt32(5)
+          EdgeCount = reader.GetInt32(6)
+          EmbeddedChunkCount = reader.GetInt32(7)
           EmbeddingProvider = provider.Name
           EmbeddingReady = provider.IsReady }
     else
         { DocumentCount = 0
           ChunkCount = 0
           TokenCount = 0
+          TokenSplitCount = 0
           NodeCount = 0
           ChunkNodeCount = 0
           EdgeCount = 0
@@ -938,6 +1013,69 @@ let getDispersionCandidates (limit: int) (minChunkCount: int) =
               DispersionScore = evaluated.DispersionScore
               DispersionBand = evaluated.DispersionBand } ]
 
+let materializeSourceTypeTokenSplits (limit: int) (minChunkCount: int) =
+    use conn = openConnection()
+    use txn = conn.BeginTransaction()
+
+    try
+        let candidates =
+            getDispersionCandidates limit minChunkCount
+            |> List.filter (fun candidate -> candidate.SourceTypeCount >= 2 && candidate.DispersionBand = "high")
+
+        let mutable createdCount = 0
+
+        for candidate in candidates do
+            use sourceCmd = new NpgsqlCommand(
+                """SELECT DISTINCT d.source_type
+                   FROM semantic_chunk_tokens sct
+                   JOIN semantic_chunks sc ON sc.id = sct.chunk_id
+                   JOIN semantic_documents d ON d.id = sc.document_id
+                   WHERE sct.token = @token
+                   ORDER BY d.source_type ASC""",
+                conn,
+                txn)
+            sourceCmd.Parameters.AddWithValue("token", candidate.Token) |> ignore
+            use sourceReader = sourceCmd.ExecuteReader()
+            let sourceTypes =
+                [ while sourceReader.Read() do
+                    yield sourceReader.GetString(0) ]
+            sourceReader.Close()
+
+            for sourceType in sourceTypes do
+                let variantKey = SemanticSplitting.buildSourceTypeVariantKey candidate.Token sourceType
+                use insertCmd = new NpgsqlCommand(
+                    """INSERT INTO semantic_token_splits (token, source_type, variant_key)
+                       VALUES (@token, @sourceType, @variantKey)
+                       ON CONFLICT (token, source_type) DO NOTHING""",
+                    conn,
+                    txn)
+                insertCmd.Parameters.AddWithValue("token", candidate.Token) |> ignore
+                insertCmd.Parameters.AddWithValue("sourceType", sourceType) |> ignore
+                insertCmd.Parameters.AddWithValue("variantKey", variantKey) |> ignore
+                let inserted = insertCmd.ExecuteNonQuery()
+                if inserted > 0 then
+                    createdCount <- createdCount + 1
+
+        txn.Commit()
+        createdCount
+    with ex ->
+        txn.Rollback()
+        raise ex
+
+let expandQueryTokens (sourceType: string option) (tokens: string list) =
+    use conn = openConnection()
+    let splits = getSemanticTokenSplits conn None
+    let coreSplits : SemanticTokenSplit list =
+        splits
+        |> List.map (fun split ->
+            { Token = split.Token
+              SourceType = split.SourceType
+              VariantKey = split.VariantKey })
+
+    tokens
+    |> List.collect (SemanticSplitting.expandQueryToken sourceType coreSplits)
+    |> List.distinct
+
 let private readChunkHit (reader: DbDataReader) (queryEmbedding: float32 array) =
     let embedding =
         if reader.IsDBNull(7) then
@@ -959,6 +1097,7 @@ let searchChunks (query: string) (sourceType: string option) (limit: int) =
     let tokens =
         SemanticPreprocessing.tokenize query
         |> List.distinct
+        |> expandQueryTokens sourceType
         |> List.toArray
 
     let queryEmbedding, _ = SemanticEmbeddings.embed query
