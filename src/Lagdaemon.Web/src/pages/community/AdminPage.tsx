@@ -8,7 +8,7 @@ import type { ForumTag, ForumReport } from '../../api/forumApi'
 import { mudAdminApi } from '../../api/mudAdminApi'
 import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics, MudRecipe, MudRecipeIngredient } from '../../api/mudAdminApi'
 import { semanticAdminApi } from '../../api/semanticAdminApi'
-import type { SemanticAdminActionRecord, SemanticGraphStats, SemanticChunkHit, SemanticReindexSummary, SemanticSplitApplyResult, SemanticTokenDispersionCandidate, SemanticTokenSplitProposal, SemanticTokenSplitRecord } from '../../api/semanticAdminApi'
+import type { SemanticAdminActionRecord, SemanticAutomationStatus, SemanticGraphStats, SemanticChunkHit, SemanticReindexSummary, SemanticSplitApplyResult, SemanticTokenDispersionCandidate, SemanticTokenSplitProposal, SemanticTokenSplitRecord } from '../../api/semanticAdminApi'
 import { AdminTable } from '../../components/AdminTable'
 
 const BASE = '/djehuti'
@@ -206,6 +206,7 @@ export default function AdminPage() {
   const [mudMetrics, setMudMetrics] = useState<MudAdminMetrics | null>(null)
   const [mudRecipes, setMudRecipes] = useState<MudRecipe[]>([])
   const [semanticStats, setSemanticStats] = useState<SemanticGraphStats | null>(null)
+  const [semanticAutomationStatus, setSemanticAutomationStatus] = useState<SemanticAutomationStatus | null>(null)
   const [semanticQuery, setSemanticQuery] = useState('')
   const [semanticSourceType, setSemanticSourceType] = useState('')
   const [semanticResults, setSemanticResults] = useState<SemanticChunkHit[]>([])
@@ -336,6 +337,7 @@ export default function AdminPage() {
         mudAdminApi.getMetrics().then(setMudMetrics),
         mudAdminApi.getRecipes().then(setMudRecipes),
         semanticAdminApi.getStats().then(setSemanticStats),
+        semanticAdminApi.getAutomationStatus().then(setSemanticAutomationStatus),
         semanticAdminApi.getDispersionCandidates().then(setSemanticDispersion),
         semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined).then(setSemanticSplitProposals),
         semanticAdminApi.getTokenSplits().then(setSemanticTokenSplits),
@@ -768,6 +770,7 @@ export default function AdminPage() {
       const result = await semanticAdminApi.reindexIndexed()
       setSemanticReindexResult(result)
       setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
@@ -789,6 +792,7 @@ export default function AdminPage() {
       const result = await semanticAdminApi.reindexMudRooms()
       setSemanticMudIndexedCount(result.indexed)
       setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
@@ -810,6 +814,7 @@ export default function AdminPage() {
       const result = await semanticAdminApi.reindexMudItems()
       setSemanticMudItemIndexedCount(result.indexed)
       setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
@@ -827,6 +832,7 @@ export default function AdminPage() {
       const result = await semanticAdminApi.reindexMudRecipes()
       setSemanticMudRecipeIndexedCount(result.indexed)
       setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
@@ -844,6 +850,7 @@ export default function AdminPage() {
       const result = await semanticAdminApi.materializeSourceTypeSplits()
       setSemanticSplitResult(result)
       setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
@@ -875,6 +882,7 @@ export default function AdminPage() {
       setSemanticManualSplitResult({ rebuilt: result.rebuilt })
       setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
       setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
       if (semanticQuery.trim()) {
@@ -914,6 +922,7 @@ export default function AdminPage() {
       setSemanticManualSplitResult({ rebuilt: result.rebuilt })
       setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
       setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
       if (semanticQuery.trim()) {
@@ -935,6 +944,7 @@ export default function AdminPage() {
       setSemanticSplitResult(result)
       setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
       setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
@@ -958,6 +968,7 @@ export default function AdminPage() {
       setSemanticSplitResult(result)
       setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
       setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
@@ -1754,6 +1765,61 @@ export default function AdminPage() {
                   <div className="metrics-stat-split">
                     <span style={{ color: semanticStats.embeddingReady ? '#56d364' : 'var(--text-muted)', fontSize: '0.75rem' }}>
                       {semanticStats.embeddingReady ? 'ready' : 'fallback active'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {semanticAutomationStatus && (
+              <div className="metrics-cards-row">
+                <div className="metrics-stat-card">
+                  <div className="metrics-stat-label">Semantic sync</div>
+                  <div className="metrics-stat-all" style={{ fontSize: '1rem' }}>
+                    {semanticAutomationStatus.syncEnabled ? 'enabled' : 'disabled'}
+                  </div>
+                  <div className="metrics-stat-split">
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      every {semanticAutomationStatus.syncIntervalSeconds}s
+                    </span>
+                  </div>
+                </div>
+                <div className="metrics-stat-card">
+                  <div className="metrics-stat-label">Auto split</div>
+                  <div className="metrics-stat-all" style={{ fontSize: '1rem' }}>
+                    {semanticAutomationStatus.autoSplitEnabled ? 'enabled' : 'disabled'}
+                  </div>
+                  <div className="metrics-stat-split">
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      every {semanticAutomationStatus.autoSplitIntervalSeconds}s
+                    </span>
+                  </div>
+                </div>
+                <div className="metrics-stat-card">
+                  <div className="metrics-stat-label">Last sync</div>
+                  <div className="metrics-stat-all" style={{ fontSize: '1rem' }}>
+                    {semanticAutomationStatus.lastSyncAt ? new Date(semanticAutomationStatus.lastSyncAt).toLocaleString() : 'Never'}
+                  </div>
+                </div>
+                <div className="metrics-stat-card">
+                  <div className="metrics-stat-label">Last auto split</div>
+                  <div className="metrics-stat-all" style={{ fontSize: '1rem' }}>
+                    {semanticAutomationStatus.lastSplitAt ? new Date(semanticAutomationStatus.lastSplitAt).toLocaleString() : 'Never'}
+                  </div>
+                  <div className="metrics-stat-split">
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      {semanticAutomationStatus.lastAutoSplitCreatedCount} variants / {semanticAutomationStatus.lastAutoSplitProposalCount} proposals
+                    </span>
+                  </div>
+                </div>
+                <div className="metrics-stat-card">
+                  <div className="metrics-stat-label">Worker health</div>
+                  <div className="metrics-stat-all" style={{ fontSize: '1rem' }}>
+                    {semanticAutomationStatus.consecutiveDbFailures}
+                  </div>
+                  <div className="metrics-stat-split">
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      DB failures in a row
                     </span>
                   </div>
                 </div>

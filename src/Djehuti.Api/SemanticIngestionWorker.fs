@@ -31,9 +31,45 @@ let private hasWork (summary: SemanticGraphRepository.SemanticBackgroundSyncSumm
     || summary.MudItemsRequested > 0
     || summary.MudRecipesRequested > 0
 
+[<CLIMutable>]
+type SemanticAutomationStatus =
+    { SyncEnabled: bool
+      SyncIntervalSeconds: int
+      AutoSplitEnabled: bool
+      AutoSplitIntervalSeconds: int
+      AutoSplitLimit: int
+      AutoSplitMinChunkCount: int
+      AutoSplitScopeKind: string option
+      GraphBackfillLimit: int
+      ConsecutiveDbFailures: int
+      LastSyncAt: DateTimeOffset option
+      LastSplitAt: DateTimeOffset option
+      LastGraphBackfillCount: int
+      LastAutoSplitCreatedCount: int
+      LastAutoSplitProposalCount: int }
+
+let mutable private currentStatus =
+    { SyncEnabled = true
+      SyncIntervalSeconds = 300
+      AutoSplitEnabled = false
+      AutoSplitIntervalSeconds = 3600
+      AutoSplitLimit = 12
+      AutoSplitMinChunkCount = 3
+      AutoSplitScopeKind = None
+      GraphBackfillLimit = 8
+      ConsecutiveDbFailures = 0
+      LastSyncAt = None
+      LastSplitAt = None
+      LastGraphBackfillCount = 0
+      LastAutoSplitCreatedCount = 0
+      LastAutoSplitProposalCount = 0 }
+
+let getStatus () = currentStatus
+
 type SemanticIngestionWorker(logger: ILogger<SemanticIngestionWorker>) =
     inherit BackgroundService()
     let mutable consecutiveDbFailures = 0
+    let mutable lastAutoSplitAt : DateTimeOffset option = None
 
     override _.ExecuteAsync(ct) =
         task {
@@ -47,10 +83,31 @@ type SemanticIngestionWorker(logger: ILogger<SemanticIngestionWorker>) =
             let mudItemLimit = envInt "SEMANTIC_SYNC_MUD_ITEM_LIMIT" 64
             let mudRecipeLimit = envInt "SEMANTIC_SYNC_MUD_RECIPE_LIMIT" 32
             let graphBackfillLimit = envInt "SEMANTIC_GRAPH_BACKFILL_LIMIT" 8
+            let autoSplitEnabled = envFlag "SEMANTIC_AUTO_SPLIT_ENABLED" false
+            let autoSplitIntervalSeconds = Math.Max(envInt "SEMANTIC_AUTO_SPLIT_INTERVAL_SECONDS" 3600, 60)
+            let autoSplitLimit = Math.Max(envInt "SEMANTIC_AUTO_SPLIT_LIMIT" 12, 1)
+            let autoSplitMinChunkCount = Math.Max(envInt "SEMANTIC_AUTO_SPLIT_MIN_CHUNK_COUNT" 3, 1)
+            let autoSplitScopeKind =
+                match Environment.GetEnvironmentVariable("SEMANTIC_AUTO_SPLIT_SCOPE_KIND") with
+                | null
+                | "" -> None
+                | value -> Some(value.Trim().ToLowerInvariant())
+
+            currentStatus <-
+                { currentStatus with
+                    SyncEnabled = enabled
+                    SyncIntervalSeconds = intervalSeconds
+                    AutoSplitEnabled = autoSplitEnabled
+                    AutoSplitIntervalSeconds = autoSplitIntervalSeconds
+                    AutoSplitLimit = autoSplitLimit
+                    AutoSplitMinChunkCount = autoSplitMinChunkCount
+                    AutoSplitScopeKind = autoSplitScopeKind
+                    GraphBackfillLimit = graphBackfillLimit }
 
             while not ct.IsCancellationRequested do
                 try
                     if enabled then
+                        let now = DateTimeOffset.UtcNow
                         let summary =
                             SemanticGraphRepository.runBackgroundSync
                                 forumLimit
@@ -59,8 +116,35 @@ type SemanticIngestionWorker(logger: ILogger<SemanticIngestionWorker>) =
                                 mudItemLimit
                                 mudRecipeLimit
 
+                        let shouldAutoSplit =
+                            autoSplitEnabled
+                            &&
+                            match lastAutoSplitAt with
+                            | None -> true
+                            | Some lastRun -> (now - lastRun).TotalSeconds >= float autoSplitIntervalSeconds
+
+                        let autoSplitCreated, autoSplitProposalsApplied =
+                            if shouldAutoSplit then
+                                let created, proposalsApplied =
+                                    SemanticGraphRepository.applyTokenSplitProposals autoSplitLimit autoSplitMinChunkCount autoSplitScopeKind
+
+                                if proposalsApplied > 0 then
+                                    logger.LogInformation(
+                                        "Semantic auto-split pass created {CreatedCount} variants across {ProposalCount} proposals",
+                                        created,
+                                        proposalsApplied)
+
+                                lastAutoSplitAt <- Some now
+                                created, proposalsApplied
+                            else
+                                0, 0
+
                         let graphBackfilled =
-                            SemanticGraphRepository.backfillGraphChunks graphBackfillLimit
+                            let initialBackfill = SemanticGraphRepository.backfillGraphChunks graphBackfillLimit
+                            if autoSplitCreated > 0 || autoSplitProposalsApplied > 0 then
+                                initialBackfill + SemanticGraphRepository.backfillGraphChunks graphBackfillLimit
+                            else
+                                initialBackfill
 
                         if hasWork summary then
                             logger.LogInformation(
@@ -82,6 +166,17 @@ type SemanticIngestionWorker(logger: ILogger<SemanticIngestionWorker>) =
                                 graphBackfilled)
 
                         consecutiveDbFailures <- 0
+                        currentStatus <-
+                            { currentStatus with
+                                ConsecutiveDbFailures = 0
+                                LastSyncAt = Some now
+                                LastSplitAt =
+                                    match lastAutoSplitAt with
+                                    | Some timestamp when autoSplitCreated > 0 || autoSplitProposalsApplied > 0 -> Some timestamp
+                                    | _ -> currentStatus.LastSplitAt
+                                LastGraphBackfillCount = graphBackfilled
+                                LastAutoSplitCreatedCount = autoSplitCreated
+                                LastAutoSplitProposalCount = autoSplitProposalsApplied }
 
                     do! Task.Delay(TimeSpan.FromSeconds(float intervalSeconds), ct)
                 with
@@ -89,6 +184,7 @@ type SemanticIngestionWorker(logger: ILogger<SemanticIngestionWorker>) =
                 | ex ->
                     if WorkerResilience.isDatabaseException ex then
                         consecutiveDbFailures <- consecutiveDbFailures + 1
+                        currentStatus <- { currentStatus with ConsecutiveDbFailures = consecutiveDbFailures }
                         let delay = WorkerResilience.backoffDelay consecutiveDbFailures
                         logger.LogWarning(ex, "SemanticIngestionWorker database failure. Backing off for {DelaySeconds} seconds (attempt {Attempt})", int delay.TotalSeconds, consecutiveDbFailures)
                         do! Task.Delay(delay, ct)

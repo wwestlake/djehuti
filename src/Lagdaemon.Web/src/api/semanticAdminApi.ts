@@ -16,6 +16,23 @@ export interface SemanticGraphStats {
   embeddingReady: boolean
 }
 
+export interface SemanticAutomationStatus {
+  syncEnabled: boolean
+  syncIntervalSeconds: number
+  autoSplitEnabled: boolean
+  autoSplitIntervalSeconds: number
+  autoSplitLimit: number
+  autoSplitMinChunkCount: number
+  autoSplitScopeKind: string | null
+  graphBackfillLimit: number
+  consecutiveDbFailures: number
+  lastSyncAt: string | null
+  lastSplitAt: string | null
+  lastGraphBackfillCount: number
+  lastAutoSplitCreatedCount: number
+  lastAutoSplitProposalCount: number
+}
+
 export interface SemanticTokenDispersionCandidate {
   token: string
   chunkCount: number
@@ -96,6 +113,9 @@ export interface SemanticAdminActionRecord {
 export const semanticAdminApi = {
   getStats: (): Promise<SemanticGraphStats> =>
     fetch(`${BASE}/stats`, opts).then(json),
+
+  getAutomationStatus: (): Promise<SemanticAutomationStatus> =>
+    fetch(`${BASE}/automation/status`, opts).then(json),
 
   search: (query: string, sourceType?: string, limit = 10): Promise<SemanticChunkHit[]> => {
     const params = new URLSearchParams({ q: query, limit: String(limit) })
