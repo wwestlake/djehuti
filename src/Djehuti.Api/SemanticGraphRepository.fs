@@ -104,6 +104,26 @@ let listTokenSplits () =
     use conn = openConnection()
     getSemanticTokenSplits conn None
 
+let private normalizeScopeKey (key: string) =
+    if String.IsNullOrWhiteSpace key then
+        key
+    else
+        key
+        |> Seq.collect (fun ch ->
+            if Char.IsUpper ch then [ '-'; Char.ToLowerInvariant ch ] else [ Char.ToLowerInvariant ch ])
+        |> Array.ofSeq
+        |> String
+        |> fun value -> value.TrimStart('-')
+
+let private buildScopeContext (sourceType: string) (provenance: Map<string, string>) =
+    provenance
+    |> Map.fold (fun state key value ->
+        state
+        |> Map.add key value
+        |> Map.add (normalizeScopeKey key) value) Map.empty
+    |> Map.add "source-type" sourceType
+    |> Map.add "source_type" sourceType
+
 let upsertTokenSplit (token: string) (scopeKind: string) (scopeValue: string) (variantKey: string) =
     use conn = openConnection()
     use cmd = new NpgsqlCommand(
@@ -125,9 +145,7 @@ let upsertTokenSplit (token: string) (scopeKind: string) (scopeValue: string) (v
     cmd.ExecuteNonQuery() |> ignore
 
 let private resolveTokensForSource (sourceType: string) (provenance: Map<string, string>) (splits: SemanticTokenSplitRecord list) (tokens: string list) =
-    let context =
-        provenance
-        |> Map.add "source-type" sourceType
+    let context = buildScopeContext sourceType provenance
 
     let coreSplits : SemanticTokenSplit list =
         splits
@@ -489,7 +507,7 @@ let indexMudRoom (roomId: Guid) =
     use conn = openConnection()
 
     use roomCmd = new NpgsqlCommand(
-        """SELECT r.id, r.name, r.slug, r.description, z.id, z.name, z.slug
+        """SELECT r.id, r.name, r.slug, r.description, z.id, z.name, z.slug, z.realm_slug
            FROM mud_rooms r
            JOIN mud_zones z ON z.id = r.zone_id
            WHERE r.id = @roomId""",
@@ -508,7 +526,8 @@ let indexMudRoom (roomId: Guid) =
                 roomDescription,
                 roomReader.GetGuid(4),
                 roomReader.GetString(5),
-                roomReader.GetString(6))
+                roomReader.GetString(6),
+                roomReader.GetString(7))
         else
             None
 
@@ -516,7 +535,7 @@ let indexMudRoom (roomId: Guid) =
 
     match roomData with
     | None -> None
-    | Some(roomGuid, roomName, roomSlug, description, zoneGuid, zoneName, zoneSlug) ->
+    | Some(roomGuid, roomName, roomSlug, description, zoneGuid, zoneName, zoneSlug, realmSlug) ->
         use exitsCmd = new NpgsqlCommand(
             """SELECT e.direction, rt.name, e.label
                FROM mud_exits e
@@ -561,7 +580,7 @@ let indexMudRoom (roomId: Guid) =
         let title = $"{zoneName} / {roomName}"
         let text = buildMudRoomText zoneName roomName description exits items
         let metadata =
-            $"""{{"roomId":"{roomGuid}","roomSlug":"{roomSlug}","zoneId":"{zoneGuid}","zoneSlug":"{zoneSlug}"}}"""
+            $"""{{"roomId":"{roomGuid}","roomSlug":"{roomSlug}","zoneId":"{zoneGuid}","zoneSlug":"{zoneSlug}","realmSlug":"{realmSlug}"}}"""
         createSourceRecord
             "mud-room"
             (string roomGuid)
@@ -573,7 +592,9 @@ let indexMudRoom (roomId: Guid) =
               "roomId", string roomGuid
               "roomSlug", roomSlug
               "zoneId", string zoneGuid
-              "zoneSlug", zoneSlug ]
+              "zoneSlug", zoneSlug
+              "realm", realmSlug
+              "realmSlug", realmSlug ]
         |> indexSourceDocument
         |> Some
 
@@ -581,7 +602,7 @@ let indexMudItem (itemId: Guid) =
     use conn = openConnection()
     use itemCmd = new NpgsqlCommand(
         """SELECT i.id, i.name, i.slug, i.description, i.readable_text,
-                  r.name, z.name
+                  r.name, r.slug, z.name, z.slug, z.realm_slug
            FROM mud_items i
            LEFT JOIN mud_rooms r ON r.id = i.room_id
            LEFT JOIN mud_zones z ON z.id = r.zone_id
@@ -598,7 +619,10 @@ let indexMudItem (itemId: Guid) =
         let description = if itemReader.IsDBNull(3) then None else Some(itemReader.GetString(3))
         let readableText = if itemReader.IsDBNull(4) then None else Some(itemReader.GetString(4))
         let roomName = if itemReader.IsDBNull(5) then None else Some(itemReader.GetString(5))
-        let zoneName = if itemReader.IsDBNull(6) then None else Some(itemReader.GetString(6))
+        let roomSlug = if itemReader.IsDBNull(6) then None else Some(itemReader.GetString(6))
+        let zoneName = if itemReader.IsDBNull(7) then None else Some(itemReader.GetString(7))
+        let zoneSlug = if itemReader.IsDBNull(8) then None else Some(itemReader.GetString(8))
+        let realmSlug = if itemReader.IsDBNull(9) then None else Some(itemReader.GetString(9))
         let roomNameJson =
             match roomName with
             | Some value -> $"\"{value}\""
@@ -611,16 +635,23 @@ let indexMudItem (itemId: Guid) =
         let text = buildMudItemText itemName itemSlug description readableText roomName zoneName
         let metadata =
             $"""{{"itemId":"{itemGuid}","itemSlug":"{itemSlug}","roomName":{roomNameJson}}}"""
+        let provenance =
+            [ Some("surface", "mud")
+              Some("entity", "item")
+              Some("itemId", string itemGuid)
+              Some("itemSlug", itemSlug)
+              roomSlug |> Option.map (fun value -> "roomSlug", value)
+              zoneSlug |> Option.map (fun value -> "zoneSlug", value)
+              realmSlug |> Option.map (fun value -> "realm", value)
+              realmSlug |> Option.map (fun value -> "realmSlug", value) ]
+            |> List.choose id
         createSourceRecord
             "mud-item"
             (string itemGuid)
             title
             text
             (Some metadata)
-            [ "surface", "mud"
-              "entity", "item"
-              "itemId", string itemGuid
-              "itemSlug", itemSlug ]
+            provenance
         |> indexSourceDocument
         |> Some
 

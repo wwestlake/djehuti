@@ -267,6 +267,32 @@ let ``semantic splitting expands query token to include matching variants`` () =
     Assert.Equal<string list>(["field"; "field::source::mud-room"], mudMatches)
 
 [<Fact>]
+let ``semantic splitting resolves zone slug scoped variants`` () =
+    let splits =
+        [ { Token = "gate"; ScopeKind = "zone-slug"; ScopeValue = "inner-keep"; VariantKey = "gate::zone::inner-keep" } ]
+
+    let resolved =
+        SemanticSplitting.resolveTokenForContext
+            (Map.ofList [ "zone-slug", "inner-keep"; "source-type", "mud-room" ])
+            splits
+            "gate"
+
+    Assert.Equal("gate::zone::inner-keep", resolved)
+
+[<Fact>]
+let ``semantic splitting resolves realm scoped variants`` () =
+    let splits =
+        [ { Token = "field"; ScopeKind = "realm"; ScopeValue = "sci-fi"; VariantKey = "field::realm::sci-fi" } ]
+
+    let resolved =
+        SemanticSplitting.resolveTokenForContext
+            (Map.ofList [ "realm", "sci-fi"; "source-type", "mud-item" ])
+            splits
+            "field"
+
+    Assert.Equal("field::realm::sci-fi", resolved)
+
+[<Fact>]
 let ``comparison metrics compare typed prompt response values`` () =
     let prompt = Domain.prompt "p1" "alpha beta beta"
     let response = Domain.response "r1" "alpha gamma"
