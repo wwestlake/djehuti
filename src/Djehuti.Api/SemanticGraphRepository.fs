@@ -1189,6 +1189,40 @@ let private loadTokenScopeCounts (conn: NpgsqlConnection) (txn: NpgsqlTransactio
       "realm", realmCounts
       "source-type", sourceTypeCounts ]
 
+let private insertTokenSplitVariants
+    (conn: NpgsqlConnection)
+    (txn: NpgsqlTransaction)
+    (token: string)
+    (scopeKind: string)
+    (rows: (string * int) list) =
+    let mutable createdCount = 0
+
+    for scopeValue, _ in rows do
+        let variantKey =
+            match scopeKind with
+            | "source-type" -> SemanticSplitting.buildSourceTypeVariantKey token scopeValue
+            | _ -> $"{token}::{scopeKind}::{scopeValue}"
+
+        use insertCmd = new NpgsqlCommand(
+            """INSERT INTO semantic_token_splits (token, source_type, scope_kind, scope_value, variant_key)
+               VALUES (@token,
+                       CASE WHEN @scopeKind = 'source-type' THEN @scopeValue ELSE 'custom' END,
+                       @scopeKind,
+                       @scopeValue,
+                       @variantKey)
+               ON CONFLICT (token, source_type) DO NOTHING""",
+            conn,
+            txn)
+        insertCmd.Parameters.AddWithValue("token", token) |> ignore
+        insertCmd.Parameters.AddWithValue("scopeKind", scopeKind) |> ignore
+        insertCmd.Parameters.AddWithValue("scopeValue", scopeValue) |> ignore
+        insertCmd.Parameters.AddWithValue("variantKey", variantKey) |> ignore
+        let inserted = insertCmd.ExecuteNonQuery()
+        if inserted > 0 then
+            createdCount <- createdCount + 1
+
+    createdCount
+
 let materializeSourceTypeTokenSplits (limit: int) (minChunkCount: int) =
     use conn = openConnection()
     use txn = conn.BeginTransaction()
@@ -1211,29 +1245,7 @@ let materializeSourceTypeTokenSplits (limit: int) (minChunkCount: int) =
 
             match selectedScope with
             | Some(scopeKind, assessment) ->
-                for scopeValue, _ in assessment.Rows do
-                    let variantKey =
-                        match scopeKind with
-                        | "source-type" -> SemanticSplitting.buildSourceTypeVariantKey candidate.Token scopeValue
-                        | _ -> $"{candidate.Token}::{scopeKind}::{scopeValue}"
-
-                    use insertCmd = new NpgsqlCommand(
-                        """INSERT INTO semantic_token_splits (token, source_type, scope_kind, scope_value, variant_key)
-                           VALUES (@token,
-                                   CASE WHEN @scopeKind = 'source-type' THEN @scopeValue ELSE 'custom' END,
-                                   @scopeKind,
-                                   @scopeValue,
-                                   @variantKey)
-                           ON CONFLICT (token, source_type) DO NOTHING""",
-                        conn,
-                        txn)
-                    insertCmd.Parameters.AddWithValue("token", candidate.Token) |> ignore
-                    insertCmd.Parameters.AddWithValue("scopeKind", scopeKind) |> ignore
-                    insertCmd.Parameters.AddWithValue("scopeValue", scopeValue) |> ignore
-                    insertCmd.Parameters.AddWithValue("variantKey", variantKey) |> ignore
-                    let inserted = insertCmd.ExecuteNonQuery()
-                    if inserted > 0 then
-                        createdCount <- createdCount + 1
+                createdCount <- createdCount + insertTokenSplitVariants conn txn candidate.Token scopeKind assessment.Rows
             | None -> ()
 
         txn.Commit()
@@ -1257,37 +1269,46 @@ let applyTokenSplitProposal (token: string) (scopeKind: string) =
             |> Option.bind (fun (_, rows) ->
                 choosePreferredSplitScope rows 2)
             |> Option.map (fun assessment ->
-                let mutable created = 0
-
-                for scopeValue, _ in assessment.Rows do
-                    let variantKey =
-                        match normalizedScopeKind with
-                        | "source-type" -> SemanticSplitting.buildSourceTypeVariantKey normalizedToken scopeValue
-                        | _ -> $"{normalizedToken}::{normalizedScopeKind}::{scopeValue}"
-
-                    use insertCmd = new NpgsqlCommand(
-                        """INSERT INTO semantic_token_splits (token, source_type, scope_kind, scope_value, variant_key)
-                           VALUES (@token,
-                                   CASE WHEN @scopeKind = 'source-type' THEN @scopeValue ELSE 'custom' END,
-                                   @scopeKind,
-                                   @scopeValue,
-                                   @variantKey)
-                           ON CONFLICT (token, source_type) DO NOTHING""",
-                        conn,
-                        txn)
-                    insertCmd.Parameters.AddWithValue("token", normalizedToken) |> ignore
-                    insertCmd.Parameters.AddWithValue("scopeKind", normalizedScopeKind) |> ignore
-                    insertCmd.Parameters.AddWithValue("scopeValue", scopeValue) |> ignore
-                    insertCmd.Parameters.AddWithValue("variantKey", variantKey) |> ignore
-                    let inserted = insertCmd.ExecuteNonQuery()
-                    if inserted > 0 then
-                        created <- created + 1
-
-                created)
+                insertTokenSplitVariants conn txn normalizedToken normalizedScopeKind assessment.Rows)
             |> Option.defaultValue 0
 
         txn.Commit()
         createdCount
+    with ex ->
+        txn.Rollback()
+        raise ex
+
+let applyTokenSplitProposals (limit: int) (minChunkCount: int) =
+    use conn = openConnection()
+    use txn = conn.BeginTransaction()
+
+    try
+        let mutable createdCount = 0
+        let mutable proposalCount = 0
+
+        let candidates =
+            getDispersionCandidates limit minChunkCount
+            |> List.filter (fun candidate -> candidate.SourceTypeCount >= 2 && candidate.DispersionBand = "high")
+
+        for candidate in candidates do
+            let scopeOptions = loadTokenScopeCounts conn txn candidate.Token
+
+            let selectedScope =
+                scopeOptions
+                |> List.tryPick (fun (scopeKind, rows) ->
+                    choosePreferredSplitScope rows 2
+                    |> Option.map (fun assessment -> scopeKind, assessment))
+
+            match selectedScope with
+            | Some(scopeKind, assessment) ->
+                let inserted = insertTokenSplitVariants conn txn candidate.Token scopeKind assessment.Rows
+                if inserted > 0 then
+                    proposalCount <- proposalCount + 1
+                createdCount <- createdCount + inserted
+            | None -> ()
+
+        txn.Commit()
+        createdCount, proposalCount
     with ex ->
         txn.Rollback()
         raise ex

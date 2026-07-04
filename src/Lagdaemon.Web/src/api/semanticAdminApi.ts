@@ -72,6 +72,12 @@ export interface SemanticReindexSummary {
   mudRecipesIndexed: number
 }
 
+export interface SemanticSplitApplyResult {
+  created: number
+  rebuilt: number
+  proposalsApplied?: number
+}
+
 export const semanticAdminApi = {
   getStats: (): Promise<SemanticGraphStats> =>
     fetch(`${BASE}/stats`, opts).then(json),
@@ -95,7 +101,7 @@ export const semanticAdminApi = {
     return fetch(`${BASE}/splits/proposals?${params.toString()}`, opts).then(json)
   },
 
-  applyTokenSplitProposal: (payload: Pick<SemanticTokenSplitProposal, 'token' | 'scopeKind'>): Promise<{ created: number; rebuilt: number }> =>
+  applyTokenSplitProposal: (payload: Pick<SemanticTokenSplitProposal, 'token' | 'scopeKind'>): Promise<SemanticSplitApplyResult> =>
     fetch(`${BASE}/splits/proposals/apply`, {
       ...opts,
       method: 'POST',
@@ -103,7 +109,12 @@ export const semanticAdminApi = {
       body: JSON.stringify(payload),
     }).then(json),
 
-  materializeSourceTypeSplits: (limit = 12, minChunkCount = 3): Promise<{ created: number; rebuilt: number }> => {
+  applyAllTokenSplitProposals: (limit = 12, minChunkCount = 3): Promise<SemanticSplitApplyResult> => {
+    const params = new URLSearchParams({ limit: String(limit), minChunkCount: String(minChunkCount) })
+    return fetch(`${BASE}/splits/proposals/apply-all?${params.toString()}`, { ...opts, method: 'POST' }).then(json)
+  },
+
+  materializeSourceTypeSplits: (limit = 12, minChunkCount = 3): Promise<SemanticSplitApplyResult> => {
     const params = new URLSearchParams({ limit: String(limit), minChunkCount: String(minChunkCount) })
     return fetch(`${BASE}/splits/materialize/source-types?${params.toString()}`, { ...opts, method: 'POST' }).then(json)
   },
