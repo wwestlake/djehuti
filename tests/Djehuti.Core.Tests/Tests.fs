@@ -241,6 +241,32 @@ let ``semantic dispersion evaluation preserves counts and adds rounded score`` (
     Assert.Contains(evaluated.DispersionBand, [| "low"; "medium"; "high" |])
 
 [<Fact>]
+let ``semantic splitting resolves source-specific token variants`` () =
+    let splits =
+        [ { Token = "field"; SourceType = "mud-room"; VariantKey = "field::source::mud-room" }
+          { Token = "field"; SourceType = "blog-article"; VariantKey = "field::source::blog-article" } ]
+
+    let resolved = SemanticSplitting.resolveTokenForSource "mud-room" splits "field"
+    let untouched = SemanticSplitting.resolveTokenForSource "forum-thread" splits "field"
+
+    Assert.Equal("field::source::mud-room", resolved)
+    Assert.Equal("field", untouched)
+
+[<Fact>]
+let ``semantic splitting expands query token to include matching variants`` () =
+    let splits =
+        [ { Token = "field"; SourceType = "mud-room"; VariantKey = "field::source::mud-room" }
+          { Token = "field"; SourceType = "blog-article"; VariantKey = "field::source::blog-article" } ]
+
+    let allMatches = SemanticSplitting.expandQueryToken None splits "field"
+    let mudMatches = SemanticSplitting.expandQueryToken (Some "mud-room") splits "field"
+
+    Assert.Contains("field", allMatches)
+    Assert.Contains("field::source::mud-room", allMatches)
+    Assert.Contains("field::source::blog-article", allMatches)
+    Assert.Equal<string list>(["field"; "field::source::mud-room"], mudMatches)
+
+[<Fact>]
 let ``comparison metrics compare typed prompt response values`` () =
     let prompt = Domain.prompt "p1" "alpha beta beta"
     let response = Domain.response "r1" "alpha gamma"

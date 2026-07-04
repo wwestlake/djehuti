@@ -8,7 +8,7 @@ import type { ForumTag, ForumReport } from '../../api/forumApi'
 import { mudAdminApi } from '../../api/mudAdminApi'
 import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics, MudRecipe, MudRecipeIngredient } from '../../api/mudAdminApi'
 import { semanticAdminApi } from '../../api/semanticAdminApi'
-import type { SemanticGraphStats, SemanticChunkHit, SemanticReindexSummary, SemanticTokenDispersionCandidate } from '../../api/semanticAdminApi'
+import type { SemanticGraphStats, SemanticChunkHit, SemanticReindexSummary, SemanticTokenDispersionCandidate, SemanticTokenSplitRecord } from '../../api/semanticAdminApi'
 import { AdminTable } from '../../components/AdminTable'
 
 const BASE = '/djehuti'
@@ -210,12 +210,15 @@ export default function AdminPage() {
   const [semanticSourceType, setSemanticSourceType] = useState('')
   const [semanticResults, setSemanticResults] = useState<SemanticChunkHit[]>([])
   const [semanticDispersion, setSemanticDispersion] = useState<SemanticTokenDispersionCandidate[]>([])
+  const [semanticTokenSplits, setSemanticTokenSplits] = useState<SemanticTokenSplitRecord[]>([])
   const [semanticSearching, setSemanticSearching] = useState(false)
   const [semanticReindexing, setSemanticReindexing] = useState(false)
   const [semanticMudReindexing, setSemanticMudReindexing] = useState(false)
   const [semanticMudItemReindexing, setSemanticMudItemReindexing] = useState(false)
   const [semanticMudRecipeReindexing, setSemanticMudRecipeReindexing] = useState(false)
+  const [semanticSplitting, setSemanticSplitting] = useState(false)
   const [semanticReindexResult, setSemanticReindexResult] = useState<SemanticReindexSummary | null>(null)
+  const [semanticSplitResult, setSemanticSplitResult] = useState<{ created: number; rebuilt: number } | null>(null)
   const [semanticMudIndexedCount, setSemanticMudIndexedCount] = useState<number | null>(null)
   const [semanticMudItemIndexedCount, setSemanticMudItemIndexedCount] = useState<number | null>(null)
   const [semanticMudRecipeIndexedCount, setSemanticMudRecipeIndexedCount] = useState<number | null>(null)
@@ -320,6 +323,7 @@ export default function AdminPage() {
         mudAdminApi.getRecipes().then(setMudRecipes),
         semanticAdminApi.getStats().then(setSemanticStats),
         semanticAdminApi.getDispersionCandidates().then(setSemanticDispersion),
+        semanticAdminApi.getTokenSplits().then(setSemanticTokenSplits),
       ]).then(() => {}),
       metrics: () => Promise.all([
         apiFetch(`${BASE}/api/admin/metrics`).then(setMetrics),
@@ -806,6 +810,26 @@ export default function AdminPage() {
       setError('Failed to reindex MUD recipes.')
     } finally {
       setSemanticMudRecipeReindexing(false)
+    }
+  }
+
+  const materializeSemanticSourceTypeSplits = async () => {
+    setSemanticSplitting(true)
+    setError(null)
+    try {
+      const result = await semanticAdminApi.materializeSourceTypeSplits()
+      setSemanticSplitResult(result)
+      setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
+      setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
+      if (semanticQuery.trim()) {
+        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
+        setSemanticResults(results)
+      }
+    } catch {
+      setError('Failed to materialize semantic token splits.')
+    } finally {
+      setSemanticSplitting(false)
     }
   }
 
@@ -1562,6 +1586,9 @@ export default function AdminPage() {
               <button className="tiptap-action-btn" type="button" onClick={reindexMudSemanticRecipes} disabled={semanticMudRecipeReindexing}>
                 {semanticMudRecipeReindexing ? 'Indexing recipes…' : 'Index all recipes'}
               </button>
+              <button className="tiptap-action-btn" type="button" onClick={materializeSemanticSourceTypeSplits} disabled={semanticSplitting}>
+                {semanticSplitting ? 'Splitting…' : 'Split high-dispersion tokens'}
+              </button>
             </div>
 
             {semanticStats && (
@@ -1579,6 +1606,10 @@ export default function AdminPage() {
                   <div className="metrics-stat-all">{semanticStats.embeddedChunkCount}</div>
                 </div>
                 <div className="metrics-stat-card">
+                  <div className="metrics-stat-label">Token splits</div>
+                  <div className="metrics-stat-all">{semanticStats.tokenSplitCount}</div>
+                </div>
+                <div className="metrics-stat-card">
                   <div className="metrics-stat-label">Provider</div>
                   <div className="metrics-stat-all" style={{ fontSize: '1.15rem' }}>{semanticStats.embeddingProvider}</div>
                   <div className="metrics-stat-split">
@@ -1594,6 +1625,12 @@ export default function AdminPage() {
               <div className="forum-success">
                 Reindexed {semanticReindexResult.documentsIndexed} of {semanticReindexResult.documentsRequested} documents
                 ({semanticReindexResult.forumThreadsIndexed} forum threads, {semanticReindexResult.blogArticlesIndexed} blog articles, {semanticReindexResult.mudRoomsIndexed} MUD rooms, {semanticReindexResult.mudItemsIndexed} MUD items, {semanticReindexResult.mudRecipesIndexed} recipes).
+              </div>
+            )}
+
+            {semanticSplitResult && (
+              <div className="forum-success">
+                Created {semanticSplitResult.created} token split variants and rebuilt {semanticSplitResult.rebuilt} chunk graphs.
               </div>
             )}
 
@@ -1621,6 +1658,29 @@ export default function AdminPage() {
                         <td>{candidate.documentCount}</td>
                         <td>{candidate.sourceTypeCount}</td>
                         <td>{candidate.neighborCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {!!semanticTokenSplits.length && (
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Token</th>
+                      <th>Source type</th>
+                      <th>Variant key</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {semanticTokenSplits.map(split => (
+                      <tr key={`${split.token}:${split.sourceType}`}>
+                        <td>{split.token}</td>
+                        <td>{split.sourceType}</td>
+                        <td>{split.variantKey}</td>
                       </tr>
                     ))}
                   </tbody>
