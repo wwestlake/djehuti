@@ -1614,6 +1614,17 @@ let main args =
     ) |> ignore
 
     app.MapGet(
+        "/api/admin/semantic/automation/status",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                Results.Ok(SemanticIngestionWorker.getStatus())
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
         "/api/admin/semantic/search",
         Func<HttpContext, IResult>(fun ctx ->
             match tryGetAuthClaims ctx with
