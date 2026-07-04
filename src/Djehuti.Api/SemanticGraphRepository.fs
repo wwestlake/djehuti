@@ -1242,6 +1242,56 @@ let materializeSourceTypeTokenSplits (limit: int) (minChunkCount: int) =
         txn.Rollback()
         raise ex
 
+let applyTokenSplitProposal (token: string) (scopeKind: string) =
+    use conn = openConnection()
+    use txn = conn.BeginTransaction()
+
+    try
+        let normalizedToken = token.Trim().ToLowerInvariant()
+        let normalizedScopeKind = scopeKind.Trim().ToLowerInvariant()
+        let scopeOptions = loadTokenScopeCounts conn txn normalizedToken
+
+        let createdCount =
+            scopeOptions
+            |> List.tryFind (fun (candidateScopeKind, _) -> candidateScopeKind = normalizedScopeKind)
+            |> Option.bind (fun (_, rows) ->
+                choosePreferredSplitScope rows 2)
+            |> Option.map (fun assessment ->
+                let mutable created = 0
+
+                for scopeValue, _ in assessment.Rows do
+                    let variantKey =
+                        match normalizedScopeKind with
+                        | "source-type" -> SemanticSplitting.buildSourceTypeVariantKey normalizedToken scopeValue
+                        | _ -> $"{normalizedToken}::{normalizedScopeKind}::{scopeValue}"
+
+                    use insertCmd = new NpgsqlCommand(
+                        """INSERT INTO semantic_token_splits (token, source_type, scope_kind, scope_value, variant_key)
+                           VALUES (@token,
+                                   CASE WHEN @scopeKind = 'source-type' THEN @scopeValue ELSE 'custom' END,
+                                   @scopeKind,
+                                   @scopeValue,
+                                   @variantKey)
+                           ON CONFLICT (token, source_type) DO NOTHING""",
+                        conn,
+                        txn)
+                    insertCmd.Parameters.AddWithValue("token", normalizedToken) |> ignore
+                    insertCmd.Parameters.AddWithValue("scopeKind", normalizedScopeKind) |> ignore
+                    insertCmd.Parameters.AddWithValue("scopeValue", scopeValue) |> ignore
+                    insertCmd.Parameters.AddWithValue("variantKey", variantKey) |> ignore
+                    let inserted = insertCmd.ExecuteNonQuery()
+                    if inserted > 0 then
+                        created <- created + 1
+
+                created)
+            |> Option.defaultValue 0
+
+        txn.Commit()
+        createdCount
+    with ex ->
+        txn.Rollback()
+        raise ex
+
 let getTokenSplitProposals (limit: int) (minChunkCount: int) =
     use conn = openConnection()
     use txn = conn.BeginTransaction()
