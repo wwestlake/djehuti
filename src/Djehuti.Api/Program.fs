@@ -250,6 +250,37 @@ type MudRecipeUpsertRequest =
       Ingredients: MudRecipeIngredientRequest array }
 
 [<CLIMutable>]
+type MudItemUpsertRequest =
+    { RoomId: string
+      Name: string
+      Slug: string
+      Description: string
+      ReadableText: string
+      Portable: bool
+      Position: int }
+
+[<CLIMutable>]
+type MudBuilderAgentCreateRequest =
+    { Slug: string
+      RealmSlug: string
+      DirectorSlug: string
+      DisplayName: string
+      Specialty: string
+      Model: string
+      BuildHourUtc: int
+      Active: bool }
+
+[<CLIMutable>]
+type MudBuilderAgentUpdateRequest =
+    { RealmSlug: string
+      DirectorSlug: string
+      DisplayName: string
+      Specialty: string
+      Model: string
+      BuildHourUtc: int
+      Active: bool }
+
+[<CLIMutable>]
 type UpdateProfileRequest =
     { DisplayName: string option
       Bio: string option
@@ -2369,6 +2400,132 @@ let main args =
                 | true, exitGuid ->
                     if MudAdminRepository.deleteExit exitGuid then Results.Ok() else Results.NotFound()
                 | _ -> Results.BadRequest("Invalid exit id")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    // Items (world items, not player-held inventory)
+
+    app.MapGet(
+        "/api/admin/mud/items",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                Results.Ok(MudAdminRepository.getItems())
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/mud/items",
+        Func<HttpContext, MudItemUpsertRequest, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let roomId =
+                    if String.IsNullOrWhiteSpace body.RoomId then None
+                    else match Guid.TryParse(body.RoomId) with
+                         | true, value -> Some value
+                         | false, _ -> None
+                let description = if String.IsNullOrWhiteSpace body.Description then None else Some (body.Description.Trim())
+                let readableText = if String.IsNullOrWhiteSpace body.ReadableText then None else Some (body.ReadableText.Trim())
+                match MudAdminRepository.createItem roomId body.Name body.Slug description readableText body.Portable body.Position with
+                | Some item -> Results.Created($"/api/admin/mud/items/{item.Id}", item)
+                | None -> Results.Problem(detail = "Failed to create item", statusCode = 500, title = "Error")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/admin/mud/items/{itemId}",
+        Func<string, HttpContext, MudItemUpsertRequest, IResult>(fun itemId ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(itemId) with
+                | false, _ -> Results.BadRequest("Invalid item id")
+                | true, itemGuid ->
+                    let roomId =
+                        if String.IsNullOrWhiteSpace body.RoomId then None
+                        else match Guid.TryParse(body.RoomId) with
+                             | true, value -> Some value
+                             | false, _ -> None
+                    let description = if String.IsNullOrWhiteSpace body.Description then None else Some (body.Description.Trim())
+                    let readableText = if String.IsNullOrWhiteSpace body.ReadableText then None else Some (body.ReadableText.Trim())
+                    match MudAdminRepository.updateItem itemGuid roomId body.Name body.Slug description readableText body.Portable body.Position with
+                    | Some item -> Results.Ok(item)
+                    | None -> Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/admin/mud/items/{itemId}",
+        Func<string, HttpContext, IResult>(fun itemId ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(itemId) with
+                | true, itemGuid ->
+                    if MudAdminRepository.deleteItem itemGuid then Results.Ok() else Results.NotFound()
+                | _ -> Results.BadRequest("Invalid item id")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    // Builder roster (AI construction crew)
+
+    app.MapGet(
+        "/api/admin/mud/builder-agents",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                Results.Ok(MudAdminRepository.getBuilderAgents())
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/mud/builder-agents",
+        Func<HttpContext, MudBuilderAgentCreateRequest, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match MudAdminRepository.createBuilderAgent body.Slug body.RealmSlug body.DirectorSlug body.DisplayName body.Specialty body.Model body.BuildHourUtc body.Active with
+                | Some agent -> Results.Created($"/api/admin/mud/builder-agents/{agent.Id}", agent)
+                | None -> Results.Problem(detail = "Failed to create builder agent", statusCode = 500, title = "Error")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/admin/mud/builder-agents/{agentId}",
+        Func<string, HttpContext, MudBuilderAgentUpdateRequest, IResult>(fun agentId ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(agentId) with
+                | false, _ -> Results.BadRequest("Invalid builder agent id")
+                | true, agentGuid ->
+                    match MudAdminRepository.updateBuilderAgent agentGuid body.RealmSlug body.DirectorSlug body.DisplayName body.Specialty body.Model body.BuildHourUtc body.Active with
+                    | Some agent -> Results.Ok(agent)
+                    | None -> Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/admin/mud/builder-agents/{agentId}",
+        Func<string, HttpContext, IResult>(fun agentId ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(agentId) with
+                | true, agentGuid ->
+                    if MudAdminRepository.deleteBuilderAgent agentGuid then Results.Ok() else Results.NotFound()
+                | _ -> Results.BadRequest("Invalid builder agent id")
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )
