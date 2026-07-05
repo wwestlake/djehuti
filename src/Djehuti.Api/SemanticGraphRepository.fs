@@ -141,6 +141,14 @@ type SemanticQueryTurnRecord =
       DriftFromPrevious: float option
       CreatedAt: DateTimeOffset }
 
+type SimilarQueryTurn =
+    { SessionId: Guid
+      TurnId: Guid
+      TurnIndex: int
+      QueryText: string
+      Similarity: float
+      CreatedAt: DateTimeOffset }
+
 type SemanticSearchResponse =
     { Session: SemanticQuerySessionSummary option
       CurrentTurn: SemanticQueryTurnRecord
@@ -148,7 +156,8 @@ type SemanticSearchResponse =
       Curvature: SemanticCurvatureStatus
       Recovery: SemanticRecoveryStatus
       Hits: SemanticChunkHit list
-      Recorded: bool }
+      Recorded: bool
+      SimilarPastTurns: SimilarQueryTurn list }
 
 type SemanticSearchComparison =
     { BaselineHits: SemanticChunkHit list
@@ -2142,40 +2151,40 @@ let private insertQueryTurn
                  TopSimilarity: float
                  MeanSimilarity: float
                  DriftFromPrevious: float option |}) =
-    use cmd = new NpgsqlCommand(
-        """INSERT INTO semantic_query_turns (
-               session_id,
-               turn_index,
-               query_text,
-               source_type_filter,
-               token_count,
-               hit_count,
-               source_type_diversity,
-               matched_token_total,
-               matched_weight_total,
-               top_similarity,
-               mean_similarity,
-               drift_from_previous,
-               query_embedding
-           )
-           VALUES (
-               @sessionId,
-               @turnIndex,
-               @queryText,
-               @sourceType,
-               @tokenCount,
-               @hitCount,
-               @sourceTypeDiversity,
-               @matchedTokenTotal,
-               @matchedWeightTotal,
-               @topSimilarity,
-               @meanSimilarity,
-               @driftFromPrevious,
-               @queryEmbedding
-           )
-           RETURNING id, created_at""",
-        conn,
-        txn)
+    let insertSql =
+        if pgvectorAvailable.Value then
+            """INSERT INTO semantic_query_turns (
+                   session_id, turn_index, query_text, source_type_filter,
+                   token_count, hit_count, source_type_diversity,
+                   matched_token_total, matched_weight_total,
+                   top_similarity, mean_similarity, drift_from_previous,
+                   query_embedding, query_vector
+               )
+               VALUES (
+                   @sessionId, @turnIndex, @queryText, @sourceType,
+                   @tokenCount, @hitCount, @sourceTypeDiversity,
+                   @matchedTokenTotal, @matchedWeightTotal,
+                   @topSimilarity, @meanSimilarity, @driftFromPrevious,
+                   @queryEmbedding, CAST(@queryVector AS vector)
+               )
+               RETURNING id, created_at"""
+        else
+            """INSERT INTO semantic_query_turns (
+                   session_id, turn_index, query_text, source_type_filter,
+                   token_count, hit_count, source_type_diversity,
+                   matched_token_total, matched_weight_total,
+                   top_similarity, mean_similarity, drift_from_previous,
+                   query_embedding
+               )
+               VALUES (
+                   @sessionId, @turnIndex, @queryText, @sourceType,
+                   @tokenCount, @hitCount, @sourceTypeDiversity,
+                   @matchedTokenTotal, @matchedWeightTotal,
+                   @topSimilarity, @meanSimilarity, @driftFromPrevious,
+                   @queryEmbedding
+               )
+               RETURNING id, created_at"""
+    use cmd = new NpgsqlCommand(insertSql, conn, txn)
     cmd.Parameters.AddWithValue("sessionId", sessionId) |> ignore
     cmd.Parameters.AddWithValue("turnIndex", turnIndex) |> ignore
     cmd.Parameters.AddWithValue("queryText", queryText) |> ignore
@@ -2189,6 +2198,8 @@ let private insertQueryTurn
     cmd.Parameters.AddWithValue("meanSimilarity", metrics.MeanSimilarity) |> ignore
     cmd.Parameters.AddWithValue("driftFromPrevious", metrics.DriftFromPrevious |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
     cmd.Parameters.AddWithValue("queryEmbedding", queryEmbedding) |> ignore
+    if pgvectorAvailable.Value then
+        cmd.Parameters.AddWithValue("queryVector", vectorLiteral queryEmbedding) |> ignore
     use reader = cmd.ExecuteReader()
     reader.Read() |> ignore
     let id = reader.GetGuid(0)
@@ -2216,6 +2227,50 @@ let private touchQuerySession (conn: NpgsqlConnection) (txn: NpgsqlTransaction) 
         txn)
     cmd.Parameters.AddWithValue("sessionId", sessionId) |> ignore
     cmd.ExecuteNonQuery() |> ignore
+
+// Nearest-neighbor sweep over the admin's own query history: which past
+// queries (from other sessions) were semantically closest to this one?
+// Requires pgvector; returns [] otherwise.
+let private findSimilarQueryTurns
+    (conn: NpgsqlConnection)
+    (txn: NpgsqlTransaction)
+    (adminUserId: Guid)
+    (queryEmbedding: float32 array)
+    (excludeSessionId: Guid option)
+    (limit: int) =
+    if not pgvectorAvailable.Value then
+        []
+    else
+        use cmd = new NpgsqlCommand(
+            """SELECT t.session_id,
+                      t.id,
+                      t.turn_index,
+                      t.query_text,
+                      t.created_at,
+                      1 - (t.query_vector <=> CAST(@queryVector AS vector)) AS similarity
+               FROM semantic_query_turns t
+               JOIN semantic_query_sessions s ON s.id = t.session_id
+               WHERE t.query_vector IS NOT NULL
+                 AND s.admin_user_id = @adminUserId
+                 AND (@excludeSessionId IS NULL OR t.session_id <> @excludeSessionId)
+               ORDER BY t.query_vector <=> CAST(@queryVector AS vector) ASC
+               LIMIT @limit""",
+            conn,
+            txn)
+        cmd.Parameters.AddWithValue("queryVector", vectorLiteral queryEmbedding) |> ignore
+        cmd.Parameters.AddWithValue("adminUserId", adminUserId) |> ignore
+        cmd.Parameters.AddWithValue("excludeSessionId", excludeSessionId |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+        cmd.Parameters.AddWithValue("limit", Math.Max(limit, 1)) |> ignore
+
+        use reader = cmd.ExecuteReader()
+        [ while reader.Read() do
+            yield
+                { SessionId = reader.GetGuid(0)
+                  TurnId = reader.GetGuid(1)
+                  TurnIndex = reader.GetInt32(2)
+                  QueryText = reader.GetString(3)
+                  CreatedAt = reader.GetFieldValue<DateTimeOffset>(4)
+                  Similarity = Math.Round(reader.GetDouble(5), 4) } ]
 
 let executeTrackedSearch
     (adminUserId: Guid)
@@ -2287,6 +2342,10 @@ let executeTrackedSearch
 
                 summary, turns, previewTurn, curvature, recovery, hits
 
+        let similarPastTurns =
+            let excludeSession = sessionSummary |> Option.map (fun value -> value.Id)
+            findSimilarQueryTurns conn txn adminUserId queryEmbedding excludeSession 5
+
         txn.Commit()
 
         { Session = sessionSummary
@@ -2295,7 +2354,8 @@ let executeTrackedSearch
           Curvature = curvature
           Recovery = recovery
           Hits = hits
-          Recorded = recordTurn }
+          Recorded = recordTurn
+          SimilarPastTurns = similarPastTurns }
     with ex ->
         txn.Rollback()
         raise ex
