@@ -1918,6 +1918,57 @@ let searchChunks (query: string) (sourceType: string option) (limit: int) =
     let _, _, hits = searchChunksDetailed query sourceType limit stableRecovery
     hits
 
+// Pure vector nearest-neighbor channel over the HNSW index. Unlike
+// searchChunksDetailed this ignores the token co-occurrence graph entirely,
+// so it still surfaces evidence when a query's tokens miss the graph.
+// Returns [] when pgvector is unavailable — callers blend, never depend.
+let vectorSearchChunks (query: string) (sourceType: string option) (limit: int) : SemanticChunkHit list =
+    if not pgvectorAvailable.Value then
+        []
+    else
+        let queryEmbedding, _ = SemanticEmbeddings.embed query
+        use conn = openConnection()
+        use cmd = new NpgsqlCommand(
+            """SELECT d.source_type,
+                      d.source_key,
+                      d.title,
+                      c.chunk_position,
+                      c.content,
+                      0 AS matched_token_count,
+                      0 AS matched_weight,
+                      c.embedding_values
+               FROM semantic_chunks c
+               JOIN semantic_documents d ON d.id = c.document_id
+               WHERE c.embedding IS NOT NULL
+                 AND (@sourceType IS NULL OR d.source_type = @sourceType)
+               ORDER BY c.embedding <=> CAST(@queryVector AS vector) ASC
+               LIMIT @limit""",
+            conn)
+        cmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+        cmd.Parameters.AddWithValue("queryVector", vectorLiteral queryEmbedding) |> ignore
+        cmd.Parameters.AddWithValue("limit", Math.Max(limit, 1)) |> ignore
+
+        use reader = cmd.ExecuteReader()
+        [ while reader.Read() do
+            yield readChunkHit reader queryEmbedding ]
+
+// Blend graph-driven and vector-driven hits: graph hits keep priority on
+// ties (they carry matched-token context), vector-only hits fill gaps the
+// token graph missed. Deduplication is by chunk identity.
+let blendEvidenceHits (graphHits: SemanticChunkHit list) (vectorHits: SemanticChunkHit list) (limit: int) =
+    let chunkKey (hit: SemanticChunkHit) =
+        $"{hit.SourceType}|{hit.SourceKey}|{hit.ChunkPosition}"
+
+    let graphKeys = graphHits |> List.map chunkKey |> Set.ofList
+
+    let vectorOnly =
+        vectorHits
+        |> List.filter (fun hit -> not (Set.contains (chunkKey hit) graphKeys))
+
+    List.append graphHits vectorOnly
+    |> List.sortByDescending (fun hit -> hit.Similarity, hit.MatchedTokenCount, hit.MatchedWeight)
+    |> List.truncate limit
+
 let private readQueryTurnRecord (reader: DbDataReader) =
     { Id = reader.GetGuid(0)
       TurnIndex = reader.GetInt32(1)
@@ -2506,7 +2557,13 @@ let private semanticEvidenceValue (hit: SemanticChunkHit) =
     $"{scoreText}; content={hit.Content}"
 
 let selectSemanticEvidence (question: string) (sourceType: string option) (limit: int) =
-    searchChunks question sourceType limit
+    // Dual-channel evidence: graph-driven retrieval plus a pure vector
+    // nearest-neighbor sweep, blended and deduplicated. The vector channel
+    // covers questions whose tokens miss the co-occurrence graph; it is
+    // empty when pgvector is unavailable, leaving graph-only behavior.
+    let graphHits = searchChunks question sourceType limit
+    let vectorHits = vectorSearchChunks question sourceType limit
+    blendEvidenceHits graphHits vectorHits limit
     |> List.mapi (fun index hit ->
         { Label = $"semantic {index + 1} · {semanticEvidenceLabel hit}"
           Value = semanticEvidenceValue hit
