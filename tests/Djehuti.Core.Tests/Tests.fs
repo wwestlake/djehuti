@@ -2053,3 +2053,67 @@ let ``semantic recovery widens isolated sweep under unstable trajectory`` () =
     Assert.True(recovery.CandidateLimit > 96)
     Assert.True(recovery.ResultLimit >= 12)
     Assert.True(recovery.SimilarityFloor < 0.2)
+
+[<Fact>]
+let ``vector literal formats pgvector input with invariant culture`` () =
+    let literal = SemanticGraphRepository.vectorLiteral [| 0.5f; -1.25f; 0.0f |]
+
+    Assert.Equal("[0.5,-1.25,0]", literal)
+
+[<Fact>]
+let ``vector literal handles empty embedding`` () =
+    let literal = SemanticGraphRepository.vectorLiteral [||]
+
+    Assert.Equal("[]", literal)
+
+[<Fact>]
+let ``vector literal round trips full embedding dimension`` () =
+    let values = Array.init 384 (fun index -> float32 index / 384.0f)
+    let literal = SemanticGraphRepository.vectorLiteral values
+
+    Assert.StartsWith("[", literal)
+    Assert.EndsWith("]", literal)
+    Assert.Equal(384, literal.Split(',').Length)
+
+let private makeChunkHit sourceKey position similarity matchedTokens : SemanticGraphRepository.SemanticChunkHit =
+    { SourceType = "blog-article"
+      SourceKey = sourceKey
+      Title = $"Title {sourceKey}"
+      ChunkPosition = position
+      Content = $"content {sourceKey} {position}"
+      MatchedTokenCount = matchedTokens
+      MatchedWeight = matchedTokens * 2
+      Similarity = similarity
+      RankingScore = similarity
+      CoOccurrenceWeightMultiplier = 1.0 }
+
+[<Fact>]
+let ``evidence blend deduplicates vector hits already found by the graph`` () =
+    let graphHits = [ makeChunkHit "doc-a" 0 0.9 3 ]
+    let vectorHits = [ makeChunkHit "doc-a" 0 0.9 0; makeChunkHit "doc-b" 1 0.7 0 ]
+
+    let blended = SemanticGraphRepository.blendEvidenceHits graphHits vectorHits 10
+
+    Assert.Equal(2, blended.Length)
+    Assert.Equal("doc-a", blended[0].SourceKey)
+    Assert.Equal("doc-b", blended[1].SourceKey)
+
+[<Fact>]
+let ``evidence blend surfaces vector-only hits the token graph missed`` () =
+    let graphHits = []
+    let vectorHits = [ makeChunkHit "doc-c" 0 0.85 0; makeChunkHit "doc-d" 2 0.55 0 ]
+
+    let blended = SemanticGraphRepository.blendEvidenceHits graphHits vectorHits 10
+
+    Assert.Equal(2, blended.Length)
+    Assert.Equal("doc-c", blended[0].SourceKey)
+
+[<Fact>]
+let ``evidence blend respects the result limit after merging channels`` () =
+    let graphHits = [ makeChunkHit "doc-a" 0 0.9 3; makeChunkHit "doc-b" 0 0.6 1 ]
+    let vectorHits = [ makeChunkHit "doc-c" 0 0.8 0; makeChunkHit "doc-d" 0 0.7 0 ]
+
+    let blended = SemanticGraphRepository.blendEvidenceHits graphHits vectorHits 3
+
+    Assert.Equal(3, blended.Length)
+    Assert.Equal<string list>([ "doc-a"; "doc-c"; "doc-d" ], blended |> List.map _.SourceKey)

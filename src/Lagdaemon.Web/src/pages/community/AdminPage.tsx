@@ -8,7 +8,7 @@ import type { ForumTag, ForumReport } from '../../api/forumApi'
 import { mudAdminApi } from '../../api/mudAdminApi'
 import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics, MudRecipe, MudRecipeIngredient } from '../../api/mudAdminApi'
 import { semanticAdminApi } from '../../api/semanticAdminApi'
-import type { SemanticAdminActionRecord, SemanticAutomationRunResult, SemanticAutomationStatus, SemanticCurvatureStatus, SemanticDriftStatus, SemanticGraphStats, SemanticChunkHit, SemanticQuerySessionSummary, SemanticQueryTurnRecord, SemanticRecoveryStatus, SemanticReindexSummary, SemanticSearchComparison, SemanticSearchComparisonSummary, SemanticSearchResponse, SemanticSessionSearchEvaluation, SemanticSplitApplyResult, SemanticTokenDispersionCandidate, SemanticTokenSplitProposal, SemanticTokenSplitRecord } from '../../api/semanticAdminApi'
+import type { SemanticAdminActionRecord, SemanticAutomationRunResult, SemanticAutomationStatus, SemanticCurvatureStatus, SemanticDriftStatus, SemanticGraphStats, SemanticChunkHit, SemanticQuerySessionSummary, SemanticQueryTurnRecord, SemanticRecoveryStatus, SemanticReindexSummary, SemanticSearchComparison, SemanticSearchComparisonSummary, SemanticSearchResponse, SemanticSessionSearchEvaluation, SemanticSplitApplyResult, SemanticTokenDispersionCandidate, SemanticTokenSplitProposal, SemanticTokenSplitRecord, SimilarQueryTurn } from '../../api/semanticAdminApi'
 import { AdminTable } from '../../components/AdminTable'
 
 const BASE = '/djehuti'
@@ -214,6 +214,7 @@ export default function AdminPage() {
   const [semanticSearchSession, setSemanticSearchSession] = useState<SemanticQuerySessionSummary | null>(null)
   const [semanticSearchTurns, setSemanticSearchTurns] = useState<SemanticQueryTurnRecord[]>([])
   const [semanticSearchCurrentTurn, setSemanticSearchCurrentTurn] = useState<SemanticQueryTurnRecord | null>(null)
+  const [semanticSimilarPastTurns, setSemanticSimilarPastTurns] = useState<SimilarQueryTurn[]>([])
   const [semanticRecentSessions, setSemanticRecentSessions] = useState<SemanticQuerySessionSummary[]>([])
   const [semanticDriftStatus, setSemanticDriftStatus] = useState<SemanticDriftStatus | null>(null)
   const [semanticCurvatureStatus, setSemanticCurvatureStatus] = useState<SemanticCurvatureStatus | null>(null)
@@ -250,6 +251,7 @@ export default function AdminPage() {
     setSemanticSearchCurrentTurn(response.currentTurn)
     setSemanticCurvatureStatus(response.curvature)
     setSemanticRecoveryStatus(response.recovery)
+    setSemanticSimilarPastTurns(response.similarPastTurns ?? [])
   }
 
   const refreshSemanticSearchSessions = async () => {
@@ -1883,6 +1885,17 @@ export default function AdminPage() {
                     </span>
                   </div>
                 </div>
+                <div className="metrics-stat-card">
+                  <div className="metrics-stat-label">Vector index</div>
+                  <div className="metrics-stat-all" style={{ fontSize: '1.15rem' }}>
+                    {semanticStats.pgvectorEnabled ? semanticStats.vectorIndexedChunkCount : 'off'}
+                  </div>
+                  <div className="metrics-stat-split">
+                    <span style={{ color: semanticStats.pgvectorEnabled ? '#56d364' : 'var(--text-muted)', fontSize: '0.75rem' }}>
+                      {semanticStats.pgvectorEnabled ? 'pgvector HNSW' : 'in-memory cosine'}
+                    </span>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -2291,6 +2304,23 @@ export default function AdminPage() {
                     </div>
                   )}
                 </div>
+
+                {!!semanticSimilarPastTurns.length && (
+                  <div className="admin-grant-form" style={{ gap: 10 }}>
+                    <h4 style={{ margin: 0 }}>Similar past queries</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {semanticSimilarPastTurns.map(turn => (
+                        <div key={turn.turnId} style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            <span>similarity {turn.similarity.toFixed(3)}</span>
+                            <span>{new Date(turn.createdAt).toLocaleString()}</span>
+                          </div>
+                          <div style={{ marginTop: 6, fontWeight: 600 }}>{turn.queryText}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="admin-grant-form" style={{ gap: 10 }}>
                   <h4 style={{ margin: 0 }}>Stored trails</h4>

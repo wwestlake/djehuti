@@ -2,11 +2,33 @@ module Djehuti.Api.SemanticGraphRepository
 
 open System
 open System.Data.Common
+open System.Globalization
 open System.Security.Cryptography
 open System.Text
 open Djehuti.Core
 open Npgsql
 open Database
+
+// pgvector support is optional infrastructure: when the extension is present
+// the vector column and HNSW index provide indexed nearest-neighbor retrieval;
+// otherwise all scoring falls back to in-memory cosine over REAL[].
+let private pgvectorAvailable =
+    lazy
+        (try
+            use conn = openConnection ()
+            use cmd = new NpgsqlCommand("SELECT 1 FROM pg_extension WHERE extname = 'vector'", conn)
+            cmd.ExecuteScalar() |> isNull |> not
+         with _ ->
+            false)
+
+let vectorLiteral (values: float32 array) =
+    let builder = StringBuilder(values.Length * 12)
+    builder.Append('[') |> ignore
+    for index = 0 to values.Length - 1 do
+        if index > 0 then builder.Append(',') |> ignore
+        builder.Append(values[index].ToString("G9", CultureInfo.InvariantCulture)) |> ignore
+    builder.Append(']') |> ignore
+    builder.ToString()
 
 type SemanticGraphStats =
     { DocumentCount: int
@@ -18,7 +40,9 @@ type SemanticGraphStats =
       EdgeCount: int
       EmbeddedChunkCount: int
       EmbeddingProvider: string
-      EmbeddingReady: bool }
+      EmbeddingReady: bool
+      PgvectorEnabled: bool
+      VectorIndexedChunkCount: int }
 
 type SemanticTokenDispersionCandidate =
     { Token: string
@@ -117,6 +141,14 @@ type SemanticQueryTurnRecord =
       DriftFromPrevious: float option
       CreatedAt: DateTimeOffset }
 
+type SimilarQueryTurn =
+    { SessionId: Guid
+      TurnId: Guid
+      TurnIndex: int
+      QueryText: string
+      Similarity: float
+      CreatedAt: DateTimeOffset }
+
 type SemanticSearchResponse =
     { Session: SemanticQuerySessionSummary option
       CurrentTurn: SemanticQueryTurnRecord
@@ -124,7 +156,8 @@ type SemanticSearchResponse =
       Curvature: SemanticCurvatureStatus
       Recovery: SemanticRecoveryStatus
       Hits: SemanticChunkHit list
-      Recorded: bool }
+      Recorded: bool
+      SimilarPastTurns: SimilarQueryTurn list }
 
 type SemanticSearchComparison =
     { BaselineHits: SemanticChunkHit list
@@ -508,12 +541,16 @@ let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransacti
     for chunk in chunks do
         let embedding, provider = SemanticEmbeddings.embed chunk.ChunkText
         let resolvedTokens = resolveTokensForSource source.SourceType source.Provenance splits chunk.Tokens
-        use chunkCmd = new NpgsqlCommand(
-            """INSERT INTO semantic_chunks (document_id, chunk_position, content, token_count, embedding_values, embedding_provider, embedding_dimension, embedded_at)
-               VALUES (@documentId, @position, @content, @tokenCount, @embeddingValues, @embeddingProvider, @embeddingDimension, now())
-               RETURNING id""",
-            conn,
-            txn)
+        let insertSql =
+            if pgvectorAvailable.Value then
+                """INSERT INTO semantic_chunks (document_id, chunk_position, content, token_count, embedding_values, embedding_provider, embedding_dimension, embedded_at, embedding)
+                   VALUES (@documentId, @position, @content, @tokenCount, @embeddingValues, @embeddingProvider, @embeddingDimension, now(), CAST(@embeddingVector AS vector))
+                   RETURNING id"""
+            else
+                """INSERT INTO semantic_chunks (document_id, chunk_position, content, token_count, embedding_values, embedding_provider, embedding_dimension, embedded_at)
+                   VALUES (@documentId, @position, @content, @tokenCount, @embeddingValues, @embeddingProvider, @embeddingDimension, now())
+                   RETURNING id"""
+        use chunkCmd = new NpgsqlCommand(insertSql, conn, txn)
         chunkCmd.Parameters.AddWithValue("documentId", documentId) |> ignore
         chunkCmd.Parameters.AddWithValue("position", chunk.ChunkPosition) |> ignore
         chunkCmd.Parameters.AddWithValue("content", chunk.ChunkText) |> ignore
@@ -521,6 +558,8 @@ let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransacti
         chunkCmd.Parameters.AddWithValue("embeddingValues", embedding) |> ignore
         chunkCmd.Parameters.AddWithValue("embeddingProvider", provider.Name) |> ignore
         chunkCmd.Parameters.AddWithValue("embeddingDimension", provider.Dimension) |> ignore
+        if pgvectorAvailable.Value then
+            chunkCmd.Parameters.AddWithValue("embeddingVector", vectorLiteral embedding) |> ignore
         let chunkId = chunkCmd.ExecuteScalar() :?> Guid
 
         chunk.Tokens
@@ -1123,8 +1162,13 @@ let reindexIndexedDocuments () =
 let getStats () =
     use conn = openConnection()
     let provider = SemanticEmbeddings.getProviderInfo()
+    let vectorCountSelect =
+        if pgvectorAvailable.Value then
+            "(SELECT COUNT(*) FROM semantic_chunks WHERE embedding IS NOT NULL)"
+        else
+            "0"
     use cmd = new NpgsqlCommand(
-        """SELECT
+        $"""SELECT
                (SELECT COUNT(*) FROM semantic_documents),
                (SELECT COUNT(*) FROM semantic_chunks),
                (SELECT COUNT(*) FROM semantic_chunk_tokens),
@@ -1132,7 +1176,8 @@ let getStats () =
                (SELECT COUNT(*) FROM semantic_nodes),
                (SELECT COUNT(*) FROM semantic_chunk_nodes),
                (SELECT COUNT(*) FROM semantic_node_edges),
-               (SELECT COUNT(*) FROM semantic_chunks WHERE embedding_values IS NOT NULL)""",
+               (SELECT COUNT(*) FROM semantic_chunks WHERE embedding_values IS NOT NULL),
+               {vectorCountSelect}""",
         conn)
     use reader = cmd.ExecuteReader()
     if reader.Read() then
@@ -1145,7 +1190,9 @@ let getStats () =
           EdgeCount = reader.GetInt32(6)
           EmbeddedChunkCount = reader.GetInt32(7)
           EmbeddingProvider = provider.Name
-          EmbeddingReady = provider.IsReady }
+          EmbeddingReady = provider.IsReady
+          PgvectorEnabled = pgvectorAvailable.Value
+          VectorIndexedChunkCount = reader.GetInt32(8) }
     else
         { DocumentCount = 0
           ChunkCount = 0
@@ -1156,7 +1203,9 @@ let getStats () =
           EdgeCount = 0
           EmbeddedChunkCount = 0
           EmbeddingProvider = provider.Name
-          EmbeddingReady = provider.IsReady }
+          EmbeddingReady = provider.IsReady
+          PgvectorEnabled = pgvectorAvailable.Value
+          VectorIndexedChunkCount = 0 }
 
 let getDispersionCandidates (limit: int) (minChunkCount: int) =
     use conn = openConnection()
@@ -1798,24 +1847,45 @@ let private searchChunksDetailed
                 yield readChunkHit fallbackReader queryEmbedding ]
 
     let isolatedCandidateLimit = recovery.CandidateLimit
-    use isolatedCmd = new NpgsqlCommand(
-        """SELECT d.source_type,
-                  d.source_key,
-                  d.title,
-                  c.chunk_position,
-                  c.content,
-                  0 AS matched_token_count,
-                  0 AS matched_weight,
-                  c.embedding_values
-           FROM semantic_chunks c
-           JOIN semantic_documents d ON d.id = c.document_id
-           WHERE c.embedding_values IS NOT NULL
-             AND (@sourceType IS NULL OR d.source_type = @sourceType)
-           ORDER BY c.embedded_at DESC NULLS LAST, d.updated_at DESC, c.chunk_position ASC
-           LIMIT @candidateLimit""",
-        conn)
+    // With pgvector the isolated pool is a true nearest-neighbor top-k over the
+    // HNSW index; without it we keep the recency-ordered pool and rely on the
+    // in-memory cosine scoring downstream.
+    let isolatedSql =
+        if pgvectorAvailable.Value then
+            """SELECT d.source_type,
+                      d.source_key,
+                      d.title,
+                      c.chunk_position,
+                      c.content,
+                      0 AS matched_token_count,
+                      0 AS matched_weight,
+                      c.embedding_values
+               FROM semantic_chunks c
+               JOIN semantic_documents d ON d.id = c.document_id
+               WHERE c.embedding IS NOT NULL
+                 AND (@sourceType IS NULL OR d.source_type = @sourceType)
+               ORDER BY c.embedding <=> CAST(@queryVector AS vector) ASC
+               LIMIT @candidateLimit"""
+        else
+            """SELECT d.source_type,
+                      d.source_key,
+                      d.title,
+                      c.chunk_position,
+                      c.content,
+                      0 AS matched_token_count,
+                      0 AS matched_weight,
+                      c.embedding_values
+               FROM semantic_chunks c
+               JOIN semantic_documents d ON d.id = c.document_id
+               WHERE c.embedding_values IS NOT NULL
+                 AND (@sourceType IS NULL OR d.source_type = @sourceType)
+               ORDER BY c.embedded_at DESC NULLS LAST, d.updated_at DESC, c.chunk_position ASC
+               LIMIT @candidateLimit"""
+    use isolatedCmd = new NpgsqlCommand(isolatedSql, conn)
     isolatedCmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
     isolatedCmd.Parameters.AddWithValue("candidateLimit", isolatedCandidateLimit) |> ignore
+    if pgvectorAvailable.Value then
+        isolatedCmd.Parameters.AddWithValue("queryVector", vectorLiteral queryEmbedding) |> ignore
 
     use isolatedReader = isolatedCmd.ExecuteReader()
     let isolatedHits =
@@ -1856,6 +1926,57 @@ let searchChunks (query: string) (sourceType: string option) (limit: int) =
           TriggerScore = 0.0 }
     let _, _, hits = searchChunksDetailed query sourceType limit stableRecovery
     hits
+
+// Pure vector nearest-neighbor channel over the HNSW index. Unlike
+// searchChunksDetailed this ignores the token co-occurrence graph entirely,
+// so it still surfaces evidence when a query's tokens miss the graph.
+// Returns [] when pgvector is unavailable — callers blend, never depend.
+let vectorSearchChunks (query: string) (sourceType: string option) (limit: int) : SemanticChunkHit list =
+    if not pgvectorAvailable.Value then
+        []
+    else
+        let queryEmbedding, _ = SemanticEmbeddings.embed query
+        use conn = openConnection()
+        use cmd = new NpgsqlCommand(
+            """SELECT d.source_type,
+                      d.source_key,
+                      d.title,
+                      c.chunk_position,
+                      c.content,
+                      0 AS matched_token_count,
+                      0 AS matched_weight,
+                      c.embedding_values
+               FROM semantic_chunks c
+               JOIN semantic_documents d ON d.id = c.document_id
+               WHERE c.embedding IS NOT NULL
+                 AND (@sourceType IS NULL OR d.source_type = @sourceType)
+               ORDER BY c.embedding <=> CAST(@queryVector AS vector) ASC
+               LIMIT @limit""",
+            conn)
+        cmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+        cmd.Parameters.AddWithValue("queryVector", vectorLiteral queryEmbedding) |> ignore
+        cmd.Parameters.AddWithValue("limit", Math.Max(limit, 1)) |> ignore
+
+        use reader = cmd.ExecuteReader()
+        [ while reader.Read() do
+            yield readChunkHit reader queryEmbedding ]
+
+// Blend graph-driven and vector-driven hits: graph hits keep priority on
+// ties (they carry matched-token context), vector-only hits fill gaps the
+// token graph missed. Deduplication is by chunk identity.
+let blendEvidenceHits (graphHits: SemanticChunkHit list) (vectorHits: SemanticChunkHit list) (limit: int) =
+    let chunkKey (hit: SemanticChunkHit) =
+        $"{hit.SourceType}|{hit.SourceKey}|{hit.ChunkPosition}"
+
+    let graphKeys = graphHits |> List.map chunkKey |> Set.ofList
+
+    let vectorOnly =
+        vectorHits
+        |> List.filter (fun hit -> not (Set.contains (chunkKey hit) graphKeys))
+
+    List.append graphHits vectorOnly
+    |> List.sortByDescending (fun hit -> hit.Similarity, hit.MatchedTokenCount, hit.MatchedWeight)
+    |> List.truncate limit
 
 let private readQueryTurnRecord (reader: DbDataReader) =
     { Id = reader.GetGuid(0)
@@ -2030,40 +2151,40 @@ let private insertQueryTurn
                  TopSimilarity: float
                  MeanSimilarity: float
                  DriftFromPrevious: float option |}) =
-    use cmd = new NpgsqlCommand(
-        """INSERT INTO semantic_query_turns (
-               session_id,
-               turn_index,
-               query_text,
-               source_type_filter,
-               token_count,
-               hit_count,
-               source_type_diversity,
-               matched_token_total,
-               matched_weight_total,
-               top_similarity,
-               mean_similarity,
-               drift_from_previous,
-               query_embedding
-           )
-           VALUES (
-               @sessionId,
-               @turnIndex,
-               @queryText,
-               @sourceType,
-               @tokenCount,
-               @hitCount,
-               @sourceTypeDiversity,
-               @matchedTokenTotal,
-               @matchedWeightTotal,
-               @topSimilarity,
-               @meanSimilarity,
-               @driftFromPrevious,
-               @queryEmbedding
-           )
-           RETURNING id, created_at""",
-        conn,
-        txn)
+    let insertSql =
+        if pgvectorAvailable.Value then
+            """INSERT INTO semantic_query_turns (
+                   session_id, turn_index, query_text, source_type_filter,
+                   token_count, hit_count, source_type_diversity,
+                   matched_token_total, matched_weight_total,
+                   top_similarity, mean_similarity, drift_from_previous,
+                   query_embedding, query_vector
+               )
+               VALUES (
+                   @sessionId, @turnIndex, @queryText, @sourceType,
+                   @tokenCount, @hitCount, @sourceTypeDiversity,
+                   @matchedTokenTotal, @matchedWeightTotal,
+                   @topSimilarity, @meanSimilarity, @driftFromPrevious,
+                   @queryEmbedding, CAST(@queryVector AS vector)
+               )
+               RETURNING id, created_at"""
+        else
+            """INSERT INTO semantic_query_turns (
+                   session_id, turn_index, query_text, source_type_filter,
+                   token_count, hit_count, source_type_diversity,
+                   matched_token_total, matched_weight_total,
+                   top_similarity, mean_similarity, drift_from_previous,
+                   query_embedding
+               )
+               VALUES (
+                   @sessionId, @turnIndex, @queryText, @sourceType,
+                   @tokenCount, @hitCount, @sourceTypeDiversity,
+                   @matchedTokenTotal, @matchedWeightTotal,
+                   @topSimilarity, @meanSimilarity, @driftFromPrevious,
+                   @queryEmbedding
+               )
+               RETURNING id, created_at"""
+    use cmd = new NpgsqlCommand(insertSql, conn, txn)
     cmd.Parameters.AddWithValue("sessionId", sessionId) |> ignore
     cmd.Parameters.AddWithValue("turnIndex", turnIndex) |> ignore
     cmd.Parameters.AddWithValue("queryText", queryText) |> ignore
@@ -2077,6 +2198,8 @@ let private insertQueryTurn
     cmd.Parameters.AddWithValue("meanSimilarity", metrics.MeanSimilarity) |> ignore
     cmd.Parameters.AddWithValue("driftFromPrevious", metrics.DriftFromPrevious |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
     cmd.Parameters.AddWithValue("queryEmbedding", queryEmbedding) |> ignore
+    if pgvectorAvailable.Value then
+        cmd.Parameters.AddWithValue("queryVector", vectorLiteral queryEmbedding) |> ignore
     use reader = cmd.ExecuteReader()
     reader.Read() |> ignore
     let id = reader.GetGuid(0)
@@ -2104,6 +2227,50 @@ let private touchQuerySession (conn: NpgsqlConnection) (txn: NpgsqlTransaction) 
         txn)
     cmd.Parameters.AddWithValue("sessionId", sessionId) |> ignore
     cmd.ExecuteNonQuery() |> ignore
+
+// Nearest-neighbor sweep over the admin's own query history: which past
+// queries (from other sessions) were semantically closest to this one?
+// Requires pgvector; returns [] otherwise.
+let private findSimilarQueryTurns
+    (conn: NpgsqlConnection)
+    (txn: NpgsqlTransaction)
+    (adminUserId: Guid)
+    (queryEmbedding: float32 array)
+    (excludeSessionId: Guid option)
+    (limit: int) =
+    if not pgvectorAvailable.Value then
+        []
+    else
+        use cmd = new NpgsqlCommand(
+            """SELECT t.session_id,
+                      t.id,
+                      t.turn_index,
+                      t.query_text,
+                      t.created_at,
+                      1 - (t.query_vector <=> CAST(@queryVector AS vector)) AS similarity
+               FROM semantic_query_turns t
+               JOIN semantic_query_sessions s ON s.id = t.session_id
+               WHERE t.query_vector IS NOT NULL
+                 AND s.admin_user_id = @adminUserId
+                 AND (@excludeSessionId IS NULL OR t.session_id <> @excludeSessionId)
+               ORDER BY t.query_vector <=> CAST(@queryVector AS vector) ASC
+               LIMIT @limit""",
+            conn,
+            txn)
+        cmd.Parameters.AddWithValue("queryVector", vectorLiteral queryEmbedding) |> ignore
+        cmd.Parameters.AddWithValue("adminUserId", adminUserId) |> ignore
+        cmd.Parameters.AddWithValue("excludeSessionId", excludeSessionId |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+        cmd.Parameters.AddWithValue("limit", Math.Max(limit, 1)) |> ignore
+
+        use reader = cmd.ExecuteReader()
+        [ while reader.Read() do
+            yield
+                { SessionId = reader.GetGuid(0)
+                  TurnId = reader.GetGuid(1)
+                  TurnIndex = reader.GetInt32(2)
+                  QueryText = reader.GetString(3)
+                  CreatedAt = reader.GetFieldValue<DateTimeOffset>(4)
+                  Similarity = Math.Round(reader.GetDouble(5), 4) } ]
 
 let executeTrackedSearch
     (adminUserId: Guid)
@@ -2175,6 +2342,10 @@ let executeTrackedSearch
 
                 summary, turns, previewTurn, curvature, recovery, hits
 
+        let similarPastTurns =
+            let excludeSession = sessionSummary |> Option.map (fun value -> value.Id)
+            findSimilarQueryTurns conn txn adminUserId queryEmbedding excludeSession 5
+
         txn.Commit()
 
         { Session = sessionSummary
@@ -2183,7 +2354,8 @@ let executeTrackedSearch
           Curvature = curvature
           Recovery = recovery
           Hits = hits
-          Recorded = recordTurn }
+          Recorded = recordTurn
+          SimilarPastTurns = similarPastTurns }
     with ex ->
         txn.Rollback()
         raise ex
@@ -2445,7 +2617,13 @@ let private semanticEvidenceValue (hit: SemanticChunkHit) =
     $"{scoreText}; content={hit.Content}"
 
 let selectSemanticEvidence (question: string) (sourceType: string option) (limit: int) =
-    searchChunks question sourceType limit
+    // Dual-channel evidence: graph-driven retrieval plus a pure vector
+    // nearest-neighbor sweep, blended and deduplicated. The vector channel
+    // covers questions whose tokens miss the co-occurrence graph; it is
+    // empty when pgvector is unavailable, leaving graph-only behavior.
+    let graphHits = searchChunks question sourceType limit
+    let vectorHits = vectorSearchChunks question sourceType limit
+    blendEvidenceHits graphHits vectorHits limit
     |> List.mapi (fun index hit ->
         { Label = $"semantic {index + 1} · {semanticEvidenceLabel hit}"
           Value = semanticEvidenceValue hit
