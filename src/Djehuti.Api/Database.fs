@@ -3961,6 +3961,13 @@ let private migrations : (int * string) list =
         GRANT ALL ON TABLE mud_character_currency TO djehuti;
         GRANT ALL ON TABLE mud_vendors TO djehuti;
         GRANT ALL ON TABLE mud_vendor_listings TO djehuti;
+        """
+
+        61, """
+        ALTER TABLE mud_characters
+            ADD COLUMN IF NOT EXISTS portrait_url TEXT,
+            ADD COLUMN IF NOT EXISTS bio TEXT,
+            ADD COLUMN IF NOT EXISTS archetype_slug TEXT;
         """    ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
