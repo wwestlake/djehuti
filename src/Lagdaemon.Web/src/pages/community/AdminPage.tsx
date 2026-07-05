@@ -8,7 +8,7 @@ import type { ForumTag, ForumReport } from '../../api/forumApi'
 import { mudAdminApi } from '../../api/mudAdminApi'
 import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics, MudRecipe, MudRecipeIngredient } from '../../api/mudAdminApi'
 import { semanticAdminApi } from '../../api/semanticAdminApi'
-import type { SemanticAdminActionRecord, SemanticAutomationRunResult, SemanticAutomationStatus, SemanticGraphStats, SemanticChunkHit, SemanticReindexSummary, SemanticSplitApplyResult, SemanticTokenDispersionCandidate, SemanticTokenSplitProposal, SemanticTokenSplitRecord } from '../../api/semanticAdminApi'
+import type { SemanticAdminActionRecord, SemanticAutomationRunResult, SemanticAutomationStatus, SemanticCurvatureStatus, SemanticDriftStatus, SemanticGraphStats, SemanticChunkHit, SemanticQuerySessionSummary, SemanticQueryTurnRecord, SemanticRecoveryStatus, SemanticReindexSummary, SemanticSearchComparison, SemanticSearchComparisonSummary, SemanticSearchResponse, SemanticSessionSearchEvaluation, SemanticSplitApplyResult, SemanticTokenDispersionCandidate, SemanticTokenSplitProposal, SemanticTokenSplitRecord } from '../../api/semanticAdminApi'
 import { AdminTable } from '../../components/AdminTable'
 
 const BASE = '/djehuti'
@@ -211,6 +211,17 @@ export default function AdminPage() {
   const [semanticQuery, setSemanticQuery] = useState('')
   const [semanticSourceType, setSemanticSourceType] = useState('')
   const [semanticResults, setSemanticResults] = useState<SemanticChunkHit[]>([])
+  const [semanticSearchSession, setSemanticSearchSession] = useState<SemanticQuerySessionSummary | null>(null)
+  const [semanticSearchTurns, setSemanticSearchTurns] = useState<SemanticQueryTurnRecord[]>([])
+  const [semanticSearchCurrentTurn, setSemanticSearchCurrentTurn] = useState<SemanticQueryTurnRecord | null>(null)
+  const [semanticRecentSessions, setSemanticRecentSessions] = useState<SemanticQuerySessionSummary[]>([])
+  const [semanticDriftStatus, setSemanticDriftStatus] = useState<SemanticDriftStatus | null>(null)
+  const [semanticCurvatureStatus, setSemanticCurvatureStatus] = useState<SemanticCurvatureStatus | null>(null)
+  const [semanticRecoveryStatus, setSemanticRecoveryStatus] = useState<SemanticRecoveryStatus | null>(null)
+  const [semanticSearchComparison, setSemanticSearchComparison] = useState<SemanticSearchComparison | null>(null)
+  const [semanticSessionEvaluation, setSemanticSessionEvaluation] = useState<SemanticSessionSearchEvaluation | null>(null)
+  const [semanticComparing, setSemanticComparing] = useState(false)
+  const [semanticEvaluating, setSemanticEvaluating] = useState(false)
   const [semanticDispersion, setSemanticDispersion] = useState<SemanticTokenDispersionCandidate[]>([])
   const [semanticSplitProposals, setSemanticSplitProposals] = useState<SemanticTokenSplitProposal[]>([])
   const [semanticProposalScopeKind, setSemanticProposalScopeKind] = useState('')
@@ -231,6 +242,19 @@ export default function AdminPage() {
   const [semanticMudIndexedCount, setSemanticMudIndexedCount] = useState<number | null>(null)
   const [semanticMudItemIndexedCount, setSemanticMudItemIndexedCount] = useState<number | null>(null)
   const [semanticMudRecipeIndexedCount, setSemanticMudRecipeIndexedCount] = useState<number | null>(null)
+
+  const applySemanticSearchResponse = (response: SemanticSearchResponse) => {
+    setSemanticResults(response.hits)
+    setSemanticSearchSession(response.session)
+    setSemanticSearchTurns(response.recentTurns)
+    setSemanticSearchCurrentTurn(response.currentTurn)
+    setSemanticCurvatureStatus(response.curvature)
+    setSemanticRecoveryStatus(response.recovery)
+  }
+
+  const refreshSemanticSearchSessions = async () => {
+    setSemanticRecentSessions(await semanticAdminApi.getSearchSessions(10))
+  }
   const [mudZoneForm, setMudZoneForm] = useState({ name: '', slug: '', description: '', position: 0 })
   const [editingMudZone, setEditingMudZone] = useState<MudZone | null>(null)
   const [mudRoomForm, setMudRoomForm] = useState({ zoneId: '', name: '', slug: '', description: '', position: 0 })
@@ -340,10 +364,12 @@ export default function AdminPage() {
         mudAdminApi.getRecipes().then(setMudRecipes),
         semanticAdminApi.getStats().then(setSemanticStats),
         semanticAdminApi.getAutomationStatus().then(setSemanticAutomationStatus),
+        semanticAdminApi.getDriftStatus(3).then(setSemanticDriftStatus),
         semanticAdminApi.getDispersionCandidates().then(setSemanticDispersion),
         semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined).then(setSemanticSplitProposals),
         semanticAdminApi.getTokenSplits().then(setSemanticTokenSplits),
         semanticAdminApi.getSemanticAdminHistory().then(setSemanticAdminHistory),
+        semanticAdminApi.getSearchSessions(10).then(setSemanticRecentSessions),
       ]).then(() => {}),
       metrics: () => Promise.all([
         apiFetch(`${BASE}/api/admin/metrics`).then(setMetrics),
@@ -752,17 +778,92 @@ export default function AdminPage() {
     e?.preventDefault()
     if (!semanticQuery.trim()) {
       setSemanticResults([])
+      setSemanticSearchCurrentTurn(null)
       return
     }
     setSemanticSearching(true)
     try {
-      const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
-      setSemanticResults(results)
+      const response = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12, semanticSearchSession?.id ?? undefined, true)
+      applySemanticSearchResponse(response)
+      await refreshSemanticSearchSessions()
     } catch {
       setError('Failed to search semantic index.')
     } finally {
       setSemanticSearching(false)
     }
+  }
+
+  const refreshSemanticSearchPreview = async () => {
+    if (!semanticQuery.trim() || !semanticSearchSession?.id) return
+    const response = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12, semanticSearchSession.id, false)
+    applySemanticSearchResponse(response)
+  }
+
+  const resetSemanticSearchTrail = () => {
+    setSemanticSearchSession(null)
+    setSemanticSearchTurns([])
+    setSemanticSearchCurrentTurn(null)
+    setSemanticResults([])
+    setSemanticCurvatureStatus(null)
+    setSemanticRecoveryStatus(null)
+    setSemanticSearchComparison(null)
+    setSemanticSessionEvaluation(null)
+  }
+
+  const loadSemanticSearchSession = async (session: SemanticQuerySessionSummary) => {
+    const detail = await semanticAdminApi.getSearchSessionDetail(session.id, 8)
+    setSemanticSearchSession(detail.session)
+    setSemanticSearchTurns(detail.turns)
+    const latestTurn = detail.turns[detail.turns.length - 1] ?? null
+    setSemanticSearchCurrentTurn(latestTurn)
+    if (latestTurn) {
+      setSemanticQuery(latestTurn.queryText)
+      setSemanticSourceType(latestTurn.sourceTypeFilter ?? '')
+      const response = await semanticAdminApi.search(latestTurn.queryText, latestTurn.sourceTypeFilter ?? undefined, 12, session.id, false)
+      applySemanticSearchResponse(response)
+    } else {
+      setSemanticResults([])
+    }
+    setSemanticSearchComparison(null)
+    setSemanticSessionEvaluation(null)
+  }
+
+  const compareSemanticSearchModes = async () => {
+    if (!semanticQuery.trim()) return
+    setSemanticComparing(true)
+    try {
+      const comparison = await semanticAdminApi.compareSearchModes(
+        semanticQuery.trim(),
+        semanticSourceType || undefined,
+        12,
+        semanticSearchSession?.id ?? undefined,
+      )
+      setSemanticSearchComparison(comparison)
+    } catch {
+      setError('Failed to compare semantic retrieval modes.')
+    } finally {
+      setSemanticComparing(false)
+    }
+  }
+
+  const evaluateSemanticSearchSession = async (session: SemanticQuerySessionSummary) => {
+    setSemanticEvaluating(true)
+    try {
+      const evaluation = await semanticAdminApi.evaluateSearchSession(session.id, 12, 8)
+      setSemanticSessionEvaluation(evaluation)
+      if (!semanticSearchSession || semanticSearchSession.id !== session.id) {
+        await loadSemanticSearchSession(session)
+      }
+    } catch {
+      setError('Failed to evaluate semantic search trail.')
+    } finally {
+      setSemanticEvaluating(false)
+    }
+  }
+
+  const formatSemanticTurnLabel = (turn: SemanticSearchComparisonSummary) => {
+    if (turn.sourceTypeFilter) return `${turn.queryText} · ${turn.sourceTypeFilter}`
+    return turn.queryText
   }
 
   const reindexSemanticDocuments = async () => {
@@ -773,13 +874,11 @@ export default function AdminPage() {
       setSemanticReindexResult(result)
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
+      setSemanticDriftStatus(await semanticAdminApi.getDriftStatus(3))
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
-      if (semanticQuery.trim()) {
-        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
-        setSemanticResults(results)
-      }
+      await refreshSemanticSearchPreview()
     } catch {
       setError('Failed to reindex semantic documents.')
     } finally {
@@ -795,13 +894,11 @@ export default function AdminPage() {
       setSemanticMudIndexedCount(result.indexed)
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
+      setSemanticDriftStatus(await semanticAdminApi.getDriftStatus(3))
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
-      if (semanticQuery.trim()) {
-        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
-        setSemanticResults(results)
-      }
+      await refreshSemanticSearchPreview()
     } catch {
       setError('Failed to reindex MUD rooms.')
     } finally {
@@ -817,6 +914,7 @@ export default function AdminPage() {
       setSemanticMudItemIndexedCount(result.indexed)
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
+      setSemanticDriftStatus(await semanticAdminApi.getDriftStatus(3))
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
@@ -835,6 +933,7 @@ export default function AdminPage() {
       setSemanticMudRecipeIndexedCount(result.indexed)
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
+      setSemanticDriftStatus(await semanticAdminApi.getDriftStatus(3))
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
@@ -853,14 +952,12 @@ export default function AdminPage() {
       setSemanticSplitResult(result)
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
+      setSemanticDriftStatus(await semanticAdminApi.getDriftStatus(3))
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
-      if (semanticQuery.trim()) {
-        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
-        setSemanticResults(results)
-      }
+      await refreshSemanticSearchPreview()
     } catch {
       setError('Failed to materialize semantic token splits.')
     } finally {
@@ -885,12 +982,10 @@ export default function AdminPage() {
       setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
+      setSemanticDriftStatus(await semanticAdminApi.getDriftStatus(3))
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
-      if (semanticQuery.trim()) {
-        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
-        setSemanticResults(results)
-      }
+      await refreshSemanticSearchPreview()
       setSemanticSplitForm({ token: '', scopeKind: 'source-type', scopeValue: '', variantKey: '' })
       setEditingSemanticSplitKey(null)
     } catch {
@@ -925,12 +1020,10 @@ export default function AdminPage() {
       setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
+      setSemanticDriftStatus(await semanticAdminApi.getDriftStatus(3))
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
-      if (semanticQuery.trim()) {
-        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
-        setSemanticResults(results)
-      }
+      await refreshSemanticSearchPreview()
     } catch {
       setError('Failed to delete semantic token split.')
     } finally {
@@ -947,13 +1040,11 @@ export default function AdminPage() {
       setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
+      setSemanticDriftStatus(await semanticAdminApi.getDriftStatus(3))
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
-      if (semanticQuery.trim()) {
-        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
-        setSemanticResults(results)
-      }
+      await refreshSemanticSearchPreview()
     } catch {
       setError('Failed to apply semantic split proposal.')
     } finally {
@@ -971,13 +1062,11 @@ export default function AdminPage() {
       setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
       setSemanticStats(await semanticAdminApi.getStats())
       setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
+      setSemanticDriftStatus(await semanticAdminApi.getDriftStatus(3))
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
-      if (semanticQuery.trim()) {
-        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
-        setSemanticResults(results)
-      }
+      await refreshSemanticSearchPreview()
     } catch {
       setError('Failed to apply semantic split proposals.')
     } finally {
@@ -993,14 +1082,12 @@ export default function AdminPage() {
       setSemanticAutomationResult(result)
       setSemanticAutomationStatus(await semanticAdminApi.getAutomationStatus())
       setSemanticStats(await semanticAdminApi.getStats())
+      setSemanticDriftStatus(await semanticAdminApi.getDriftStatus(3))
       setSemanticDispersion(await semanticAdminApi.getDispersionCandidates())
       setSemanticSplitProposals(await semanticAdminApi.getTokenSplitProposals(12, 3, semanticProposalScopeKind || undefined))
       setSemanticTokenSplits(await semanticAdminApi.getTokenSplits())
       setSemanticAdminHistory(await semanticAdminApi.getSemanticAdminHistory())
-      if (semanticQuery.trim()) {
-        const results = await semanticAdminApi.search(semanticQuery.trim(), semanticSourceType || undefined, 12)
-        setSemanticResults(results)
-      }
+      await refreshSemanticSearchPreview()
     } catch {
       setError('Failed to run semantic automation pass.')
     } finally {
@@ -1887,6 +1974,24 @@ export default function AdminPage() {
               </div>
             )}
 
+            {semanticDriftStatus && (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                gap: 10,
+                padding: '12px 14px',
+                border: '1px solid var(--border)',
+                borderRadius: 12,
+                background: 'rgba(167,139,250,0.06)',
+              }}>
+                <div><strong>Drift pressure</strong><br />{semanticDriftStatus.pressureMultiplier.toFixed(3)}</div>
+                <div><strong>Mean drift</strong><br />{semanticDriftStatus.meanDrift.toFixed(3)}</div>
+                <div><strong>High-drift turns</strong><br />{semanticDriftStatus.highDriftCount} / {semanticDriftStatus.driftSampleCount}</div>
+                <div><strong>Chunk threshold</strong><br />{semanticDriftStatus.adjustedMinChunkCount} (base {semanticDriftStatus.baseMinChunkCount})</div>
+                <div><strong>Medium band</strong><br />{semanticDriftStatus.mediumBandEnabled ? 'Enabled' : 'Locked'}</div>
+              </div>
+            )}
+
             {!!semanticSplitProposals.length && (
               <div className="admin-table-wrap">
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -2112,7 +2217,7 @@ export default function AdminPage() {
             )}
 
             <form onSubmit={runSemanticSearch} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div className="admin-grant-fields" style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) 220px 120px', gap: 8 }}>
+              <div className="admin-grant-fields" style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) 220px 120px 120px 140px', gap: 8 }}>
                 <input
                   className="papers-new-input"
                   placeholder="Search semantic index"
@@ -2130,33 +2235,250 @@ export default function AdminPage() {
                 <button className="tiptap-action-btn" type="submit" disabled={semanticSearching || !semanticQuery.trim()}>
                   {semanticSearching ? 'Searching…' : 'Search'}
                 </button>
+                <button className="tiptap-action-btn" type="button" onClick={resetSemanticSearchTrail}>
+                  New trail
+                </button>
+                <button className="tiptap-action-btn" type="button" onClick={compareSemanticSearchModes} disabled={semanticComparing || !semanticQuery.trim()}>
+                  {semanticComparing ? 'Comparing…' : 'Compare'}
+                </button>
               </div>
             </form>
+
+            {(semanticSearchSession || semanticSearchCurrentTurn || semanticRecentSessions.length > 0) && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+                <div className="admin-grant-form" style={{ gap: 10 }}>
+                  <h4 style={{ margin: 0 }}>Current search trail</h4>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                    {semanticSearchSession
+                      ? `Session ${semanticSearchSession.id.slice(0, 8)} · ${semanticSearchSession.turnCount} recorded turns`
+                      : 'Preview only'}
+                  </div>
+                  {semanticSearchCurrentTurn && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, fontSize: '0.85rem' }}>
+                      <div><strong>Turn</strong><br />{semanticSearchCurrentTurn.turnIndex}</div>
+                      <div><strong>Hits</strong><br />{semanticSearchCurrentTurn.hitCount}</div>
+                      <div><strong>Top similarity</strong><br />{semanticSearchCurrentTurn.topSimilarity.toFixed(3)}</div>
+                      <div><strong>Mean similarity</strong><br />{semanticSearchCurrentTurn.meanSimilarity.toFixed(3)}</div>
+                      <div><strong>Source spread</strong><br />{semanticSearchCurrentTurn.sourceTypeDiversity}</div>
+                      <div><strong>Drift</strong><br />{semanticSearchCurrentTurn.driftFromPrevious === null ? '—' : semanticSearchCurrentTurn.driftFromPrevious.toFixed(3)}</div>
+                      <div><strong>Curvature</strong><br />{semanticCurvatureStatus ? semanticCurvatureStatus.curvature.toFixed(3) : '—'}</div>
+                      <div><strong>Weight multiplier</strong><br />{semanticCurvatureStatus ? semanticCurvatureStatus.weightMultiplier.toFixed(3) : '—'}</div>
+                      <div><strong>Recovery</strong><br />{semanticRecoveryStatus?.triggered ? 'Triggered' : 'Stable'}</div>
+                      <div><strong>Recovery score</strong><br />{semanticRecoveryStatus ? semanticRecoveryStatus.triggerScore.toFixed(3) : '—'}</div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="admin-grant-form" style={{ gap: 10 }}>
+                  <h4 style={{ margin: 0 }}>Recent turns</h4>
+                  {!semanticSearchTurns.length && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Run a search to begin the trail.</div>
+                  )}
+                  {!!semanticSearchTurns.length && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {semanticSearchTurns.map(turn => (
+                        <div key={`${turn.id || 'preview'}:${turn.turnIndex}`} style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            <span>Turn {turn.turnIndex}</span>
+                            <span>{new Date(turn.createdAt).toLocaleTimeString()}</span>
+                          </div>
+                          <div style={{ marginTop: 6, fontWeight: 600 }}>{turn.queryText}</div>
+                          <div style={{ marginTop: 6, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            top {turn.topSimilarity.toFixed(3)} · mean {turn.meanSimilarity.toFixed(3)} · drift {turn.driftFromPrevious === null ? '—' : turn.driftFromPrevious.toFixed(3)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="admin-grant-form" style={{ gap: 10 }}>
+                  <h4 style={{ margin: 0 }}>Stored trails</h4>
+                  {!semanticRecentSessions.length && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No stored trails yet.</div>
+                  )}
+                  {!!semanticRecentSessions.length && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {semanticRecentSessions.map(session => (
+                        <div key={session.id} style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <div>
+                            <strong>{session.lastQueryText || 'Unnamed trail'}</strong>
+                            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                              {session.turnCount} turns · {new Date(session.updatedAt).toLocaleString()}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              className="tiptap-action-btn"
+                              onClick={() => loadSemanticSearchSession(session)}
+                            >
+                              Open trail
+                            </button>
+                            <button
+                              type="button"
+                              className="tiptap-action-btn"
+                              onClick={() => evaluateSemanticSearchSession(session)}
+                              disabled={semanticEvaluating}
+                            >
+                              {semanticEvaluating && semanticSearchSession?.id === session.id ? 'Evaluating…' : 'Evaluate trail'}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {semanticSessionEvaluation && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+                <div className="admin-grant-form" style={{ gap: 10 }}>
+                  <h4 style={{ margin: 0 }}>Trail evaluation</h4>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                    Session {semanticSessionEvaluation.sessionId.slice(0, 8)} · {semanticSessionEvaluation.comparedTurnCount} compared turns
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, fontSize: '0.85rem' }}>
+                    <div><strong>Trail turns</strong><br />{semanticSessionEvaluation.turnCount}</div>
+                    <div><strong>Compared</strong><br />{semanticSessionEvaluation.comparedTurnCount}</div>
+                    <div><strong>Mean overlap</strong><br />{semanticSessionEvaluation.meanOverlapCount.toFixed(2)}</div>
+                    <div><strong>Mean trajectory-only</strong><br />{semanticSessionEvaluation.meanTrajectoryOnlyCount.toFixed(2)}</div>
+                    <div><strong>Mean baseline-only</strong><br />{semanticSessionEvaluation.meanBaselineOnlyCount.toFixed(2)}</div>
+                    <div><strong>Recovery triggers</strong><br />{semanticSessionEvaluation.recoveryTriggerCount}</div>
+                    <div><strong>Mean curvature</strong><br />{semanticSessionEvaluation.meanCurvature.toFixed(3)}</div>
+                  </div>
+                </div>
+                <div className="admin-grant-form" style={{ gap: 10 }}>
+                  <h4 style={{ margin: 0 }}>Turn breakdown</h4>
+                  {!semanticSessionEvaluation.turns.length && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No evaluated turns yet.</div>
+                  )}
+                  {!!semanticSessionEvaluation.turns.length && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {semanticSessionEvaluation.turns.map((turn, index) => (
+                        <div key={`trail-eval:${index}:${turn.queryText}`} style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10 }}>
+                          <div style={{ fontWeight: 600 }}>{formatSemanticTurnLabel(turn)}</div>
+                          <div style={{ marginTop: 6, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            overlap {turn.overlapCount} · trajectory-only {turn.trajectoryOnlyCount} · baseline-only {turn.baselineOnlyCount}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            curvature {turn.curvature.toFixed(3)} · recovery {turn.recoveryTriggered ? turn.recoveryReason : 'stable'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {semanticSearchComparison && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+                <div className="admin-grant-form" style={{ gap: 10 }}>
+                  <h4 style={{ margin: 0 }}>Comparison summary</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, fontSize: '0.85rem' }}>
+                    <div><strong>Overlap</strong><br />{semanticSearchComparison.overlapCount}</div>
+                    <div><strong>Trajectory-only</strong><br />{semanticSearchComparison.trajectoryOnlyCount}</div>
+                    <div><strong>Baseline-only</strong><br />{semanticSearchComparison.baselineOnlyCount}</div>
+                    <div><strong>Recovery</strong><br />{semanticSearchComparison.recovery.triggered ? semanticSearchComparison.recovery.reason : 'stable'}</div>
+                    <div><strong>Curvature</strong><br />{semanticSearchComparison.curvature.curvature.toFixed(3)}</div>
+                    <div><strong>Weight multiplier</strong><br />{semanticSearchComparison.curvature.weightMultiplier.toFixed(3)}</div>
+                  </div>
+                </div>
+                <div className="admin-grant-form" style={{ gap: 10 }}>
+                  <h4 style={{ margin: 0 }}>Baseline top hits</h4>
+                  {!semanticSearchComparison.baselineHits.length && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No baseline hits.</div>}
+                  {!!semanticSearchComparison.baselineHits.length && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {semanticSearchComparison.baselineHits.slice(0, 5).map(hit => (
+                        <div key={`baseline:${hit.sourceType}:${hit.sourceKey}:${hit.chunkPosition}`} style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10 }}>
+                          <div style={{ fontWeight: 600 }}>{hit.title}</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            {hit.sourceType} · similarity {hit.similarity.toFixed(3)} · rank {hit.rankingScore.toFixed(3)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="admin-grant-form" style={{ gap: 10 }}>
+                  <h4 style={{ margin: 0 }}>Trajectory-aware top hits</h4>
+                  {!semanticSearchComparison.trajectoryHits.length && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No trajectory hits.</div>}
+                  {!!semanticSearchComparison.trajectoryHits.length && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {semanticSearchComparison.trajectoryHits.slice(0, 5).map(hit => (
+                        <div key={`trajectory:${hit.sourceType}:${hit.sourceKey}:${hit.chunkPosition}`} style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10 }}>
+                          <div style={{ fontWeight: 600 }}>{hit.title}</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            {hit.sourceType} · similarity {hit.similarity.toFixed(3)} · rank {hit.rankingScore.toFixed(3)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="admin-grant-form" style={{ gap: 10 }}>
+                  <h4 style={{ margin: 0 }}>Trajectory-only additions</h4>
+                  {!semanticSearchComparison.trajectoryOnlyHits.length && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No added hits.</div>}
+                  {!!semanticSearchComparison.trajectoryOnlyHits.length && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {semanticSearchComparison.trajectoryOnlyHits.slice(0, 5).map(hit => (
+                        <div key={`trajectory-only:${hit.sourceType}:${hit.sourceKey}:${hit.chunkPosition}`} style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10 }}>
+                          <div style={{ fontWeight: 600 }}>{hit.title}</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            {hit.sourceType} · similarity {hit.similarity.toFixed(3)} · rank {hit.rankingScore.toFixed(3)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="admin-grant-form" style={{ gap: 10 }}>
+                  <h4 style={{ margin: 0 }}>Baseline-only drops</h4>
+                  {!semanticSearchComparison.baselineOnlyHits.length && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No dropped hits.</div>}
+                  {!!semanticSearchComparison.baselineOnlyHits.length && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {semanticSearchComparison.baselineOnlyHits.slice(0, 5).map(hit => (
+                        <div key={`baseline-only:${hit.sourceType}:${hit.sourceKey}:${hit.chunkPosition}`} style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10 }}>
+                          <div style={{ fontWeight: 600 }}>{hit.title}</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            {hit.sourceType} · similarity {hit.similarity.toFixed(3)} · rank {hit.rankingScore.toFixed(3)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="admin-table-wrap">
               <table className="admin-table">
                 <thead>
-                  <tr>
-                    <th>Source</th>
-                    <th>Title</th>
-                    <th>Similarity</th>
-                    <th>Token hits</th>
-                    <th>Excerpt</th>
-                  </tr>
+                    <tr>
+                      <th>Source</th>
+                      <th>Title</th>
+                      <th>Similarity</th>
+                      <th>Rank</th>
+                      <th>Token hits</th>
+                      <th>Excerpt</th>
+                    </tr>
                 </thead>
                 <tbody>
                   {semanticResults.map(result => (
-                    <tr key={`${result.sourceType}:${result.sourceKey}:${result.chunkPosition}`}>
-                      <td>{result.sourceType}</td>
-                      <td>{result.title}</td>
-                      <td>{result.similarity.toFixed(3)}</td>
-                      <td>{result.matchedTokenCount}</td>
-                      <td style={{ maxWidth: 540, whiteSpace: 'normal' }}>{result.content}</td>
-                    </tr>
-                  ))}
+                      <tr key={`${result.sourceType}:${result.sourceKey}:${result.chunkPosition}`}>
+                        <td>{result.sourceType}</td>
+                        <td>{result.title}</td>
+                        <td>{result.similarity.toFixed(3)}</td>
+                        <td>{result.rankingScore.toFixed(3)}</td>
+                        <td>{result.matchedTokenCount}</td>
+                        <td style={{ maxWidth: 540, whiteSpace: 'normal' }}>{result.content}</td>
+                      </tr>
+                    ))}
                   {!semanticResults.length && (
                     <tr>
-                      <td colSpan={5} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>
+                      <td colSpan={6} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>
                         {semanticQuery.trim() ? 'No semantic results yet.' : 'Run a search to inspect the index.'}
                       </td>
                     </tr>

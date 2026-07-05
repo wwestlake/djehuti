@@ -81,7 +81,22 @@ export interface SemanticTokenSplitProposal {
   dispersionBand: string
   scopeValueCount: number
   scopeValues: SemanticTokenSplitProposalValue[]
+  driftPressure: number
+  adjustedMinChunkCount: number
+  mediumBandEnabled: boolean
   reason: string
+}
+
+export interface SemanticDriftStatus {
+  recentTurnCount: number
+  driftSampleCount: number
+  meanDrift: number
+  highDriftCount: number
+  highDriftRatio: number
+  pressureMultiplier: number
+  baseMinChunkCount: number
+  adjustedMinChunkCount: number
+  mediumBandEnabled: boolean
 }
 
 export interface SemanticChunkHit {
@@ -93,6 +108,99 @@ export interface SemanticChunkHit {
   matchedTokenCount: number
   matchedWeight: number
   similarity: number
+  rankingScore: number
+  coOccurrenceWeightMultiplier: number
+}
+
+export interface SemanticCurvatureStatus {
+  sampleCount: number
+  curvature: number
+  weightMultiplier: number
+}
+
+export interface SemanticRecoveryStatus {
+  triggered: boolean
+  reason: string
+  similarityFloor: number
+  candidateLimit: number
+  resultLimit: number
+  triggerScore: number
+}
+
+export interface SemanticQuerySessionSummary {
+  id: string
+  adminUserId: string
+  turnCount: number
+  lastQueryText: string | null
+  lastSourceTypeFilter: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SemanticQueryTurnRecord {
+  id: string
+  turnIndex: number
+  queryText: string
+  sourceTypeFilter: string | null
+  tokenCount: number
+  hitCount: number
+  sourceTypeDiversity: number
+  matchedTokenTotal: number
+  matchedWeightTotal: number
+  topSimilarity: number
+  meanSimilarity: number
+  driftFromPrevious: number | null
+  createdAt: string
+}
+
+export interface SemanticSearchResponse {
+  session: SemanticQuerySessionSummary | null
+  currentTurn: SemanticQueryTurnRecord
+  recentTurns: SemanticQueryTurnRecord[]
+  curvature: SemanticCurvatureStatus
+  recovery: SemanticRecoveryStatus
+  hits: SemanticChunkHit[]
+  recorded: boolean
+}
+
+export interface SemanticSearchComparison {
+  baselineHits: SemanticChunkHit[]
+  trajectoryHits: SemanticChunkHit[]
+  curvature: SemanticCurvatureStatus
+  recovery: SemanticRecoveryStatus
+  overlapCount: number
+  baselineOnlyCount: number
+  trajectoryOnlyCount: number
+  baselineOnlyHits: SemanticChunkHit[]
+  trajectoryOnlyHits: SemanticChunkHit[]
+}
+
+export interface SemanticSearchComparisonSummary {
+  queryText: string
+  sourceTypeFilter: string | null
+  overlapCount: number
+  baselineOnlyCount: number
+  trajectoryOnlyCount: number
+  curvature: number
+  recoveryTriggered: boolean
+  recoveryReason: string
+}
+
+export interface SemanticSessionSearchEvaluation {
+  sessionId: string
+  turnCount: number
+  comparedTurnCount: number
+  meanOverlapCount: number
+  meanBaselineOnlyCount: number
+  meanTrajectoryOnlyCount: number
+  recoveryTriggerCount: number
+  meanCurvature: number
+  turns: SemanticSearchComparisonSummary[]
+}
+
+export interface SemanticQuerySessionDetail {
+  session: SemanticQuerySessionSummary
+  turns: SemanticQueryTurnRecord[]
 }
 
 export interface SemanticReindexSummary {
@@ -136,9 +244,11 @@ export const semanticAdminApi = {
   runAutomationPass: (): Promise<SemanticAutomationRunResult> =>
     fetch(`${BASE}/automation/run`, { ...opts, method: 'POST' }).then(json),
 
-  search: (query: string, sourceType?: string, limit = 10): Promise<SemanticChunkHit[]> => {
+  search: (query: string, sourceType?: string, limit = 10, sessionId?: string, record = true): Promise<SemanticSearchResponse> => {
     const params = new URLSearchParams({ q: query, limit: String(limit) })
     if (sourceType && sourceType.trim()) params.set('sourceType', sourceType.trim())
+    if (sessionId && sessionId.trim()) params.set('sessionId', sessionId.trim())
+    params.set('record', String(record))
     return fetch(`${BASE}/search?${params.toString()}`, opts).then(json)
   },
 
@@ -147,12 +257,39 @@ export const semanticAdminApi = {
     return fetch(`${BASE}/dispersion?${params.toString()}`, opts).then(json)
   },
 
+  getDriftStatus: (baseMinChunkCount = 3): Promise<SemanticDriftStatus> => {
+    const params = new URLSearchParams({ baseMinChunkCount: String(baseMinChunkCount) })
+    return fetch(`${BASE}/drift-status?${params.toString()}`, opts).then(json)
+  },
+
   getTokenSplits: (): Promise<SemanticTokenSplitRecord[]> =>
     fetch(`${BASE}/splits`, opts).then(json),
 
   getSemanticAdminHistory: (limit = 25): Promise<SemanticAdminActionRecord[]> => {
     const params = new URLSearchParams({ limit: String(limit) })
     return fetch(`${BASE}/splits/history?${params.toString()}`, opts).then(json)
+  },
+
+  getSearchSessions: (limit = 10): Promise<SemanticQuerySessionSummary[]> => {
+    const params = new URLSearchParams({ limit: String(limit) })
+    return fetch(`${BASE}/search/sessions?${params.toString()}`, opts).then(json)
+  },
+
+  getSearchSessionDetail: (sessionId: string, turnLimit = 8): Promise<SemanticQuerySessionDetail> => {
+    const params = new URLSearchParams({ turnLimit: String(turnLimit) })
+    return fetch(`${BASE}/search/sessions/${sessionId}?${params.toString()}`, opts).then(json)
+  },
+
+  evaluateSearchSession: (sessionId: string, limit = 10, turnLimit = 8): Promise<SemanticSessionSearchEvaluation> => {
+    const params = new URLSearchParams({ limit: String(limit), turnLimit: String(turnLimit) })
+    return fetch(`${BASE}/search/sessions/${sessionId}/evaluate?${params.toString()}`, opts).then(json)
+  },
+
+  compareSearchModes: (query: string, sourceType?: string, limit = 10, sessionId?: string): Promise<SemanticSearchComparison> => {
+    const params = new URLSearchParams({ q: query, limit: String(limit) })
+    if (sourceType && sourceType.trim()) params.set('sourceType', sourceType.trim())
+    if (sessionId && sessionId.trim()) params.set('sessionId', sessionId.trim())
+    return fetch(`${BASE}/search/compare?${params.toString()}`, opts).then(json)
   },
 
   getTokenSplitProposals: (limit = 12, minChunkCount = 3, scopeKind?: string): Promise<SemanticTokenSplitProposal[]> => {

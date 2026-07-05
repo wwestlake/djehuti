@@ -1659,10 +1659,149 @@ let main args =
                         | _ -> 10
                     | _ -> 10
 
+                let sessionId =
+                    match ctx.Request.Query.TryGetValue("sessionId") with
+                    | true, values when values.Count > 0 ->
+                        match Guid.TryParse(values.[0]) with
+                        | true, parsed -> Some parsed
+                        | _ -> None
+                    | _ -> None
+
+                let recordTurn =
+                    match ctx.Request.Query.TryGetValue("record") with
+                    | true, values when values.Count > 0 ->
+                        match Boolean.TryParse(values.[0]) with
+                        | true, parsed -> parsed
+                        | _ -> true
+                    | _ -> true
+
                 if String.IsNullOrWhiteSpace query then
                     Results.BadRequest("q is required")
                 else
-                    Results.Ok(SemanticGraphRepository.searchChunks query sourceType limit)
+                    match Guid.TryParse(claims.UserId) with
+                    | true, adminUserId ->
+                        Results.Ok(SemanticGraphRepository.executeTrackedSearch adminUserId query sourceType limit sessionId recordTurn)
+                    | _ -> Results.Unauthorized()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/search/sessions",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let limit =
+                    match ctx.Request.Query.TryGetValue("limit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 25
+                        | _ -> 10
+                    | _ -> 10
+
+                match Guid.TryParse(claims.UserId) with
+                | true, adminUserId -> Results.Ok(SemanticGraphRepository.listSemanticQuerySessions adminUserId limit)
+                | _ -> Results.Unauthorized()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/search/sessions/{sessionId}",
+        Func<HttpContext, Guid, IResult>(fun ctx sessionId ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let turnLimit =
+                    match ctx.Request.Query.TryGetValue("turnLimit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 25
+                        | _ -> 8
+                    | _ -> 8
+
+                match Guid.TryParse(claims.UserId) with
+                | true, adminUserId ->
+                    match SemanticGraphRepository.getSemanticQuerySessionDetail adminUserId sessionId turnLimit with
+                    | Some detail -> Results.Ok(detail)
+                    | None -> Results.NotFound()
+                | _ -> Results.Unauthorized()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/search/sessions/{sessionId}/evaluate",
+        Func<HttpContext, Guid, IResult>(fun ctx sessionId ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let limit =
+                    match ctx.Request.Query.TryGetValue("limit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 25
+                        | _ -> 10
+                    | _ -> 10
+
+                let turnLimit =
+                    match ctx.Request.Query.TryGetValue("turnLimit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 25
+                        | _ -> 8
+                    | _ -> 8
+
+                match Guid.TryParse(claims.UserId) with
+                | true, adminUserId ->
+                    match SemanticGraphRepository.evaluateSearchSession adminUserId sessionId limit turnLimit with
+                    | Some evaluation -> Results.Ok(evaluation)
+                    | None -> Results.NotFound()
+                | _ -> Results.Unauthorized()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/search/compare",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let query =
+                    match ctx.Request.Query.TryGetValue("q") with
+                    | true, values when values.Count > 0 -> values.[0]
+                    | _ -> ""
+
+                let sourceType =
+                    match ctx.Request.Query.TryGetValue("sourceType") with
+                    | true, values when values.Count > 0 && not (String.IsNullOrWhiteSpace values.[0]) -> Some(values.[0].Trim())
+                    | _ -> None
+
+                let limit =
+                    match ctx.Request.Query.TryGetValue("limit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 25
+                        | _ -> 10
+                    | _ -> 10
+
+                let sessionId =
+                    match ctx.Request.Query.TryGetValue("sessionId") with
+                    | true, values when values.Count > 0 ->
+                        match Guid.TryParse(values.[0]) with
+                        | true, parsed -> Some parsed
+                        | _ -> None
+                    | _ -> None
+
+                if String.IsNullOrWhiteSpace query then
+                    Results.BadRequest("q is required")
+                else
+                    match Guid.TryParse(claims.UserId) with
+                    | true, adminUserId ->
+                        Results.Ok(SemanticGraphRepository.compareSearchModes adminUserId query sourceType limit sessionId)
+                    | _ -> Results.Unauthorized()
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )
@@ -1690,6 +1829,25 @@ let main args =
                     | _ -> 3
 
                 Results.Ok(SemanticGraphRepository.getDispersionCandidates limit minChunkCount)
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/drift-status",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let baseMinChunkCount =
+                    match ctx.Request.Query.TryGetValue("baseMinChunkCount") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 100
+                        | _ -> 3
+                    | _ -> 3
+
+                Results.Ok(SemanticGraphRepository.getSemanticDriftStatus baseMinChunkCount)
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )

@@ -49,6 +49,9 @@ type SemanticTokenSplitProposal =
       DispersionBand: string
       ScopeValueCount: int
       ScopeValues: SemanticTokenSplitProposalValue list
+      DriftPressure: float
+      AdjustedMinChunkCount: int
+      MediumBandEnabled: bool
       Reason: string }
 
 type SemanticAdminActionRecord =
@@ -73,7 +76,102 @@ type SemanticChunkHit =
       Content: string
       MatchedTokenCount: int
       MatchedWeight: int
-      Similarity: float }
+      Similarity: float
+      RankingScore: float
+      CoOccurrenceWeightMultiplier: float }
+
+type SemanticCurvatureStatus =
+    { SampleCount: int
+      Curvature: float
+      WeightMultiplier: float }
+
+type SemanticRecoveryStatus =
+    { Triggered: bool
+      Reason: string
+      SimilarityFloor: float
+      CandidateLimit: int
+      ResultLimit: int
+      TriggerScore: float }
+
+type SemanticQuerySessionSummary =
+    { Id: Guid
+      AdminUserId: Guid
+      TurnCount: int
+      LastQueryText: string option
+      LastSourceTypeFilter: string option
+      CreatedAt: DateTimeOffset
+      UpdatedAt: DateTimeOffset }
+
+type SemanticQueryTurnRecord =
+    { Id: Guid
+      TurnIndex: int
+      QueryText: string
+      SourceTypeFilter: string option
+      TokenCount: int
+      HitCount: int
+      SourceTypeDiversity: int
+      MatchedTokenTotal: int
+      MatchedWeightTotal: int
+      TopSimilarity: float
+      MeanSimilarity: float
+      DriftFromPrevious: float option
+      CreatedAt: DateTimeOffset }
+
+type SemanticSearchResponse =
+    { Session: SemanticQuerySessionSummary option
+      CurrentTurn: SemanticQueryTurnRecord
+      RecentTurns: SemanticQueryTurnRecord list
+      Curvature: SemanticCurvatureStatus
+      Recovery: SemanticRecoveryStatus
+      Hits: SemanticChunkHit list
+      Recorded: bool }
+
+type SemanticSearchComparison =
+    { BaselineHits: SemanticChunkHit list
+      TrajectoryHits: SemanticChunkHit list
+      Curvature: SemanticCurvatureStatus
+      Recovery: SemanticRecoveryStatus
+      OverlapCount: int
+      BaselineOnlyCount: int
+      TrajectoryOnlyCount: int
+      BaselineOnlyHits: SemanticChunkHit list
+      TrajectoryOnlyHits: SemanticChunkHit list }
+
+type SemanticSearchComparisonSummary =
+    { QueryText: string
+      SourceTypeFilter: string option
+      OverlapCount: int
+      BaselineOnlyCount: int
+      TrajectoryOnlyCount: int
+      Curvature: float
+      RecoveryTriggered: bool
+      RecoveryReason: string }
+
+type SemanticSessionSearchEvaluation =
+    { SessionId: Guid
+      TurnCount: int
+      ComparedTurnCount: int
+      MeanOverlapCount: float
+      MeanBaselineOnlyCount: float
+      MeanTrajectoryOnlyCount: float
+      RecoveryTriggerCount: int
+      MeanCurvature: float
+      Turns: SemanticSearchComparisonSummary list }
+
+type SemanticQuerySessionDetail =
+    { Session: SemanticQuerySessionSummary
+      Turns: SemanticQueryTurnRecord list }
+
+type SemanticDriftStatus =
+    { RecentTurnCount: int
+      DriftSampleCount: int
+      MeanDrift: float
+      HighDriftCount: int
+      HighDriftRatio: float
+      PressureMultiplier: float
+      BaseMinChunkCount: int
+      AdjustedMinChunkCount: int
+      MediumBandEnabled: bool }
 
 type SemanticReindexSummary =
     { DocumentsRequested: int
@@ -1149,6 +1247,52 @@ let private choosePreferredSplitScope
                   TotalCount = totalCount
                   TopShare = topShare }
 
+let summarizeDriftSamples (baseMinChunkCount: int) (samples: float list) =
+    let cleanedSamples =
+        samples
+        |> List.filter (fun sample -> not (Double.IsNaN sample) && not (Double.IsInfinity sample))
+        |> List.map (fun sample -> Math.Clamp(sample, 0.0, 2.0))
+
+    let sampleCount = cleanedSamples.Length
+    let meanDrift =
+        if sampleCount = 0 then 0.0
+        else cleanedSamples |> List.average
+
+    let highDriftCount =
+        cleanedSamples
+        |> List.filter (fun sample -> sample >= 0.35)
+        |> List.length
+
+    let highDriftRatio =
+        if sampleCount = 0 then 0.0
+        else float highDriftCount / float sampleCount
+
+    let pressureRaw =
+        if sampleCount < 4 then
+            1.0
+        else
+            1.0 + (meanDrift * 0.9) + (highDriftRatio * 0.35)
+
+    let pressureMultiplier = Math.Round(Math.Clamp(pressureRaw, 1.0, 1.75), 3)
+
+    let thresholdReduction =
+        if pressureMultiplier >= 1.55 then 2
+        elif pressureMultiplier >= 1.25 then 1
+        else 0
+
+    let adjustedMinChunkCount = Math.Max(baseMinChunkCount - thresholdReduction, 2)
+    let mediumBandEnabled = sampleCount >= 6 && pressureMultiplier >= 1.45
+
+    { RecentTurnCount = sampleCount
+      DriftSampleCount = sampleCount
+      MeanDrift = Math.Round(meanDrift, 3)
+      HighDriftCount = highDriftCount
+      HighDriftRatio = Math.Round(highDriftRatio, 3)
+      PressureMultiplier = pressureMultiplier
+      BaseMinChunkCount = baseMinChunkCount
+      AdjustedMinChunkCount = adjustedMinChunkCount
+      MediumBandEnabled = mediumBandEnabled }
+
 let private loadTokenScopeCounts (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (token: string) =
     let readScopeCounts (sql: string) (parameterName: string) =
         use cmd = new NpgsqlCommand(sql, conn, txn)
@@ -1202,6 +1346,23 @@ let private loadTokenScopeCounts (conn: NpgsqlConnection) (txn: NpgsqlTransactio
     [ "zone-slug", zoneCounts
       "realm", realmCounts
       "source-type", sourceTypeCounts ]
+
+let getSemanticDriftStatus (baseMinChunkCount: int) =
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand(
+        """SELECT drift_from_previous
+           FROM semantic_query_turns
+           WHERE drift_from_previous IS NOT NULL
+           ORDER BY created_at DESC
+           LIMIT 64""",
+        conn)
+    use reader = cmd.ExecuteReader()
+    let samples =
+        [ while reader.Read() do
+            yield reader.GetDouble(0) ]
+
+    let summary = summarizeDriftSamples baseMinChunkCount samples
+    { summary with RecentTurnCount = samples.Length }
 
 let private insertTokenSplitVariants
     (conn: NpgsqlConnection)
@@ -1257,14 +1418,30 @@ let private selectSplitScopeAssessment
         choosePreferredSplitScope rows 2
         |> Option.map (fun assessment -> scopeKind, assessment))
 
+let private isDriftEligibleCandidate (driftStatus: SemanticDriftStatus) (candidate: SemanticTokenDispersionCandidate) =
+    candidate.SourceTypeCount >= 2
+    && candidate.ChunkCount >= driftStatus.AdjustedMinChunkCount
+    &&
+    match candidate.DispersionBand with
+    | "high" -> true
+    | "medium" -> driftStatus.MediumBandEnabled
+    | _ -> false
+
+let private getEligibleTokenSplitCandidates (limit: int) (minChunkCount: int) =
+    let driftStatus = getSemanticDriftStatus minChunkCount
+
+    let candidates =
+        getDispersionCandidates limit driftStatus.AdjustedMinChunkCount
+        |> List.filter (isDriftEligibleCandidate driftStatus)
+
+    driftStatus, candidates
+
 let materializeSourceTypeTokenSplits (limit: int) (minChunkCount: int) =
     use conn = openConnection()
     use txn = conn.BeginTransaction()
 
     try
-        let candidates =
-            getDispersionCandidates limit minChunkCount
-            |> List.filter (fun candidate -> candidate.SourceTypeCount >= 2 && candidate.DispersionBand = "high")
+        let _, candidates = getEligibleTokenSplitCandidates limit minChunkCount
 
         let mutable createdCount = 0
 
@@ -1314,9 +1491,7 @@ let applyTokenSplitProposals (limit: int) (minChunkCount: int) (scopeKindFilter:
         let mutable createdCount = 0
         let mutable proposalCount = 0
 
-        let candidates =
-            getDispersionCandidates limit minChunkCount
-            |> List.filter (fun candidate -> candidate.SourceTypeCount >= 2 && candidate.DispersionBand = "high")
+        let _, candidates = getEligibleTokenSplitCandidates limit minChunkCount
 
         for candidate in candidates do
             let scopeOptions = loadTokenScopeCounts conn txn candidate.Token
@@ -1343,9 +1518,10 @@ let getTokenSplitProposals (limit: int) (minChunkCount: int) (scopeKindFilter: s
     use txn = conn.BeginTransaction()
 
     try
+        let driftStatus, candidates = getEligibleTokenSplitCandidates limit minChunkCount
+
         let proposals =
-            getDispersionCandidates limit minChunkCount
-            |> List.filter (fun candidate -> candidate.SourceTypeCount >= 2 && candidate.DispersionBand = "high")
+            candidates
             |> List.choose (fun candidate ->
                 let scopeOptions = loadTokenScopeCounts conn txn candidate.Token
 
@@ -1359,6 +1535,9 @@ let getTokenSplitProposals (limit: int) (minChunkCount: int) (scopeKindFilter: s
                           DispersionScore = candidate.DispersionScore
                           DispersionBand = candidate.DispersionBand
                           ScopeValueCount = assessment.DistinctCount
+                          DriftPressure = driftStatus.PressureMultiplier
+                          AdjustedMinChunkCount = driftStatus.AdjustedMinChunkCount
+                          MediumBandEnabled = driftStatus.MediumBandEnabled
                           ScopeValues =
                               assessment.Rows
                               |> List.map (fun (scopeValue, chunkCount) ->
@@ -1366,11 +1545,13 @@ let getTokenSplitProposals (limit: int) (minChunkCount: int) (scopeKindFilter: s
                                     ChunkCount = chunkCount })
                           Reason =
                               sprintf
-                                  "Selected %s because %s spans %d values and the busiest value carries %.1f%% of chunk coverage."
+                                  "Selected %s because %s spans %d values, the busiest value carries %.1f%% of chunk coverage, drift pressure is %.3f, and the active chunk threshold is %d."
                                   scopeKind
                                   candidate.Token
                                   assessment.DistinctCount
-                                  (assessment.TopShare * 100.0) }))
+                                  (assessment.TopShare * 100.0)
+                                  driftStatus.PressureMultiplier
+                                  driftStatus.AdjustedMinChunkCount }))
 
         txn.Commit()
         proposals
@@ -1393,6 +1574,120 @@ let expandQueryTokens (sourceType: string option) (tokens: string list) =
     |> List.collect (SemanticSplitting.expandQueryToken sourceType coreSplits)
     |> List.distinct
 
+let summarizeSemanticQueryTurn (tokens: string list) (hits: SemanticChunkHit list) (previousEmbedding: float32 array option) (queryEmbedding: float32 array) =
+    let hitCount = List.length hits
+    let sourceTypeDiversity = hits |> List.map (fun hit -> hit.SourceType) |> List.distinct |> List.length
+    let matchedTokenTotal = hits |> List.sumBy (fun hit -> hit.MatchedTokenCount)
+    let matchedWeightTotal = hits |> List.sumBy (fun hit -> hit.MatchedWeight)
+    let topSimilarity = if hitCount = 0 then 0.0 else hits |> List.maxBy (fun hit -> hit.Similarity) |> fun hit -> hit.Similarity
+    let meanSimilarity = if hitCount = 0 then 0.0 else hits |> List.averageBy (fun hit -> hit.Similarity)
+
+    let driftFromPrevious =
+        previousEmbedding
+        |> Option.map (fun embedding ->
+            let similarity = SemanticEmbeddings.cosineSimilarity embedding queryEmbedding
+            Math.Clamp(1.0 - similarity, 0.0, 2.0))
+
+    {|
+        TokenCount = tokens.Length
+        HitCount = hitCount
+        SourceTypeDiversity = sourceTypeDiversity
+        MatchedTokenTotal = matchedTokenTotal
+        MatchedWeightTotal = matchedWeightTotal
+        TopSimilarity = topSimilarity
+        MeanSimilarity = meanSimilarity
+        DriftFromPrevious = driftFromPrevious
+    |}
+
+let private driftFromPreviousEmbedding (previousEmbedding: float32 array option) (queryEmbedding: float32 array) =
+    previousEmbedding
+    |> Option.map (fun embedding ->
+        let similarity = SemanticEmbeddings.cosineSimilarity embedding queryEmbedding
+        Math.Clamp(1.0 - similarity, 0.0, 2.0))
+
+let private baseRankingScore (hit: SemanticChunkHit) (weightMultiplier: float) =
+    hit.Similarity
+    + (float hit.MatchedTokenCount * 0.01)
+    + (float hit.MatchedWeight * 0.001 * weightMultiplier)
+
+let private vectorDifference (left: float32 array) (right: float32 array) =
+    if left.Length = 0 || right.Length = 0 || left.Length <> right.Length then
+        [||]
+    else
+        Array.init left.Length (fun index -> left.[index] - right.[index])
+
+let private vectorMagnitude (values: float32 array) =
+    values
+    |> Array.sumBy (fun value -> let value64 = float value in value64 * value64)
+    |> Math.Sqrt
+
+let summarizeCurvatureFromEmbeddings (previousEmbeddings: float32 array list) (queryEmbedding: float32 array) =
+    match previousEmbeddings with
+    | [ olderEmbedding; newerEmbedding ] when olderEmbedding.Length = queryEmbedding.Length && newerEmbedding.Length = queryEmbedding.Length ->
+        let delta1 = vectorDifference newerEmbedding olderEmbedding
+        let delta2 = vectorDifference queryEmbedding newerEmbedding
+        let sampleCount = 2
+
+        let curvature =
+            if delta1.Length = 0 || delta2.Length = 0 || vectorMagnitude delta1 = 0.0 || vectorMagnitude delta2 = 0.0 then
+                0.0
+            else
+                let cosine = SemanticEmbeddings.cosineSimilarity delta1 delta2
+                Math.Round(Math.Clamp(1.0 - cosine, 0.0, 2.0), 3)
+
+        let weightMultiplier =
+            Math.Round(Math.Clamp(1.0 - (curvature * 0.35), 0.55, 1.0), 3)
+
+        { SampleCount = sampleCount
+          Curvature = curvature
+          WeightMultiplier = weightMultiplier }
+    | _ ->
+        { SampleCount = previousEmbeddings.Length
+          Curvature = 0.0
+          WeightMultiplier = 1.0 }
+
+let applyCurvatureWeighting (curvature: SemanticCurvatureStatus) (hits: SemanticChunkHit list) =
+    hits
+    |> List.map (fun hit ->
+        let score = baseRankingScore hit curvature.WeightMultiplier
+        { hit with
+            RankingScore = score
+            CoOccurrenceWeightMultiplier = curvature.WeightMultiplier })
+    |> List.sortByDescending (fun hit -> hit.RankingScore, hit.Similarity, hit.MatchedTokenCount, hit.MatchedWeight)
+
+let summarizeRecoveryStatus (limit: int) (driftFromPrevious: float option) (curvature: SemanticCurvatureStatus) =
+    let driftScore = defaultArg driftFromPrevious 0.0
+    let triggerScore = Math.Round((driftScore * 0.6) + (curvature.Curvature * 0.4), 3)
+    let triggered = triggerScore >= 0.55
+
+    let similarityFloor =
+        if triggered then
+            Math.Round(Math.Clamp(0.12 + (curvature.Curvature * 0.04), 0.12, 0.2), 3)
+        else
+            0.2
+
+    let candidateLimit =
+        if triggered then Math.Max(limit * 12, 60)
+        else Math.Max(limit * 8, 40)
+
+    let resultLimit =
+        if triggered then Math.Max(limit, 6)
+        else Math.Max(limit / 2, 3)
+
+    let reason =
+        if triggered then
+            if driftScore >= curvature.Curvature then "drift-led recovery"
+            else "curvature-led recovery"
+        else
+            "stable primary path"
+
+    { Triggered = triggered
+      Reason = reason
+      SimilarityFloor = similarityFloor
+      CandidateLimit = candidateLimit
+      ResultLimit = resultLimit
+      TriggerScore = triggerScore }
+
 let private readChunkHit (reader: DbDataReader) (queryEmbedding: float32 array) =
     let embedding =
         if reader.IsDBNull(7) then
@@ -1408,14 +1703,19 @@ let private readChunkHit (reader: DbDataReader) (queryEmbedding: float32 array) 
       Content = reader.GetString(4)
       MatchedTokenCount = reader.GetInt64(5) |> int
       MatchedWeight = reader.GetInt64(6) |> int
-      Similarity = similarity }
+      Similarity = similarity
+      RankingScore = similarity
+      CoOccurrenceWeightMultiplier = 1.0 }
 
-let searchChunks (query: string) (sourceType: string option) (limit: int) =
+let private searchChunksDetailed
+    (query: string)
+    (sourceType: string option)
+    (limit: int)
+    (recovery: SemanticRecoveryStatus) =
     let tokens =
         SemanticPreprocessing.tokenize query
         |> List.distinct
         |> expandQueryTokens sourceType
-        |> List.toArray
 
     let queryEmbedding, _ = SemanticEmbeddings.embed query
     use conn = openConnection()
@@ -1461,7 +1761,7 @@ let searchChunks (query: string) (sourceType: string option) (limit: int) =
                    ORDER BY matched_token_count DESC, matched_weight DESC, d.updated_at DESC, c.chunk_position ASC
                    LIMIT @candidateLimit""",
                 conn)
-            cmd.Parameters.AddWithValue("tokens", tokens) |> ignore
+            cmd.Parameters.AddWithValue("tokens", tokens |> List.toArray) |> ignore
             cmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
             cmd.Parameters.AddWithValue("candidateLimit", Math.Max(limit * 10, 50)) |> ignore
 
@@ -1489,7 +1789,7 @@ let searchChunks (query: string) (sourceType: string option) (limit: int) =
                    ORDER BY matched_token_count DESC, matched_weight DESC, d.updated_at DESC, c.chunk_position ASC
                    LIMIT @candidateLimit""",
                 conn)
-            fallbackCmd.Parameters.AddWithValue("tokens", tokens) |> ignore
+            fallbackCmd.Parameters.AddWithValue("tokens", tokens |> List.toArray) |> ignore
             fallbackCmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
             fallbackCmd.Parameters.AddWithValue("candidateLimit", Math.Max(limit * 10, 50)) |> ignore
 
@@ -1497,7 +1797,7 @@ let searchChunks (query: string) (sourceType: string option) (limit: int) =
             [ while fallbackReader.Read() do
                 yield readChunkHit fallbackReader queryEmbedding ]
 
-    let isolatedCandidateLimit = Math.Max(limit * 8, 40)
+    let isolatedCandidateLimit = recovery.CandidateLimit
     use isolatedCmd = new NpgsqlCommand(
         """SELECT d.source_type,
                   d.source_key,
@@ -1532,13 +1832,609 @@ let searchChunks (query: string) (sourceType: string option) (limit: int) =
         |> List.filter (fun hit ->
             let key = $"{hit.SourceType}|{hit.SourceKey}|{hit.ChunkPosition}"
             not (Set.contains key coOccurrenceKeys))
-        |> List.filter (fun hit -> hit.Similarity > 0.2)
+        |> List.filter (fun hit -> hit.Similarity > recovery.SimilarityFloor)
         |> List.sortByDescending (fun hit -> hit.Similarity)
-        |> List.truncate (Math.Max(limit / 2, 3))
+        |> List.truncate recovery.ResultLimit
 
-    List.append coOccurrenceHits isolatedSweepHits
-    |> List.sortByDescending (fun hit -> hit.Similarity, hit.MatchedTokenCount, hit.MatchedWeight)
-    |> List.truncate limit
+    let hits =
+        List.append coOccurrenceHits isolatedSweepHits
+        |> List.map (fun hit ->
+            let score = baseRankingScore hit 1.0
+            { hit with RankingScore = score })
+        |> List.sortByDescending (fun hit -> hit.RankingScore, hit.Similarity, hit.MatchedTokenCount, hit.MatchedWeight)
+        |> List.truncate limit
+
+    tokens, queryEmbedding, hits
+
+let searchChunks (query: string) (sourceType: string option) (limit: int) =
+    let stableRecovery =
+        { Triggered = false
+          Reason = "stable primary path"
+          SimilarityFloor = 0.2
+          CandidateLimit = Math.Max(limit * 8, 40)
+          ResultLimit = Math.Max(limit / 2, 3)
+          TriggerScore = 0.0 }
+    let _, _, hits = searchChunksDetailed query sourceType limit stableRecovery
+    hits
+
+let private readQueryTurnRecord (reader: DbDataReader) =
+    { Id = reader.GetGuid(0)
+      TurnIndex = reader.GetInt32(1)
+      QueryText = reader.GetString(2)
+      SourceTypeFilter = if reader.IsDBNull(3) then None else Some(reader.GetString(3))
+      TokenCount = reader.GetInt32(4)
+      HitCount = reader.GetInt32(5)
+      SourceTypeDiversity = reader.GetInt32(6)
+      MatchedTokenTotal = reader.GetInt32(7)
+      MatchedWeightTotal = reader.GetInt32(8)
+      TopSimilarity = reader.GetDouble(9)
+      MeanSimilarity = reader.GetDouble(10)
+      DriftFromPrevious = if reader.IsDBNull(11) then None else Some(reader.GetDouble(11))
+      CreatedAt = reader.GetFieldValue<DateTimeOffset>(12) }
+
+let private loadSessionSummary (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (adminUserId: Guid) (sessionId: Guid) =
+    use cmd = new NpgsqlCommand(
+        """SELECT s.id,
+                  s.admin_user_id,
+                  s.created_at,
+                  s.updated_at,
+                  COALESCE(COUNT(t.id), 0) AS turn_count,
+                  (
+                      SELECT st.query_text
+                      FROM semantic_query_turns st
+                      WHERE st.session_id = s.id
+                      ORDER BY st.turn_index DESC
+                      LIMIT 1
+                  ) AS last_query_text,
+                  (
+                      SELECT st.source_type_filter
+                      FROM semantic_query_turns st
+                      WHERE st.session_id = s.id
+                      ORDER BY st.turn_index DESC
+                      LIMIT 1
+                  ) AS last_source_type_filter
+           FROM semantic_query_sessions s
+           LEFT JOIN semantic_query_turns t ON t.session_id = s.id
+           WHERE s.id = @sessionId
+             AND s.admin_user_id = @adminUserId
+           GROUP BY s.id, s.admin_user_id, s.created_at, s.updated_at""",
+        conn,
+        txn)
+    cmd.Parameters.AddWithValue("sessionId", sessionId) |> ignore
+    cmd.Parameters.AddWithValue("adminUserId", adminUserId) |> ignore
+
+    use reader = cmd.ExecuteReader()
+    if reader.Read() then
+        Some
+            { Id = reader.GetGuid(0)
+              AdminUserId = reader.GetGuid(1)
+              CreatedAt = reader.GetFieldValue<DateTimeOffset>(2)
+              UpdatedAt = reader.GetFieldValue<DateTimeOffset>(3)
+              TurnCount = reader.GetInt64(4) |> int
+              LastQueryText = if reader.IsDBNull(5) then None else Some(reader.GetString(5))
+              LastSourceTypeFilter = if reader.IsDBNull(6) then None else Some(reader.GetString(6)) }
+    else
+        None
+
+let private loadRecentQueryTurns (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (sessionId: Guid) (limit: int) =
+    use cmd = new NpgsqlCommand(
+        """SELECT id,
+                  turn_index,
+                  query_text,
+                  source_type_filter,
+                  token_count,
+                  hit_count,
+                  source_type_diversity,
+                  matched_token_total,
+                  matched_weight_total,
+                  top_similarity,
+                  mean_similarity,
+                  drift_from_previous,
+                  created_at
+           FROM semantic_query_turns
+           WHERE session_id = @sessionId
+           ORDER BY turn_index DESC
+           LIMIT @limit""",
+        conn,
+        txn)
+    cmd.Parameters.AddWithValue("sessionId", sessionId) |> ignore
+    cmd.Parameters.AddWithValue("limit", limit) |> ignore
+
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do
+        yield readQueryTurnRecord reader ]
+    |> List.sortBy (fun turn -> turn.TurnIndex)
+
+let private loadPreviousSessionEmbedding (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (sessionId: Guid) =
+    use cmd = new NpgsqlCommand(
+        """SELECT query_embedding
+           FROM semantic_query_turns
+           WHERE session_id = @sessionId
+           ORDER BY turn_index DESC
+           LIMIT 1""",
+        conn,
+        txn)
+    cmd.Parameters.AddWithValue("sessionId", sessionId) |> ignore
+    match cmd.ExecuteScalar() with
+    | null
+    | :? DBNull -> None
+    | value -> Some(value :?> float32 array)
+
+let private loadRecentSessionEmbeddings (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (sessionId: Guid) (limit: int) =
+    use cmd = new NpgsqlCommand(
+        """SELECT query_embedding
+           FROM semantic_query_turns
+           WHERE session_id = @sessionId
+             AND query_embedding IS NOT NULL
+           ORDER BY turn_index DESC
+           LIMIT @limit""",
+        conn,
+        txn)
+    cmd.Parameters.AddWithValue("sessionId", sessionId) |> ignore
+    cmd.Parameters.AddWithValue("limit", limit) |> ignore
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do
+        yield reader.GetFieldValue<float32 array>(0) ]
+    |> List.rev
+
+let private loadSessionTurnEmbeddings (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (sessionId: Guid) =
+    use cmd = new NpgsqlCommand(
+        """SELECT turn_index, query_embedding
+           FROM semantic_query_turns
+           WHERE session_id = @sessionId
+             AND query_embedding IS NOT NULL
+           ORDER BY turn_index ASC""",
+        conn,
+        txn)
+    cmd.Parameters.AddWithValue("sessionId", sessionId) |> ignore
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do
+        yield reader.GetInt32(0), reader.GetFieldValue<float32 array>(1) ]
+
+let private ensureQuerySession (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (adminUserId: Guid) (sessionId: Guid option) =
+    let existingSummary =
+        sessionId
+        |> Option.bind (loadSessionSummary conn txn adminUserId)
+
+    match existingSummary with
+    | Some summary ->
+        let previousEmbedding = loadPreviousSessionEmbedding conn txn summary.Id
+        summary.Id, summary.CreatedAt, summary.TurnCount + 1, previousEmbedding
+    | None ->
+        use cmd = new NpgsqlCommand(
+            """INSERT INTO semantic_query_sessions (admin_user_id)
+               VALUES (@adminUserId)
+               RETURNING id, created_at""",
+            conn,
+            txn)
+        cmd.Parameters.AddWithValue("adminUserId", adminUserId) |> ignore
+        use reader = cmd.ExecuteReader()
+        reader.Read() |> ignore
+        let newSessionId = reader.GetGuid(0)
+        let createdAt = reader.GetFieldValue<DateTimeOffset>(1)
+        newSessionId, createdAt, 1, None
+
+let private insertQueryTurn
+    (conn: NpgsqlConnection)
+    (txn: NpgsqlTransaction)
+    (sessionId: Guid)
+    (turnIndex: int)
+    (queryText: string)
+    (sourceType: string option)
+    (queryEmbedding: float32 array)
+    (metrics: {| TokenCount: int
+                 HitCount: int
+                 SourceTypeDiversity: int
+                 MatchedTokenTotal: int
+                 MatchedWeightTotal: int
+                 TopSimilarity: float
+                 MeanSimilarity: float
+                 DriftFromPrevious: float option |}) =
+    use cmd = new NpgsqlCommand(
+        """INSERT INTO semantic_query_turns (
+               session_id,
+               turn_index,
+               query_text,
+               source_type_filter,
+               token_count,
+               hit_count,
+               source_type_diversity,
+               matched_token_total,
+               matched_weight_total,
+               top_similarity,
+               mean_similarity,
+               drift_from_previous,
+               query_embedding
+           )
+           VALUES (
+               @sessionId,
+               @turnIndex,
+               @queryText,
+               @sourceType,
+               @tokenCount,
+               @hitCount,
+               @sourceTypeDiversity,
+               @matchedTokenTotal,
+               @matchedWeightTotal,
+               @topSimilarity,
+               @meanSimilarity,
+               @driftFromPrevious,
+               @queryEmbedding
+           )
+           RETURNING id, created_at""",
+        conn,
+        txn)
+    cmd.Parameters.AddWithValue("sessionId", sessionId) |> ignore
+    cmd.Parameters.AddWithValue("turnIndex", turnIndex) |> ignore
+    cmd.Parameters.AddWithValue("queryText", queryText) |> ignore
+    cmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("tokenCount", metrics.TokenCount) |> ignore
+    cmd.Parameters.AddWithValue("hitCount", metrics.HitCount) |> ignore
+    cmd.Parameters.AddWithValue("sourceTypeDiversity", metrics.SourceTypeDiversity) |> ignore
+    cmd.Parameters.AddWithValue("matchedTokenTotal", metrics.MatchedTokenTotal) |> ignore
+    cmd.Parameters.AddWithValue("matchedWeightTotal", metrics.MatchedWeightTotal) |> ignore
+    cmd.Parameters.AddWithValue("topSimilarity", metrics.TopSimilarity) |> ignore
+    cmd.Parameters.AddWithValue("meanSimilarity", metrics.MeanSimilarity) |> ignore
+    cmd.Parameters.AddWithValue("driftFromPrevious", metrics.DriftFromPrevious |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("queryEmbedding", queryEmbedding) |> ignore
+    use reader = cmd.ExecuteReader()
+    reader.Read() |> ignore
+    let id = reader.GetGuid(0)
+    let createdAt = reader.GetFieldValue<DateTimeOffset>(1)
+    { Id = id
+      TurnIndex = turnIndex
+      QueryText = queryText
+      SourceTypeFilter = sourceType
+      TokenCount = metrics.TokenCount
+      HitCount = metrics.HitCount
+      SourceTypeDiversity = metrics.SourceTypeDiversity
+      MatchedTokenTotal = metrics.MatchedTokenTotal
+      MatchedWeightTotal = metrics.MatchedWeightTotal
+      TopSimilarity = metrics.TopSimilarity
+      MeanSimilarity = metrics.MeanSimilarity
+      DriftFromPrevious = metrics.DriftFromPrevious
+      CreatedAt = createdAt }
+
+let private touchQuerySession (conn: NpgsqlConnection) (txn: NpgsqlTransaction) (sessionId: Guid) =
+    use cmd = new NpgsqlCommand(
+        """UPDATE semantic_query_sessions
+           SET updated_at = now()
+           WHERE id = @sessionId""",
+        conn,
+        txn)
+    cmd.Parameters.AddWithValue("sessionId", sessionId) |> ignore
+    cmd.ExecuteNonQuery() |> ignore
+
+let executeTrackedSearch
+    (adminUserId: Guid)
+    (query: string)
+    (sourceType: string option)
+    (limit: int)
+    (sessionId: Guid option)
+    (recordTurn: bool) =
+    let tokens =
+        SemanticPreprocessing.tokenize query
+        |> List.distinct
+        |> expandQueryTokens sourceType
+    let queryEmbedding, _ = SemanticEmbeddings.embed query
+    use conn = openConnection()
+    use txn = conn.BeginTransaction()
+
+    try
+        let sessionSummary, recentTurns, currentTurn, curvature, recovery, hits =
+            if recordTurn then
+                let sessionIdValue, _, nextTurnIndex, previousEmbedding =
+                    ensureQuerySession conn txn adminUserId sessionId
+
+                let recentEmbeddings = loadRecentSessionEmbeddings conn txn sessionIdValue 2
+                let curvature = summarizeCurvatureFromEmbeddings recentEmbeddings queryEmbedding
+                let drift = driftFromPreviousEmbedding previousEmbedding queryEmbedding
+                let recovery = summarizeRecoveryStatus limit drift curvature
+                let tokens, _, initialHits = searchChunksDetailed query sourceType limit recovery
+                let hits = applyCurvatureWeighting curvature initialHits
+                let metrics = summarizeSemanticQueryTurn tokens hits previousEmbedding queryEmbedding
+                let insertedTurn = insertQueryTurn conn txn sessionIdValue nextTurnIndex query sourceType queryEmbedding metrics
+                touchQuerySession conn txn sessionIdValue
+                let summary = loadSessionSummary conn txn adminUserId sessionIdValue
+                let turns = loadRecentQueryTurns conn txn sessionIdValue 8
+                summary, turns, insertedTurn, curvature, recovery, hits
+            else
+                let summary = sessionId |> Option.bind (loadSessionSummary conn txn adminUserId)
+                let previousEmbedding, recentEmbeddings =
+                    summary
+                    |> Option.map (fun value ->
+                        loadPreviousSessionEmbedding conn txn value.Id,
+                        loadRecentSessionEmbeddings conn txn value.Id 2)
+                    |> Option.defaultValue (None, [])
+
+                let curvature = summarizeCurvatureFromEmbeddings recentEmbeddings queryEmbedding
+                let drift = driftFromPreviousEmbedding previousEmbedding queryEmbedding
+                let recovery = summarizeRecoveryStatus limit drift curvature
+                let tokens, _, initialHits = searchChunksDetailed query sourceType limit recovery
+                let hits = applyCurvatureWeighting curvature initialHits
+                let metrics = summarizeSemanticQueryTurn tokens hits previousEmbedding queryEmbedding
+                let previewTurn =
+                    { Id = Guid.Empty
+                      TurnIndex = summary |> Option.map (fun value -> value.TurnCount + 1) |> Option.defaultValue 1
+                      QueryText = query
+                      SourceTypeFilter = sourceType
+                      TokenCount = metrics.TokenCount
+                      HitCount = metrics.HitCount
+                      SourceTypeDiversity = metrics.SourceTypeDiversity
+                      MatchedTokenTotal = metrics.MatchedTokenTotal
+                      MatchedWeightTotal = metrics.MatchedWeightTotal
+                      TopSimilarity = metrics.TopSimilarity
+                      MeanSimilarity = metrics.MeanSimilarity
+                      DriftFromPrevious = metrics.DriftFromPrevious
+                      CreatedAt = DateTimeOffset.UtcNow }
+
+                let turns =
+                    summary
+                    |> Option.map (fun value -> loadRecentQueryTurns conn txn value.Id 8)
+                    |> Option.defaultValue []
+
+                summary, turns, previewTurn, curvature, recovery, hits
+
+        txn.Commit()
+
+        { Session = sessionSummary
+          CurrentTurn = currentTurn
+          RecentTurns = recentTurns
+          Curvature = curvature
+          Recovery = recovery
+          Hits = hits
+          Recorded = recordTurn }
+    with ex ->
+        txn.Rollback()
+        raise ex
+
+let listSemanticQuerySessions (adminUserId: Guid) (limit: int) =
+    use conn = openConnection()
+    use cmd = new NpgsqlCommand(
+        """SELECT s.id,
+                  s.admin_user_id,
+                  s.created_at,
+                  s.updated_at,
+                  COALESCE(COUNT(t.id), 0) AS turn_count,
+                  (
+                      SELECT st.query_text
+                      FROM semantic_query_turns st
+                      WHERE st.session_id = s.id
+                      ORDER BY st.turn_index DESC
+                      LIMIT 1
+                  ) AS last_query_text,
+                  (
+                      SELECT st.source_type_filter
+                      FROM semantic_query_turns st
+                      WHERE st.session_id = s.id
+                      ORDER BY st.turn_index DESC
+                      LIMIT 1
+                  ) AS last_source_type_filter
+           FROM semantic_query_sessions s
+           LEFT JOIN semantic_query_turns t ON t.session_id = s.id
+           WHERE s.admin_user_id = @adminUserId
+           GROUP BY s.id, s.admin_user_id, s.created_at, s.updated_at
+           ORDER BY s.updated_at DESC
+           LIMIT @limit""",
+        conn)
+    cmd.Parameters.AddWithValue("adminUserId", adminUserId) |> ignore
+    cmd.Parameters.AddWithValue("limit", limit) |> ignore
+
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do
+        yield
+            { Id = reader.GetGuid(0)
+              AdminUserId = reader.GetGuid(1)
+              CreatedAt = reader.GetFieldValue<DateTimeOffset>(2)
+              UpdatedAt = reader.GetFieldValue<DateTimeOffset>(3)
+              TurnCount = reader.GetInt64(4) |> int
+              LastQueryText = if reader.IsDBNull(5) then None else Some(reader.GetString(5))
+              LastSourceTypeFilter = if reader.IsDBNull(6) then None else Some(reader.GetString(6)) } ]
+
+let getSemanticQuerySessionDetail (adminUserId: Guid) (sessionId: Guid) (turnLimit: int) =
+    use conn = openConnection()
+    use txn = conn.BeginTransaction()
+
+    try
+        match loadSessionSummary conn txn adminUserId sessionId with
+        | Some summary ->
+            let turns = loadRecentQueryTurns conn txn sessionId turnLimit
+            txn.Commit()
+            Some { Session = summary; Turns = turns }
+        | None ->
+            txn.Commit()
+            None
+    with ex ->
+        txn.Rollback()
+        raise ex
+
+let compareSearchModes
+    (adminUserId: Guid)
+    (query: string)
+    (sourceType: string option)
+    (limit: int)
+    (sessionId: Guid option) =
+    use conn = openConnection()
+    use txn = conn.BeginTransaction()
+
+    let compareSearchModesCore
+        (queryText: string)
+        (querySourceType: string option)
+        (previousEmbedding: float32 array option)
+        (recentEmbeddings: float32 array list) =
+        let baselineHits = searchChunks queryText querySourceType limit
+        let queryEmbedding, _ = SemanticEmbeddings.embed queryText
+        let curvature = summarizeCurvatureFromEmbeddings recentEmbeddings queryEmbedding
+        let drift = driftFromPreviousEmbedding previousEmbedding queryEmbedding
+        let recovery = summarizeRecoveryStatus limit drift curvature
+        let _, _, initialHits = searchChunksDetailed queryText querySourceType limit recovery
+        let trajectoryHits =
+            applyCurvatureWeighting curvature initialHits
+            |> List.truncate limit
+
+        let baselineKeys =
+            baselineHits
+            |> List.map (fun hit -> $"{hit.SourceType}|{hit.SourceKey}|{hit.ChunkPosition}")
+            |> Set.ofList
+
+        let trajectoryKeys =
+            trajectoryHits
+            |> List.map (fun hit -> $"{hit.SourceType}|{hit.SourceKey}|{hit.ChunkPosition}")
+            |> Set.ofList
+
+        let overlapCount =
+            trajectoryHits
+            |> List.filter (fun hit ->
+                let key = $"{hit.SourceType}|{hit.SourceKey}|{hit.ChunkPosition}"
+                Set.contains key baselineKeys)
+            |> List.length
+
+        let baselineOnlyHits =
+            baselineHits
+            |> List.filter (fun hit ->
+                let key = $"{hit.SourceType}|{hit.SourceKey}|{hit.ChunkPosition}"
+                not (Set.contains key trajectoryKeys))
+
+        let trajectoryOnlyHits =
+            trajectoryHits
+            |> List.filter (fun hit ->
+                let key = $"{hit.SourceType}|{hit.SourceKey}|{hit.ChunkPosition}"
+                not (Set.contains key baselineKeys))
+
+        { BaselineHits = baselineHits
+          TrajectoryHits = trajectoryHits
+          Curvature = curvature
+          Recovery = recovery
+          OverlapCount = overlapCount
+          BaselineOnlyCount = baselineOnlyHits.Length
+          TrajectoryOnlyCount = trajectoryOnlyHits.Length
+          BaselineOnlyHits = baselineOnlyHits
+          TrajectoryOnlyHits = trajectoryOnlyHits }
+
+    try
+        let previousEmbedding, recentEmbeddings =
+            sessionId
+            |> Option.bind (loadSessionSummary conn txn adminUserId)
+            |> Option.map (fun summary ->
+                loadPreviousSessionEmbedding conn txn summary.Id,
+                loadRecentSessionEmbeddings conn txn summary.Id 2)
+            |> Option.defaultValue (None, [])
+
+        let result = compareSearchModesCore query sourceType previousEmbedding recentEmbeddings
+        txn.Commit()
+        result
+    with ex ->
+        txn.Rollback()
+        raise ex
+
+let evaluateSearchSession
+    (adminUserId: Guid)
+    (sessionId: Guid)
+    (limit: int)
+    (turnLimit: int) =
+    use conn = openConnection()
+    use txn = conn.BeginTransaction()
+
+    let compareSearchModesCore
+        (queryText: string)
+        (querySourceType: string option)
+        (previousEmbedding: float32 array option)
+        (recentEmbeddings: float32 array list) =
+        let baselineHits = searchChunks queryText querySourceType limit
+        let queryEmbedding, _ = SemanticEmbeddings.embed queryText
+        let curvature = summarizeCurvatureFromEmbeddings recentEmbeddings queryEmbedding
+        let drift = driftFromPreviousEmbedding previousEmbedding queryEmbedding
+        let recovery = summarizeRecoveryStatus limit drift curvature
+        let _, _, initialHits = searchChunksDetailed queryText querySourceType limit recovery
+        let trajectoryHits =
+            applyCurvatureWeighting curvature initialHits
+            |> List.truncate limit
+
+        let baselineKeys =
+            baselineHits
+            |> List.map (fun hit -> $"{hit.SourceType}|{hit.SourceKey}|{hit.ChunkPosition}")
+            |> Set.ofList
+
+        let trajectoryKeys =
+            trajectoryHits
+            |> List.map (fun hit -> $"{hit.SourceType}|{hit.SourceKey}|{hit.ChunkPosition}")
+            |> Set.ofList
+
+        let overlapCount =
+            trajectoryHits
+            |> List.filter (fun hit ->
+                let key = $"{hit.SourceType}|{hit.SourceKey}|{hit.ChunkPosition}"
+                Set.contains key baselineKeys)
+            |> List.length
+
+        let baselineOnlyCount =
+            baselineHits
+            |> List.filter (fun hit ->
+                let key = $"{hit.SourceType}|{hit.SourceKey}|{hit.ChunkPosition}"
+                not (Set.contains key trajectoryKeys))
+            |> List.length
+
+        let trajectoryOnlyCount =
+            trajectoryHits
+            |> List.filter (fun hit ->
+                let key = $"{hit.SourceType}|{hit.SourceKey}|{hit.ChunkPosition}"
+                not (Set.contains key baselineKeys))
+            |> List.length
+
+        { QueryText = queryText
+          SourceTypeFilter = querySourceType
+          OverlapCount = overlapCount
+          BaselineOnlyCount = baselineOnlyCount
+          TrajectoryOnlyCount = trajectoryOnlyCount
+          Curvature = curvature.Curvature
+          RecoveryTriggered = recovery.Triggered
+          RecoveryReason = recovery.Reason }
+
+    try
+        match loadSessionSummary conn txn adminUserId sessionId with
+        | None ->
+            txn.Commit()
+            None
+        | Some summary ->
+            let turns = loadRecentQueryTurns conn txn sessionId turnLimit
+            let turnEmbeddings =
+                loadSessionTurnEmbeddings conn txn sessionId
+                |> Map.ofList
+
+            let evaluations =
+                turns
+                |> List.mapi (fun index turn ->
+                    let priorTurns = turns |> List.take index
+                    let priorEmbeddings =
+                        priorTurns
+                        |> List.choose (fun priorTurn -> turnEmbeddings |> Map.tryFind priorTurn.TurnIndex)
+
+                    let previousEmbedding = priorEmbeddings |> List.tryLast
+                    let recentEmbeddings = priorEmbeddings |> List.rev |> List.truncate 2 |> List.rev
+
+                    compareSearchModesCore turn.QueryText turn.SourceTypeFilter previousEmbedding recentEmbeddings)
+
+            let comparedTurnCount = evaluations.Length
+            let meanOverlapCount = if comparedTurnCount = 0 then 0.0 else evaluations |> List.averageBy (fun item -> float item.OverlapCount)
+            let meanBaselineOnlyCount = if comparedTurnCount = 0 then 0.0 else evaluations |> List.averageBy (fun item -> float item.BaselineOnlyCount)
+            let meanTrajectoryOnlyCount = if comparedTurnCount = 0 then 0.0 else evaluations |> List.averageBy (fun item -> float item.TrajectoryOnlyCount)
+            let meanCurvature = if comparedTurnCount = 0 then 0.0 else evaluations |> List.averageBy (fun item -> item.Curvature)
+            let recoveryTriggerCount = evaluations |> List.filter (fun item -> item.RecoveryTriggered) |> List.length
+
+            txn.Commit()
+            Some
+                { SessionId = sessionId
+                  TurnCount = summary.TurnCount
+                  ComparedTurnCount = comparedTurnCount
+                  MeanOverlapCount = Math.Round(meanOverlapCount, 3)
+                  MeanBaselineOnlyCount = Math.Round(meanBaselineOnlyCount, 3)
+                  MeanTrajectoryOnlyCount = Math.Round(meanTrajectoryOnlyCount, 3)
+                  RecoveryTriggerCount = recoveryTriggerCount
+                  MeanCurvature = Math.Round(meanCurvature, 3)
+                  Turns = evaluations }
+    with ex ->
+        txn.Rollback()
+        raise ex
 
 let private semanticEvidenceLabel (hit: SemanticChunkHit) =
     $"{hit.SourceType} · {hit.Title}"
