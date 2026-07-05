@@ -467,6 +467,8 @@ a { color: var(--accent); }
 
 .mud-map {
   position: relative;
+  width: 100%;
+  min-width: 0;
   height: 320px;
   border: 1px solid var(--border);
   border-radius: 18px;
@@ -475,6 +477,11 @@ a { color: var(--accent); }
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x pan-y;
   overscroll-behavior: contain;
+  cursor: grab;
+}
+
+.mud-map:active {
+  cursor: grabbing;
 }
 
 .mud-map-enhanced {
@@ -484,8 +491,60 @@ a { color: var(--accent); }
     color-mix(in srgb, var(--bg) 88%, #000 12%);
 }
 
+.mud-map-scale-wrapper {
+  position: relative;
+}
+
 .mud-map-canvas {
   position: relative;
+  transform-origin: top left;
+}
+
+.mud-map-viewport {
+  position: relative;
+}
+
+.mud-map-zoom-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 92%, #000 8%);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+  z-index: 3;
+}
+
+.mud-map-zoom-controls button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 0.4rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.mud-map-zoom-controls button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.mud-map-zoom-controls button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.mud-map-zoom-reset {
+  font-variant-numeric: tabular-nums;
+  min-width: 44px !important;
 }
 
 .mud-map-lines {
@@ -3026,6 +3085,7 @@ footer a:hover { text-decoration: underline; }
 
 .mud-game-view {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
 }
 

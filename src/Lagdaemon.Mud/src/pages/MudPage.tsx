@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Backpack, Compass, Eye, LogOut, Map as MapIcon, Maximize2, Minimize2, ScrollText, Settings2, UserRound } from 'lucide-react'
+import { Backpack, Compass, Eye, Locate, LogOut, Map as MapIcon, Maximize2, Minimize2, ScrollText, Settings2, UserRound, ZoomIn, ZoomOut } from 'lucide-react'
 import {
   mudApi,
   type MudCharacterSummary,
@@ -124,9 +124,16 @@ void MapPanel
 const MAP_CELL_SIZE = 130
 const MAP_PADDING = 70
 
+const MAP_ZOOM_MIN = 0.5
+const MAP_ZOOM_MAX = 2.5
+const MAP_ZOOM_STEP = 0.25
+
 function ZoneMapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits: MudMapExitView[]; onJump: (command: string) => void }) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const [revealedRoomId, setRevealedRoomId] = useState<string | null>(null)
+  const [zoom, setZoom] = useState(1)
+  const dragState = useRef<{ startX: number; startY: number; scrollLeft: number; scrollTop: number; dragged: boolean } | null>(null)
+  const justDraggedRef = useRef(false)
 
   const xs = rooms.map(room => room.x)
   const ys = rooms.map(room => room.y)
@@ -147,17 +154,85 @@ function ZoneMapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits
   const currentRoom = rooms.find(room => room.current) ?? rooms[0]
   const uniqueExitTypes = Array.from(new Set(exits.map(exit => exit.exitType)))
 
-  useEffect(() => {
+  const centerOnCurrentRoom = useCallback((behavior: ScrollBehavior = 'auto') => {
     const container = mapContainerRef.current
     const pos = currentRoom ? roomPositions[currentRoom.roomId] : undefined
     if (!container || !pos) return
     container.scrollTo({
-      left: Math.max(0, pos.leftPx - container.clientWidth / 2),
-      top: Math.max(0, pos.topPx - container.clientHeight / 2),
-      behavior: 'auto',
+      left: Math.max(0, pos.leftPx * zoom - container.clientWidth / 2),
+      top: Math.max(0, pos.topPx * zoom - container.clientHeight / 2),
+      behavior,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentRoom?.roomId, zoom])
+
+  useEffect(() => {
+    centerOnCurrentRoom('auto')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentRoom?.roomId, rooms.length])
+
+  const applyZoom = (next: number) => {
+    const container = mapContainerRef.current
+    const clamped = Math.min(MAP_ZOOM_MAX, Math.max(MAP_ZOOM_MIN, next))
+    if (!container) { setZoom(clamped); return }
+    // Keep the point currently at the viewport center under the same
+    // screen position after the scale changes, instead of snapping to
+    // the canvas origin.
+    const centerX = container.scrollLeft + container.clientWidth / 2
+    const centerY = container.scrollTop + container.clientHeight / 2
+    const ratio = clamped / zoom
+    setZoom(clamped)
+    requestAnimationFrame(() => {
+      if (!mapContainerRef.current) return
+      mapContainerRef.current.scrollTo({
+        left: centerX * ratio - mapContainerRef.current.clientWidth / 2,
+        top: centerY * ratio - mapContainerRef.current.clientHeight / 2,
+      })
+    })
+  }
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'mouse' || event.button !== 0) return
+    const container = mapContainerRef.current
+    if (!container) return
+    dragState.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: container.scrollLeft,
+      scrollTop: container.scrollTop,
+      dragged: false,
+    }
+    container.setPointerCapture(event.pointerId)
+  }
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragState.current
+    const container = mapContainerRef.current
+    if (!drag || !container) return
+    const dx = event.clientX - drag.startX
+    const dy = event.clientY - drag.startY
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) drag.dragged = true
+    container.scrollLeft = drag.scrollLeft - dx
+    container.scrollTop = drag.scrollTop - dy
+  }
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const container = mapContainerRef.current
+    if (container && container.hasPointerCapture(event.pointerId)) {
+      container.releasePointerCapture(event.pointerId)
+    }
+    justDraggedRef.current = dragState.current?.dragged ?? false
+    dragState.current = null
+  }
+
+  const handleRoomClick = (room: MudMapRoomView) => {
+    if (justDraggedRef.current) {
+      justDraggedRef.current = false
+      return
+    }
+    setRevealedRoomId(id => id === room.roomId ? null : room.roomId)
+    if (room.current) onJump('look')
+  }
 
   if (!rooms.length) return <p className="mud-empty">No map data yet.</p>
 
@@ -184,48 +259,76 @@ function ZoneMapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits
 
   return (
     <>
-      <div className="mud-map mud-map-enhanced" ref={mapContainerRef}>
-        <div className="mud-map-canvas" style={{ width: `${canvasWidth}px`, height: `${canvasHeight}px` }}>
-          <svg
-            className="mud-map-lines"
-            viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
-            preserveAspectRatio="none"
-            aria-hidden="true"
+      <div className="mud-map-viewport">
+      <div
+        className="mud-map mud-map-enhanced"
+        ref={mapContainerRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+      >
+        <div
+          className="mud-map-scale-wrapper"
+          style={{ width: `${canvasWidth * zoom}px`, height: `${canvasHeight * zoom}px` }}
+        >
+          <div
+            className="mud-map-canvas"
+            style={{ width: `${canvasWidth}px`, height: `${canvasHeight}px`, transform: `scale(${zoom})` }}
           >
-            {exits.map(exit => {
-              const from = roomPositions[exit.fromRoomId]
-              const to = roomPositions[exit.toRoomId]
-              if (!from || !to) return null
+            <svg
+              className="mud-map-lines"
+              viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              {exits.map(exit => {
+                const from = roomPositions[exit.fromRoomId]
+                const to = roomPositions[exit.toRoomId]
+                if (!from || !to) return null
+                return (
+                  <line
+                    key={`${exit.fromRoomId}-${exit.toRoomId}-${exit.direction}`}
+                    className={`mud-map-line exit-${exit.exitType}`}
+                    x1={from.leftPx}
+                    y1={from.topPx}
+                    x2={to.leftPx}
+                    y2={to.topPx}
+                  />
+                )
+              })}
+            </svg>
+            {rooms.map(room => {
+              const pos = roomPositions[room.roomId]
+              const revealed = room.current || revealedRoomId === room.roomId
               return (
-                <line
-                  key={`${exit.fromRoomId}-${exit.toRoomId}-${exit.direction}`}
-                  className={`mud-map-line exit-${exit.exitType}`}
-                  x1={from.leftPx}
-                  y1={from.topPx}
-                  x2={to.leftPx}
-                  y2={to.topPx}
-                />
+                <button
+                  key={room.roomId}
+                  className={`mud-map-room${room.current ? ' current' : ''}${revealed ? ' revealed' : ''}`}
+                  style={{ left: pos.left, top: pos.top }}
+                  onClick={() => handleRoomClick(room)}
+                >
+                  <strong>{room.roomName}</strong>
+                  <small>{room.current ? 'You are here' : 'Mapped room'}</small>
+                </button>
               )
             })}
-          </svg>
-          {rooms.map(room => {
-            const pos = roomPositions[room.roomId]
-            const revealed = room.current || revealedRoomId === room.roomId
-            return (
-              <button
-                key={room.roomId}
-                className={`mud-map-room${room.current ? ' current' : ''}${revealed ? ' revealed' : ''}`}
-                style={{ left: pos.left, top: pos.top }}
-                onClick={() => {
-                  setRevealedRoomId(id => id === room.roomId ? null : room.roomId)
-                  if (room.current) onJump('look')
-                }}
-              >
-                <strong>{room.roomName}</strong>
-                <small>{room.current ? 'You are here' : 'Mapped room'}</small>
-              </button>
-            )
-          })}
+          </div>
+        </div>
+      </div>
+        <div className="mud-map-zoom-controls">
+          <button type="button" onClick={() => applyZoom(zoom - MAP_ZOOM_STEP)} disabled={zoom <= MAP_ZOOM_MIN} aria-label="Zoom out">
+            <ZoomOut size={16} />
+          </button>
+          <button type="button" onClick={() => applyZoom(1)} className="mud-map-zoom-reset" aria-label="Reset zoom">
+            {Math.round(zoom * 100)}%
+          </button>
+          <button type="button" onClick={() => applyZoom(zoom + MAP_ZOOM_STEP)} disabled={zoom >= MAP_ZOOM_MAX} aria-label="Zoom in">
+            <ZoomIn size={16} />
+          </button>
+          <button type="button" onClick={() => centerOnCurrentRoom('smooth')} aria-label="Center on current room">
+            <Locate size={16} />
+          </button>
         </div>
       </div>
       <div className="mud-map-summary">
