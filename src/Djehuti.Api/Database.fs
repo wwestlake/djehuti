@@ -3893,6 +3893,26 @@ let private migrations : (int * string) list =
                 RAISE NOTICE 'pgvector not installed; query-turn vector search unavailable';
             END IF;
         END $pgvector_turns$;
+        """
+
+        59, """
+        CREATE TABLE IF NOT EXISTS mud_character_room_visits (
+            character_id     UUID NOT NULL REFERENCES mud_characters(id) ON DELETE CASCADE,
+            room_id          UUID NOT NULL REFERENCES mud_rooms(id) ON DELETE CASCADE,
+            first_visited_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (character_id, room_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_mud_character_room_visits_character
+            ON mud_character_room_visits(character_id);
+
+        -- Backfill: every existing character has at least their current
+        -- room marked visited, so nobody is stranded with a blank map.
+        INSERT INTO mud_character_room_visits (character_id, room_id)
+        SELECT id, current_room_id FROM mud_characters WHERE current_room_id IS NOT NULL
+        ON CONFLICT DO NOTHING;
+
+        GRANT ALL ON TABLE mud_character_room_visits TO djehuti;
         """    ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

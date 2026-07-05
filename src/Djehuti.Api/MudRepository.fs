@@ -36,7 +36,8 @@ type MudMapRoomView =
       Slug: string
       X: int
       Y: int
-      Current: bool }
+      Current: bool
+      Visited: bool }
 
 type MudMapExitView =
     { FromRoomId: Guid
@@ -1044,13 +1045,17 @@ let private loadStateForCharacter (conn: NpgsqlConnection) (userId: Guid) (chara
         invReader.Close()
 
         use mapRoomsCmd = new NpgsqlCommand(
-            """SELECT r.id, r.name, r.slug, COALESCE(r.map_x, r.position), COALESCE(r.map_y, 0)
+            """SELECT r.id, r.name, r.slug, COALESCE(r.map_x, r.position), COALESCE(r.map_y, 0),
+                      (v.room_id IS NOT NULL) AS visited
                FROM mud_rooms r
+               LEFT JOIN mud_character_room_visits v
+                 ON v.room_id = r.id AND v.character_id = @character_id
                WHERE r.zone_id = (
                    SELECT zone_id FROM mud_rooms WHERE id = @room_id
                )
                ORDER BY r.position, r.name""", conn)
         mapRoomsCmd.Parameters.AddWithValue("room_id", baseState.RoomId) |> ignore
+        mapRoomsCmd.Parameters.AddWithValue("character_id", baseState.CharacterId) |> ignore
         use mapRoomsReader = mapRoomsCmd.ExecuteReader()
         let mapRooms =
             [ while mapRoomsReader.Read() do
@@ -1060,7 +1065,8 @@ let private loadStateForCharacter (conn: NpgsqlConnection) (userId: Guid) (chara
                         Slug = mapRoomsReader.GetString(2)
                         X = mapRoomsReader.GetInt32(3)
                         Y = mapRoomsReader.GetInt32(4)
-                        Current = roomId = baseState.RoomId } ]
+                        Current = roomId = baseState.RoomId
+                        Visited = mapRoomsReader.GetBoolean(5) || roomId = baseState.RoomId } ]
         mapRoomsReader.Close()
 
         use mapExitsCmd = new NpgsqlCommand(
@@ -1270,6 +1276,26 @@ let private logEvent
     cmd.Parameters.AddWithValue("message", message) |> ignore
     cmd.Parameters.AddWithValue("payload", payload) |> ignore
     cmd.ExecuteNonQuery() |> ignore
+
+let private recordRoomVisit (conn: NpgsqlConnection) (characterId: Guid) (roomId: Guid) =
+    use cmd = new NpgsqlCommand(
+        """INSERT INTO mud_character_room_visits (character_id, room_id)
+           VALUES (@character_id, @room_id)
+           ON CONFLICT DO NOTHING""", conn)
+    cmd.Parameters.AddWithValue("character_id", characterId) |> ignore
+    cmd.Parameters.AddWithValue("room_id", roomId) |> ignore
+    cmd.ExecuteNonQuery() |> ignore
+
+/// Fogs the zone map down to rooms the character has actually visited.
+/// Admins see the full zone map unfiltered.
+let applyMapVisibility (isAdmin: bool) (state: MudRoomState) : MudRoomState =
+    if isAdmin then
+        state
+    else
+        let visitedIds = state.MapRooms |> List.filter _.Visited |> List.map _.RoomId |> Set.ofList
+        { state with
+            MapRooms = state.MapRooms |> List.filter _.Visited
+            MapExits = state.MapExits |> List.filter (fun exit -> visitedIds.Contains exit.FromRoomId && visitedIds.Contains exit.ToRoomId) }
 
 let private withState (userId: Guid) (action: MudRoomState -> MudCommandResult) : MudCommandResult =
     use conn = openConnection ()
@@ -1572,6 +1598,7 @@ let createCharacter (userId: Guid) (realmSlug: string) (name: string) (displayNa
                         selectCmd.Parameters.AddWithValue("character_id", characterId) |> ignore
                         selectCmd.Parameters.AddWithValue("uid", userId) |> ignore
                         selectCmd.ExecuteNonQuery() |> ignore
+                        recordRoomVisit conn characterId roomId
                         Ok (getRoster userId)
 
 let deleteCharacter (userId: Guid) (characterId: Guid) =
@@ -1667,6 +1694,7 @@ let private moveInternal (userId: Guid) (direction: string) : MudCommandResult =
             moveCmd.Parameters.AddWithValue("room_id", exitView.TargetRoomId) |> ignore
             moveCmd.Parameters.AddWithValue("id", state.CharacterId) |> ignore
             moveCmd.ExecuteNonQuery() |> ignore
+            recordRoomVisit conn state.CharacterId exitView.TargetRoomId
             let nextState =
                 match getActiveStateInternal conn userId with
                 | Some s -> s

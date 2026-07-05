@@ -1477,7 +1477,7 @@ let main args =
                 match Guid.TryParse(claims.UserId), Guid.TryParse(characterId) with
                 | (true, userId), (true, selectedCharacterId) ->
                     match MudRepository.selectCharacter userId selectedCharacterId with
-                    | Some state -> Results.Ok(state)
+                    | Some state -> Results.Ok(MudRepository.applyMapVisibility (Permissions.isAdmin claims.Role) state)
                     | None -> Results.NotFound("Character not found")
                 | _ -> Results.BadRequest("Invalid character id")
             | None -> Results.Unauthorized()
@@ -1554,7 +1554,7 @@ let main args =
                 | false, _ -> Results.Unauthorized()
                 | true, userId ->
                     match MudRepository.getState userId with
-                    | Some state -> Results.Ok(state)
+                    | Some state -> Results.Ok(MudRepository.applyMapVisibility (Permissions.isAdmin claims.Role) state)
                     | None -> Results.Ok(null)
             | None -> Results.Unauthorized()
         )
@@ -1569,7 +1569,11 @@ let main args =
                 | false, _ -> Results.Unauthorized()
                 | true, userId ->
                     MudChatRepository.touchPresence userId
-                    Results.Ok(MudRepository.handleCommand userId body.Command)
+                    let result = MudRepository.handleCommand userId body.Command
+                    let visibleResult =
+                        { result with
+                            State = result.State |> Option.map (MudRepository.applyMapVisibility (Permissions.isAdmin claims.Role)) }
+                    Results.Ok(visibleResult)
             | None -> Results.Unauthorized()
         )
     ) |> ignore

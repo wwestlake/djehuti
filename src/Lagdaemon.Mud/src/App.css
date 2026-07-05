@@ -621,6 +621,11 @@ a { color: var(--accent); }
   color: var(--muted);
 }
 
+.mud-map-room.unvisited {
+  opacity: 0.5;
+  border-style: dashed;
+}
+
 .mud-map-room.current small {
   color: color-mix(in srgb, var(--accent) 80%, var(--text));
   font-weight: 600;
