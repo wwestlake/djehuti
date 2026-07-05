@@ -61,6 +61,31 @@ type MudRecipe =
       CreatedAt: DateTime
       Ingredients: MudRecipeIngredient list }
 
+type MudItem =
+    { Id: Guid
+      RoomId: Guid option
+      RoomName: string option
+      RoomSlug: string option
+      Name: string
+      Slug: string
+      Description: string option
+      ReadableText: string option
+      Portable: bool
+      Position: int
+      CreatedAt: DateTime }
+
+type MudBuilderAgent =
+    { Id: Guid
+      Slug: string
+      RealmSlug: string
+      DirectorSlug: string
+      DisplayName: string
+      Specialty: string
+      Model: string
+      BuildHourUtc: int
+      Active: bool
+      CreatedAt: DateTime }
+
 type MudRealmMetric =
     { RealmSlug: string
       CharacterCount: int }
@@ -94,6 +119,31 @@ let private readZone (r: DbDataReader) =
       Description = if r.IsDBNull(3) then None else Some (r.GetString(3))
       Position = r.GetInt32(4)
       CreatedAt = r.GetFieldValue<DateTime>(5) }
+
+let private readItem (r: DbDataReader) =
+    { Id = r.GetGuid(0)
+      RoomId = if r.IsDBNull(1) then None else Some (r.GetGuid(1))
+      RoomName = if r.IsDBNull(2) then None else Some (r.GetString(2))
+      RoomSlug = if r.IsDBNull(3) then None else Some (r.GetString(3))
+      Name = r.GetString(4)
+      Slug = r.GetString(5)
+      Description = if r.IsDBNull(6) then None else Some (r.GetString(6))
+      ReadableText = if r.IsDBNull(7) then None else Some (r.GetString(7))
+      Portable = r.GetBoolean(8)
+      Position = r.GetInt32(9)
+      CreatedAt = r.GetFieldValue<DateTime>(10) }
+
+let private readBuilderAgent (r: DbDataReader) =
+    { Id = r.GetGuid(0)
+      Slug = r.GetString(1)
+      RealmSlug = r.GetString(2)
+      DirectorSlug = r.GetString(3)
+      DisplayName = r.GetString(4)
+      Specialty = r.GetString(5)
+      Model = r.GetString(6)
+      BuildHourUtc = r.GetInt32(7)
+      Active = r.GetBoolean(8)
+      CreatedAt = r.GetFieldValue<DateTime>(9) }
 
 let private readRoom (r: DbDataReader) =
     { Id = r.GetGuid(0)
@@ -424,6 +474,182 @@ let deleteExit (exitId: Guid) =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand("DELETE FROM mud_exits WHERE id = @id", conn)
     cmd.Parameters.AddWithValue("id", exitId) |> ignore
+    cmd.ExecuteNonQuery() > 0
+
+// Items
+
+let private itemSelectSql =
+    """SELECT i.id, i.room_id, r.name, r.slug, i.name, i.slug, i.description, i.readable_text, i.portable, i.position, i.created_at
+       FROM mud_items i
+       LEFT JOIN mud_rooms r ON r.id = i.room_id"""
+
+let getItems () =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        $"{itemSelectSql} WHERE i.owner_character_id IS NULL ORDER BY r.name, i.position, i.name", conn)
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do yield readItem reader ]
+
+let createItem
+    (roomId: Guid option)
+    (name: string)
+    (slug: string)
+    (description: string option)
+    (readableText: string option)
+    (portable: bool)
+    (position: int) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """INSERT INTO mud_items (room_id, name, slug, description, readable_text, portable, position)
+           VALUES (@room_id, @name, @slug, @description, @readable_text, @portable, @position)
+           RETURNING id""", conn)
+    cmd.Parameters.AddWithValue("room_id", roomId |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("name", name.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("slug", cleanSlug name slug) |> ignore
+    cmd.Parameters.AddWithValue("description", description |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("readable_text", readableText |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("portable", portable) |> ignore
+    cmd.Parameters.AddWithValue("position", position) |> ignore
+    try
+        let itemId = cmd.ExecuteScalar() :?> Guid
+        use selectCmd = new NpgsqlCommand($"{itemSelectSql} WHERE i.id = @id", conn)
+        selectCmd.Parameters.AddWithValue("id", itemId) |> ignore
+        use reader = selectCmd.ExecuteReader()
+        if reader.Read() then Some (readItem reader) else None
+    with _ ->
+        None
+
+let updateItem
+    (itemId: Guid)
+    (roomId: Guid option)
+    (name: string)
+    (slug: string)
+    (description: string option)
+    (readableText: string option)
+    (portable: bool)
+    (position: int) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """UPDATE mud_items
+           SET room_id = @room_id,
+               name = @name,
+               slug = @slug,
+               description = @description,
+               readable_text = @readable_text,
+               portable = @portable,
+               position = @position
+           WHERE id = @id""", conn)
+    cmd.Parameters.AddWithValue("id", itemId) |> ignore
+    cmd.Parameters.AddWithValue("room_id", roomId |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("name", name.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("slug", cleanSlug name slug) |> ignore
+    cmd.Parameters.AddWithValue("description", description |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("readable_text", readableText |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("portable", portable) |> ignore
+    cmd.Parameters.AddWithValue("position", position) |> ignore
+    try
+        if cmd.ExecuteNonQuery() = 0 then
+            None
+        else
+            use selectCmd = new NpgsqlCommand($"{itemSelectSql} WHERE i.id = @id", conn)
+            selectCmd.Parameters.AddWithValue("id", itemId) |> ignore
+            use reader = selectCmd.ExecuteReader()
+            if reader.Read() then Some (readItem reader) else None
+    with _ ->
+        None
+
+let deleteItem (itemId: Guid) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand("DELETE FROM mud_items WHERE id = @id AND owner_character_id IS NULL", conn)
+    cmd.Parameters.AddWithValue("id", itemId) |> ignore
+    cmd.ExecuteNonQuery() > 0
+
+// Builder roster (AI construction crew)
+
+let private builderAgentSelectSql =
+    """SELECT id, slug, realm_slug, director_slug, display_name, specialty, model, build_hour_utc, active, created_at
+       FROM mud_builder_agents"""
+
+let getBuilderAgents () =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand($"{builderAgentSelectSql} ORDER BY realm_slug, build_hour_utc, display_name", conn)
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do yield readBuilderAgent reader ]
+
+let createBuilderAgent
+    (slug: string)
+    (realmSlug: string)
+    (directorSlug: string)
+    (displayName: string)
+    (specialty: string)
+    (model: string)
+    (buildHourUtc: int)
+    (active: bool) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """INSERT INTO mud_builder_agents (slug, realm_slug, director_slug, display_name, specialty, model, build_hour_utc, active)
+           VALUES (@slug, @realm_slug, @director_slug, @display_name, @specialty, @model, @build_hour_utc, @active)
+           RETURNING id""", conn)
+    cmd.Parameters.AddWithValue("slug", cleanSlug displayName slug) |> ignore
+    cmd.Parameters.AddWithValue("realm_slug", realmSlug.Trim().ToLowerInvariant()) |> ignore
+    cmd.Parameters.AddWithValue("director_slug", directorSlug.Trim().ToLowerInvariant()) |> ignore
+    cmd.Parameters.AddWithValue("display_name", displayName.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("specialty", specialty.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("model", if String.IsNullOrWhiteSpace model then "gpt-4o-mini" else model.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("build_hour_utc", ((buildHourUtc % 24) + 24) % 24) |> ignore
+    cmd.Parameters.AddWithValue("active", active) |> ignore
+    try
+        let agentId = cmd.ExecuteScalar() :?> Guid
+        use selectCmd = new NpgsqlCommand($"{builderAgentSelectSql} WHERE id = @id", conn)
+        selectCmd.Parameters.AddWithValue("id", agentId) |> ignore
+        use reader = selectCmd.ExecuteReader()
+        if reader.Read() then Some (readBuilderAgent reader) else None
+    with _ ->
+        None
+
+let updateBuilderAgent
+    (agentId: Guid)
+    (realmSlug: string)
+    (directorSlug: string)
+    (displayName: string)
+    (specialty: string)
+    (model: string)
+    (buildHourUtc: int)
+    (active: bool) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """UPDATE mud_builder_agents
+           SET realm_slug = @realm_slug,
+               director_slug = @director_slug,
+               display_name = @display_name,
+               specialty = @specialty,
+               model = @model,
+               build_hour_utc = @build_hour_utc,
+               active = @active
+           WHERE id = @id""", conn)
+    cmd.Parameters.AddWithValue("id", agentId) |> ignore
+    cmd.Parameters.AddWithValue("realm_slug", realmSlug.Trim().ToLowerInvariant()) |> ignore
+    cmd.Parameters.AddWithValue("director_slug", directorSlug.Trim().ToLowerInvariant()) |> ignore
+    cmd.Parameters.AddWithValue("display_name", displayName.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("specialty", specialty.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("model", if String.IsNullOrWhiteSpace model then "gpt-4o-mini" else model.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("build_hour_utc", ((buildHourUtc % 24) + 24) % 24) |> ignore
+    cmd.Parameters.AddWithValue("active", active) |> ignore
+    try
+        if cmd.ExecuteNonQuery() = 0 then
+            None
+        else
+            use selectCmd = new NpgsqlCommand($"{builderAgentSelectSql} WHERE id = @id", conn)
+            selectCmd.Parameters.AddWithValue("id", agentId) |> ignore
+            use reader = selectCmd.ExecuteReader()
+            if reader.Read() then Some (readBuilderAgent reader) else None
+    with _ ->
+        None
+
+let deleteBuilderAgent (agentId: Guid) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand("DELETE FROM mud_builder_agents WHERE id = @id", conn)
+    cmd.Parameters.AddWithValue("id", agentId) |> ignore
     cmd.ExecuteNonQuery() > 0
 
 let getMetrics () =

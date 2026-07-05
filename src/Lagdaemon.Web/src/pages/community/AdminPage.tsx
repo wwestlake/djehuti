@@ -6,7 +6,7 @@ import type { BlogArticle, BlogTag, BlogAuthor, SiteConfigEntry } from '../../ap
 import { forumApi } from '../../api/forumApi'
 import type { ForumTag, ForumReport } from '../../api/forumApi'
 import { mudAdminApi } from '../../api/mudAdminApi'
-import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics, MudRecipe, MudRecipeIngredient } from '../../api/mudAdminApi'
+import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics, MudRecipe, MudRecipeIngredient, MudItem, MudBuilderAgent } from '../../api/mudAdminApi'
 import { semanticAdminApi } from '../../api/semanticAdminApi'
 import type { SemanticAdminActionRecord, SemanticAutomationRunResult, SemanticAutomationStatus, SemanticCurvatureStatus, SemanticDriftStatus, SemanticGraphStats, SemanticChunkHit, SemanticQuerySessionSummary, SemanticQueryTurnRecord, SemanticRecoveryStatus, SemanticReindexSummary, SemanticSearchComparison, SemanticSearchComparisonSummary, SemanticSearchResponse, SemanticSessionSearchEvaluation, SemanticSplitApplyResult, SemanticTokenDispersionCandidate, SemanticTokenSplitProposal, SemanticTokenSplitRecord, SimilarQueryTurn } from '../../api/semanticAdminApi'
 import { AdminTable } from '../../components/AdminTable'
@@ -205,6 +205,8 @@ export default function AdminPage() {
   const [mudWorld, setMudWorld] = useState<MudWorld | null>(null)
   const [mudMetrics, setMudMetrics] = useState<MudAdminMetrics | null>(null)
   const [mudRecipes, setMudRecipes] = useState<MudRecipe[]>([])
+  const [mudItems, setMudItems] = useState<MudItem[]>([])
+  const [mudBuilderAgents, setMudBuilderAgents] = useState<MudBuilderAgent[]>([])
   const [semanticStats, setSemanticStats] = useState<SemanticGraphStats | null>(null)
   const [semanticAutomationStatus, setSemanticAutomationStatus] = useState<SemanticAutomationStatus | null>(null)
   const [semanticAutomationResult, setSemanticAutomationResult] = useState<SemanticAutomationRunResult | null>(null)
@@ -264,6 +266,10 @@ export default function AdminPage() {
   const [mudExitForm, setMudExitForm] = useState({ fromRoomId: '', toRoomId: '', direction: '', label: '' })
   const [mudRecipeForm, setMudRecipeForm] = useState(makeEmptyMudRecipeForm())
   const [editingMudRecipe, setEditingMudRecipe] = useState<MudRecipe | null>(null)
+  const [mudItemForm, setMudItemForm] = useState({ roomId: '', name: '', slug: '', description: '', readableText: '', portable: false, position: 0 })
+  const [editingMudItem, setEditingMudItem] = useState<MudItem | null>(null)
+  const [mudBuilderAgentForm, setMudBuilderAgentForm] = useState({ slug: '', realmSlug: '', directorSlug: '', displayName: '', specialty: '', model: 'gpt-4o-mini', buildHourUtc: 0, active: true })
+  const [editingMudBuilderAgent, setEditingMudBuilderAgent] = useState<MudBuilderAgent | null>(null)
   const [mudSaving, setMudSaving] = useState(false)
   const [roomModal, setRoomModal] = useState<MudRoom | null>(null)
   const [roomModalForm, setRoomModalForm] = useState({ zoneId: '', name: '', slug: '', description: '', position: 0 })
@@ -364,6 +370,8 @@ export default function AdminPage() {
         mudAdminApi.getWorld().then(setMudWorld),
         mudAdminApi.getMetrics().then(setMudMetrics),
         mudAdminApi.getRecipes().then(setMudRecipes),
+        mudAdminApi.getItems().then(setMudItems),
+        mudAdminApi.getBuilderAgents().then(setMudBuilderAgents),
         semanticAdminApi.getStats().then(setSemanticStats),
         semanticAdminApi.getAutomationStatus().then(setSemanticAutomationStatus),
         semanticAdminApi.getDriftStatus(3).then(setSemanticDriftStatus),
@@ -1195,6 +1203,117 @@ export default function AdminPage() {
       setMudRecipes(prev => prev.filter(recipe => recipe.id !== recipeId))
       setMudMetrics(await mudAdminApi.getMetrics())
     } catch { setError('Failed to delete recipe') }
+  }
+
+  const saveMudItem = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!mudItemForm.name.trim()) return
+    setMudSaving(true)
+    try {
+      const payload = {
+        roomId: mudItemForm.roomId || undefined,
+        name: mudItemForm.name.trim(),
+        slug: mudItemForm.slug.trim(),
+        description: mudItemForm.description.trim() || undefined,
+        readableText: mudItemForm.readableText.trim() || undefined,
+        portable: mudItemForm.portable,
+        position: mudItemForm.position,
+      }
+      const item = editingMudItem
+        ? await mudAdminApi.updateItem(editingMudItem.id, payload)
+        : await mudAdminApi.createItem(payload)
+      setMudItems(prev => prev.some(i => i.id === item.id) ? prev.map(i => i.id === item.id ? item : i) : [item, ...prev])
+      setMudMetrics(await mudAdminApi.getMetrics())
+      setMudItemForm({ roomId: '', name: '', slug: '', description: '', readableText: '', portable: false, position: 0 })
+      setEditingMudItem(null)
+    } catch { setError('Failed to save item') }
+    finally { setMudSaving(false) }
+  }
+
+  const deleteMudItem = async (itemId: string) => {
+    if (!confirm('Delete this item?')) return
+    try {
+      await mudAdminApi.deleteItem(itemId)
+      setMudItems(prev => prev.filter(item => item.id !== itemId))
+      setMudMetrics(await mudAdminApi.getMetrics())
+    } catch { setError('Failed to delete item') }
+  }
+
+  const startMudItemEdit = (item: MudItem) => {
+    setEditingMudItem(item)
+    setMudItemForm({
+      roomId: item.roomId ?? '',
+      name: item.name,
+      slug: item.slug,
+      description: item.description ?? '',
+      readableText: item.readableText ?? '',
+      portable: item.portable,
+      position: item.position,
+    })
+  }
+
+  const cancelMudItemEdit = () => {
+    setEditingMudItem(null)
+    setMudItemForm({ roomId: '', name: '', slug: '', description: '', readableText: '', portable: false, position: 0 })
+  }
+
+  const saveMudBuilderAgent = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!mudBuilderAgentForm.displayName.trim() || !mudBuilderAgentForm.realmSlug.trim() || !mudBuilderAgentForm.directorSlug.trim()) return
+    setMudSaving(true)
+    try {
+      const agent = editingMudBuilderAgent
+        ? await mudAdminApi.updateBuilderAgent(editingMudBuilderAgent.id, {
+            realmSlug: mudBuilderAgentForm.realmSlug.trim(),
+            directorSlug: mudBuilderAgentForm.directorSlug.trim(),
+            displayName: mudBuilderAgentForm.displayName.trim(),
+            specialty: mudBuilderAgentForm.specialty.trim(),
+            model: mudBuilderAgentForm.model.trim() || undefined,
+            buildHourUtc: mudBuilderAgentForm.buildHourUtc,
+            active: mudBuilderAgentForm.active,
+          })
+        : await mudAdminApi.createBuilderAgent({
+            slug: mudBuilderAgentForm.slug.trim(),
+            realmSlug: mudBuilderAgentForm.realmSlug.trim(),
+            directorSlug: mudBuilderAgentForm.directorSlug.trim(),
+            displayName: mudBuilderAgentForm.displayName.trim(),
+            specialty: mudBuilderAgentForm.specialty.trim(),
+            model: mudBuilderAgentForm.model.trim() || undefined,
+            buildHourUtc: mudBuilderAgentForm.buildHourUtc,
+            active: mudBuilderAgentForm.active,
+          })
+      setMudBuilderAgents(prev => prev.some(a => a.id === agent.id) ? prev.map(a => a.id === agent.id ? agent : a) : [agent, ...prev])
+      setMudBuilderAgentForm({ slug: '', realmSlug: '', directorSlug: '', displayName: '', specialty: '', model: 'gpt-4o-mini', buildHourUtc: 0, active: true })
+      setEditingMudBuilderAgent(null)
+    } catch { setError('Failed to save builder agent') }
+    finally { setMudSaving(false) }
+  }
+
+  const deleteMudBuilderAgent = async (agentId: string) => {
+    if (!confirm('Delete this builder agent?')) return
+    try {
+      await mudAdminApi.deleteBuilderAgent(agentId)
+      setMudBuilderAgents(prev => prev.filter(agent => agent.id !== agentId))
+    } catch { setError('Failed to delete builder agent') }
+  }
+
+  const startMudBuilderAgentEdit = (agent: MudBuilderAgent) => {
+    setEditingMudBuilderAgent(agent)
+    setMudBuilderAgentForm({
+      slug: agent.slug,
+      realmSlug: agent.realmSlug,
+      directorSlug: agent.directorSlug,
+      displayName: agent.displayName,
+      specialty: agent.specialty,
+      model: agent.model,
+      buildHourUtc: agent.buildHourUtc,
+      active: agent.active,
+    })
+  }
+
+  const cancelMudBuilderAgentEdit = () => {
+    setEditingMudBuilderAgent(null)
+    setMudBuilderAgentForm({ slug: '', realmSlug: '', directorSlug: '', displayName: '', specialty: '', model: 'gpt-4o-mini', buildHourUtc: 0, active: true })
   }
 
   const startMudZoneEdit = (zone: MudZone) => {
@@ -2770,6 +2889,98 @@ export default function AdminPage() {
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button className="post-action" onClick={() => startMudRecipeEdit(recipe)}>Edit</button>
                   <button className="post-action post-action-delete" onClick={() => deleteMudRecipe(recipe.id)}>Delete</button>
+                </div>
+              ) },
+            ]}
+          />
+
+          <form className="admin-grant-form" onSubmit={saveMudItem}>
+            <h4 style={{ margin: 0 }}>{editingMudItem ? 'Edit Item' : 'Create Item'}</h4>
+            <div className="admin-grant-fields" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <input className="papers-new-input" placeholder="Item name" value={mudItemForm.name} onChange={e => setMudItemForm(f => ({ ...f, name: e.target.value }))} required />
+              <input className="papers-new-input" placeholder="Slug (optional)" value={mudItemForm.slug} onChange={e => setMudItemForm(f => ({ ...f, slug: e.target.value }))} />
+              <select className="papers-new-input" value={mudItemForm.roomId} onChange={e => setMudItemForm(f => ({ ...f, roomId: e.target.value }))}>
+                <option value="">Unplaced (no room)</option>
+                {(mudWorld?.rooms ?? []).map(room => (
+                  <option key={room.id} value={room.id}>{room.zoneName} — {room.name}</option>
+                ))}
+              </select>
+              <input className="papers-new-input" type="number" placeholder="Position" value={mudItemForm.position} onChange={e => setMudItemForm(f => ({ ...f, position: Number(e.target.value) }))} />
+              <input className="papers-new-input" placeholder="Description" value={mudItemForm.description} onChange={e => setMudItemForm(f => ({ ...f, description: e.target.value }))} style={{ gridColumn: '1 / -1' }} />
+              <input className="papers-new-input" placeholder="Readable text (optional)" value={mudItemForm.readableText} onChange={e => setMudItemForm(f => ({ ...f, readableText: e.target.value }))} style={{ gridColumn: '1 / -1' }} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                <input type="checkbox" checked={mudItemForm.portable} onChange={e => setMudItemForm(f => ({ ...f, portable: e.target.checked }))} />
+                Portable (can be picked up)
+              </label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="submit" className="tiptap-action-btn primary" disabled={mudSaving || !mudItemForm.name.trim()}>
+                  {editingMudItem ? 'Save Item' : 'Create Item'}
+                </button>
+                {editingMudItem && <button type="button" className="tiptap-action-btn" onClick={cancelMudItemEdit}>Cancel</button>}
+              </div>
+            </div>
+          </form>
+
+          <AdminTable<MudItem>
+            data={mudItems}
+            rowKey={item => item.id}
+            searchKeys={['name', 'slug', 'description', 'roomName']}
+            emptyText="No world items yet."
+            columns={[
+              { key: 'name', label: 'Item', render: item => <><strong>{item.name}</strong><br /><span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{item.slug}</span></> },
+              { key: 'roomName', label: 'Room', render: item => item.roomName ?? '—' },
+              { key: 'description', label: 'Description', render: item => item.description ?? '—' },
+              { key: 'portable', label: 'Portable', render: item => item.portable ? 'Yes' : 'No' },
+              { key: 'position', label: 'Position' },
+              { key: 'id', label: '', sortable: false, render: item => (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="post-action" onClick={() => startMudItemEdit(item)}>Edit</button>
+                  <button className="post-action post-action-delete" onClick={() => deleteMudItem(item.id)}>Delete</button>
+                </div>
+              ) },
+            ]}
+          />
+
+          <form className="admin-grant-form" onSubmit={saveMudBuilderAgent}>
+            <h4 style={{ margin: 0 }}>{editingMudBuilderAgent ? 'Edit Builder Agent' : 'Create Builder Agent'}</h4>
+            <div className="admin-grant-fields" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <input className="papers-new-input" placeholder="Display name" value={mudBuilderAgentForm.displayName} onChange={e => setMudBuilderAgentForm(f => ({ ...f, displayName: e.target.value }))} required />
+              <input className="papers-new-input" placeholder="Slug (unique)" value={mudBuilderAgentForm.slug} onChange={e => setMudBuilderAgentForm(f => ({ ...f, slug: e.target.value }))} required disabled={!!editingMudBuilderAgent} />
+              <input className="papers-new-input" placeholder="Realm slug (e.g. medieval)" value={mudBuilderAgentForm.realmSlug} onChange={e => setMudBuilderAgentForm(f => ({ ...f, realmSlug: e.target.value }))} required />
+              <input className="papers-new-input" placeholder="Director slug" value={mudBuilderAgentForm.directorSlug} onChange={e => setMudBuilderAgentForm(f => ({ ...f, directorSlug: e.target.value }))} required />
+              <input className="papers-new-input" placeholder="Specialty" value={mudBuilderAgentForm.specialty} onChange={e => setMudBuilderAgentForm(f => ({ ...f, specialty: e.target.value }))} />
+              <input className="papers-new-input" placeholder="Model" value={mudBuilderAgentForm.model} onChange={e => setMudBuilderAgentForm(f => ({ ...f, model: e.target.value }))} />
+              <input className="papers-new-input" type="number" min={0} max={23} placeholder="Build hour (UTC 0-23)" value={mudBuilderAgentForm.buildHourUtc} onChange={e => setMudBuilderAgentForm(f => ({ ...f, buildHourUtc: Number(e.target.value) }))} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                <input type="checkbox" checked={mudBuilderAgentForm.active} onChange={e => setMudBuilderAgentForm(f => ({ ...f, active: e.target.checked }))} />
+                Active
+              </label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="submit" className="tiptap-action-btn primary" disabled={mudSaving || !mudBuilderAgentForm.displayName.trim() || !mudBuilderAgentForm.realmSlug.trim() || !mudBuilderAgentForm.directorSlug.trim() || (!editingMudBuilderAgent && !mudBuilderAgentForm.slug.trim())}>
+                  {editingMudBuilderAgent ? 'Save Agent' : 'Create Agent'}
+                </button>
+                {editingMudBuilderAgent && <button type="button" className="tiptap-action-btn" onClick={cancelMudBuilderAgentEdit}>Cancel</button>}
+              </div>
+            </div>
+          </form>
+
+          <AdminTable<MudBuilderAgent>
+            data={mudBuilderAgents}
+            rowKey={agent => agent.id}
+            searchKeys={['displayName', 'slug', 'realmSlug', 'directorSlug', 'specialty']}
+            emptyText="No builder agents yet."
+            columns={[
+              { key: 'displayName', label: 'Agent', render: agent => <><strong>{agent.displayName}</strong><br /><span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{agent.slug}</span></> },
+              { key: 'realmSlug', label: 'Realm' },
+              { key: 'directorSlug', label: 'Director' },
+              { key: 'specialty', label: 'Specialty' },
+              { key: 'model', label: 'Model' },
+              { key: 'buildHourUtc', label: 'Build hour (UTC)' },
+              { key: 'active', label: 'Active', render: agent => agent.active ? 'Yes' : 'No' },
+              { key: 'id', label: '', sortable: false, render: agent => (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="post-action" onClick={() => startMudBuilderAgentEdit(agent)}>Edit</button>
+                  <button className="post-action post-action-delete" onClick={() => deleteMudBuilderAgent(agent.id)}>Delete</button>
                 </div>
               ) },
             ]}
