@@ -1804,7 +1804,7 @@ let private searchChunksDetailed
                    LEFT JOIN query_nodes qn ON qn.id = scn.node_id
                    LEFT JOIN neighbor_nodes nn ON nn.node_id = scn.node_id
                    WHERE c.embedding_values IS NOT NULL
-                     AND (@sourceType IS NULL OR d.source_type = @sourceType)
+                     AND (@sourceType::text IS NULL OR d.source_type = @sourceType::text)
                      AND (qn.id IS NOT NULL OR nn.node_id IS NOT NULL)
                    GROUP BY d.source_type, d.source_key, d.title, d.updated_at, c.chunk_position, c.content, c.embedding_values
                    ORDER BY matched_token_count DESC, matched_weight DESC, d.updated_at DESC, c.chunk_position ASC
@@ -1833,7 +1833,7 @@ let private searchChunksDetailed
                      ON t.chunk_id = c.id
                     AND (cardinality(@tokens) = 0 OR t.token = ANY(@tokens))
                    WHERE c.embedding_values IS NOT NULL
-                     AND (@sourceType IS NULL OR d.source_type = @sourceType)
+                     AND (@sourceType::text IS NULL OR d.source_type = @sourceType::text)
                    GROUP BY d.source_type, d.source_key, d.title, d.updated_at, c.chunk_position, c.content, c.embedding_values
                    ORDER BY matched_token_count DESC, matched_weight DESC, d.updated_at DESC, c.chunk_position ASC
                    LIMIT @candidateLimit""",
@@ -1863,7 +1863,7 @@ let private searchChunksDetailed
                FROM semantic_chunks c
                JOIN semantic_documents d ON d.id = c.document_id
                WHERE c.embedding IS NOT NULL
-                 AND (@sourceType IS NULL OR d.source_type = @sourceType)
+                 AND (@sourceType::text IS NULL OR d.source_type = @sourceType::text)
                ORDER BY c.embedding <=> CAST(@queryVector AS vector) ASC
                LIMIT @candidateLimit"""
         else
@@ -1878,7 +1878,7 @@ let private searchChunksDetailed
                FROM semantic_chunks c
                JOIN semantic_documents d ON d.id = c.document_id
                WHERE c.embedding_values IS NOT NULL
-                 AND (@sourceType IS NULL OR d.source_type = @sourceType)
+                 AND (@sourceType::text IS NULL OR d.source_type = @sourceType::text)
                ORDER BY c.embedded_at DESC NULLS LAST, d.updated_at DESC, c.chunk_position ASC
                LIMIT @candidateLimit"""
     use isolatedCmd = new NpgsqlCommand(isolatedSql, conn)
@@ -1949,7 +1949,7 @@ let vectorSearchChunks (query: string) (sourceType: string option) (limit: int) 
                FROM semantic_chunks c
                JOIN semantic_documents d ON d.id = c.document_id
                WHERE c.embedding IS NOT NULL
-                 AND (@sourceType IS NULL OR d.source_type = @sourceType)
+                 AND (@sourceType::text IS NULL OR d.source_type = @sourceType::text)
                ORDER BY c.embedding <=> CAST(@queryVector AS vector) ASC
                LIMIT @limit""",
             conn)
