@@ -467,18 +467,25 @@ a { color: var(--accent); }
 
 .mud-map {
   position: relative;
-  min-height: 220px;
+  height: 320px;
   border: 1px solid var(--border);
   border-radius: 18px;
   background: color-mix(in srgb, var(--bg) 88%, #000 12%);
-  overflow: hidden;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  overscroll-behavior: contain;
 }
 
 .mud-map-enhanced {
-  min-height: 320px;
+  height: 360px;
   background:
     radial-gradient(circle at center, color-mix(in srgb, var(--accent) 10%, transparent), transparent 55%),
     color-mix(in srgb, var(--bg) 88%, #000 12%);
+}
+
+.mud-map-canvas {
+  position: relative;
 }
 
 .mud-map-lines {
@@ -790,16 +797,44 @@ a { color: var(--accent); }
   }
 
   .mud-map {
-    min-height: 260px;
+    height: 260px;
   }
 
   .mud-map-enhanced {
-    min-height: 280px;
+    height: 280px;
   }
 
+  /* Mobile: rooms collapse to small tap-to-reveal dots instead of
+     always-labeled squares, so a crowded map stays readable; the map
+     itself scrolls/pans via .mud-map's overflow: auto. */
   .mud-map-room {
+    min-width: 0;
+    max-width: none;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border-radius: 50%;
+    overflow: visible;
+  }
+
+  .mud-map-room strong,
+  .mud-map-room small {
+    display: none;
+  }
+
+  .mud-map-room.revealed {
+    width: auto;
+    height: auto;
     min-width: 84px;
     max-width: 100px;
+    padding: 0.45rem 0.6rem;
+    border-radius: 14px;
+    z-index: 2;
+  }
+
+  .mud-map-room.revealed strong,
+  .mud-map-room.revealed small {
+    display: block;
   }
 
   .mud-map-summary {
