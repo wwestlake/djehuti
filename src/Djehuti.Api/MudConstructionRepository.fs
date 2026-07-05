@@ -81,7 +81,10 @@ type BuildPlan =
 
 let private directorSpecs =
     [ { Slug = "headmaster"; RealmSlug = "medieval"; DisplayName = "Headmaster"; Aliases = [ "headmaster"; "hm" ] }
-      { Slug = "firstspeaker"; RealmSlug = "sci-fi"; DisplayName = "FirstSpeaker"; Aliases = [ "firstspeaker"; "fs" ] } ]
+      { Slug = "firstspeaker"; RealmSlug = "sci-fi"; DisplayName = "FirstSpeaker"; Aliases = [ "firstspeaker"; "fs" ] }
+      { Slug = "seamwarden"; RealmSlug = "the-veil"; DisplayName = "Seamwarden"; Aliases = [ "seamwarden"; "sw" ] }
+      { Slug = "rootspeaker"; RealmSlug = "the-wild-march"; DisplayName = "Rootspeaker"; Aliases = [ "rootspeaker"; "rs" ] }
+      { Slug = "depthmaster"; RealmSlug = "the-drowned-reach"; DisplayName = "Depthmaster"; Aliases = [ "depthmaster"; "dm" ] } ]
 
 let private builderSeeds =
     [ ("medieval-mason", "medieval", "headmaster", "Stonewright Avel", "mason", 0)
@@ -95,7 +98,19 @@ let private builderSeeds =
       ("scifi-logistics", "sci-fi", "firstspeaker", "Logistics Unit Vara", "logistics", 16)
       ("scifi-signal", "sci-fi", "firstspeaker", "Signal Tech Orin", "signal engineer", 18)
       ("scifi-structural", "sci-fi", "firstspeaker", "Hullwright Sera", "structural engineer", 20)
-      ("scifi-cartographer", "sci-fi", "firstspeaker", "Cartographer Keph", "cartographer", 22) ]
+      ("scifi-cartographer", "sci-fi", "firstspeaker", "Cartographer Keph", "cartographer", 22)
+      ("veil-scavenger", "the-veil", "seamwarden", "Scrap-Warden Ilya", "scavenger", 1)
+      ("veil-lightsmith", "the-veil", "seamwarden", "Lumen-Cutter Ash", "lightsmith", 5)
+      ("veil-rigger", "the-veil", "seamwarden", "Rigger Voss", "rigger", 9)
+      ("veil-cartomancer", "the-veil", "seamwarden", "Cartomancer Priss", "cartomancer", 13)
+      ("march-warden", "the-wild-march", "rootspeaker", "Warden Bryn", "warden", 3)
+      ("march-rootweaver", "the-wild-march", "rootspeaker", "Rootweaver Sil", "rootweaver", 7)
+      ("march-mosskeeper", "the-wild-march", "rootspeaker", "Mosskeeper Fenn", "mosskeeper", 11)
+      ("march-stonecarver", "the-wild-march", "rootspeaker", "Stonecarver Orwe", "stonecarver", 15)
+      ("reach-shipwright", "the-drowned-reach", "depthmaster", "Shipwright Corla", "shipwright", 17)
+      ("reach-diver", "the-drowned-reach", "depthmaster", "Diver Tull", "diver", 19)
+      ("reach-valvewright", "the-drowned-reach", "depthmaster", "Valvewright Sten", "valvewright", 21)
+      ("reach-lampkeeper", "the-drowned-reach", "depthmaster", "Lampkeeper Dray", "lampkeeper", 23) ]
 
 let private serializerOptions =
     let options = JsonSerializerOptions()
@@ -497,22 +512,27 @@ let tryPickAnchorRoom (realmSlug: string) =
                       NewMapX = newCoords |> Option.map fst
                       NewMapY = newCoords |> Option.map snd }))
 
+// (roomStem, roomNamePrefix, resourceName, loreFigureName) per realm, used when
+// AI generation fails and a deterministic room must be produced instead.
+let private fallbackFlavorByRealm =
+    dict
+        [ "sci-fi", ("relay annex", "Relay Annex of", "Spare Conduit Coil", "Dock Relay Steward")
+          "the-veil", ("fractured seam", "Fractured Seam off", "Shard of Frayed Cable", "Seam-Watch Loiterer")
+          "the-wild-march", ("root hollow", "Root Hollow beneath", "Cluster of Luminous Moss", "Bark-Warden Figure")
+          "the-drowned-reach", ("flooded berth", "Flooded Berth off", "Corroded Pressure Gauge", "Berth Watch Diver") ]
+
 let fallbackPlan (builder: BuilderAgent) (anchor: AnchorRoom) (directive: RealmDirective option) =
     let directiveText =
         directive
         |> Option.map _.NormalizedInstruction
         |> Option.defaultValue "Expand the realm with a practical, flavorful room that fits the surrounding area."
-    let roomStem =
-        if builder.RealmSlug = "sci-fi" then "relay annex" else "market nook"
-    let roomName =
-        if builder.RealmSlug = "sci-fi" then $"Relay Annex of {anchor.RoomName}"
-        else $"Market Nook off {anchor.RoomName}"
+    let roomStem, roomNamePrefix, resourceName, loreFigureName =
+        match fallbackFlavorByRealm.TryGetValue(builder.RealmSlug) with
+        | true, flavor -> flavor
+        | false, _ -> ("market nook", "Market Nook off", "Fruit Crate", "Market Steward")
+    let roomName = $"{roomNamePrefix} {anchor.RoomName}"
     let roomSlug = slugify $"{builder.Slug}-{anchor.RoomSlug}-{roomStem}-{DateTime.UtcNow:MMdd}"
-    let resourceName =
-        if builder.RealmSlug = "sci-fi" then "Spare Conduit Coil" else "Fruit Crate"
     let resourceSlug = slugify resourceName
-    let loreFigureName =
-        if builder.RealmSlug = "sci-fi" then "Dock Relay Steward" else "Market Steward"
     let loreFigureSlug = slugify loreFigureName
     { RoomName = roomName
       RoomSlug = roomSlug

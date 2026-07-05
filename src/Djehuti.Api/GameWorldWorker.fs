@@ -40,18 +40,36 @@ let private submitOpenAiText (options: OpenAiResponsesOptions) (model: string) (
         return response |> Result.map _.Content
     }
 
+// Realm-specific visual and architectural constraints, distilled from the
+// realm design concept docs. Injected into the builder prompt so AI-
+// generated rooms honor each realm's material palette, atmosphere, and
+// exit-type conventions instead of relying on the model's generic sense of
+// the realm slug.
+let private realmAestheticGuide (realmSlug: string) =
+    match realmSlug with
+    | "the-veil" ->
+        """Realm aesthetic - The Veil: a liminal, fractured dimension of shifting geometry and decaying industrial architecture. Heavy, layered, palette-knife texture. Materials: scrap metal, crumbling concrete, rusted iron, shattered glass. Atmosphere: thick hanging fog and static haze, industrial grays, muted rust, stark contrasting neon anomalies. Fixtures: twisted lampposts, jutting fire escapes, asymmetrical archways, fractured stairwells that seem to lead nowhere. Exit rendering: portal = a tear in heavy, textured air glowing with harsh cool light; passage = a narrow, claustrophobic alley hemmed in by looming abstract concrete; elevator = a rusted, exposed-cage lift on exposed gears and frayed cables."""
+    | "the-wild-march" ->
+        """Realm aesthetic - The Wild March: an untamed, highly vertical frontier where aggressive flora reclaims ancient ruins. Rhythmic, cyclic flow; giant roots and cascading vines weave over and under one another. Materials: massive timber, bioluminescent moss, petrified wood, overgrown weather-beaten stone. Atmosphere: dappled emerald light through a thick canopy, humid air choked with floating spores. Fixtures: enormous hollowed-out tree trunks, natural bridges of intertwined roots, ancient stone altars swallowed by vines. Exit rendering: stairs-up = a spiraling set of natural steps carved into the bark of a colossal tree; ladder = a sheer drop covered in thick, climbable vines anchored into stone; gate = a colossal, overgrown archway of woven branches calcified into wood-stone."""
+    | "the-drowned-reach" ->
+        """Realm aesthetic - The Drowned Reach: a submerged, abyssal environment of crushing pressure and aquatic decay - interconnected underwater facilities, sunken caverns, air-locked habitats. Deeply oppressive; artificial light fighting the crushing dark. Materials: heavy brass, riveted steel bulkheads, barnacle-encrusted glass, damp porous deep-sea rock. Atmosphere: extremely low visibility outside the immediate room, flickering sickly-yellow maritime lamps or deep-sea bioluminescence pressed against thick glass. Fixtures: massive pressure valves, circular vault doors, dripping pipe networks, condensation-slicked control consoles. Exit rendering: door = a heavy, circular airlock with a central locking wheel and warning lights; stairs-down = a grated metal spiral staircase descending into dark, knee-high pooling water; passage = a cylindrical, reinforced glass tunnel showing the murky ocean exterior on all sides."""
+    | _ -> ""
+
 let private buildPrompt (builder: MudConstructionRepository.BuilderAgent) (anchor: MudConstructionRepository.AnchorRoom) (directive: MudConstructionRepository.RealmDirective option) =
     let directiveText =
         directive
         |> Option.map _.NormalizedInstruction
         |> Option.defaultValue "Expand the realm with a useful room that players can search, read, and talk in."
 
+    let aestheticGuide = realmAestheticGuide builder.RealmSlug
+    let aestheticSection = if aestheticGuide = "" then "" else $"\n{aestheticGuide}\n"
+
     let systemPrompt =
         $"""You are a world-building specialist for the Lagdaemon MUD.
 Realm: {builder.RealmSlug}
 Builder specialty: {builder.Specialty}
-
-Return exactly one JSON object. Keep it grounded in the existing game world. The new room must feel adjacent to the anchor room and obey the standing directive.
+{aestheticSection}
+Return exactly one JSON object. Keep it grounded in the existing game world. The new room must feel adjacent to the anchor room and obey the standing directive. If a realm aesthetic is given above, the roomDescription must reflect its materials, atmosphere, and fixtures, and exitType should match the exit rendering conventions described.
 Every response must include:
 - roomName
 - roomSlug
