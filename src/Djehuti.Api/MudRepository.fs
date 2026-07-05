@@ -1136,6 +1136,7 @@ let private loadStateForCharacter (conn: NpgsqlConnection) (userId: Guid) (chara
                         Direction = mapExitsReader.GetString(2)
                         ExitType = mapExitsReader.GetString(3)
                         Label = if mapExitsReader.IsDBNull(4) then None else Some (mapExitsReader.GetString(4)) } ]
+        mapExitsReader.Close()
 
         let mudTierName = loadMudTierName userId
         let currencyBalance = getCurrencyBalance conn baseState.CharacterId baseState.RealmSlug
