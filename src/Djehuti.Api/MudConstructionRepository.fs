@@ -275,20 +275,17 @@ let tryHandleDirectorMessage (userId: Guid) (targetName: string option) (text: s
                 insertPrivateDirectorReply conn spec.DisplayName character.CharacterId character.CharacterName reply
                 Some (Ok reply)
 
+// Seeds any builder agents from the bootstrap list that are missing from the
+// table (e.g. a new spec added to builderSeeds). Never overwrites an
+// existing row, so admin edits to display_name/specialty/model/etc. made via
+// the roster admin panel persist across worker restarts and every tick.
 let ensureBuilderRoster () =
     use conn = openConnection ()
     for (slug, realmSlug, directorSlug, displayName, specialty, buildHourUtc) in builderSeeds do
         use cmd = new NpgsqlCommand(
             """INSERT INTO mud_builder_agents (slug, realm_slug, director_slug, display_name, specialty, model, build_hour_utc, active)
                VALUES (@slug, @realm_slug, @director_slug, @display_name, @specialty, 'gpt-4o-mini', @build_hour_utc, TRUE)
-               ON CONFLICT (slug) DO UPDATE
-               SET realm_slug = EXCLUDED.realm_slug,
-                   director_slug = EXCLUDED.director_slug,
-                   display_name = EXCLUDED.display_name,
-                   specialty = EXCLUDED.specialty,
-                   model = EXCLUDED.model,
-                   build_hour_utc = EXCLUDED.build_hour_utc,
-                   active = TRUE""", conn)
+               ON CONFLICT (slug) DO NOTHING""", conn)
         cmd.Parameters.AddWithValue("slug", slug) |> ignore
         cmd.Parameters.AddWithValue("realm_slug", realmSlug) |> ignore
         cmd.Parameters.AddWithValue("director_slug", directorSlug) |> ignore
