@@ -489,7 +489,7 @@ function App() {
 
   const askAnalyst = async (overrideQuestion?: string) => {
     const question = (overrideQuestion ?? analystQuestion).trim()
-    if (!analysis || !question) {
+    if (!question) {
       return
     }
 
@@ -1490,7 +1490,7 @@ function App() {
               onSubmit={async (e) => {
                 e.preventDefault()
                 const q = tourQuestion.trim()
-                if (!q || !analysis) return
+                if (!q) return
                 setShowTourPrompt(false)
                 setTourQuestion('Walk me through ')
                 await askAnalyst(q)
@@ -1511,7 +1511,7 @@ function App() {
                   aria-label="Tour request"
                 />
               )}
-              <button className="secondary-action" type="submit" disabled={!tourQuestion.trim() || !analysis || isAskingAnalyst}>
+              <button className="secondary-action" type="submit" disabled={!tourQuestion.trim() || isAskingAnalyst}>
                 {isAskingAnalyst ? 'Working...' : 'Go'}
               </button>
               <button className="icon-button" type="button" onClick={() => setShowTourPrompt(false)} disabled={isAskingAnalyst}>
