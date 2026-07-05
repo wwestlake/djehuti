@@ -827,6 +827,59 @@ a { color: var(--accent); }
   border-color: color-mix(in srgb, #ff6b6b 65%, var(--border));
 }
 
+.mud-roster-identity {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.mud-roster-portrait {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.mud-roster-portrait-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface) 92%, #000 8%);
+}
+
+.mud-roster-bio {
+  margin-top: 0.6rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-style: italic;
+}
+
+.mud-stat-allocator {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.mud-stat-allocator-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.mud-stat-allocator-label {
+  flex: 1;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.mud-stat-allocator-value {
+  min-width: 1.5rem;
+  text-align: center;
+  font-weight: 600;
+}
+
 .mud-message,
 .mud-empty {
   margin-top: 0.95rem;

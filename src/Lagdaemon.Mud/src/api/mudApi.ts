@@ -73,6 +73,26 @@ export interface MudRoomState {
   currencyBalance: number
   currencyName: string
   currencyNamePlural: string
+  archetypeSlug?: string
+  bio?: string
+  portraitUrl?: string
+  title?: string
+}
+
+export interface MudArchetype {
+  slug: string
+  realmSlug: string
+  name: string
+  description: string
+  statBonusPresence: number
+  statBonusWit: number
+  statBonusResolve: number
+  statBonusLore: number
+  statBonusCraft: number
+  statBonusGuile: number
+  starterItemName: string
+  starterItemSlug: string
+  starterItemDescription: string
 }
 
 export interface MudCommandResult {
@@ -102,6 +122,10 @@ export interface MudCharacterSummary {
   inventoryCount: number
   stats: MudStats
   skills: MudSkills
+  archetypeSlug?: string
+  bio?: string
+  portraitUrl?: string
+  title?: string
   createdAt: string
 }
 
@@ -198,12 +222,43 @@ export const mudApi = {
   getMe: (): Promise<MudRoomState | null> =>
     fetch(`${BASE}/me`, opts).then(readJsonOrThrow<MudRoomState>),
 
-  createCharacter: (body: { realmSlug: string; name: string; displayName?: string }): Promise<MudRosterView> =>
+  getArchetypes: (): Promise<MudArchetype[]> =>
+    fetch(`${BASE}/archetypes`).then(readJsonOrThrow<MudArchetype[]>),
+
+  createCharacter: (body: {
+    realmSlug: string
+    name: string
+    displayName?: string
+    archetypeSlug: string
+    bio?: string
+    presence: number
+    wit: number
+    resolve: number
+    lore: number
+    craft: number
+    guile: number
+  }): Promise<MudRosterView> =>
     fetch(`${BASE}/characters`, {
       ...opts,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+    }).then(readJsonOrThrow<MudRosterView>),
+
+  updateCharacterPortrait: (characterId: string, portraitUrl: string): Promise<MudRosterView> =>
+    fetch(`${BASE}/characters/${characterId}/portrait`, {
+      ...opts,
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ portraitUrl }),
+    }).then(readJsonOrThrow<MudRosterView>),
+
+  updateCharacterBio: (characterId: string, bio: string): Promise<MudRosterView> =>
+    fetch(`${BASE}/characters/${characterId}/bio`, {
+      ...opts,
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bio }),
     }).then(readJsonOrThrow<MudRosterView>),
 
   selectCharacter: (characterId: string): Promise<MudRoomState> =>

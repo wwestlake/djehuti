@@ -1,4 +1,4 @@
-module Djehuti.Api.MudRepository
+﻿module Djehuti.Api.MudRepository
 
 open System
 open System.Data.Common
@@ -72,7 +72,11 @@ type MudRoomState =
       Exits: MudExitView list
       CurrencyBalance: int
       CurrencyName: string
-      CurrencyNamePlural: string }
+      CurrencyNamePlural: string
+      ArchetypeSlug: string option
+      Bio: string option
+      PortraitUrl: string option
+      Title: string option }
 
 type MudCommandResult =
     { Success: bool
@@ -99,6 +103,10 @@ type MudCharacterSummary =
       InventoryCount: int
       Stats: MudStats
       Skills: MudSkills
+      ArchetypeSlug: string option
+      Bio: string option
+      PortraitUrl: string option
+      Title: string option
       CreatedAt: DateTime }
 
 type MudRosterView =
@@ -189,6 +197,7 @@ let private realmDefinitions =
       { Slug = "the-drowned-reach"; Name = "The Drowned Reach"; StartRoomSlug = "reach-first-airlock"
         Description = "Seal the first airlock behind you. A grated stair down into flooded dark, and a glass tunnel where the ocean itself presses in on every side."
         CurrencyName = "pressure chit"; CurrencyNamePlural = "pressure chits" } ]
+
 
 let private craftRecipes =
     [ { Slug = "torch"
@@ -867,7 +876,11 @@ let private readStateBase (r: DbDataReader) =
       Exits = []
       CurrencyBalance = 0
       CurrencyName = ""
-      CurrencyNamePlural = "" }
+      CurrencyNamePlural = ""
+      ArchetypeSlug = if r.IsDBNull(21) then None else Some (r.GetString(21))
+      Bio = if r.IsDBNull(22) then None else Some (r.GetString(22))
+      PortraitUrl = if r.IsDBNull(23) then None else Some (r.GetString(23))
+      Title = None }
 
 let private readItemView (r: DbDataReader) =
     { Name = r.GetString(0)
@@ -885,6 +898,149 @@ let private normalizeRealmSlug (value: string) =
 let private realmBySlug slug =
     realmDefinitions
     |> List.tryFind (fun realm -> realm.Slug = normalizeRealmSlug slug)
+
+// Character creation: archetypes and point-buy stat allocation.
+//
+// Every stat used to be hardcoded to 1 for every character. Creation now
+// works in two layers: an archetype (a realm-specific background) applies
+// a fixed bonus to two of the six stats and grants a themed starter item;
+// the player then distributes a small free-point pool across all six
+// stats, within a per-stat cap. See the MUD Multi-Character System wiki
+// page for the design rationale.
+
+type MudArchetype =
+    { Slug: string
+      RealmSlug: string
+      Name: string
+      Description: string
+      StatBonusPresence: int
+      StatBonusWit: int
+      StatBonusResolve: int
+      StatBonusLore: int
+      StatBonusCraft: int
+      StatBonusGuile: int
+      StarterItemName: string
+      StarterItemSlug: string
+      StarterItemDescription: string }
+
+let [<Literal>] StatPointPoolBudget = 6
+let [<Literal>] MaxAllocationPerStat = 4
+let [<Literal>] MaxFinalStat = 8
+let [<Literal>] StarterCurrencyGrant = 15
+
+let private archetypeDefinitions =
+    [ // Medieval
+      { Slug = "squire"; RealmSlug = "medieval"; Name = "Squire"
+        Description = "Trained young at the keep, more comfortable with a blade drill than a book."
+        StatBonusPresence = 2; StatBonusWit = 0; StatBonusResolve = 1; StatBonusLore = 0; StatBonusCraft = 0; StatBonusGuile = 0
+        StarterItemName = "Practice Sword"; StarterItemSlug = "practice-sword"
+        StarterItemDescription = "A dulled blade worn smooth from drilling. Not sharp, but familiar in the hand." }
+      { Slug = "hedge-witch"; RealmSlug = "medieval"; Name = "Hedge Witch"
+        Description = "Learned herbcraft and half-remembered rites from an aunt who never wrote anything down."
+        StatBonusPresence = 0; StatBonusWit = 0; StatBonusResolve = 0; StatBonusLore = 2; StatBonusCraft = 1; StatBonusGuile = 0
+        StarterItemName = "Herb Pouch"; StarterItemSlug = "herb-pouch"
+        StarterItemDescription = "A small satchel of dried herbs, sorted by smell more than name." }
+      { Slug = "vagabond"; RealmSlug = "medieval"; Name = "Vagabond"
+        Description = "Slept in more hedgerows than beds, and got good at moving on before anyone asked why."
+        StatBonusPresence = 0; StatBonusWit = 1; StatBonusResolve = 0; StatBonusLore = 0; StatBonusCraft = 0; StatBonusGuile = 2
+        StarterItemName = "Lockpick Set"; StarterItemSlug = "lockpick-set"
+        StarterItemDescription = "A worn set of picks, tucked into a strip of oiled leather." }
+
+      // Sci-Fi
+      { Slug = "engineer"; RealmSlug = "sci-fi"; Name = "Engineer"
+        Description = "Cut their teeth keeping third-hand equipment running past its rated life."
+        StatBonusPresence = 0; StatBonusWit = 1; StatBonusResolve = 0; StatBonusLore = 0; StatBonusCraft = 2; StatBonusGuile = 0
+        StarterItemName = "Multitool"; StarterItemSlug = "multitool"
+        StarterItemDescription = "A compact folding tool, most of its edges worn smooth from use." }
+      { Slug = "pilot"; RealmSlug = "sci-fi"; Name = "Pilot"
+        Description = "Flew transports nobody else wanted the routes for, and lived to complain about it."
+        StatBonusPresence = 2; StatBonusWit = 0; StatBonusResolve = 0; StatBonusLore = 0; StatBonusCraft = 0; StatBonusGuile = 1
+        StarterItemName = "Flight Goggles"; StarterItemSlug = "flight-goggles"
+        StarterItemDescription = "Scratched but functional, one lens tinted from an old repair." }
+      { Slug = "xenobiologist"; RealmSlug = "sci-fi"; Name = "Xenobiologist"
+        Description = "Catalogued things that were never meant to survive shipping, and mostly got away with it."
+        StatBonusPresence = 0; StatBonusWit = 0; StatBonusResolve = 1; StatBonusLore = 2; StatBonusCraft = 0; StatBonusGuile = 0
+        StarterItemName = "Sample Kit"; StarterItemSlug = "sample-kit"
+        StarterItemDescription = "Sterile vials and a hand scanner, still smelling faintly of antiseptic." }
+
+      // The Veil
+      { Slug = "seam-walker"; RealmSlug = "the-veil"; Name = "Seam-Walker"
+        Description = "Learned to read the fractures before the fractures learned to read back."
+        StatBonusPresence = 0; StatBonusWit = 1; StatBonusResolve = 0; StatBonusLore = 0; StatBonusCraft = 0; StatBonusGuile = 2
+        StarterItemName = "Bent Compass"; StarterItemSlug = "bent-compass"
+        StarterItemDescription = "The needle never points north here. It points toward the nearest fracture instead." }
+      { Slug = "scrap-cartographer"; RealmSlug = "the-veil"; Name = "Scrap Cartographer"
+        Description = "Keeps drawing maps of streets that keep moving, and refuses to stop."
+        StatBonusPresence = 0; StatBonusWit = 0; StatBonusResolve = 0; StatBonusLore = 2; StatBonusCraft = 1; StatBonusGuile = 0
+        StarterItemName = "Torn Map"; StarterItemSlug = "torn-map"
+        StarterItemDescription = "Hand-annotated, half the notes crossed out and replaced more than once." }
+      { Slug = "lightbreaker"; RealmSlug = "the-veil"; Name = "Lightbreaker"
+        Description = "Stood too close to a jagged beam once and came back different. Better, probably."
+        StatBonusPresence = 1; StatBonusWit = 0; StatBonusResolve = 2; StatBonusLore = 0; StatBonusCraft = 0; StatBonusGuile = 0
+        StarterItemName = "Cracked Lens"; StarterItemSlug = "cracked-lens"
+        StarterItemDescription = "Looking through it bends the neon glow into something almost readable." }
+
+      // The Wild March
+      { Slug = "rootrunner"; RealmSlug = "the-wild-march"; Name = "Rootrunner"
+        Description = "Grew up moving fast along root and vine, well ahead of anything that might be following."
+        StatBonusPresence = 0; StatBonusWit = 0; StatBonusResolve = 1; StatBonusLore = 0; StatBonusCraft = 0; StatBonusGuile = 2
+        StarterItemName = "Vine Rope"; StarterItemSlug = "vine-rope"
+        StarterItemDescription = "A coil of tough, still-living vine. It grips better than any rope should." }
+      { Slug = "mosskeepers-apprentice"; RealmSlug = "the-wild-march"; Name = "Mosskeeper's Apprentice"
+        Description = "Spent years learning which moss glows for light and which glows as a warning."
+        StatBonusPresence = 0; StatBonusWit = 0; StatBonusResolve = 0; StatBonusLore = 2; StatBonusCraft = 1; StatBonusGuile = 0
+        StarterItemName = "Moss Satchel"; StarterItemSlug = "moss-satchel"
+        StarterItemDescription = "A satchel lined with damp moss, kept alive and faintly glowing." }
+      { Slug = "wardens-ward"; RealmSlug = "the-wild-march"; Name = "Warden's Ward"
+        Description = "Raised under a warden's eye, and never quite lost the habit of watching the treeline."
+        StatBonusPresence = 2; StatBonusWit = 1; StatBonusResolve = 0; StatBonusLore = 0; StatBonusCraft = 0; StatBonusGuile = 0
+        StarterItemName = "Carved Whistle"; StarterItemSlug = "carved-whistle"
+        StarterItemDescription = "Carved from pale bark. It carries further than a whistle that size should." }
+
+      // The Drowned Reach
+      { Slug = "diver"; RealmSlug = "the-drowned-reach"; Name = "Diver"
+        Description = "Spent more hours under pressure than above it, and stopped noticing the cold."
+        StatBonusPresence = 0; StatBonusWit = 0; StatBonusResolve = 2; StatBonusLore = 0; StatBonusCraft = 1; StatBonusGuile = 0
+        StarterItemName = "Diving Mask"; StarterItemSlug = "diving-mask"
+        StarterItemDescription = "Scratched at the edges but the seal still holds." }
+      { Slug = "signal-tech"; RealmSlug = "the-drowned-reach"; Name = "Signal Tech"
+        Description = "Keeps the comms alive between habitats, mostly through stubbornness and spare parts."
+        StatBonusPresence = 0; StatBonusWit = 2; StatBonusResolve = 0; StatBonusLore = 0; StatBonusCraft = 1; StatBonusGuile = 0
+        StarterItemName = "Signal Beacon"; StarterItemSlug = "signal-beacon"
+        StarterItemDescription = "A hand-held pulse beacon, dented but still keeping time." }
+      { Slug = "salvager"; RealmSlug = "the-drowned-reach"; Name = "Salvager"
+        Description = "Makes a living pulling useful things out of wrecks nobody else will go near."
+        StatBonusPresence = 1; StatBonusWit = 0; StatBonusResolve = 0; StatBonusLore = 0; StatBonusCraft = 0; StatBonusGuile = 2
+        StarterItemName = "Salvage Hook"; StarterItemSlug = "salvage-hook"
+        StarterItemDescription = "A hooked pole for pulling wreckage close without getting close to it yourself." } ]
+
+let getArchetypes () = archetypeDefinitions
+
+let private archetypeBySlug (realmSlug: string) (slug: string) =
+    archetypeDefinitions
+    |> List.tryFind (fun a -> a.RealmSlug = normalizeRealmSlug realmSlug && a.Slug = slug.Trim().ToLowerInvariant())
+
+let private validateStatAllocation (archetype: MudArchetype) (allocation: MudStats) =
+    let values = [ allocation.Presence; allocation.Wit; allocation.Resolve; allocation.Lore; allocation.Craft; allocation.Guile ]
+    if values |> List.exists (fun v -> v < 0) then
+        Error "Stat points cannot be negative."
+    elif values |> List.exists (fun v -> v > MaxAllocationPerStat) then
+        Error $"No more than {MaxAllocationPerStat} points may go into a single stat."
+    elif List.sum values <> StatPointPoolBudget then
+        Error $"You must allocate exactly {StatPointPoolBudget} points across your stats."
+    else
+        let finalStats =
+            { Presence = 1 + archetype.StatBonusPresence + allocation.Presence
+              Wit = 1 + archetype.StatBonusWit + allocation.Wit
+              Resolve = 1 + archetype.StatBonusResolve + allocation.Resolve
+              Lore = 1 + archetype.StatBonusLore + allocation.Lore
+              Craft = 1 + archetype.StatBonusCraft + allocation.Craft
+              Guile = 1 + archetype.StatBonusGuile + allocation.Guile }
+        let finalValues = [ finalStats.Presence; finalStats.Wit; finalStats.Resolve; finalStats.Lore; finalStats.Craft; finalStats.Guile ]
+        if finalValues |> List.exists (fun v -> v > MaxFinalStat) then
+            Error $"No stat may exceed {MaxFinalStat} after bonuses and allocation."
+        else
+            Ok finalStats
 
 let private currencyNames slug =
     match realmBySlug slug with
@@ -944,6 +1100,13 @@ let private loadMudTierName (userId: Guid) =
     cmd.Parameters.AddWithValue("uid", userId) |> ignore
     let scalar = cmd.ExecuteScalar()
     if isNull scalar || scalar = box DBNull.Value then "Wanderer" else scalar :?> string
+
+let private deriveTitle (userId: Guid) : string option =
+    AchievementRepository.getUserAchievements userId
+    |> List.filter (fun a -> a.Category = "mud")
+    |> List.sortByDescending (fun a -> a.Points, a.AwardedAt)
+    |> List.tryHead
+    |> Option.map _.Name
 
 let private paidSlotsForTier = function
     | Some "curious-mind" -> 3
@@ -1034,7 +1197,10 @@ let private loadStateForCharacter (conn: NpgsqlConnection) (userId: Guid) (chara
                   r.id,
                   r.name,
                   r.description,
-                  z.name
+                  z.name,
+                  c.archetype_slug,
+                  c.bio,
+                  c.portrait_url
            FROM mud_characters c
            JOIN mud_rooms r ON r.id = c.current_room_id
            JOIN mud_zones z ON z.id = r.zone_id
@@ -1141,6 +1307,7 @@ let private loadStateForCharacter (conn: NpgsqlConnection) (userId: Guid) (chara
         let mudTierName = loadMudTierName userId
         let currencyBalance = getCurrencyBalance conn baseState.CharacterId baseState.RealmSlug
         let currencyName, currencyNamePlural = currencyNames baseState.RealmSlug
+        let title = deriveTitle userId
         Some
             { baseState with
                 Exits = exits
@@ -1149,6 +1316,7 @@ let private loadStateForCharacter (conn: NpgsqlConnection) (userId: Guid) (chara
                 MapRooms = mapRooms
                 MapExits = mapExits
                 MudTierName = mudTierName
+                Title = title
                 CurrencyBalance = currencyBalance
                 CurrencyName = currencyName
                 CurrencyNamePlural = currencyNamePlural }
@@ -1428,7 +1596,10 @@ let private buildRoster (userId: Guid) (settings: MudUserSettings option) (chara
                           SELECT COUNT(*)
                           FROM mud_items i
                           WHERE i.owner_character_id = c.id
-                      ), 0)
+                      ), 0),
+                      c.archetype_slug,
+                      c.bio,
+                      c.portrait_url
                FROM mud_characters c
                JOIN mud_rooms r ON r.id = c.current_room_id
                WHERE c.user_id = @uid
@@ -1436,6 +1607,7 @@ let private buildRoster (userId: Guid) (settings: MudUserSettings option) (chara
                ORDER BY c.created_at, c.name""", conn)
         cmd.Parameters.AddWithValue("uid", userId) |> ignore
         use reader = cmd.ExecuteReader()
+        let title = deriveTitle userId
         [ while reader.Read() do
             let character = readCharacter reader
             yield
@@ -1450,6 +1622,10 @@ let private buildRoster (userId: Guid) (settings: MudUserSettings option) (chara
                   InventoryCount = reader.GetInt32(22)
                   Stats = character.Stats
                   Skills = character.Skills
+                  ArchetypeSlug = if reader.IsDBNull(23) then None else Some (reader.GetString(23))
+                  Bio = if reader.IsDBNull(24) then None else Some (reader.GetString(24))
+                  PortraitUrl = if reader.IsDBNull(25) then None else Some (reader.GetString(25))
+                  Title = title
                   CreatedAt = character.CreatedAt } ]
 
     let realms =
@@ -1556,7 +1732,14 @@ let private createCharacterAllowed (realmSlug: string) (roster: MudRosterView) =
     | Some _ when roster.PaidSlotsRemaining > 0 -> true, ""
     | Some _ -> false, "Your roster is full. Delete a character, upgrade your tier, or add another slot."
 
-let createCharacter (userId: Guid) (realmSlug: string) (name: string) (displayName: string option) =
+let createCharacter
+    (userId: Guid)
+    (realmSlug: string)
+    (name: string)
+    (displayName: string option)
+    (archetypeSlug: string)
+    (allocation: MudStats)
+    (bio: string option) =
     let trimmedName = name.Trim()
     if String.IsNullOrWhiteSpace(trimmedName) then
         Error "Character name is required."
@@ -1565,6 +1748,12 @@ let createCharacter (userId: Guid) (realmSlug: string) (name: string) (displayNa
         match realmBySlug normalizedRealm with
         | None -> Error "Unknown realm."
         | Some realm ->
+        match archetypeBySlug normalizedRealm archetypeSlug with
+        | None -> Error "Choose a background for your character."
+        | Some archetype ->
+        match validateStatAllocation archetype allocation with
+        | Error message -> Error message
+        | Ok stats ->
             use conn = openConnection ()
             let settings = loadUserSettings conn userId
             let characters = loadCharacters conn userId
@@ -1580,6 +1769,7 @@ let createCharacter (userId: Guid) (realmSlug: string) (name: string) (displayNa
                         displayName
                         |> nonBlank
                         |> Option.defaultValue trimmedName
+                    let trimmedBio = bio |> Option.map (fun b -> b.Trim()) |> Option.filter (String.IsNullOrWhiteSpace >> not)
                     use cmd = new NpgsqlCommand(
                         """INSERT INTO mud_characters (
                                user_id,
@@ -1587,6 +1777,8 @@ let createCharacter (userId: Guid) (realmSlug: string) (name: string) (displayNa
                                name,
                                display_name,
                                current_room_id,
+                               archetype_slug,
+                               bio,
                                stat_presence,
                                stat_wit,
                                stat_resolve,
@@ -1607,6 +1799,8 @@ let createCharacter (userId: Guid) (realmSlug: string) (name: string) (displayNa
                                @name,
                                @display_name,
                                @room_id,
+                               @archetype_slug,
+                               @bio,
                                @stat_presence,
                                @stat_wit,
                                @stat_resolve,
@@ -1627,12 +1821,14 @@ let createCharacter (userId: Guid) (realmSlug: string) (name: string) (displayNa
                     cmd.Parameters.AddWithValue("name", trimmedName) |> ignore
                     cmd.Parameters.AddWithValue("display_name", chosenDisplayName) |> ignore
                     cmd.Parameters.AddWithValue("room_id", roomId) |> ignore
-                    cmd.Parameters.AddWithValue("stat_presence", defaultStats.Presence) |> ignore
-                    cmd.Parameters.AddWithValue("stat_wit", defaultStats.Wit) |> ignore
-                    cmd.Parameters.AddWithValue("stat_resolve", defaultStats.Resolve) |> ignore
-                    cmd.Parameters.AddWithValue("stat_lore", defaultStats.Lore) |> ignore
-                    cmd.Parameters.AddWithValue("stat_craft", defaultStats.Craft) |> ignore
-                    cmd.Parameters.AddWithValue("stat_guile", defaultStats.Guile) |> ignore
+                    cmd.Parameters.AddWithValue("archetype_slug", archetype.Slug) |> ignore
+                    cmd.Parameters.AddWithValue("bio", trimmedBio |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+                    cmd.Parameters.AddWithValue("stat_presence", stats.Presence) |> ignore
+                    cmd.Parameters.AddWithValue("stat_wit", stats.Wit) |> ignore
+                    cmd.Parameters.AddWithValue("stat_resolve", stats.Resolve) |> ignore
+                    cmd.Parameters.AddWithValue("stat_lore", stats.Lore) |> ignore
+                    cmd.Parameters.AddWithValue("stat_craft", stats.Craft) |> ignore
+                    cmd.Parameters.AddWithValue("stat_guile", stats.Guile) |> ignore
                     cmd.Parameters.AddWithValue("skill_searching", defaultSkills.Searching) |> ignore
                     cmd.Parameters.AddWithValue("skill_crafting", defaultSkills.Crafting) |> ignore
                     cmd.Parameters.AddWithValue("skill_navigation", defaultSkills.Navigation) |> ignore
@@ -1653,6 +1849,17 @@ let createCharacter (userId: Guid) (realmSlug: string) (name: string) (displayNa
                         selectCmd.Parameters.AddWithValue("uid", userId) |> ignore
                         selectCmd.ExecuteNonQuery() |> ignore
                         recordRoomVisit conn characterId roomId
+                        adjustCurrency conn characterId realm.Slug StarterCurrencyGrant |> ignore
+
+                        use starterItemCmd = new NpgsqlCommand(
+                            """INSERT INTO mud_items (owner_character_id, name, slug, description, portable, position)
+                               VALUES (@character_id, @name, @slug, @description, true, 0)""", conn)
+                        starterItemCmd.Parameters.AddWithValue("character_id", characterId) |> ignore
+                        starterItemCmd.Parameters.AddWithValue("name", archetype.StarterItemName) |> ignore
+                        starterItemCmd.Parameters.AddWithValue("slug", archetype.StarterItemSlug) |> ignore
+                        starterItemCmd.Parameters.AddWithValue("description", archetype.StarterItemDescription) |> ignore
+                        starterItemCmd.ExecuteNonQuery() |> ignore
+
                         Ok (getRoster userId)
 
 let deleteCharacter (userId: Guid) (characterId: Guid) =
@@ -1712,6 +1919,34 @@ let deleteCharacter (userId: Guid) (characterId: Guid) =
             logEvent conn userId characterId currentRoomId "character-delete" None "Character deleted." (payloadOf [ "character_id", string characterId ])
 
         deleted
+
+let updateCharacterPortrait (userId: Guid) (characterId: Guid) (portraitUrl: string) : bool =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """UPDATE mud_characters
+           SET portrait_url = @url,
+               updated_at = now()
+           WHERE id = @character_id
+             AND user_id = @uid
+             AND deleted_at IS NULL""", conn)
+    cmd.Parameters.AddWithValue("url", portraitUrl) |> ignore
+    cmd.Parameters.AddWithValue("character_id", characterId) |> ignore
+    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+    cmd.ExecuteNonQuery() > 0
+
+let updateCharacterBio (userId: Guid) (characterId: Guid) (bio: string option) : bool =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """UPDATE mud_characters
+           SET bio = @bio,
+               updated_at = now()
+           WHERE id = @character_id
+             AND user_id = @uid
+             AND deleted_at IS NULL""", conn)
+    cmd.Parameters.AddWithValue("bio", bio |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("character_id", characterId) |> ignore
+    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+    cmd.ExecuteNonQuery() > 0
 
 let look (userId: Guid) : MudCommandResult =
     withState userId (fun state ->
