@@ -2,11 +2,33 @@ module Djehuti.Api.SemanticGraphRepository
 
 open System
 open System.Data.Common
+open System.Globalization
 open System.Security.Cryptography
 open System.Text
 open Djehuti.Core
 open Npgsql
 open Database
+
+// pgvector support is optional infrastructure: when the extension is present
+// the vector column and HNSW index provide indexed nearest-neighbor retrieval;
+// otherwise all scoring falls back to in-memory cosine over REAL[].
+let private pgvectorAvailable =
+    lazy
+        (try
+            use conn = openConnection ()
+            use cmd = new NpgsqlCommand("SELECT 1 FROM pg_extension WHERE extname = 'vector'", conn)
+            cmd.ExecuteScalar() |> isNull |> not
+         with _ ->
+            false)
+
+let vectorLiteral (values: float32 array) =
+    let builder = StringBuilder(values.Length * 12)
+    builder.Append('[') |> ignore
+    for index = 0 to values.Length - 1 do
+        if index > 0 then builder.Append(',') |> ignore
+        builder.Append(values[index].ToString("G9", CultureInfo.InvariantCulture)) |> ignore
+    builder.Append(']') |> ignore
+    builder.ToString()
 
 type SemanticGraphStats =
     { DocumentCount: int
@@ -18,7 +40,9 @@ type SemanticGraphStats =
       EdgeCount: int
       EmbeddedChunkCount: int
       EmbeddingProvider: string
-      EmbeddingReady: bool }
+      EmbeddingReady: bool
+      PgvectorEnabled: bool
+      VectorIndexedChunkCount: int }
 
 type SemanticTokenDispersionCandidate =
     { Token: string
@@ -508,12 +532,16 @@ let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransacti
     for chunk in chunks do
         let embedding, provider = SemanticEmbeddings.embed chunk.ChunkText
         let resolvedTokens = resolveTokensForSource source.SourceType source.Provenance splits chunk.Tokens
-        use chunkCmd = new NpgsqlCommand(
-            """INSERT INTO semantic_chunks (document_id, chunk_position, content, token_count, embedding_values, embedding_provider, embedding_dimension, embedded_at)
-               VALUES (@documentId, @position, @content, @tokenCount, @embeddingValues, @embeddingProvider, @embeddingDimension, now())
-               RETURNING id""",
-            conn,
-            txn)
+        let insertSql =
+            if pgvectorAvailable.Value then
+                """INSERT INTO semantic_chunks (document_id, chunk_position, content, token_count, embedding_values, embedding_provider, embedding_dimension, embedded_at, embedding)
+                   VALUES (@documentId, @position, @content, @tokenCount, @embeddingValues, @embeddingProvider, @embeddingDimension, now(), CAST(@embeddingVector AS vector))
+                   RETURNING id"""
+            else
+                """INSERT INTO semantic_chunks (document_id, chunk_position, content, token_count, embedding_values, embedding_provider, embedding_dimension, embedded_at)
+                   VALUES (@documentId, @position, @content, @tokenCount, @embeddingValues, @embeddingProvider, @embeddingDimension, now())
+                   RETURNING id"""
+        use chunkCmd = new NpgsqlCommand(insertSql, conn, txn)
         chunkCmd.Parameters.AddWithValue("documentId", documentId) |> ignore
         chunkCmd.Parameters.AddWithValue("position", chunk.ChunkPosition) |> ignore
         chunkCmd.Parameters.AddWithValue("content", chunk.ChunkText) |> ignore
@@ -521,6 +549,8 @@ let private replaceDocumentChunks (conn: NpgsqlConnection) (txn: NpgsqlTransacti
         chunkCmd.Parameters.AddWithValue("embeddingValues", embedding) |> ignore
         chunkCmd.Parameters.AddWithValue("embeddingProvider", provider.Name) |> ignore
         chunkCmd.Parameters.AddWithValue("embeddingDimension", provider.Dimension) |> ignore
+        if pgvectorAvailable.Value then
+            chunkCmd.Parameters.AddWithValue("embeddingVector", vectorLiteral embedding) |> ignore
         let chunkId = chunkCmd.ExecuteScalar() :?> Guid
 
         chunk.Tokens
@@ -1123,8 +1153,13 @@ let reindexIndexedDocuments () =
 let getStats () =
     use conn = openConnection()
     let provider = SemanticEmbeddings.getProviderInfo()
+    let vectorCountSelect =
+        if pgvectorAvailable.Value then
+            "(SELECT COUNT(*) FROM semantic_chunks WHERE embedding IS NOT NULL)"
+        else
+            "0"
     use cmd = new NpgsqlCommand(
-        """SELECT
+        $"""SELECT
                (SELECT COUNT(*) FROM semantic_documents),
                (SELECT COUNT(*) FROM semantic_chunks),
                (SELECT COUNT(*) FROM semantic_chunk_tokens),
@@ -1132,7 +1167,8 @@ let getStats () =
                (SELECT COUNT(*) FROM semantic_nodes),
                (SELECT COUNT(*) FROM semantic_chunk_nodes),
                (SELECT COUNT(*) FROM semantic_node_edges),
-               (SELECT COUNT(*) FROM semantic_chunks WHERE embedding_values IS NOT NULL)""",
+               (SELECT COUNT(*) FROM semantic_chunks WHERE embedding_values IS NOT NULL),
+               {vectorCountSelect}""",
         conn)
     use reader = cmd.ExecuteReader()
     if reader.Read() then
@@ -1145,7 +1181,9 @@ let getStats () =
           EdgeCount = reader.GetInt32(6)
           EmbeddedChunkCount = reader.GetInt32(7)
           EmbeddingProvider = provider.Name
-          EmbeddingReady = provider.IsReady }
+          EmbeddingReady = provider.IsReady
+          PgvectorEnabled = pgvectorAvailable.Value
+          VectorIndexedChunkCount = reader.GetInt32(8) }
     else
         { DocumentCount = 0
           ChunkCount = 0
@@ -1156,7 +1194,9 @@ let getStats () =
           EdgeCount = 0
           EmbeddedChunkCount = 0
           EmbeddingProvider = provider.Name
-          EmbeddingReady = provider.IsReady }
+          EmbeddingReady = provider.IsReady
+          PgvectorEnabled = pgvectorAvailable.Value
+          VectorIndexedChunkCount = 0 }
 
 let getDispersionCandidates (limit: int) (minChunkCount: int) =
     use conn = openConnection()
@@ -1798,24 +1838,45 @@ let private searchChunksDetailed
                 yield readChunkHit fallbackReader queryEmbedding ]
 
     let isolatedCandidateLimit = recovery.CandidateLimit
-    use isolatedCmd = new NpgsqlCommand(
-        """SELECT d.source_type,
-                  d.source_key,
-                  d.title,
-                  c.chunk_position,
-                  c.content,
-                  0 AS matched_token_count,
-                  0 AS matched_weight,
-                  c.embedding_values
-           FROM semantic_chunks c
-           JOIN semantic_documents d ON d.id = c.document_id
-           WHERE c.embedding_values IS NOT NULL
-             AND (@sourceType IS NULL OR d.source_type = @sourceType)
-           ORDER BY c.embedded_at DESC NULLS LAST, d.updated_at DESC, c.chunk_position ASC
-           LIMIT @candidateLimit""",
-        conn)
+    // With pgvector the isolated pool is a true nearest-neighbor top-k over the
+    // HNSW index; without it we keep the recency-ordered pool and rely on the
+    // in-memory cosine scoring downstream.
+    let isolatedSql =
+        if pgvectorAvailable.Value then
+            """SELECT d.source_type,
+                      d.source_key,
+                      d.title,
+                      c.chunk_position,
+                      c.content,
+                      0 AS matched_token_count,
+                      0 AS matched_weight,
+                      c.embedding_values
+               FROM semantic_chunks c
+               JOIN semantic_documents d ON d.id = c.document_id
+               WHERE c.embedding IS NOT NULL
+                 AND (@sourceType IS NULL OR d.source_type = @sourceType)
+               ORDER BY c.embedding <=> CAST(@queryVector AS vector) ASC
+               LIMIT @candidateLimit"""
+        else
+            """SELECT d.source_type,
+                      d.source_key,
+                      d.title,
+                      c.chunk_position,
+                      c.content,
+                      0 AS matched_token_count,
+                      0 AS matched_weight,
+                      c.embedding_values
+               FROM semantic_chunks c
+               JOIN semantic_documents d ON d.id = c.document_id
+               WHERE c.embedding_values IS NOT NULL
+                 AND (@sourceType IS NULL OR d.source_type = @sourceType)
+               ORDER BY c.embedded_at DESC NULLS LAST, d.updated_at DESC, c.chunk_position ASC
+               LIMIT @candidateLimit"""
+    use isolatedCmd = new NpgsqlCommand(isolatedSql, conn)
     isolatedCmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
     isolatedCmd.Parameters.AddWithValue("candidateLimit", isolatedCandidateLimit) |> ignore
+    if pgvectorAvailable.Value then
+        isolatedCmd.Parameters.AddWithValue("queryVector", vectorLiteral queryEmbedding) |> ignore
 
     use isolatedReader = isolatedCmd.ExecuteReader()
     let isolatedHits =
