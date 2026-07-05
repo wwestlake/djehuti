@@ -121,29 +121,45 @@ function MapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits: Mu
 
 void MapPanel
 
+const MAP_CELL_SIZE = 130
+const MAP_PADDING = 70
+
 function ZoneMapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits: MudMapExitView[]; onJump: (command: string) => void }) {
-  if (!rooms.length) return <p className="mud-empty">No map data yet.</p>
+  const mapContainerRef = useRef<HTMLDivElement | null>(null)
+  const [revealedRoomId, setRevealedRoomId] = useState<string | null>(null)
+
   const xs = rooms.map(room => room.x)
   const ys = rooms.map(room => room.y)
-  const minX = Math.min(...xs)
-  const maxX = Math.max(...xs)
-  const minY = Math.min(...ys)
-  const maxY = Math.max(...ys)
-  const width = Math.max(1, maxX - minX)
-  const height = Math.max(1, maxY - minY)
+  const minX = rooms.length ? Math.min(...xs) : 0
+  const maxX = rooms.length ? Math.max(...xs) : 0
+  const minY = rooms.length ? Math.min(...ys) : 0
+  const maxY = rooms.length ? Math.max(...ys) : 0
+  const gridWidth = Math.max(1, maxX - minX)
+  const gridHeight = Math.max(1, maxY - minY)
+  const canvasWidth = gridWidth * MAP_CELL_SIZE + MAP_PADDING * 2
+  const canvasHeight = gridHeight * MAP_CELL_SIZE + MAP_PADDING * 2
   const positionOf = (room: MudMapRoomView) => {
-    const leftPercent = 10 + ((room.x - minX) / width) * 80
-    const topPercent = 12 + ((room.y - minY) / height) * 70
-    return {
-      left: `${leftPercent}%`,
-      top: `${topPercent}%`,
-      leftPercent,
-      topPercent,
-    }
+    const leftPx = MAP_PADDING + (room.x - minX) * MAP_CELL_SIZE
+    const topPx = MAP_PADDING + (room.y - minY) * MAP_CELL_SIZE
+    return { left: `${leftPx}px`, top: `${topPx}px`, leftPx, topPx }
   }
   const roomPositions = Object.fromEntries(rooms.map(room => [room.roomId, positionOf(room)]))
   const currentRoom = rooms.find(room => room.current) ?? rooms[0]
   const uniqueExitTypes = Array.from(new Set(exits.map(exit => exit.exitType)))
+
+  useEffect(() => {
+    const container = mapContainerRef.current
+    const pos = currentRoom ? roomPositions[currentRoom.roomId] : undefined
+    if (!container || !pos) return
+    container.scrollTo({
+      left: Math.max(0, pos.leftPx - container.clientWidth / 2),
+      top: Math.max(0, pos.topPx - container.clientHeight / 2),
+      behavior: 'auto',
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentRoom?.roomId, rooms.length])
+
+  if (!rooms.length) return <p className="mud-empty">No map data yet.</p>
 
   const exitTypeGlyph = (exitType: string) => {
     switch (exitType) {
@@ -168,38 +184,49 @@ function ZoneMapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits
 
   return (
     <>
-      <div className="mud-map mud-map-enhanced">
-        <svg className="mud-map-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-          {exits.map(exit => {
-            const from = roomPositions[exit.fromRoomId]
-            const to = roomPositions[exit.toRoomId]
-            if (!from || !to) return null
+      <div className="mud-map mud-map-enhanced" ref={mapContainerRef}>
+        <div className="mud-map-canvas" style={{ width: `${canvasWidth}px`, height: `${canvasHeight}px` }}>
+          <svg
+            className="mud-map-lines"
+            viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            {exits.map(exit => {
+              const from = roomPositions[exit.fromRoomId]
+              const to = roomPositions[exit.toRoomId]
+              if (!from || !to) return null
+              return (
+                <line
+                  key={`${exit.fromRoomId}-${exit.toRoomId}-${exit.direction}`}
+                  className={`mud-map-line exit-${exit.exitType}`}
+                  x1={from.leftPx}
+                  y1={from.topPx}
+                  x2={to.leftPx}
+                  y2={to.topPx}
+                />
+              )
+            })}
+          </svg>
+          {rooms.map(room => {
+            const pos = roomPositions[room.roomId]
+            const revealed = room.current || revealedRoomId === room.roomId
             return (
-              <line
-                key={`${exit.fromRoomId}-${exit.toRoomId}-${exit.direction}`}
-                className={`mud-map-line exit-${exit.exitType}`}
-                x1={from.leftPercent}
-                y1={from.topPercent}
-                x2={to.leftPercent}
-                y2={to.topPercent}
-              />
+              <button
+                key={room.roomId}
+                className={`mud-map-room${room.current ? ' current' : ''}${revealed ? ' revealed' : ''}`}
+                style={{ left: pos.left, top: pos.top }}
+                onClick={() => {
+                  setRevealedRoomId(id => id === room.roomId ? null : room.roomId)
+                  if (room.current) onJump('look')
+                }}
+              >
+                <strong>{room.roomName}</strong>
+                <small>{room.current ? 'You are here' : 'Mapped room'}</small>
+              </button>
             )
           })}
-        </svg>
-        {rooms.map(room => {
-          const pos = roomPositions[room.roomId]
-          return (
-            <button
-              key={room.roomId}
-              className={`mud-map-room${room.current ? ' current' : ''}`}
-              style={{ left: pos.left, top: pos.top }}
-              onClick={() => room.current ? onJump('look') : undefined}
-            >
-              <strong>{room.roomName}</strong>
-              <small>{room.current ? 'You are here' : 'Mapped room'}</small>
-            </button>
-          )
-        })}
+        </div>
       </div>
       <div className="mud-map-summary">
         <span className="mud-map-summary-card">
@@ -563,6 +590,19 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
     }
   }
 
+  const handleBackToRoster = async () => {
+    setBusy(true)
+    try {
+      const nextRoster = await mudApi.getRoster()
+      setRoster(nextRoster)
+      setState(null)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load the roster.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const handleDeleteCharacter = async (character: MudCharacterSummary) => {
     const confirmed = window.confirm(`Delete ${character.displayName}? Inventory and carried progress on that character will be lost.`)
     if (!confirmed) return
@@ -677,6 +717,15 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
               </span>
             </div>
             <div className="mud-game-header-actions">
+              <button
+                className="mud-icon-btn"
+                onClick={() => void handleBackToRoster()}
+                disabled={busy}
+                title="Switch character or realm"
+                aria-label="Switch character or realm"
+              >
+                <UserRound size={16} />
+              </button>
               {embedded && (
                 <button
                   className="mud-icon-btn"
