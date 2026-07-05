@@ -13,14 +13,13 @@ import {
   type MudMapRoomView,
   type MudRoomState,
   type MudRosterView,
+  type MudStatRoll,
   type MudStats,
 } from '../api/mudApi'
 import { uploadToS3 } from '../api/mediaApi'
 import { useAuth } from '../contexts/AuthContext'
 import { THEMES, useTheme } from '../contexts/ThemeContext'
 
-const STAT_POOL_BUDGET = 6
-const MAX_ALLOCATION_PER_STAT = 4
 const STAT_KEYS: (keyof MudStats)[] = ['presence', 'wit', 'resolve', 'lore', 'craft', 'guile']
 const STAT_LABELS: Record<keyof MudStats, string> = {
   presence: 'Presence', wit: 'Wit', resolve: 'Resolve', lore: 'Lore', craft: 'Craft', guile: 'Guile',
@@ -568,6 +567,8 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
   const [createBio, setCreateBio] = useState('')
   const [archetypes, setArchetypes] = useState<MudArchetype[]>([])
   const [createArchetype, setCreateArchetype] = useState('')
+  const [statRoll, setStatRoll] = useState<MudStatRoll | null>(null)
+  const [rolling, setRolling] = useState(false)
   const [statAllocation, setStatAllocation] = useState<MudStats>({
     presence: 0, wit: 0, resolve: 0, lore: 0, craft: 0, guile: 0,
   })
@@ -610,17 +611,31 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
     }
   }, [realmArchetypes, createArchetype])
 
+  const bonusPool = statRoll?.bonusPool ?? 0
   const statPointsUsed = STAT_KEYS.reduce((sum, key) => sum + statAllocation[key], 0)
-  const statPointsRemaining = STAT_POOL_BUDGET - statPointsUsed
+  const statPointsRemaining = bonusPool - statPointsUsed
 
   const adjustStat = (key: keyof MudStats, delta: number) => {
     setStatAllocation(current => {
       const nextValue = current[key] + delta
-      if (nextValue < 0 || nextValue > MAX_ALLOCATION_PER_STAT) return current
+      if (nextValue < 0) return current
       const nextTotal = statPointsUsed - current[key] + nextValue
-      if (nextTotal > STAT_POOL_BUDGET) return current
+      if (nextTotal > bonusPool) return current
       return { ...current, [key]: nextValue }
     })
+  }
+
+  const handleRollStats = async () => {
+    setRolling(true)
+    try {
+      const roll = await mudApi.rollStats()
+      setStatRoll(roll)
+      setStatAllocation({ presence: 0, wit: 0, resolve: 0, lore: 0, craft: 0, guile: 0 })
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not roll stats.')
+    } finally {
+      setRolling(false)
+    }
   }
 
   const openView = (view: GameView) => {
@@ -701,7 +716,7 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
   }
 
   const handleCreateCharacter = async () => {
-    if (!createName.trim() || !createArchetype || statPointsRemaining !== 0) return
+    if (!createName.trim() || !createArchetype || !statRoll || statPointsRemaining !== 0) return
     setBusy(true)
     try {
       const nextRoster = await mudApi.createCharacter({
@@ -724,6 +739,7 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
       setCreateName('')
       setCreateDisplayName('')
       setCreateBio('')
+      setStatRoll(null)
       setStatAllocation({ presence: 0, wit: 0, resolve: 0, lore: 0, craft: 0, guile: 0 })
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not create that character.')
@@ -1132,39 +1148,64 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
                   />
 
                   <div>
-                    <div className="mud-meta" style={{ marginBottom: 8 }}>
-                      <span>Stat points remaining: {statPointsRemaining}</span>
-                    </div>
-                    <div className="mud-stat-allocator">
-                      {STAT_KEYS.map(key => (
-                        <div key={key} className="mud-stat-allocator-row">
-                          <span className="mud-stat-allocator-label">{STAT_LABELS[key]}</span>
-                          <button
-                            type="button"
-                            className="mud-quick-chip"
-                            onClick={() => adjustStat(key, -1)}
-                            disabled={busy || statAllocation[key] <= 0}
-                          >
-                            −
-                          </button>
-                          <span className="mud-stat-allocator-value">{statAllocation[key]}</span>
-                          <button
-                            type="button"
-                            className="mud-quick-chip"
-                            onClick={() => adjustStat(key, 1)}
-                            disabled={busy || statAllocation[key] >= MAX_ALLOCATION_PER_STAT || statPointsRemaining <= 0}
-                          >
-                            +
-                          </button>
-                        </div>
-                      ))}
-                    </div>
+                    <button
+                      type="button"
+                      className="mud-command-btn"
+                      onClick={() => void handleRollStats()}
+                      disabled={busy || rolling}
+                    >
+                      {rolling ? 'Rolling…' : statRoll ? 'Reroll stats' : 'Roll stats'}
+                    </button>
+                    <p className="mud-empty" style={{ marginTop: 8 }}>
+                      Each stat and your bonus point pool are rolled as 3d6 (3-18). Once you create
+                      the character the roll locks in — reroll before then if you want a new draw.
+                    </p>
                   </div>
+
+                  {statRoll && (
+                    <>
+                      <div className="mud-pill-grid">
+                        {STAT_KEYS.map(key => (
+                          <span key={key} className="mud-stat-pill">{STAT_LABELS[key]}: {statRoll.stats[key]}</span>
+                        ))}
+                      </div>
+
+                      <div>
+                        <div className="mud-meta" style={{ marginBottom: 8 }}>
+                          <span>Bonus points remaining: {statPointsRemaining} / {bonusPool}</span>
+                        </div>
+                        <div className="mud-stat-allocator">
+                          {STAT_KEYS.map(key => (
+                            <div key={key} className="mud-stat-allocator-row">
+                              <span className="mud-stat-allocator-label">{STAT_LABELS[key]}</span>
+                              <button
+                                type="button"
+                                className="mud-quick-chip"
+                                onClick={() => adjustStat(key, -1)}
+                                disabled={busy || statAllocation[key] <= 0}
+                              >
+                                −
+                              </button>
+                              <span className="mud-stat-allocator-value">{statAllocation[key]}</span>
+                              <button
+                                type="button"
+                                className="mud-quick-chip"
+                                onClick={() => adjustStat(key, 1)}
+                                disabled={busy || statPointsRemaining <= 0}
+                              >
+                                +
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   <button
                     className="mud-command-btn"
                     onClick={() => void handleCreateCharacter()}
-                    disabled={busy || !createName.trim() || !createArchetype || statPointsRemaining !== 0}
+                    disabled={busy || !createName.trim() || !createArchetype || !statRoll || statPointsRemaining !== 0}
                   >
                     Create character
                   </button>

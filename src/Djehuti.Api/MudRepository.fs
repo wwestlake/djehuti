@@ -923,9 +923,6 @@ type MudArchetype =
       StarterItemSlug: string
       StarterItemDescription: string }
 
-let [<Literal>] StatPointPoolBudget = 6
-let [<Literal>] MaxAllocationPerStat = 4
-let [<Literal>] MaxFinalStat = 8
 let [<Literal>] StarterCurrencyGrant = 15
 
 let private archetypeDefinitions =
@@ -1020,27 +1017,50 @@ let private archetypeBySlug (realmSlug: string) (slug: string) =
     archetypeDefinitions
     |> List.tryFind (fun a -> a.RealmSlug = normalizeRealmSlug realmSlug && a.Slug = slug.Trim().ToLowerInvariant())
 
-let private validateStatAllocation (archetype: MudArchetype) (allocation: MudStats) =
+/// Each base stat and the bonus-allocation pool are rolled the same way:
+/// sum of three dice (1-6), i.e. classic 3d6 (range 3-18 per roll).
+let private rollD6 () = System.Random.Shared.Next(1, 7)
+let private roll3d6 () = rollD6 () + rollD6 () + rollD6 ()
+
+type StatRoll =
+    { Stats: MudStats
+      BonusPool: int }
+
+let rollCharacterStats () : StatRoll =
+    { Stats =
+        { Presence = roll3d6 ()
+          Wit = roll3d6 ()
+          Resolve = roll3d6 ()
+          Lore = roll3d6 ()
+          Craft = roll3d6 ()
+          Guile = roll3d6 () }
+      BonusPool = roll3d6 () }
+
+/// Pending rolls are held in memory only (per userId, one at a time) --
+/// no reroll once a character is created, and losing a pending roll to a
+/// deploy/restart just means the player rolls again, so this doesn't need
+/// to be durable.
+let private pendingStatRolls = System.Collections.Concurrent.ConcurrentDictionary<Guid, StatRoll>()
+
+let rollStatsForUser (userId: Guid) : StatRoll =
+    let roll = rollCharacterStats ()
+    pendingStatRolls.[userId] <- roll
+    roll
+
+let private validateStatAllocation (archetype: MudArchetype) (roll: StatRoll) (allocation: MudStats) =
     let values = [ allocation.Presence; allocation.Wit; allocation.Resolve; allocation.Lore; allocation.Craft; allocation.Guile ]
     if values |> List.exists (fun v -> v < 0) then
         Error "Stat points cannot be negative."
-    elif values |> List.exists (fun v -> v > MaxAllocationPerStat) then
-        Error $"No more than {MaxAllocationPerStat} points may go into a single stat."
-    elif List.sum values <> StatPointPoolBudget then
-        Error $"You must allocate exactly {StatPointPoolBudget} points across your stats."
+    elif List.sum values <> roll.BonusPool then
+        Error $"You must allocate exactly {roll.BonusPool} points (your rolled bonus pool) across your stats."
     else
-        let finalStats =
-            { Presence = 1 + archetype.StatBonusPresence + allocation.Presence
-              Wit = 1 + archetype.StatBonusWit + allocation.Wit
-              Resolve = 1 + archetype.StatBonusResolve + allocation.Resolve
-              Lore = 1 + archetype.StatBonusLore + allocation.Lore
-              Craft = 1 + archetype.StatBonusCraft + allocation.Craft
-              Guile = 1 + archetype.StatBonusGuile + allocation.Guile }
-        let finalValues = [ finalStats.Presence; finalStats.Wit; finalStats.Resolve; finalStats.Lore; finalStats.Craft; finalStats.Guile ]
-        if finalValues |> List.exists (fun v -> v > MaxFinalStat) then
-            Error $"No stat may exceed {MaxFinalStat} after bonuses and allocation."
-        else
-            Ok finalStats
+        Ok
+            { Presence = roll.Stats.Presence + archetype.StatBonusPresence + allocation.Presence
+              Wit = roll.Stats.Wit + archetype.StatBonusWit + allocation.Wit
+              Resolve = roll.Stats.Resolve + archetype.StatBonusResolve + allocation.Resolve
+              Lore = roll.Stats.Lore + archetype.StatBonusLore + allocation.Lore
+              Craft = roll.Stats.Craft + archetype.StatBonusCraft + allocation.Craft
+              Guile = roll.Stats.Guile + archetype.StatBonusGuile + allocation.Guile }
 
 let private currencyNames slug =
     match realmBySlug slug with
@@ -1751,7 +1771,10 @@ let createCharacter
         match archetypeBySlug normalizedRealm archetypeSlug with
         | None -> Error "Choose a background for your character."
         | Some archetype ->
-        match validateStatAllocation archetype allocation with
+        match pendingStatRolls.TryGetValue(userId) with
+        | false, _ -> Error "Roll your stats before creating a character."
+        | true, roll ->
+        match validateStatAllocation archetype roll allocation with
         | Error message -> Error message
         | Ok stats ->
             use conn = openConnection ()
@@ -1860,6 +1883,7 @@ let createCharacter
                         starterItemCmd.Parameters.AddWithValue("description", archetype.StarterItemDescription) |> ignore
                         starterItemCmd.ExecuteNonQuery() |> ignore
 
+                        pendingStatRolls.TryRemove(userId) |> ignore
                         Ok (getRoster userId)
 
 let deleteCharacter (userId: Guid) (characterId: Guid) =
