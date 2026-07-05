@@ -14,6 +14,8 @@ export interface SemanticGraphStats {
   embeddedChunkCount: number
   embeddingProvider: string
   embeddingReady: boolean
+  pgvectorEnabled: boolean
+  vectorIndexedChunkCount: number
 }
 
 export interface SemanticAutomationStatus {

@@ -2053,3 +2053,24 @@ let ``semantic recovery widens isolated sweep under unstable trajectory`` () =
     Assert.True(recovery.CandidateLimit > 96)
     Assert.True(recovery.ResultLimit >= 12)
     Assert.True(recovery.SimilarityFloor < 0.2)
+
+[<Fact>]
+let ``vector literal formats pgvector input with invariant culture`` () =
+    let literal = SemanticGraphRepository.vectorLiteral [| 0.5f; -1.25f; 0.0f |]
+
+    Assert.Equal("[0.5,-1.25,0]", literal)
+
+[<Fact>]
+let ``vector literal handles empty embedding`` () =
+    let literal = SemanticGraphRepository.vectorLiteral [||]
+
+    Assert.Equal("[]", literal)
+
+[<Fact>]
+let ``vector literal round trips full embedding dimension`` () =
+    let values = Array.init 384 (fun index -> float32 index / 384.0f)
+    let literal = SemanticGraphRepository.vectorLiteral values
+
+    Assert.StartsWith("[", literal)
+    Assert.EndsWith("]", literal)
+    Assert.Equal(384, literal.Split(',').Length)

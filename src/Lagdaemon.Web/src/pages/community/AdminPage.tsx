@@ -1883,6 +1883,17 @@ export default function AdminPage() {
                     </span>
                   </div>
                 </div>
+                <div className="metrics-stat-card">
+                  <div className="metrics-stat-label">Vector index</div>
+                  <div className="metrics-stat-all" style={{ fontSize: '1.15rem' }}>
+                    {semanticStats.pgvectorEnabled ? semanticStats.vectorIndexedChunkCount : 'off'}
+                  </div>
+                  <div className="metrics-stat-split">
+                    <span style={{ color: semanticStats.pgvectorEnabled ? '#56d364' : 'var(--text-muted)', fontSize: '0.75rem' }}>
+                      {semanticStats.pgvectorEnabled ? 'pgvector HNSW' : 'in-memory cosine'}
+                    </span>
+                  </div>
+                </div>
               </div>
             )}
 
