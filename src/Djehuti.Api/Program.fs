@@ -181,7 +181,15 @@ type MudChatPostRequest =
 type MudCharacterCreateRequest =
     { RealmSlug: string
       Name: string
-      DisplayName: string }
+      DisplayName: string
+      ArchetypeSlug: string
+      Bio: string
+      Presence: int
+      Wit: int
+      Resolve: int
+      Lore: int
+      Craft: int
+      Guile: int }
 
 [<CLIMutable>]
 type MudCompanionUpdateRequest =
@@ -1480,10 +1488,26 @@ let main args =
                 match Guid.TryParse(claims.UserId) with
                 | false, _ -> Results.Unauthorized()
                 | true, userId ->
-                    match MudRepository.createCharacter userId body.RealmSlug body.Name (if String.IsNullOrWhiteSpace body.DisplayName then None else Some body.DisplayName) with
+                    let displayName = if String.IsNullOrWhiteSpace body.DisplayName then None else Some body.DisplayName
+                    let bio = if String.IsNullOrWhiteSpace body.Bio then None else Some body.Bio
+                    let allocation : MudRepository.MudStats =
+                        { Presence = body.Presence
+                          Wit = body.Wit
+                          Resolve = body.Resolve
+                          Lore = body.Lore
+                          Craft = body.Craft
+                          Guile = body.Guile }
+                    match MudRepository.createCharacter userId body.RealmSlug body.Name displayName body.ArchetypeSlug allocation bio with
                     | Ok roster -> Results.Ok(roster)
                     | Error message -> Results.BadRequest(message)
             | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/mud/archetypes",
+        Func<IResult>(fun () ->
+            Results.Ok(MudRepository.getArchetypes())
         )
     ) |> ignore
 
@@ -1510,6 +1534,41 @@ let main args =
                 match Guid.TryParse(claims.UserId), Guid.TryParse(characterId) with
                 | (true, userId), (true, selectedCharacterId) ->
                     if MudRepository.deleteCharacter userId selectedCharacterId then
+                        Results.Ok(MudRepository.getRoster userId)
+                    else
+                        Results.NotFound("Character not found")
+                | _ -> Results.BadRequest("Invalid character id")
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/mud/characters/{characterId}/portrait",
+        Func<HttpContext, string, {| portraitUrl: string |}, IResult>(fun ctx characterId body ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                match Guid.TryParse(claims.UserId), Guid.TryParse(characterId) with
+                | (true, userId), (true, parsedCharacterId) ->
+                    if String.IsNullOrWhiteSpace body.portraitUrl then
+                        Results.BadRequest("portraitUrl is required")
+                    elif MudRepository.updateCharacterPortrait userId parsedCharacterId body.portraitUrl then
+                        Results.Ok(MudRepository.getRoster userId)
+                    else
+                        Results.NotFound("Character not found")
+                | _ -> Results.BadRequest("Invalid character id")
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/mud/characters/{characterId}/bio",
+        Func<HttpContext, string, {| bio: string |}, IResult>(fun ctx characterId body ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                match Guid.TryParse(claims.UserId), Guid.TryParse(characterId) with
+                | (true, userId), (true, parsedCharacterId) ->
+                    let bio = if String.IsNullOrWhiteSpace body.bio then None else Some body.bio
+                    if MudRepository.updateCharacterBio userId parsedCharacterId bio then
                         Results.Ok(MudRepository.getRoster userId)
                     else
                         Results.NotFound("Character not found")

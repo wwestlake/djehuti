@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Backpack, Compass, Eye, Locate, LogOut, Map as MapIcon, Maximize2, Minimize2, ScrollText, Settings2, UserRound, ZoomIn, ZoomOut } from 'lucide-react'
 import {
   mudApi,
+  type MudArchetype,
   type MudCharacterSummary,
   type MudChatMessageView,
   type MudChatSyncView,
@@ -12,9 +13,18 @@ import {
   type MudMapRoomView,
   type MudRoomState,
   type MudRosterView,
+  type MudStats,
 } from '../api/mudApi'
+import { uploadToS3 } from '../api/mediaApi'
 import { useAuth } from '../contexts/AuthContext'
 import { THEMES, useTheme } from '../contexts/ThemeContext'
+
+const STAT_POOL_BUDGET = 6
+const MAX_ALLOCATION_PER_STAT = 4
+const STAT_KEYS: (keyof MudStats)[] = ['presence', 'wit', 'resolve', 'lore', 'craft', 'guile']
+const STAT_LABELS: Record<keyof MudStats, string> = {
+  presence: 'Presence', wit: 'Wit', resolve: 'Resolve', lore: 'Lore', craft: 'Craft', guile: 'Guile',
+}
 
 const QUICK_COMMANDS = [
   { label: 'Look', command: 'look' },
@@ -555,6 +565,14 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
   const [createRealm, setCreateRealm] = useState('medieval')
   const [createName, setCreateName] = useState('')
   const [createDisplayName, setCreateDisplayName] = useState('')
+  const [createBio, setCreateBio] = useState('')
+  const [archetypes, setArchetypes] = useState<MudArchetype[]>([])
+  const [createArchetype, setCreateArchetype] = useState('')
+  const [statAllocation, setStatAllocation] = useState<MudStats>({
+    presence: 0, wit: 0, resolve: 0, lore: 0, craft: 0, guile: 0,
+  })
+  const [portraitUploading, setPortraitUploading] = useState<string | null>(null)
+  const [bioDraftByCharacter, setBioDraftByCharacter] = useState<Record<string, string>>({})
   const [companion, setCompanion] = useState<MudCompanionSettings | null>(null)
   const [companionDraft, setCompanionDraft] = useState<MudCompanionDraft | null>(null)
   const [companionLoading, setCompanionLoading] = useState(false)
@@ -578,7 +596,32 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
 
   useEffect(() => {
     void loadAll()
+    mudApi.getArchetypes().then(setArchetypes).catch(() => setArchetypes([]))
   }, [])
+
+  const realmArchetypes = useMemo(
+    () => archetypes.filter(archetype => archetype.realmSlug === createRealm),
+    [archetypes, createRealm],
+  )
+
+  useEffect(() => {
+    if (realmArchetypes.length && !realmArchetypes.some(archetype => archetype.slug === createArchetype)) {
+      setCreateArchetype(realmArchetypes[0].slug)
+    }
+  }, [realmArchetypes, createArchetype])
+
+  const statPointsUsed = STAT_KEYS.reduce((sum, key) => sum + statAllocation[key], 0)
+  const statPointsRemaining = STAT_POOL_BUDGET - statPointsUsed
+
+  const adjustStat = (key: keyof MudStats, delta: number) => {
+    setStatAllocation(current => {
+      const nextValue = current[key] + delta
+      if (nextValue < 0 || nextValue > MAX_ALLOCATION_PER_STAT) return current
+      const nextTotal = statPointsUsed - current[key] + nextValue
+      if (nextTotal > STAT_POOL_BUDGET) return current
+      return { ...current, [key]: nextValue }
+    })
+  }
 
   const openView = (view: GameView) => {
     setActiveView(view)
@@ -658,13 +701,21 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
   }
 
   const handleCreateCharacter = async () => {
-    if (!createName.trim()) return
+    if (!createName.trim() || !createArchetype || statPointsRemaining !== 0) return
     setBusy(true)
     try {
       const nextRoster = await mudApi.createCharacter({
         realmSlug: createRealm,
         name: createName.trim(),
         displayName: createDisplayName.trim() || undefined,
+        archetypeSlug: createArchetype,
+        bio: createBio.trim() || undefined,
+        presence: statAllocation.presence,
+        wit: statAllocation.wit,
+        resolve: statAllocation.resolve,
+        lore: statAllocation.lore,
+        craft: statAllocation.craft,
+        guile: statAllocation.guile,
       })
       setRoster(nextRoster)
       const nextState = await mudApi.getMe()
@@ -672,8 +723,42 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
       setMessage(`Character created in ${createRealm}.`)
       setCreateName('')
       setCreateDisplayName('')
+      setCreateBio('')
+      setStatAllocation({ presence: 0, wit: 0, resolve: 0, lore: 0, craft: 0, guile: 0 })
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not create that character.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleUploadPortrait = async (character: MudCharacterSummary, file: File) => {
+    setPortraitUploading(character.id)
+    try {
+      const media = await uploadToS3(file, 'mud-character-portrait', character.id)
+      const nextRoster = await mudApi.updateCharacterPortrait(character.id, media.url)
+      setRoster(nextRoster)
+      const nextState = await mudApi.getMe()
+      setState(nextState)
+      setMessage(`Portrait updated for ${character.displayName}.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not upload that portrait.')
+    } finally {
+      setPortraitUploading(null)
+    }
+  }
+
+  const handleSaveBio = async (character: MudCharacterSummary) => {
+    const bio = bioDraftByCharacter[character.id] ?? character.bio ?? ''
+    setBusy(true)
+    try {
+      const nextRoster = await mudApi.updateCharacterBio(character.id, bio)
+      setRoster(nextRoster)
+      const nextState = await mudApi.getMe()
+      setState(nextState)
+      setMessage(`Bio updated for ${character.displayName}.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not save that bio.')
     } finally {
       setBusy(false)
     }
@@ -724,6 +809,79 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
     } finally {
       setBusy(false)
     }
+  }
+
+  const renderRosterCard = (character: MudCharacterSummary, playLabel: string) => {
+    const archetype = archetypes.find(a => a.slug === character.archetypeSlug)
+    const bioDraft = bioDraftByCharacter[character.id] ?? character.bio ?? ''
+    return (
+      <div key={character.id} className={`mud-roster-card${character.isSelected ? ' selected' : ''}`}>
+        <div className="mud-roster-head">
+          <div className="mud-roster-identity">
+            {character.portraitUrl ? (
+              <img className="mud-roster-portrait" src={character.portraitUrl} alt={`${character.displayName} portrait`} />
+            ) : (
+              <div className="mud-roster-portrait mud-roster-portrait-placeholder">
+                <UserRound size={22} />
+              </div>
+            )}
+            <div>
+              <strong>{character.displayName}</strong>
+              {character.title && <span className="mud-status-pill ok" style={{ marginLeft: 8 }}>{character.title}</span>}
+              <div className="mud-empty">
+                {character.realmName} · {character.currentRoomName}
+                {archetype && ` · ${archetype.name}`}
+              </div>
+            </div>
+          </div>
+          <div className="mud-meta">
+            <span>{character.mudTierName}</span>
+            <span>{character.inventoryCount} items</span>
+          </div>
+        </div>
+        <StatPills character={character} />
+        {character.bio && <p className="mud-roster-bio">{character.bio}</p>}
+        <div className="mud-form-grid" style={{ marginTop: 12 }}>
+          <textarea
+            className="mud-command-input"
+            value={bioDraft}
+            onChange={e => setBioDraftByCharacter(current => ({ ...current, [character.id]: e.target.value }))}
+            placeholder="Character bio"
+            rows={2}
+            disabled={busy}
+          />
+          <div className="mud-quick-commands">
+            <button className="mud-quick-chip" onClick={() => void handleSaveBio(character)} disabled={busy}>
+              Save bio
+            </button>
+            <label className="mud-quick-chip" style={{ cursor: 'pointer' }}>
+              {portraitUploading === character.id ? 'Uploading…' : 'Upload portrait'}
+              <input
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                disabled={portraitUploading === character.id}
+                onChange={e => {
+                  const file = e.target.files?.[0]
+                  e.target.value = ''
+                  if (file) void handleUploadPortrait(character, file)
+                }}
+              />
+            </label>
+          </div>
+        </div>
+        <div className="mud-quick-commands" style={{ marginTop: 12 }}>
+          {!character.isSelected && (
+            <button className="mud-quick-chip" onClick={() => void handleSelectCharacter(character.id)} disabled={busy}>
+              {playLabel}
+            </button>
+          )}
+          <button className="mud-quick-chip danger" onClick={() => void handleDeleteCharacter(character)} disabled={busy}>
+            Delete
+          </button>
+        </div>
+      </div>
+    )
   }
 
   useEffect(() => {
@@ -913,31 +1071,7 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
 
                   <div className="mud-roster-list">
                     {roster.characters.length === 0 && <p className="mud-empty">No characters yet. Create one below.</p>}
-                    {roster.characters.map(character => (
-                      <div key={character.id} className={`mud-roster-card${character.isSelected ? ' selected' : ''}`}>
-                        <div className="mud-roster-head">
-                          <div>
-                            <strong>{character.displayName}</strong>
-                            <div className="mud-empty">{character.realmName} · {character.currentRoomName}</div>
-                          </div>
-                          <div className="mud-meta">
-                            <span>{character.mudTierName}</span>
-                            <span>{character.inventoryCount} items</span>
-                          </div>
-                        </div>
-                        <StatPills character={character} />
-                        <div className="mud-quick-commands" style={{ marginTop: 12 }}>
-                          {!character.isSelected && (
-                            <button className="mud-quick-chip" onClick={() => void handleSelectCharacter(character.id)} disabled={busy}>
-                              Play
-                            </button>
-                          )}
-                          <button className="mud-quick-chip danger" onClick={() => void handleDeleteCharacter(character)} disabled={busy}>
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                    {roster.characters.map(character => renderRosterCard(character, 'Play'))}
                   </div>
                 </>
               ) : (
@@ -967,7 +1101,71 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
                     placeholder="Display name (optional)"
                     disabled={busy}
                   />
-                  <button className="mud-command-btn" onClick={() => void handleCreateCharacter()} disabled={busy || !createName.trim()}>
+
+                  <label className="mud-field-label">
+                    Archetype
+                    <select
+                      className="mud-command-input"
+                      value={createArchetype}
+                      onChange={e => setCreateArchetype(e.target.value)}
+                      disabled={busy || !realmArchetypes.length}
+                    >
+                      {realmArchetypes.map(archetype => (
+                        <option key={archetype.slug} value={archetype.slug}>{archetype.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  {realmArchetypes.find(archetype => archetype.slug === createArchetype) && (
+                    <p className="mud-empty">
+                      {realmArchetypes.find(archetype => archetype.slug === createArchetype)?.description}
+                      {' '}Starts with: {realmArchetypes.find(archetype => archetype.slug === createArchetype)?.starterItemName}.
+                    </p>
+                  )}
+
+                  <textarea
+                    className="mud-command-input"
+                    value={createBio}
+                    onChange={e => setCreateBio(e.target.value)}
+                    placeholder="Character bio (optional)"
+                    rows={3}
+                    disabled={busy}
+                  />
+
+                  <div>
+                    <div className="mud-meta" style={{ marginBottom: 8 }}>
+                      <span>Stat points remaining: {statPointsRemaining}</span>
+                    </div>
+                    <div className="mud-stat-allocator">
+                      {STAT_KEYS.map(key => (
+                        <div key={key} className="mud-stat-allocator-row">
+                          <span className="mud-stat-allocator-label">{STAT_LABELS[key]}</span>
+                          <button
+                            type="button"
+                            className="mud-quick-chip"
+                            onClick={() => adjustStat(key, -1)}
+                            disabled={busy || statAllocation[key] <= 0}
+                          >
+                            −
+                          </button>
+                          <span className="mud-stat-allocator-value">{statAllocation[key]}</span>
+                          <button
+                            type="button"
+                            className="mud-quick-chip"
+                            onClick={() => adjustStat(key, 1)}
+                            disabled={busy || statAllocation[key] >= MAX_ALLOCATION_PER_STAT || statPointsRemaining <= 0}
+                          >
+                            +
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    className="mud-command-btn"
+                    onClick={() => void handleCreateCharacter()}
+                    disabled={busy || !createName.trim() || !createArchetype || statPointsRemaining !== 0}
+                  >
                     Create character
                   </button>
                 </div>
@@ -1111,33 +1309,42 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
               {activeView === 'character' && (
                 <div className="mud-game-view">
                   <div className="mud-card mud-card-flat">
-                    {subView !== 'roster' && <StatPills character={selectedCharacter ?? state} />}
-                    {subView === 'roster' && roster && (
-                      <div className="mud-roster-list mud-roster-inline">
-                        {roster.characters.map(character => (
-                          <div key={character.id} className={`mud-roster-card${character.isSelected ? ' selected' : ''}`}>
-                            <div className="mud-roster-head">
-                              <div>
-                                <strong>{character.displayName}</strong>
-                                <div className="mud-empty">{character.realmName} · {character.currentRoomName}</div>
-                              </div>
-                              <div className="mud-meta">
-                                <span>{character.mudTierName}</span>
-                                <span>{character.inventoryCount} items</span>
-                              </div>
-                            </div>
-                            <div className="mud-quick-commands" style={{ marginTop: 12 }}>
-                              {!character.isSelected && (
-                                <button className="mud-quick-chip" onClick={() => void handleSelectCharacter(character.id)} disabled={busy}>
-                                  Switch
-                                </button>
-                              )}
-                              <button className="mud-quick-chip danger" onClick={() => void handleDeleteCharacter(character)} disabled={busy}>
-                                Delete
-                              </button>
+                    {subView !== 'roster' && (
+                      <>
+                        {(selectedCharacter ?? state) && (
+                          <div className="mud-roster-head" style={{ marginBottom: 12 }}>
+                            <div className="mud-roster-identity">
+                              {(() => {
+                                const sheet = selectedCharacter ?? state
+                                const portraitUrl = sheet && 'portraitUrl' in sheet ? sheet.portraitUrl : undefined
+                                const title = sheet && 'title' in sheet ? sheet.title : undefined
+                                const name = sheet && 'displayName' in sheet ? sheet.displayName : sheet?.characterName
+                                return (
+                                  <>
+                                    {portraitUrl ? (
+                                      <img className="mud-roster-portrait" src={portraitUrl} alt={`${name} portrait`} />
+                                    ) : (
+                                      <div className="mud-roster-portrait mud-roster-portrait-placeholder">
+                                        <UserRound size={22} />
+                                      </div>
+                                    )}
+                                    <div>
+                                      <strong>{name}</strong>
+                                      {title && <span className="mud-status-pill ok" style={{ marginLeft: 8 }}>{title}</span>}
+                                    </div>
+                                  </>
+                                )
+                              })()}
                             </div>
                           </div>
-                        ))}
+                        )}
+                        {selectedCharacter?.bio && <p className="mud-roster-bio">{selectedCharacter.bio}</p>}
+                        <StatPills character={selectedCharacter ?? state} />
+                      </>
+                    )}
+                    {subView === 'roster' && roster && (
+                      <div className="mud-roster-list mud-roster-inline">
+                        {roster.characters.map(character => renderRosterCard(character, 'Switch'))}
                       </div>
                     )}
                   </div>
