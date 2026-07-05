@@ -71,7 +71,10 @@ function MudLanding({ onEnter }: { onEnter: () => void }) {
   const { user } = useAuth()
   const [stats, setStats] = useState<MudLandingStats | null>(null)
   const shareUrl = 'https://lagdaemon.com/mud/'
-  const shareText = encodeURIComponent('LagDaemon MUD â€” two realms, one browser-based world. Medieval keep or drifting star station, your choice.')
+  const realmCount = stats?.realms.length ?? 2
+  const shareText = encodeURIComponent(
+    `LagDaemon MUD — ${realmCount} realms, one browser-based world. Pick your door.`
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -99,12 +102,12 @@ function MudLanding({ onEnter }: { onEnter: () => void }) {
       <div className="mud-shell mud-landing-shell">
         <div className="mud-landing-hero">
           <div className="mud-kicker">LagDaemon MUD</div>
-          <h1>Two worlds. One door.</h1>
+          <h1>{realmCount} worlds. One door.</h1>
           <p className="mud-landing-tagline">
             A text-first multiplayer world you can play from any browser, on any phone.
-            Walk a medieval keep and its haunted forest, or dock at a drifting star station
-            and board the derelict clamped to its ring. Gather, craft, read everything, and
-            leave your mark.
+            Walk a medieval keep, dock at a drifting star station, slip through a fractured
+            liminal seam, climb a root-choked canopy, or dive into a flooded pressure hull.
+            Gather, craft, read everything, and leave your mark.
           </p>
           <div className="mud-landing-actions">
             <button className="mud-command-btn" onClick={onEnter}>
@@ -144,20 +147,31 @@ function MudLanding({ onEnter }: { onEnter: () => void }) {
         </div>
 
         <div className="mud-landing-grid">
-          <div className="mud-card mud-card-flat">
-            <h2>Medieval Realm</h2>
-            <p className="mud-landing-copy">
-              Enter at the keep gate. Vaults below, a greenwood beyond the walls, a beacon
-              above the clouds, and a barrow door that asks you to knock on your way out.
-            </p>
-          </div>
-          <div className="mud-card mud-card-flat">
-            <h2>Sci-Fi Realm</h2>
-            <p className="mud-landing-copy">
-              Dock at Star Reach. Ride the freight lift to the drift ring, board the Vagrant
-              Star, dive into the Signal Sea, or walk the hull out to the Scar.
-            </p>
-          </div>
+          {stats
+            ? stats.realms.map(realm => (
+                <div className="mud-card mud-card-flat" key={realm.slug}>
+                  <h2>{realm.name} Realm</h2>
+                  <p className="mud-landing-copy">{realm.description}</p>
+                </div>
+              ))
+            : (
+              <>
+                <div className="mud-card mud-card-flat">
+                  <h2>Medieval Realm</h2>
+                  <p className="mud-landing-copy">
+                    Enter at the keep gate. Vaults below, a greenwood beyond the walls, a beacon
+                    above the clouds, and a barrow door that asks you to knock on your way out.
+                  </p>
+                </div>
+                <div className="mud-card mud-card-flat">
+                  <h2>Sci-Fi Realm</h2>
+                  <p className="mud-landing-copy">
+                    Dock at Star Reach. Ride the freight lift to the drift ring, board the Vagrant
+                    Star, dive into the Signal Sea, or walk the hull out to the Scar.
+                  </p>
+                </div>
+              </>
+            )}
           <div className="mud-card mud-card-flat">
             <h2>Gather and Craft</h2>
             <p className="mud-landing-copy">

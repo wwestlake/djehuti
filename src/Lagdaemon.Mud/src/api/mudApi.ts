@@ -128,10 +128,19 @@ export interface MudCompanionSettings {
   updatedAt?: string
 }
 
+export interface MudRealmSummary {
+  slug: string
+  name: string
+  description: string
+  zoneCount: number
+  roomCount: number
+}
+
 export interface MudLandingStats {
   roomCount: number
   zoneCount: number
   recipeCount: number
+  realms: MudRealmSummary[]
 }
 
 export interface MudChatMessageView {
