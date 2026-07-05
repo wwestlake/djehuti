@@ -106,10 +106,18 @@ type MudRosterView =
       PaidSlotsRemaining: int
       BonusSlots: int }
 
+type MudRealmSummary =
+    { Slug: string
+      Name: string
+      Description: string
+      ZoneCount: int
+      RoomCount: int }
+
 type MudLandingStats =
     { RoomCount: int
       ZoneCount: int
-      RecipeCount: int }
+      RecipeCount: int
+      Realms: MudRealmSummary list }
 
 type private MudCharacterRow =
     { Id: Guid
@@ -131,7 +139,8 @@ type private MudUserSettings =
 type private MudRealmDefinition =
     { Slug: string
       Name: string
-      StartRoomSlug: string }
+      StartRoomSlug: string
+      Description: string }
 
 type private MudCraftRecipe =
     { Slug: string
@@ -159,11 +168,16 @@ type private MudCraftRecipeDefinition =
       Active: bool }
 
 let private realmDefinitions =
-    [ { Slug = "medieval"; Name = "Medieval"; StartRoomSlug = "keep-gate" }
-      { Slug = "sci-fi"; Name = "Sci-Fi"; StartRoomSlug = "transit-dock" }
-      { Slug = "the-veil"; Name = "The Veil"; StartRoomSlug = "veil-first-tear" }
-      { Slug = "the-wild-march"; Name = "The Wild March"; StartRoomSlug = "march-greatroot-landing" }
-      { Slug = "the-drowned-reach"; Name = "The Drowned Reach"; StartRoomSlug = "reach-first-airlock" } ]
+    [ { Slug = "medieval"; Name = "Medieval"; StartRoomSlug = "keep-gate"
+        Description = "Enter at the keep gate. Vaults below, a greenwood beyond the walls, a beacon above the clouds, and a barrow door that asks you to knock on your way out." }
+      { Slug = "sci-fi"; Name = "Sci-Fi"; StartRoomSlug = "transit-dock"
+        Description = "Dock at Star Reach. Ride the freight lift to the drift ring, board the Vagrant Star, dive into the Signal Sea, or walk the hull out to the Scar." }
+      { Slug = "the-veil"; Name = "The Veil"; StartRoomSlug = "veil-first-tear"
+        Description = "Step through the first tear. Fractured concrete streets, a claustrophobic alley strung with dead neon, and a frayed cage lift that groans down into the static haze." }
+      { Slug = "the-wild-march"; Name = "The Wild March"; StartRoomSlug = "march-greatroot-landing"
+        Description = "Climb into the greatroot canopy. Hollow trunks wide as halls, vine-swallowed altars, and bioluminescent moss lighting the way between root and stone." }
+      { Slug = "the-drowned-reach"; Name = "The Drowned Reach"; StartRoomSlug = "reach-first-airlock"
+        Description = "Seal the first airlock behind you. A grated stair down into flooded dark, and a glass tunnel where the ocean itself presses in on every side." } ]
 
 let private craftRecipes =
     [ { Slug = "torch"
@@ -1382,6 +1396,19 @@ let getRoster (userId: Guid) =
     let characters = loadCharacters conn userId
     buildRoster userId settings characters
 
+let private realmCountsByRealmSlug (conn: NpgsqlConnection) =
+    use cmd = new NpgsqlCommand(
+        """SELECT z.realm_slug,
+                  COUNT(DISTINCT z.id)::int AS zone_count,
+                  COUNT(r.id)::int AS room_count
+           FROM mud_zones z
+           LEFT JOIN mud_rooms r ON r.zone_id = z.id
+           GROUP BY z.realm_slug""", conn)
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do
+        yield reader.GetString(0), (reader.GetInt32(1), reader.GetInt32(2)) ]
+    |> Map.ofList
+
 let getLandingStats () =
     use conn = openConnection ()
     let recipeCount =
@@ -1393,6 +1420,18 @@ let getLandingStats () =
                 craftRecipes.Length
         with _ ->
             craftRecipes.Length
+    let realmCounts =
+        try realmCountsByRealmSlug conn
+        with _ -> Map.empty
+    let realms =
+        realmDefinitions
+        |> List.map (fun realm ->
+            let zoneCount, roomCount = realmCounts |> Map.tryFind realm.Slug |> Option.defaultValue (0, 0)
+            { Slug = realm.Slug
+              Name = realm.Name
+              Description = realm.Description
+              ZoneCount = zoneCount
+              RoomCount = roomCount })
     use cmd = new NpgsqlCommand(
         """SELECT
                (SELECT COUNT(*)::int FROM mud_rooms),
@@ -1401,11 +1440,13 @@ let getLandingStats () =
     if reader.Read() then
         { RoomCount = reader.GetInt32(0)
           ZoneCount = reader.GetInt32(1)
-          RecipeCount = recipeCount }
+          RecipeCount = recipeCount
+          Realms = realms }
     else
         { RoomCount = 0
           ZoneCount = 0
-          RecipeCount = recipeCount }
+          RecipeCount = recipeCount
+          Realms = realms }
 
 let getState (userId: Guid) : MudRoomState option =
     use conn = openConnection ()
