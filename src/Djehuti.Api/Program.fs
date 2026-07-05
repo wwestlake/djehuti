@@ -1512,6 +1512,20 @@ let main args =
     ) |> ignore
 
     app.MapPost(
+        "/api/mud/characters/roll",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, userId ->
+                    let roll = MudRepository.rollStatsForUser userId
+                    Results.Ok({| stats = roll.Stats; bonusPool = roll.BonusPool |})
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
         "/api/mud/characters/{characterId}/select",
         Func<HttpContext, string, IResult>(fun ctx characterId ->
             match tryGetAuthClaims ctx with

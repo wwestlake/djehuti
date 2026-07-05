@@ -2192,3 +2192,18 @@ let ``map visibility keeps exits between two visited rooms for non-admins`` () =
     Assert.Equal(1, result.MapExits.Length)
     Assert.Equal(roomA, result.MapExits[0].FromRoomId)
     Assert.Equal(roomB, result.MapExits[0].ToRoomId)
+
+[<Fact>]
+let ``rolled character stats and bonus pool always fall within the 3d6 range`` () =
+    for _ in 1 .. 200 do
+        let roll = MudRepository.rollCharacterStats ()
+        let values =
+            [ roll.Stats.Presence; roll.Stats.Wit; roll.Stats.Resolve
+              roll.Stats.Lore; roll.Stats.Craft; roll.Stats.Guile; roll.BonusPool ]
+        for value in values do
+            Assert.InRange(value, 3, 18)
+
+[<Fact>]
+let ``rolled character stats vary across rolls instead of always landing on one value`` () =
+    let rolls = [ for _ in 1 .. 50 -> (MudRepository.rollCharacterStats ()).Stats.Presence ]
+    Assert.True(rolls |> List.distinct |> List.length > 1)

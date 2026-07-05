@@ -79,6 +79,11 @@ export interface MudRoomState {
   title?: string
 }
 
+export interface MudStatRoll {
+  stats: MudStats
+  bonusPool: number
+}
+
 export interface MudArchetype {
   slug: string
   realmSlug: string
@@ -224,6 +229,9 @@ export const mudApi = {
 
   getArchetypes: (): Promise<MudArchetype[]> =>
     fetch(`${BASE}/archetypes`).then(readJsonOrThrow<MudArchetype[]>),
+
+  rollStats: (): Promise<MudStatRoll> =>
+    fetch(`${BASE}/characters/roll`, { ...opts, method: 'POST' }).then(readJsonOrThrow<MudStatRoll>),
 
   createCharacter: (body: {
     realmSlug: string
