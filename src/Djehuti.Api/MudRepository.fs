@@ -160,7 +160,10 @@ type private MudCraftRecipeDefinition =
 
 let private realmDefinitions =
     [ { Slug = "medieval"; Name = "Medieval"; StartRoomSlug = "keep-gate" }
-      { Slug = "sci-fi"; Name = "Sci-Fi"; StartRoomSlug = "transit-dock" } ]
+      { Slug = "sci-fi"; Name = "Sci-Fi"; StartRoomSlug = "transit-dock" }
+      { Slug = "the-veil"; Name = "The Veil"; StartRoomSlug = "veil-first-tear" }
+      { Slug = "the-wild-march"; Name = "The Wild March"; StartRoomSlug = "march-greatroot-landing" }
+      { Slug = "the-drowned-reach"; Name = "The Drowned Reach"; StartRoomSlug = "reach-first-airlock" } ]
 
 let private craftRecipes =
     [ { Slug = "torch"
@@ -2068,7 +2071,8 @@ let handleCommand (userId: Guid) (commandText: string) : MudCommandResult =
                   State = getState userId }
             else
                 move userId direction
-        | "north" | "south" | "east" | "west" | "up" | "down" | "in" | "out" | "portal" | "medieval" | "sci-fi" ->
+        | "north" | "south" | "east" | "west" | "up" | "down" | "in" | "out" | "portal"
+        | "medieval" | "sci-fi" | "the-veil" | "the-wild-march" | "the-drowned-reach" ->
             move userId verb
         | _ ->
             { Success = false
