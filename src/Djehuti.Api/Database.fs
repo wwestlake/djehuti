@@ -3875,6 +3875,24 @@ let private migrations : (int * string) list =
                 RAISE NOTICE 'pgvector not installed; semantic vector retrieval will use in-memory fallback';
             END IF;
         END $pgvector$;
+        """
+
+        58, """
+        DO $pgvector_turns$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN
+                EXECUTE 'ALTER TABLE semantic_query_turns ADD COLUMN IF NOT EXISTS query_vector vector(384)';
+                EXECUTE 'UPDATE semantic_query_turns
+                            SET query_vector = query_embedding::vector(384)
+                          WHERE query_vector IS NULL
+                            AND query_embedding IS NOT NULL
+                            AND cardinality(query_embedding) = 384';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_semantic_query_turns_vector_hnsw
+                             ON semantic_query_turns USING hnsw (query_vector vector_cosine_ops)';
+            ELSE
+                RAISE NOTICE 'pgvector not installed; query-turn vector search unavailable';
+            END IF;
+        END $pgvector_turns$;
         """    ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

@@ -155,6 +155,15 @@ export interface SemanticQueryTurnRecord {
   createdAt: string
 }
 
+export interface SimilarQueryTurn {
+  sessionId: string
+  turnId: string
+  turnIndex: number
+  queryText: string
+  similarity: number
+  createdAt: string
+}
+
 export interface SemanticSearchResponse {
   session: SemanticQuerySessionSummary | null
   currentTurn: SemanticQueryTurnRecord
@@ -163,6 +172,7 @@ export interface SemanticSearchResponse {
   recovery: SemanticRecoveryStatus
   hits: SemanticChunkHit[]
   recorded: boolean
+  similarPastTurns: SimilarQueryTurn[]
 }
 
 export interface SemanticSearchComparison {
