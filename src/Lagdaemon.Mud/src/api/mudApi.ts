@@ -15,6 +15,7 @@ export interface MudMapRoomView {
   x: number
   y: number
   current: boolean
+  visited: boolean
 }
 
 export interface MudMapExitView {

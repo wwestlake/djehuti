@@ -301,12 +301,12 @@ function ZoneMapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits
               return (
                 <button
                   key={room.roomId}
-                  className={`mud-map-room${room.current ? ' current' : ''}`}
+                  className={`mud-map-room${room.current ? ' current' : ''}${!room.visited ? ' unvisited' : ''}`}
                   style={{ left: pos.left, top: pos.top }}
                   onClick={() => handleRoomClick(room)}
                 >
                   <strong>{room.roomName}</strong>
-                  <small>{room.current ? 'You are here' : 'Mapped room'}</small>
+                  <small>{room.current ? 'You are here' : room.visited ? 'Mapped room' : 'Unexplored (admin view)'}</small>
                 </button>
               )
             })}

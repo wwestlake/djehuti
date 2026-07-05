@@ -2117,3 +2117,71 @@ let ``evidence blend respects the result limit after merging channels`` () =
 
     Assert.Equal(3, blended.Length)
     Assert.Equal<string list>([ "doc-a"; "doc-c"; "doc-d" ], blended |> List.map _.SourceKey)
+
+let private makeMudRoomState (mapRooms: MudRepository.MudMapRoomView list) (mapExits: MudRepository.MudMapExitView list) : MudRepository.MudRoomState =
+    { CharacterId = Guid.NewGuid()
+      CharacterName = "Test Character"
+      RealmSlug = "medieval"
+      RealmName = "Medieval"
+      Stats = { Presence = 1; Wit = 1; Resolve = 1; Lore = 1; Craft = 1; Guile = 1 }
+      Skills = { Searching = 1; Crafting = 1; Navigation = 1; Lorekeeping = 1; Negotiation = 1; Devices = 1; Survival = 1 }
+      RoomId = Guid.NewGuid()
+      RoomName = "Test Room"
+      RoomDescription = None
+      ZoneName = "Test Zone"
+      MudTierName = "Free"
+      VisibleItems = []
+      InventoryItems = []
+      MapRooms = mapRooms
+      MapExits = mapExits
+      Exits = [] }
+
+let private makeMapRoom roomId visited current : MudRepository.MudMapRoomView =
+    { RoomId = roomId; RoomName = $"Room {roomId}"; Slug = "room"; X = 0; Y = 0; Current = current; Visited = visited }
+
+[<Fact>]
+let ``map visibility shows the whole zone to admins`` () =
+    let roomA = Guid.NewGuid()
+    let roomB = Guid.NewGuid()
+    let state =
+        makeMudRoomState
+            [ makeMapRoom roomA true true; makeMapRoom roomB false false ]
+            [ { FromRoomId = roomA; ToRoomId = roomB; Direction = "north"; ExitType = "passage"; Label = None } ]
+
+    let result = MudRepository.applyMapVisibility true state
+
+    Assert.Equal(2, result.MapRooms.Length)
+    Assert.Equal(1, result.MapExits.Length)
+
+[<Fact>]
+let ``map visibility fogs unvisited rooms and their exits for non-admins`` () =
+    let roomA = Guid.NewGuid()
+    let roomB = Guid.NewGuid()
+    let state =
+        makeMudRoomState
+            [ makeMapRoom roomA true true; makeMapRoom roomB false false ]
+            [ { FromRoomId = roomA; ToRoomId = roomB; Direction = "north"; ExitType = "passage"; Label = None } ]
+
+    let result = MudRepository.applyMapVisibility false state
+
+    Assert.Equal(1, result.MapRooms.Length)
+    Assert.Equal(roomA, result.MapRooms[0].RoomId)
+    Assert.Empty(result.MapExits)
+
+[<Fact>]
+let ``map visibility keeps exits between two visited rooms for non-admins`` () =
+    let roomA = Guid.NewGuid()
+    let roomB = Guid.NewGuid()
+    let roomC = Guid.NewGuid()
+    let state =
+        makeMudRoomState
+            [ makeMapRoom roomA true true; makeMapRoom roomB true false; makeMapRoom roomC false false ]
+            [ { FromRoomId = roomA; ToRoomId = roomB; Direction = "north"; ExitType = "passage"; Label = None }
+              { FromRoomId = roomB; ToRoomId = roomC; Direction = "north"; ExitType = "passage"; Label = None } ]
+
+    let result = MudRepository.applyMapVisibility false state
+
+    Assert.Equal(2, result.MapRooms.Length)
+    Assert.Equal(1, result.MapExits.Length)
+    Assert.Equal(roomA, result.MapExits[0].FromRoomId)
+    Assert.Equal(roomB, result.MapExits[0].ToRoomId)
