@@ -130,7 +130,6 @@ const MAP_ZOOM_STEP = 0.25
 
 function ZoneMapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits: MudMapExitView[]; onJump: (command: string) => void }) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
-  const [revealedRoomId, setRevealedRoomId] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1)
   const dragState = useRef<{ startX: number; startY: number; scrollLeft: number; scrollTop: number; dragged: boolean } | null>(null)
   const justDraggedRef = useRef(false)
@@ -230,7 +229,6 @@ function ZoneMapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits
       justDraggedRef.current = false
       return
     }
-    setRevealedRoomId(id => id === room.roomId ? null : room.roomId)
     if (room.current) onJump('look')
   }
 
@@ -300,11 +298,10 @@ function ZoneMapPanel({ rooms, exits, onJump }: { rooms: MudMapRoomView[]; exits
             </svg>
             {rooms.map(room => {
               const pos = roomPositions[room.roomId]
-              const revealed = room.current || revealedRoomId === room.roomId
               return (
                 <button
                   key={room.roomId}
-                  className={`mud-map-room${room.current ? ' current' : ''}${revealed ? ' revealed' : ''}`}
+                  className={`mud-map-room${room.current ? ' current' : ''}`}
                   style={{ left: pos.left, top: pos.top }}
                   onClick={() => handleRoomClick(room)}
                 >

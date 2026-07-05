@@ -578,7 +578,31 @@ a { color: var(--accent); }
 
 .mud-map-room.current {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+  border-width: 2px;
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 28%, transparent), 0 0 18px color-mix(in srgb, var(--accent) 45%, transparent);
+  z-index: 2;
+}
+
+.mud-map-room.current::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: inherit;
+  border: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  pointer-events: none;
+  animation: mud-map-current-pulse 2s ease-out infinite;
+}
+
+@keyframes mud-map-current-pulse {
+  0% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.4);
+  }
 }
 
 .mud-map-room strong {
@@ -586,11 +610,20 @@ a { color: var(--accent); }
   line-height: 1.2;
 }
 
+.mud-map-room.current strong {
+  color: var(--accent);
+}
+
 .mud-map-room small {
   display: block;
   margin-top: 0.2rem;
   font-size: 0.68rem;
   color: var(--muted);
+}
+
+.mud-map-room.current small {
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+  font-weight: 600;
 }
 
 .mud-map-summary {
@@ -863,37 +896,9 @@ a { color: var(--accent); }
     height: 280px;
   }
 
-  /* Mobile: rooms collapse to small tap-to-reveal dots instead of
-     always-labeled squares, so a crowded map stays readable; the map
-     itself scrolls/pans via .mud-map's overflow: auto. */
   .mud-map-room {
-    min-width: 0;
-    max-width: none;
-    width: 16px;
-    height: 16px;
-    padding: 0;
-    border-radius: 50%;
-    overflow: visible;
-  }
-
-  .mud-map-room strong,
-  .mud-map-room small {
-    display: none;
-  }
-
-  .mud-map-room.revealed {
-    width: auto;
-    height: auto;
     min-width: 84px;
     max-width: 100px;
-    padding: 0.45rem 0.6rem;
-    border-radius: 14px;
-    z-index: 2;
-  }
-
-  .mud-map-room.revealed strong,
-  .mud-map-room.revealed small {
-    display: block;
   }
 
   .mud-map-summary {
