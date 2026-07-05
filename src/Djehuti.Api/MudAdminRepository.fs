@@ -86,6 +86,30 @@ type MudBuilderAgent =
       Active: bool
       CreatedAt: DateTime }
 
+type MudVendorListing =
+    { Id: Guid
+      VendorId: Guid
+      ItemName: string
+      ItemSlug: string
+      ItemDescription: string option
+      ItemReadableText: string option
+      Portable: bool
+      BuyPrice: int option
+      SellPrice: int option
+      Position: int
+      Active: bool }
+
+type MudVendor =
+    { Id: Guid
+      RoomId: Guid
+      RoomName: string
+      RealmSlug: string
+      Name: string
+      Greeting: string option
+      Active: bool
+      CreatedAt: DateTime
+      Listings: MudVendorListing list }
+
 type MudRealmMetric =
     { RealmSlug: string
       CharacterCount: int }
@@ -562,6 +586,158 @@ let deleteItem (itemId: Guid) =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand("DELETE FROM mud_items WHERE id = @id AND owner_character_id IS NULL", conn)
     cmd.Parameters.AddWithValue("id", itemId) |> ignore
+    cmd.ExecuteNonQuery() > 0
+
+// Vendors (economy)
+
+let private readVendorBase (r: DbDataReader) =
+    { Id = r.GetGuid(0)
+      RoomId = r.GetGuid(1)
+      RoomName = r.GetString(2)
+      RealmSlug = r.GetString(3)
+      Name = r.GetString(4)
+      Greeting = if r.IsDBNull(5) then None else Some (r.GetString(5))
+      Active = r.GetBoolean(6)
+      CreatedAt = r.GetFieldValue<DateTime>(7)
+      Listings = [] }
+
+let private vendorSelectSql =
+    """SELECT v.id, v.room_id, r.name, z.realm_slug, v.name, v.greeting, v.active, v.created_at,
+              l.id, l.item_name, l.item_slug, l.item_description, l.item_readable_text,
+              l.portable, l.buy_price, l.sell_price, l.position, l.active
+       FROM mud_vendors v
+       JOIN mud_rooms r ON r.id = v.room_id
+       JOIN mud_zones z ON z.id = r.zone_id
+       LEFT JOIN mud_vendor_listings l ON l.vendor_id = v.id"""
+
+let private readVendors (reader: DbDataReader) =
+    let vendors = ResizeArray<MudVendor>()
+    let byId = Collections.Generic.Dictionary<Guid, int>()
+
+    while reader.Read() do
+        let vendorId = reader.GetGuid(0)
+        let vendorIndex =
+            match byId.TryGetValue(vendorId) with
+            | true, index -> index
+            | false, _ ->
+                let index = vendors.Count
+                vendors.Add(readVendorBase reader)
+                byId.Add(vendorId, index)
+                index
+
+        if not (reader.IsDBNull(8)) then
+            let listing =
+                { Id = reader.GetGuid(8)
+                  VendorId = vendorId
+                  ItemName = reader.GetString(9)
+                  ItemSlug = reader.GetString(10)
+                  ItemDescription = if reader.IsDBNull(11) then None else Some (reader.GetString(11))
+                  ItemReadableText = if reader.IsDBNull(12) then None else Some (reader.GetString(12))
+                  Portable = reader.GetBoolean(13)
+                  BuyPrice = if reader.IsDBNull(14) then None else Some (reader.GetInt32(14))
+                  SellPrice = if reader.IsDBNull(15) then None else Some (reader.GetInt32(15))
+                  Position = reader.GetInt32(16)
+                  Active = reader.GetBoolean(17) }
+            let vendor = vendors.[vendorIndex]
+            vendors.[vendorIndex] <- { vendor with Listings = vendor.Listings @ [ listing ] }
+
+    vendors |> Seq.toList
+
+let getVendors () =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand($"{vendorSelectSql} ORDER BY v.created_at, l.position, l.item_name", conn)
+    use reader = cmd.ExecuteReader()
+    readVendors reader
+
+let createVendor (roomId: Guid) (name: string) (greeting: string option) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """INSERT INTO mud_vendors (room_id, name, greeting)
+           VALUES (@room_id, @name, @greeting)
+           RETURNING id""", conn)
+    cmd.Parameters.AddWithValue("room_id", roomId) |> ignore
+    cmd.Parameters.AddWithValue("name", name.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("greeting", greeting |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    try
+        let vendorId = cmd.ExecuteScalar() :?> Guid
+        use selectCmd = new NpgsqlCommand($"{vendorSelectSql} WHERE v.id = @id ORDER BY l.position, l.item_name", conn)
+        selectCmd.Parameters.AddWithValue("id", vendorId) |> ignore
+        use reader = selectCmd.ExecuteReader()
+        readVendors reader |> List.tryHead
+    with _ ->
+        None
+
+let updateVendor (vendorId: Guid) (roomId: Guid) (name: string) (greeting: string option) (active: bool) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """UPDATE mud_vendors
+           SET room_id = @room_id, name = @name, greeting = @greeting, active = @active
+           WHERE id = @id""", conn)
+    cmd.Parameters.AddWithValue("id", vendorId) |> ignore
+    cmd.Parameters.AddWithValue("room_id", roomId) |> ignore
+    cmd.Parameters.AddWithValue("name", name.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("greeting", greeting |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("active", active) |> ignore
+    try
+        if cmd.ExecuteNonQuery() = 0 then
+            None
+        else
+            use selectCmd = new NpgsqlCommand($"{vendorSelectSql} WHERE v.id = @id ORDER BY l.position, l.item_name", conn)
+            selectCmd.Parameters.AddWithValue("id", vendorId) |> ignore
+            use reader = selectCmd.ExecuteReader()
+            readVendors reader |> List.tryHead
+    with _ ->
+        None
+
+let deleteVendor (vendorId: Guid) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand("DELETE FROM mud_vendors WHERE id = @id", conn)
+    cmd.Parameters.AddWithValue("id", vendorId) |> ignore
+    cmd.ExecuteNonQuery() > 0
+
+let createVendorListing
+    (vendorId: Guid)
+    (itemName: string)
+    (itemSlug: string)
+    (itemDescription: string option)
+    (itemReadableText: string option)
+    (portable: bool)
+    (buyPrice: int option)
+    (sellPrice: int option)
+    (position: int) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """INSERT INTO mud_vendor_listings (vendor_id, item_name, item_slug, item_description, item_readable_text, portable, buy_price, sell_price, position)
+           VALUES (@vendor_id, @item_name, @item_slug, @item_description, @item_readable_text, @portable, @buy_price, @sell_price, @position)
+           ON CONFLICT (vendor_id, item_slug) DO UPDATE
+           SET item_name = EXCLUDED.item_name,
+               item_description = EXCLUDED.item_description,
+               item_readable_text = EXCLUDED.item_readable_text,
+               portable = EXCLUDED.portable,
+               buy_price = EXCLUDED.buy_price,
+               sell_price = EXCLUDED.sell_price,
+               position = EXCLUDED.position,
+               active = TRUE
+           RETURNING id""", conn)
+    cmd.Parameters.AddWithValue("vendor_id", vendorId) |> ignore
+    cmd.Parameters.AddWithValue("item_name", itemName.Trim()) |> ignore
+    cmd.Parameters.AddWithValue("item_slug", cleanSlug itemName itemSlug) |> ignore
+    cmd.Parameters.AddWithValue("item_description", itemDescription |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("item_readable_text", itemReadableText |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("portable", portable) |> ignore
+    cmd.Parameters.AddWithValue("buy_price", buyPrice |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("sell_price", sellPrice |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    cmd.Parameters.AddWithValue("position", position) |> ignore
+    try
+        cmd.ExecuteScalar() :?> Guid |> ignore
+        true
+    with _ ->
+        false
+
+let deleteVendorListing (listingId: Guid) =
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand("DELETE FROM mud_vendor_listings WHERE id = @id", conn)
+    cmd.Parameters.AddWithValue("id", listingId) |> ignore
     cmd.ExecuteNonQuery() > 0
 
 // Builder roster (AI construction crew)

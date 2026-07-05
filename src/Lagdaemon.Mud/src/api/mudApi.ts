@@ -70,6 +70,9 @@ export interface MudRoomState {
   mapRooms: MudMapRoomView[]
   mapExits: MudMapExitView[]
   exits: MudExitView[]
+  currencyBalance: number
+  currencyName: string
+  currencyNamePlural: string
 }
 
 export interface MudCommandResult {
