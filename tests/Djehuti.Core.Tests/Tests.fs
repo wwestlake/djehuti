@@ -2134,7 +2134,10 @@ let private makeMudRoomState (mapRooms: MudRepository.MudMapRoomView list) (mapE
       InventoryItems = []
       MapRooms = mapRooms
       MapExits = mapExits
-      Exits = [] }
+      Exits = []
+      CurrencyBalance = 0
+      CurrencyName = "crown"
+      CurrencyNamePlural = "crowns" }
 
 let private makeMapRoom roomId visited current : MudRepository.MudMapRoomView =
     { RoomId = roomId; RoomName = $"Room {roomId}"; Slug = "room"; X = 0; Y = 0; Current = current; Visited = visited }

@@ -6,7 +6,7 @@ import type { BlogArticle, BlogTag, BlogAuthor, SiteConfigEntry } from '../../ap
 import { forumApi } from '../../api/forumApi'
 import type { ForumTag, ForumReport } from '../../api/forumApi'
 import { mudAdminApi } from '../../api/mudAdminApi'
-import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics, MudRecipe, MudRecipeIngredient, MudItem, MudBuilderAgent } from '../../api/mudAdminApi'
+import type { MudWorld, MudZone, MudRoom, MudExit, MudAdminMetrics, MudRecipe, MudRecipeIngredient, MudItem, MudBuilderAgent, MudVendor } from '../../api/mudAdminApi'
 import { semanticAdminApi } from '../../api/semanticAdminApi'
 import type { SemanticAdminActionRecord, SemanticAutomationRunResult, SemanticAutomationStatus, SemanticCurvatureStatus, SemanticDriftStatus, SemanticGraphStats, SemanticChunkHit, SemanticQuerySessionSummary, SemanticQueryTurnRecord, SemanticRecoveryStatus, SemanticReindexSummary, SemanticSearchComparison, SemanticSearchComparisonSummary, SemanticSearchResponse, SemanticSessionSearchEvaluation, SemanticSplitApplyResult, SemanticTokenDispersionCandidate, SemanticTokenSplitProposal, SemanticTokenSplitRecord, SimilarQueryTurn } from '../../api/semanticAdminApi'
 import { AdminTable } from '../../components/AdminTable'
@@ -206,6 +206,7 @@ export default function AdminPage() {
   const [mudMetrics, setMudMetrics] = useState<MudAdminMetrics | null>(null)
   const [mudRecipes, setMudRecipes] = useState<MudRecipe[]>([])
   const [mudItems, setMudItems] = useState<MudItem[]>([])
+  const [mudVendors, setMudVendors] = useState<MudVendor[]>([])
   const [mudBuilderAgents, setMudBuilderAgents] = useState<MudBuilderAgent[]>([])
   const [semanticStats, setSemanticStats] = useState<SemanticGraphStats | null>(null)
   const [semanticAutomationStatus, setSemanticAutomationStatus] = useState<SemanticAutomationStatus | null>(null)
@@ -268,6 +269,9 @@ export default function AdminPage() {
   const [editingMudRecipe, setEditingMudRecipe] = useState<MudRecipe | null>(null)
   const [mudItemForm, setMudItemForm] = useState({ roomId: '', name: '', slug: '', description: '', readableText: '', portable: false, position: 0 })
   const [editingMudItem, setEditingMudItem] = useState<MudItem | null>(null)
+  const [mudVendorForm, setMudVendorForm] = useState({ roomId: '', name: '', greeting: '', active: true })
+  const [editingMudVendor, setEditingMudVendor] = useState<MudVendor | null>(null)
+  const [mudListingForm, setMudListingForm] = useState({ vendorId: '', itemName: '', itemSlug: '', itemDescription: '', portable: true, buyPrice: '', sellPrice: '', position: 0 })
   const [mudBuilderAgentForm, setMudBuilderAgentForm] = useState({ slug: '', realmSlug: '', directorSlug: '', displayName: '', specialty: '', model: 'gpt-4o-mini', buildHourUtc: 0, active: true })
   const [editingMudBuilderAgent, setEditingMudBuilderAgent] = useState<MudBuilderAgent | null>(null)
   const [mudSaving, setMudSaving] = useState(false)
@@ -371,6 +375,7 @@ export default function AdminPage() {
         mudAdminApi.getMetrics().then(setMudMetrics),
         mudAdminApi.getRecipes().then(setMudRecipes),
         mudAdminApi.getItems().then(setMudItems),
+        mudAdminApi.getVendors().then(setMudVendors),
         mudAdminApi.getBuilderAgents().then(setMudBuilderAgents),
         semanticAdminApi.getStats().then(setSemanticStats),
         semanticAdminApi.getAutomationStatus().then(setSemanticAutomationStatus),
@@ -1255,6 +1260,69 @@ export default function AdminPage() {
   const cancelMudItemEdit = () => {
     setEditingMudItem(null)
     setMudItemForm({ roomId: '', name: '', slug: '', description: '', readableText: '', portable: false, position: 0 })
+  }
+
+  const saveMudVendor = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!mudVendorForm.name.trim() || !mudVendorForm.roomId) return
+    setMudSaving(true)
+    try {
+      const vendor = editingMudVendor
+        ? await mudAdminApi.updateVendor(editingMudVendor.id, mudVendorForm)
+        : await mudAdminApi.createVendor(mudVendorForm)
+      setMudVendors(prev => prev.some(v => v.id === vendor.id) ? prev.map(v => v.id === vendor.id ? vendor : v) : [vendor, ...prev])
+      setMudVendorForm({ roomId: '', name: '', greeting: '', active: true })
+      setEditingMudVendor(null)
+    } catch { setError('Failed to save vendor') }
+    finally { setMudSaving(false) }
+  }
+
+  const deleteMudVendor = async (vendorId: string) => {
+    if (!confirm('Delete this vendor and all its listings?')) return
+    try {
+      await mudAdminApi.deleteVendor(vendorId)
+      setMudVendors(prev => prev.filter(v => v.id !== vendorId))
+    } catch { setError('Failed to delete vendor') }
+  }
+
+  const startMudVendorEdit = (vendor: MudVendor) => {
+    setEditingMudVendor(vendor)
+    setMudVendorForm({ roomId: vendor.roomId, name: vendor.name, greeting: vendor.greeting ?? '', active: vendor.active })
+  }
+
+  const cancelMudVendorEdit = () => {
+    setEditingMudVendor(null)
+    setMudVendorForm({ roomId: '', name: '', greeting: '', active: true })
+  }
+
+  const saveMudListing = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!mudListingForm.vendorId || !mudListingForm.itemName.trim()) return
+    setMudSaving(true)
+    try {
+      await mudAdminApi.createVendorListing(mudListingForm.vendorId, {
+        itemName: mudListingForm.itemName.trim(),
+        itemSlug: mudListingForm.itemSlug.trim(),
+        itemDescription: mudListingForm.itemDescription.trim() || undefined,
+        portable: mudListingForm.portable,
+        buyPrice: mudListingForm.buyPrice ? Number(mudListingForm.buyPrice) : undefined,
+        sellPrice: mudListingForm.sellPrice ? Number(mudListingForm.sellPrice) : undefined,
+        position: mudListingForm.position,
+      })
+      const refreshed = await mudAdminApi.getVendors()
+      setMudVendors(refreshed)
+      setMudListingForm({ vendorId: mudListingForm.vendorId, itemName: '', itemSlug: '', itemDescription: '', portable: true, buyPrice: '', sellPrice: '', position: 0 })
+    } catch { setError('Failed to save listing') }
+    finally { setMudSaving(false) }
+  }
+
+  const deleteMudListing = async (listingId: string) => {
+    if (!confirm('Delete this listing?')) return
+    try {
+      await mudAdminApi.deleteVendorListing(listingId)
+      const refreshed = await mudAdminApi.getVendors()
+      setMudVendors(refreshed)
+    } catch { setError('Failed to delete listing') }
   }
 
   const saveMudBuilderAgent = async (e: React.FormEvent) => {
@@ -2937,6 +3005,97 @@ export default function AdminPage() {
                   <button className="post-action" onClick={() => startMudItemEdit(item)}>Edit</button>
                   <button className="post-action post-action-delete" onClick={() => deleteMudItem(item.id)}>Delete</button>
                 </div>
+              ) },
+            ]}
+          />
+
+          <form className="admin-grant-form" onSubmit={saveMudVendor}>
+            <h4 style={{ margin: 0 }}>{editingMudVendor ? 'Edit Vendor' : 'Create Vendor'}</h4>
+            <div className="admin-grant-fields" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <input className="papers-new-input" placeholder="Vendor name" value={mudVendorForm.name} onChange={e => setMudVendorForm(f => ({ ...f, name: e.target.value }))} required />
+              <select className="papers-new-input" value={mudVendorForm.roomId} onChange={e => setMudVendorForm(f => ({ ...f, roomId: e.target.value }))} required>
+                <option value="">Choose a room…</option>
+                {(mudWorld?.rooms ?? []).map(room => (
+                  <option key={room.id} value={room.id}>{room.zoneName} — {room.name}</option>
+                ))}
+              </select>
+              <input className="papers-new-input" placeholder="Greeting (optional)" value={mudVendorForm.greeting} onChange={e => setMudVendorForm(f => ({ ...f, greeting: e.target.value }))} style={{ gridColumn: '1 / -1' }} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                <input type="checkbox" checked={mudVendorForm.active} onChange={e => setMudVendorForm(f => ({ ...f, active: e.target.checked }))} />
+                Active
+              </label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="submit" className="tiptap-action-btn primary" disabled={mudSaving || !mudVendorForm.name.trim() || !mudVendorForm.roomId}>
+                  {editingMudVendor ? 'Save Vendor' : 'Create Vendor'}
+                </button>
+                {editingMudVendor && <button type="button" className="tiptap-action-btn" onClick={cancelMudVendorEdit}>Cancel</button>}
+              </div>
+            </div>
+          </form>
+
+          <AdminTable<MudVendor>
+            data={mudVendors}
+            rowKey={vendor => vendor.id}
+            searchKeys={['name', 'roomName', 'realmSlug']}
+            emptyText="No vendors yet."
+            columns={[
+              { key: 'name', label: 'Vendor', render: vendor => <><strong>{vendor.name}</strong><br /><span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{vendor.roomName}</span></> },
+              { key: 'realmSlug', label: 'Realm' },
+              { key: 'listings', label: 'Listings', sortable: false, render: vendor => vendor.listings.length },
+              { key: 'active', label: 'Active', render: vendor => vendor.active ? 'Yes' : 'No' },
+              { key: 'id', label: '', sortable: false, render: vendor => (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="post-action" onClick={() => startMudVendorEdit(vendor)}>Edit</button>
+                  <button className="post-action post-action-delete" onClick={() => deleteMudVendor(vendor.id)}>Delete</button>
+                </div>
+              ) },
+            ]}
+          />
+
+          <form className="admin-grant-form" onSubmit={saveMudListing}>
+            <h4 style={{ margin: 0 }}>Add Vendor Listing</h4>
+            <div className="admin-grant-fields" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <select className="papers-new-input" value={mudListingForm.vendorId} onChange={e => setMudListingForm(f => ({ ...f, vendorId: e.target.value }))} required style={{ gridColumn: '1 / -1' }}>
+                <option value="">Choose a vendor…</option>
+                {mudVendors.map(vendor => (
+                  <option key={vendor.id} value={vendor.id}>{vendor.name} ({vendor.roomName})</option>
+                ))}
+              </select>
+              <input className="papers-new-input" placeholder="Item name" value={mudListingForm.itemName} onChange={e => setMudListingForm(f => ({ ...f, itemName: e.target.value }))} required />
+              <input className="papers-new-input" placeholder="Item slug (optional)" value={mudListingForm.itemSlug} onChange={e => setMudListingForm(f => ({ ...f, itemSlug: e.target.value }))} />
+              <input className="papers-new-input" placeholder="Description" value={mudListingForm.itemDescription} onChange={e => setMudListingForm(f => ({ ...f, itemDescription: e.target.value }))} style={{ gridColumn: '1 / -1' }} />
+              <input className="papers-new-input" type="number" min={0} placeholder="Buy price (blank = not for sale)" value={mudListingForm.buyPrice} onChange={e => setMudListingForm(f => ({ ...f, buyPrice: e.target.value }))} />
+              <input className="papers-new-input" type="number" min={0} placeholder="Sell price (blank = won't buy)" value={mudListingForm.sellPrice} onChange={e => setMudListingForm(f => ({ ...f, sellPrice: e.target.value }))} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                <input type="checkbox" checked={mudListingForm.portable} onChange={e => setMudListingForm(f => ({ ...f, portable: e.target.checked }))} />
+                Portable
+              </label>
+              <button type="submit" className="tiptap-action-btn primary" disabled={mudSaving || !mudListingForm.vendorId || !mudListingForm.itemName.trim()}>
+                Add Listing
+              </button>
+            </div>
+          </form>
+
+          <AdminTable<{ id: string; vendorName: string; itemName: string; itemSlug: string; buyPrice?: number; sellPrice?: number; active: boolean }>
+            data={mudVendors.flatMap(vendor => vendor.listings.map(listing => ({
+              id: listing.id,
+              vendorName: vendor.name,
+              itemName: listing.itemName,
+              itemSlug: listing.itemSlug,
+              buyPrice: listing.buyPrice,
+              sellPrice: listing.sellPrice,
+              active: listing.active,
+            })))}
+            rowKey={row => row.id}
+            searchKeys={['vendorName', 'itemName', 'itemSlug']}
+            emptyText="No vendor listings yet."
+            columns={[
+              { key: 'vendorName', label: 'Vendor' },
+              { key: 'itemName', label: 'Item', render: row => <><strong>{row.itemName}</strong><br /><span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{row.itemSlug}</span></> },
+              { key: 'buyPrice', label: 'Buy price', render: row => row.buyPrice ?? '—' },
+              { key: 'sellPrice', label: 'Sell price', render: row => row.sellPrice ?? '—' },
+              { key: 'id', label: '', sortable: false, render: row => (
+                <button className="post-action post-action-delete" onClick={() => deleteMudListing(row.id)}>Delete</button>
               ) },
             ]}
           />
