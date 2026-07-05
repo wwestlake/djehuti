@@ -81,6 +81,32 @@ export interface MudItem {
   createdAt: string
 }
 
+export interface MudVendorListing {
+  id: string
+  vendorId: string
+  itemName: string
+  itemSlug: string
+  itemDescription?: string
+  itemReadableText?: string
+  portable: boolean
+  buyPrice?: number
+  sellPrice?: number
+  position: number
+  active: boolean
+}
+
+export interface MudVendor {
+  id: string
+  roomId: string
+  roomName: string
+  realmSlug: string
+  name: string
+  greeting?: string
+  active: boolean
+  createdAt: string
+  listings: MudVendorListing[]
+}
+
 export interface MudBuilderAgent {
   id: string
   slug: string
@@ -286,6 +312,48 @@ export const mudAdminApi = {
 
   deleteItem: (itemId: string): Promise<void> =>
     fetch(`${BASE}/items/${itemId}`, { ...opts, method: 'DELETE' }).then(() => {}),
+
+  getVendors: (): Promise<MudVendor[]> =>
+    fetch(`${BASE}/vendors`, opts).then(json),
+
+  createVendor: (fields: { roomId: string; name: string; greeting?: string }): Promise<MudVendor> =>
+    fetch(`${BASE}/vendors`, {
+      ...opts,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomId: fields.roomId, name: fields.name, greeting: fields.greeting ?? '', active: true }),
+    }).then(json),
+
+  updateVendor: (vendorId: string, fields: { roomId: string; name: string; greeting?: string; active: boolean }): Promise<MudVendor> =>
+    fetch(`${BASE}/vendors/${vendorId}`, {
+      ...opts,
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomId: fields.roomId, name: fields.name, greeting: fields.greeting ?? '', active: fields.active }),
+    }).then(json),
+
+  deleteVendor: (vendorId: string): Promise<void> =>
+    fetch(`${BASE}/vendors/${vendorId}`, { ...opts, method: 'DELETE' }).then(() => {}),
+
+  createVendorListing: (vendorId: string, fields: { itemName: string; itemSlug: string; itemDescription?: string; itemReadableText?: string; portable: boolean; buyPrice?: number; sellPrice?: number; position: number }): Promise<void> =>
+    fetch(`${BASE}/vendors/${vendorId}/listings`, {
+      ...opts,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        itemName: fields.itemName,
+        itemSlug: fields.itemSlug,
+        itemDescription: fields.itemDescription ?? '',
+        itemReadableText: fields.itemReadableText ?? '',
+        portable: fields.portable,
+        buyPrice: fields.buyPrice ?? null,
+        sellPrice: fields.sellPrice ?? null,
+        position: fields.position,
+      }),
+    }).then(() => {}),
+
+  deleteVendorListing: (listingId: string): Promise<void> =>
+    fetch(`${BASE}/vendor-listings/${listingId}`, { ...opts, method: 'DELETE' }).then(() => {}),
 
   getBuilderAgents: (): Promise<MudBuilderAgent[]> =>
     fetch(`${BASE}/builder-agents`, opts).then(json),

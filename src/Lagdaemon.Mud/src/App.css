@@ -812,6 +812,13 @@ a { color: var(--accent); }
   color: color-mix(in srgb, var(--accent) 65%, var(--text));
 }
 
+.mud-stat-pill.currency {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+
 .mud-quick-commands {
   margin-top: 0.85rem;
 }

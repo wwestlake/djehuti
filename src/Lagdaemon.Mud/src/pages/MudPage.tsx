@@ -483,6 +483,11 @@ function StatPills({ character }: { character: MudCharacterSummary | MudRoomStat
 
   return (
     <>
+      {'currencyBalance' in character && (
+        <div className="mud-pill-grid">
+          <span className="mud-stat-pill currency">{character.currencyBalance} {character.currencyNamePlural}</span>
+        </div>
+      )}
       <div className="mud-pill-grid">
         {stats.map(([label, value]) => (
           <span key={label} className="mud-stat-pill">{label}: {value}</span>

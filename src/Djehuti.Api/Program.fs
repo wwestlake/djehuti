@@ -260,6 +260,24 @@ type MudItemUpsertRequest =
       Position: int }
 
 [<CLIMutable>]
+type MudVendorUpsertRequest =
+    { RoomId: string
+      Name: string
+      Greeting: string
+      Active: bool }
+
+[<CLIMutable>]
+type MudVendorListingUpsertRequest =
+    { ItemName: string
+      ItemSlug: string
+      ItemDescription: string
+      ItemReadableText: string
+      Portable: bool
+      BuyPrice: Nullable<int>
+      SellPrice: Nullable<int>
+      Position: int }
+
+[<CLIMutable>]
 type MudBuilderAgentCreateRequest =
     { Slug: string
       RealmSlug: string
@@ -2474,6 +2492,103 @@ let main args =
                 | true, itemGuid ->
                     if MudAdminRepository.deleteItem itemGuid then Results.Ok() else Results.NotFound()
                 | _ -> Results.BadRequest("Invalid item id")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    // Vendors (economy)
+
+    app.MapGet(
+        "/api/admin/mud/vendors",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                Results.Ok(MudAdminRepository.getVendors())
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/mud/vendors",
+        Func<HttpContext, MudVendorUpsertRequest, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(body.RoomId) with
+                | false, _ -> Results.BadRequest("Invalid room id")
+                | true, roomId ->
+                    let greeting = if String.IsNullOrWhiteSpace body.Greeting then None else Some (body.Greeting.Trim())
+                    match MudAdminRepository.createVendor roomId body.Name greeting with
+                    | Some vendor -> Results.Created($"/api/admin/mud/vendors/{vendor.Id}", vendor)
+                    | None -> Results.Problem(detail = "Failed to create vendor", statusCode = 500, title = "Error")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPatch(
+        "/api/admin/mud/vendors/{vendorId}",
+        Func<string, HttpContext, MudVendorUpsertRequest, IResult>(fun vendorId ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(vendorId), Guid.TryParse(body.RoomId) with
+                | (false, _), _ -> Results.BadRequest("Invalid vendor id")
+                | _, (false, _) -> Results.BadRequest("Invalid room id")
+                | (true, vendorGuid), (true, roomId) ->
+                    let greeting = if String.IsNullOrWhiteSpace body.Greeting then None else Some (body.Greeting.Trim())
+                    match MudAdminRepository.updateVendor vendorGuid roomId body.Name greeting body.Active with
+                    | Some vendor -> Results.Ok(vendor)
+                    | None -> Results.NotFound()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/admin/mud/vendors/{vendorId}",
+        Func<string, HttpContext, IResult>(fun vendorId ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(vendorId) with
+                | true, vendorGuid ->
+                    if MudAdminRepository.deleteVendor vendorGuid then Results.Ok() else Results.NotFound()
+                | _ -> Results.BadRequest("Invalid vendor id")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/mud/vendors/{vendorId}/listings",
+        Func<string, HttpContext, MudVendorListingUpsertRequest, IResult>(fun vendorId ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(vendorId) with
+                | false, _ -> Results.BadRequest("Invalid vendor id")
+                | true, vendorGuid ->
+                    let description = if String.IsNullOrWhiteSpace body.ItemDescription then None else Some (body.ItemDescription.Trim())
+                    let readableText = if String.IsNullOrWhiteSpace body.ItemReadableText then None else Some (body.ItemReadableText.Trim())
+                    let buyPrice = if body.BuyPrice.HasValue then Some body.BuyPrice.Value else None
+                    let sellPrice = if body.SellPrice.HasValue then Some body.SellPrice.Value else None
+                    let created =
+                        MudAdminRepository.createVendorListing
+                            vendorGuid body.ItemName body.ItemSlug description readableText body.Portable buyPrice sellPrice body.Position
+                    if created then Results.Ok() else Results.Problem(detail = "Failed to save listing", statusCode = 500, title = "Error")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/admin/mud/vendor-listings/{listingId}",
+        Func<string, HttpContext, IResult>(fun listingId ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(listingId) with
+                | true, listingGuid ->
+                    if MudAdminRepository.deleteVendorListing listingGuid then Results.Ok() else Results.NotFound()
+                | _ -> Results.BadRequest("Invalid listing id")
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )

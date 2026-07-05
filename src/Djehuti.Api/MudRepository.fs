@@ -69,7 +69,10 @@ type MudRoomState =
       InventoryItems: MudItemView list
       MapRooms: MudMapRoomView list
       MapExits: MudMapExitView list
-      Exits: MudExitView list }
+      Exits: MudExitView list
+      CurrencyBalance: int
+      CurrencyName: string
+      CurrencyNamePlural: string }
 
 type MudCommandResult =
     { Success: bool
@@ -141,7 +144,9 @@ type private MudRealmDefinition =
     { Slug: string
       Name: string
       StartRoomSlug: string
-      Description: string }
+      Description: string
+      CurrencyName: string
+      CurrencyNamePlural: string }
 
 type private MudCraftRecipe =
     { Slug: string
@@ -170,15 +175,20 @@ type private MudCraftRecipeDefinition =
 
 let private realmDefinitions =
     [ { Slug = "medieval"; Name = "Medieval"; StartRoomSlug = "keep-gate"
-        Description = "Enter at the keep gate. Vaults below, a greenwood beyond the walls, a beacon above the clouds, and a barrow door that asks you to knock on your way out." }
+        Description = "Enter at the keep gate. Vaults below, a greenwood beyond the walls, a beacon above the clouds, and a barrow door that asks you to knock on your way out."
+        CurrencyName = "crown"; CurrencyNamePlural = "crowns" }
       { Slug = "sci-fi"; Name = "Sci-Fi"; StartRoomSlug = "transit-dock"
-        Description = "Dock at Star Reach. Ride the freight lift to the drift ring, board the Vagrant Star, dive into the Signal Sea, or walk the hull out to the Scar." }
+        Description = "Dock at Star Reach. Ride the freight lift to the drift ring, board the Vagrant Star, dive into the Signal Sea, or walk the hull out to the Scar."
+        CurrencyName = "credit"; CurrencyNamePlural = "credits" }
       { Slug = "the-veil"; Name = "The Veil"; StartRoomSlug = "veil-first-tear"
-        Description = "Step through the first tear. Fractured concrete streets, a claustrophobic alley strung with dead neon, and a frayed cage lift that groans down into the static haze." }
+        Description = "Step through the first tear. Fractured concrete streets, a claustrophobic alley strung with dead neon, and a frayed cage lift that groans down into the static haze."
+        CurrencyName = "shard"; CurrencyNamePlural = "shards" }
       { Slug = "the-wild-march"; Name = "The Wild March"; StartRoomSlug = "march-greatroot-landing"
-        Description = "Climb into the greatroot canopy. Hollow trunks wide as halls, vine-swallowed altars, and bioluminescent moss lighting the way between root and stone." }
+        Description = "Climb into the greatroot canopy. Hollow trunks wide as halls, vine-swallowed altars, and bioluminescent moss lighting the way between root and stone."
+        CurrencyName = "resin mark"; CurrencyNamePlural = "resin marks" }
       { Slug = "the-drowned-reach"; Name = "The Drowned Reach"; StartRoomSlug = "reach-first-airlock"
-        Description = "Seal the first airlock behind you. A grated stair down into flooded dark, and a glass tunnel where the ocean itself presses in on every side." } ]
+        Description = "Seal the first airlock behind you. A grated stair down into flooded dark, and a glass tunnel where the ocean itself presses in on every side."
+        CurrencyName = "pressure chit"; CurrencyNamePlural = "pressure chits" } ]
 
 let private craftRecipes =
     [ { Slug = "torch"
@@ -854,7 +864,10 @@ let private readStateBase (r: DbDataReader) =
       InventoryItems = []
       MapRooms = []
       MapExits = []
-      Exits = [] }
+      Exits = []
+      CurrencyBalance = 0
+      CurrencyName = ""
+      CurrencyNamePlural = "" }
 
 let private readItemView (r: DbDataReader) =
     { Name = r.GetString(0)
@@ -872,6 +885,41 @@ let private normalizeRealmSlug (value: string) =
 let private realmBySlug slug =
     realmDefinitions
     |> List.tryFind (fun realm -> realm.Slug = normalizeRealmSlug slug)
+
+let private currencyNames slug =
+    match realmBySlug slug with
+    | Some realm -> realm.CurrencyName, realm.CurrencyNamePlural
+    | None -> "coin", "coins"
+
+let private getCurrencyBalance (conn: NpgsqlConnection) (characterId: Guid) (realmSlug: string) : int =
+    use cmd = new NpgsqlCommand(
+        """SELECT balance FROM mud_character_currency
+           WHERE character_id = @character_id AND realm_slug = @realm_slug""", conn)
+    cmd.Parameters.AddWithValue("character_id", characterId) |> ignore
+    cmd.Parameters.AddWithValue("realm_slug", realmSlug) |> ignore
+    match cmd.ExecuteScalar() with
+    | null -> 0
+    | value -> value :?> int
+
+/// Adjusts a character's realm-scoped currency balance by `delta`
+/// (positive to credit, negative to debit). Refuses to go negative -
+/// returns the resulting balance, or an error naming the shortfall.
+let private adjustCurrency (conn: NpgsqlConnection) (characterId: Guid) (realmSlug: string) (delta: int) : Result<int, string> =
+    let current = getCurrencyBalance conn characterId realmSlug
+    let next = current + delta
+    if next < 0 then
+        Error "not enough to cover that"
+    else
+        use cmd = new NpgsqlCommand(
+            """INSERT INTO mud_character_currency (character_id, realm_slug, balance)
+               VALUES (@character_id, @realm_slug, @balance)
+               ON CONFLICT (character_id, realm_slug) DO UPDATE
+               SET balance = @balance, updated_at = now()""", conn)
+        cmd.Parameters.AddWithValue("character_id", characterId) |> ignore
+        cmd.Parameters.AddWithValue("realm_slug", realmSlug) |> ignore
+        cmd.Parameters.AddWithValue("balance", next) |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+        Ok next
 
 let private realmName slug =
     realmBySlug slug
@@ -1090,6 +1138,8 @@ let private loadStateForCharacter (conn: NpgsqlConnection) (userId: Guid) (chara
                         Label = if mapExitsReader.IsDBNull(4) then None else Some (mapExitsReader.GetString(4)) } ]
 
         let mudTierName = loadMudTierName userId
+        let currencyBalance = getCurrencyBalance conn baseState.CharacterId baseState.RealmSlug
+        let currencyName, currencyNamePlural = currencyNames baseState.RealmSlug
         Some
             { baseState with
                 Exits = exits
@@ -1097,7 +1147,10 @@ let private loadStateForCharacter (conn: NpgsqlConnection) (userId: Guid) (chara
                 InventoryItems = inventoryItems
                 MapRooms = mapRooms
                 MapExits = mapExits
-                MudTierName = mudTierName }
+                MudTierName = mudTierName
+                CurrencyBalance = currencyBalance
+                CurrencyName = currencyName
+                CurrencyNamePlural = currencyNamePlural }
 
 let private getActiveStateInternal (conn: NpgsqlConnection) (userId: Guid) =
     let settings = loadUserSettings conn userId
@@ -1925,6 +1978,282 @@ let craft (userId: Guid) (query: string) : MudCommandResult =
                       Message = message
                       State = Some nextState })
 
+// Economy: vendors, currency, and player-to-player trading
+
+type private MudVendorRow =
+    { VendorId: Guid
+      Name: string
+      Greeting: string option }
+
+type private MudVendorListingRow =
+    { ItemName: string
+      ItemSlug: string
+      ItemDescription: string option
+      ItemReadableText: string option
+      Portable: bool
+      BuyPrice: int option
+      SellPrice: int option }
+
+let private tryFindVendorInRoom (conn: NpgsqlConnection) (roomId: Guid) : MudVendorRow option =
+    use cmd = new NpgsqlCommand(
+        """SELECT id, name, greeting FROM mud_vendors
+           WHERE room_id = @room_id AND active = TRUE
+           ORDER BY created_at LIMIT 1""", conn)
+    cmd.Parameters.AddWithValue("room_id", roomId) |> ignore
+    use reader = cmd.ExecuteReader()
+    if reader.Read() then
+        Some
+            { VendorId = reader.GetGuid(0)
+              Name = reader.GetString(1)
+              Greeting = if reader.IsDBNull(2) then None else Some (reader.GetString(2)) }
+    else
+        None
+
+let private getVendorListings (conn: NpgsqlConnection) (vendorId: Guid) : MudVendorListingRow list =
+    use cmd = new NpgsqlCommand(
+        """SELECT item_name, item_slug, item_description, item_readable_text, portable, buy_price, sell_price
+           FROM mud_vendor_listings
+           WHERE vendor_id = @vendor_id AND active = TRUE
+           ORDER BY position, item_name""", conn)
+    cmd.Parameters.AddWithValue("vendor_id", vendorId) |> ignore
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do
+        yield
+            { ItemName = reader.GetString(0)
+              ItemSlug = reader.GetString(1)
+              ItemDescription = if reader.IsDBNull(2) then None else Some (reader.GetString(2))
+              ItemReadableText = if reader.IsDBNull(3) then None else Some (reader.GetString(3))
+              Portable = reader.GetBoolean(4)
+              BuyPrice = if reader.IsDBNull(5) then None else Some (reader.GetInt32(5))
+              SellPrice = if reader.IsDBNull(6) then None else Some (reader.GetInt32(6)) } ]
+
+let private tryFindListing (query: string) (listings: MudVendorListingRow list) =
+    let normalized = query.Trim().ToLowerInvariant()
+    listings
+    |> List.tryFind (fun listing ->
+        listing.ItemName.ToLowerInvariant() = normalized
+        || listing.ItemSlug.ToLowerInvariant() = normalized
+        || listing.ItemName.ToLowerInvariant().Contains(normalized))
+
+let shop (userId: Guid) : MudCommandResult =
+    withState userId (fun state ->
+        use conn = openConnection ()
+        match tryFindVendorInRoom conn state.RoomId with
+        | None ->
+            { Success = false
+              Command = "shop"
+              Message = "There is no vendor here."
+              State = Some state }
+        | Some vendor ->
+            let listings = getVendorListings conn vendor.VendorId
+            let lines =
+                listings
+                |> List.map (fun listing ->
+                    match listing.BuyPrice, listing.SellPrice with
+                    | Some buy, Some sell -> $"{listing.ItemName} (buy {buy}, sell {sell} {state.CurrencyNamePlural})"
+                    | Some buy, None -> $"{listing.ItemName} (buy {buy} {state.CurrencyNamePlural})"
+                    | None, Some sell -> $"{listing.ItemName} (sell {sell} {state.CurrencyNamePlural})"
+                    | None, None -> listing.ItemName)
+            let greeting = vendor.Greeting |> Option.defaultValue $"{vendor.Name} looks you over."
+            let joinedLines = String.concat "; " lines
+            let message =
+                if listings.IsEmpty then $"{greeting} There is nothing for sale right now."
+                else $"{greeting} Wares: {joinedLines}."
+            { Success = true
+              Command = "shop"
+              Message = message
+              State = Some state })
+
+let buyItem (userId: Guid) (query: string) : MudCommandResult =
+    withState userId (fun state ->
+        let trimmed = query.Trim()
+        if String.IsNullOrWhiteSpace(trimmed) then
+            { Success = false
+              Command = "buy"
+              Message = "Buy what?"
+              State = Some state }
+        else
+            use conn = openConnection ()
+            match tryFindVendorInRoom conn state.RoomId with
+            | None ->
+                { Success = false
+                  Command = $"buy {trimmed}"
+                  Message = "There is no vendor here."
+                  State = Some state }
+            | Some vendor ->
+                let listings = getVendorListings conn vendor.VendorId
+                match tryFindListing trimmed listings with
+                | None ->
+                    { Success = false
+                      Command = $"buy {trimmed}"
+                      Message = $"{vendor.Name} does not sell '{trimmed}'."
+                      State = Some state }
+                | Some listing ->
+                    match listing.BuyPrice with
+                    | None ->
+                        { Success = false
+                          Command = $"buy {trimmed}"
+                          Message = $"{vendor.Name} will not sell {listing.ItemName}."
+                          State = Some state }
+                    | Some price ->
+                        match adjustCurrency conn state.CharacterId state.RealmSlug (-price) with
+                        | Error _ ->
+                            { Success = false
+                              Command = $"buy {trimmed}"
+                              Message = $"You do not have {price} {state.CurrencyNamePlural} for {listing.ItemName}."
+                              State = Some state }
+                        | Ok _ ->
+                            use insertCmd = new NpgsqlCommand(
+                                """INSERT INTO mud_items (owner_character_id, name, slug, description, readable_text, portable, position)
+                                   VALUES (@character_id, @name, @slug, @description, @readable_text, @portable, 0)""", conn)
+                            insertCmd.Parameters.AddWithValue("character_id", state.CharacterId) |> ignore
+                            insertCmd.Parameters.AddWithValue("name", listing.ItemName) |> ignore
+                            insertCmd.Parameters.AddWithValue("slug", listing.ItemSlug) |> ignore
+                            insertCmd.Parameters.AddWithValue("description", listing.ItemDescription |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+                            insertCmd.Parameters.AddWithValue("readable_text", listing.ItemReadableText |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+                            insertCmd.Parameters.AddWithValue("portable", listing.Portable) |> ignore
+                            insertCmd.ExecuteNonQuery() |> ignore
+                            let message = $"You buy {listing.ItemName} for {price} {state.CurrencyNamePlural}."
+                            logEvent conn userId state.CharacterId state.RoomId "buy" (Some trimmed) message (payloadOf [ "item", listing.ItemSlug; "price", string price ])
+                            let nextState = getState userId |> Option.defaultValue state
+                            { Success = true
+                              Command = $"buy {trimmed}"
+                              Message = message
+                              State = Some nextState })
+
+let sellItem (userId: Guid) (query: string) : MudCommandResult =
+    withState userId (fun state ->
+        let trimmed = query.Trim()
+        if String.IsNullOrWhiteSpace(trimmed) then
+            { Success = false
+              Command = "sell"
+              Message = "Sell what?"
+              State = Some state }
+        else
+            use conn = openConnection ()
+            match tryFindVendorInRoom conn state.RoomId with
+            | None ->
+                { Success = false
+                  Command = $"sell {trimmed}"
+                  Message = "There is no vendor here."
+                  State = Some state }
+            | Some vendor ->
+                let listings = getVendorListings conn vendor.VendorId
+                match tryFindListing trimmed listings with
+                | Some listing when listing.SellPrice.IsSome ->
+                    use itemCmd = new NpgsqlCommand(
+                        """SELECT id FROM mud_items
+                           WHERE owner_character_id = @character_id AND slug = @slug
+                           ORDER BY position LIMIT 1""", conn)
+                    itemCmd.Parameters.AddWithValue("character_id", state.CharacterId) |> ignore
+                    itemCmd.Parameters.AddWithValue("slug", listing.ItemSlug) |> ignore
+                    match itemCmd.ExecuteScalar() with
+                    | null ->
+                        { Success = false
+                          Command = $"sell {trimmed}"
+                          Message = $"You are not carrying {listing.ItemName}."
+                          State = Some state }
+                    | itemIdBoxed ->
+                        let itemId = itemIdBoxed :?> Guid
+                        let price = listing.SellPrice.Value
+                        use deleteCmd = new NpgsqlCommand("DELETE FROM mud_items WHERE id = @id", conn)
+                        deleteCmd.Parameters.AddWithValue("id", itemId) |> ignore
+                        deleteCmd.ExecuteNonQuery() |> ignore
+                        adjustCurrency conn state.CharacterId state.RealmSlug price |> ignore
+                        let message = $"You sell {listing.ItemName} for {price} {state.CurrencyNamePlural}."
+                        logEvent conn userId state.CharacterId state.RoomId "sell" (Some trimmed) message (payloadOf [ "item", listing.ItemSlug; "price", string price ])
+                        let nextState = getState userId |> Option.defaultValue state
+                        { Success = true
+                          Command = $"sell {trimmed}"
+                          Message = message
+                          State = Some nextState }
+                | _ ->
+                    { Success = false
+                      Command = $"sell {trimmed}"
+                      Message = $"{vendor.Name} is not buying '{trimmed}'."
+                      State = Some state })
+
+let checkBalance (userId: Guid) : MudCommandResult =
+    withState userId (fun state ->
+        { Success = true
+          Command = "balance"
+          Message = $"You are carrying {state.CurrencyBalance} {state.CurrencyNamePlural}."
+          State = Some state })
+
+let private tryFindCharacterInRoom (conn: NpgsqlConnection) (roomId: Guid) (selfCharacterId: Guid) (name: string) =
+    use cmd = new NpgsqlCommand(
+        """SELECT id, display_name FROM mud_characters
+           WHERE current_room_id = @room_id
+             AND deleted_at IS NULL
+             AND id <> @self
+             AND lower(display_name) = lower(@name)
+           LIMIT 1""", conn)
+    cmd.Parameters.AddWithValue("room_id", roomId) |> ignore
+    cmd.Parameters.AddWithValue("self", selfCharacterId) |> ignore
+    cmd.Parameters.AddWithValue("name", name) |> ignore
+    use reader = cmd.ExecuteReader()
+    if reader.Read() then Some (reader.GetGuid(0), reader.GetString(1)) else None
+
+let give (userId: Guid) (query: string) : MudCommandResult =
+    withState userId (fun state ->
+        let parts = query.Trim().Split([| ' ' |], 3, StringSplitOptions.RemoveEmptyEntries)
+        if parts.Length < 2 then
+            { Success = false
+              Command = "give"
+              Message = "Give what to whom? Try: give <character> <amount> or give <character> <item>."
+              State = Some state }
+        else
+            use conn = openConnection ()
+            let targetName = parts.[0]
+            let rest = parts.[1]
+            match tryFindCharacterInRoom conn state.RoomId state.CharacterId targetName with
+            | None ->
+                { Success = false
+                  Command = "give"
+                  Message = $"There is no one named '{targetName}' here."
+                  State = Some state }
+            | Some (targetId, targetDisplayName) ->
+                match Int32.TryParse(rest) with
+                | true, amount when amount > 0 ->
+                    match adjustCurrency conn state.CharacterId state.RealmSlug (-amount) with
+                    | Error _ ->
+                        { Success = false
+                          Command = "give"
+                          Message = $"You do not have {amount} {state.CurrencyNamePlural}."
+                          State = Some state }
+                    | Ok _ ->
+                        adjustCurrency conn targetId state.RealmSlug amount |> ignore
+                        let message = $"You give {amount} {state.CurrencyNamePlural} to {targetDisplayName}."
+                        logEvent conn userId state.CharacterId state.RoomId "give-currency" (Some rest) message (payloadOf [ "to", targetDisplayName; "amount", string amount ])
+                        let nextState = getState userId |> Option.defaultValue state
+                        { Success = true
+                          Command = "give"
+                          Message = message
+                          State = Some nextState }
+                | _ ->
+                    match tryFindItem state.InventoryItems rest with
+                    | None ->
+                        { Success = false
+                          Command = "give"
+                          Message = $"You are not carrying '{rest}'."
+                          State = Some state }
+                    | Some item ->
+                        use updateCmd = new NpgsqlCommand(
+                            """UPDATE mud_items SET owner_character_id = @target_id
+                               WHERE owner_character_id = @character_id AND slug = @slug
+                               AND id = (SELECT id FROM mud_items WHERE owner_character_id = @character_id AND slug = @slug ORDER BY position LIMIT 1)""", conn)
+                        updateCmd.Parameters.AddWithValue("target_id", targetId) |> ignore
+                        updateCmd.Parameters.AddWithValue("character_id", state.CharacterId) |> ignore
+                        updateCmd.Parameters.AddWithValue("slug", item.Slug) |> ignore
+                        updateCmd.ExecuteNonQuery() |> ignore
+                        let message = $"You give {item.Name} to {targetDisplayName}."
+                        logEvent conn userId state.CharacterId state.RoomId "give-item" (Some rest) message (payloadOf [ "to", targetDisplayName; "item", item.Slug ])
+                        let nextState = getState userId |> Option.defaultValue state
+                        { Success = true
+                          Command = "give"
+                          Message = message
+                          State = Some nextState })
+
 let getItem (userId: Guid) (query: string) : MudCommandResult =
     withState userId (fun state ->
         let trimmed = query.Trim()
@@ -2056,7 +2385,7 @@ let handleCommand (userId: Guid) (commandText: string) : MudCommandResult =
     if String.IsNullOrWhiteSpace(trimmed) then
         { Success = false
           Command = ""
-          Message = "Type look, search, recipes, craft <thing>, examine <thing>, read <thing>, talk <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, shout <message>, whisper <character> <message>, party create/invite/who/leave, gsay <message>, emote <action>, or direct the builders with @headmaster/@hm or @firstspeaker/@fs."
+          Message = "Type look, search, recipes, craft <thing>, examine <thing>, read <thing>, talk <thing>, get <thing>, drop <thing>, inventory, move <direction>, say <message>, shout <message>, whisper <character> <message>, party create/invite/who/leave, gsay <message>, emote <action>, shop, buy <thing>, sell <thing>, balance, give <character> <amount|item>, or direct the builders with @headmaster/@hm or @firstspeaker/@fs."
           State = getState userId }
     else
         let parts = trimmed.Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
@@ -2065,6 +2394,17 @@ let handleCommand (userId: Guid) (commandText: string) : MudCommandResult =
         | "look" | "l" -> look userId
         | "search" | "scan" -> search userId
         | "recipes" | "recipe" -> recipes userId
+        | "shop" | "list" -> shop userId
+        | "buy" ->
+            let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
+            buyItem userId query
+        | "sell" ->
+            let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
+            sellItem userId query
+        | "balance" | "coins" | "wallet" -> checkBalance userId
+        | "give" ->
+            let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
+            give userId query
         | "craft" ->
             let query = if parts.Length > 1 then String.Join(" ", parts.[1..]) else ""
             craft userId query
