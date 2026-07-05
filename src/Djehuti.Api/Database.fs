@@ -538,6 +538,27 @@ let private migrations : (int * string) list =
         """
 
         17, """
+        -- Semantic admin action audit log
+        CREATE TABLE IF NOT EXISTS semantic_admin_action_log (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            admin_user_id   UUID NOT NULL REFERENCES users(id),
+            action          TEXT NOT NULL,
+            token           TEXT,
+            scope_kind      TEXT,
+            scope_value     TEXT,
+            variant_key     TEXT,
+            created_count   INT NOT NULL DEFAULT 0,
+            proposal_count  INT NOT NULL DEFAULT 0,
+            details_json    JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_semantic_admin_action_created ON semantic_admin_action_log(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_semantic_admin_action_admin   ON semantic_admin_action_log(admin_user_id);
+        CREATE INDEX IF NOT EXISTS idx_semantic_admin_action_action  ON semantic_admin_action_log(action);
+        """
+
+        18, """
         -- Forum tagging engine
         CREATE TABLE IF NOT EXISTS forum_tags (
             id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -3754,6 +3775,80 @@ let private migrations : (int * string) list =
 
         CREATE INDEX IF NOT EXISTS idx_semantic_chunks_embedded_at
             ON semantic_chunks(embedded_at DESC);
+        """
+
+        54, """
+        CREATE TABLE IF NOT EXISTS semantic_token_splits (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            token TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            variant_key TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (token, source_type)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_semantic_token_splits_token
+            ON semantic_token_splits(token);
+
+        CREATE INDEX IF NOT EXISTS idx_semantic_token_splits_source
+            ON semantic_token_splits(source_type);
+
+        GRANT ALL ON TABLE semantic_token_splits TO djehuti;
+        """
+
+        55, """
+        ALTER TABLE semantic_token_splits
+            ADD COLUMN IF NOT EXISTS scope_kind TEXT,
+            ADD COLUMN IF NOT EXISTS scope_value TEXT;
+
+        UPDATE semantic_token_splits
+        SET scope_kind = COALESCE(scope_kind, 'source-type'),
+            scope_value = COALESCE(scope_value, source_type)
+        WHERE scope_kind IS NULL OR scope_value IS NULL;
+
+        ALTER TABLE semantic_token_splits
+            ALTER COLUMN scope_kind SET NOT NULL,
+            ALTER COLUMN scope_value SET NOT NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_semantic_token_splits_scope
+            ON semantic_token_splits(scope_kind, scope_value);
+        """
+
+        56, """
+        CREATE TABLE IF NOT EXISTS semantic_query_sessions (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            admin_user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS semantic_query_turns (
+            id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            session_id              UUID NOT NULL REFERENCES semantic_query_sessions(id) ON DELETE CASCADE,
+            turn_index              INT NOT NULL,
+            query_text              TEXT NOT NULL,
+            source_type_filter      TEXT,
+            token_count             INT NOT NULL DEFAULT 0,
+            hit_count               INT NOT NULL DEFAULT 0,
+            source_type_diversity   INT NOT NULL DEFAULT 0,
+            matched_token_total     INT NOT NULL DEFAULT 0,
+            matched_weight_total    INT NOT NULL DEFAULT 0,
+            top_similarity          DOUBLE PRECISION NOT NULL DEFAULT 0,
+            mean_similarity         DOUBLE PRECISION NOT NULL DEFAULT 0,
+            drift_from_previous     DOUBLE PRECISION,
+            query_embedding         REAL[],
+            created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (session_id, turn_index)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_semantic_query_sessions_admin_updated
+            ON semantic_query_sessions(admin_user_id, updated_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_semantic_query_turns_session_turn
+            ON semantic_query_turns(session_id, turn_index DESC);
+
+        GRANT ALL ON TABLE semantic_query_sessions TO djehuti;
+        GRANT ALL ON TABLE semantic_query_turns TO djehuti;
         """    ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

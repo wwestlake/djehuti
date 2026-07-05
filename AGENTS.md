@@ -121,3 +121,15 @@ SSH access is available via the PEM key. The deploy workflow is in `.github/work
 ## PR Links
 
 **Always send a clickable link when referencing a PR.** Do not mention a pull request without including its direct GitHub URL.
+
+---
+
+## Status Reporting
+
+**Every status report must include exact completion percentages.** Report both overall project completion and production readiness completion every time you give a project status update.
+
+---
+
+## Project Board
+
+**Keep the project board up to date as work lands.** When substantive work is completed, update the relevant GitHub project board items/status so the board reflects current progress.

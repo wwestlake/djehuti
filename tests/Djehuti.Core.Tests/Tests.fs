@@ -1,6 +1,7 @@
 module Djehuti.Core.Tests
 
 open System
+open Djehuti.Api
 open Djehuti.Core
 open Xunit
 
@@ -198,6 +199,112 @@ let ``semantic source chunk records tokenize each chunk locally`` () =
     Assert.Contains("fruit", chunks.Head.Tokens)
     Assert.Contains("stands", chunks.Head.Tokens)
     Assert.Contains("popular", chunks.Head.Tokens)
+
+[<Fact>]
+let ``semantic dispersion scores broader context spread higher`` () =
+    let narrow =
+        { Token = "torch"
+          ChunkCount = 3
+          DocumentCount = 2
+          SourceTypeCount = 1
+          NeighborCount = 4 }
+
+    let broad =
+        { Token = "field"
+          ChunkCount = 8
+          DocumentCount = 7
+          SourceTypeCount = 3
+          NeighborCount = 12 }
+
+    let narrowScore = SemanticDispersion.scoreObservation narrow
+    let broadScore = SemanticDispersion.scoreObservation broad
+
+    Assert.True(broadScore > narrowScore)
+    Assert.Equal("low", SemanticDispersion.classify narrowScore)
+    Assert.Equal("high", SemanticDispersion.classify broadScore)
+
+[<Fact>]
+let ``semantic dispersion evaluation preserves counts and adds rounded score`` () =
+    let evaluated =
+        { Token = "gate"
+          ChunkCount = 5
+          DocumentCount = 4
+          SourceTypeCount = 2
+          NeighborCount = 9 }
+        |> SemanticDispersion.evaluate
+
+    Assert.Equal("gate", evaluated.Token)
+    Assert.Equal(5, evaluated.ChunkCount)
+    Assert.Equal(4, evaluated.DocumentCount)
+    Assert.Equal(2, evaluated.SourceTypeCount)
+    Assert.Equal(9, evaluated.NeighborCount)
+    Assert.True(evaluated.DispersionScore > 0.0)
+    Assert.Contains(evaluated.DispersionBand, [| "low"; "medium"; "high" |])
+
+[<Fact>]
+let ``semantic splitting resolves source-specific token variants`` () =
+    let splits =
+        [ { Token = "field"; ScopeKind = "source-type"; ScopeValue = "mud-room"; VariantKey = "field::source::mud-room" }
+          { Token = "field"; ScopeKind = "source-type"; ScopeValue = "blog-article"; VariantKey = "field::source::blog-article" } ]
+
+    let resolved = SemanticSplitting.resolveTokenForContext (Map.ofList [ "source-type", "mud-room" ]) splits "field"
+    let untouched = SemanticSplitting.resolveTokenForContext (Map.ofList [ "source-type", "forum-thread" ]) splits "field"
+
+    Assert.Equal("field::source::mud-room", resolved)
+    Assert.Equal("field", untouched)
+
+[<Fact>]
+let ``semantic splitting expands query token to include matching variants`` () =
+    let splits =
+        [ { Token = "field"; ScopeKind = "source-type"; ScopeValue = "mud-room"; VariantKey = "field::source::mud-room" }
+          { Token = "field"; ScopeKind = "source-type"; ScopeValue = "blog-article"; VariantKey = "field::source::blog-article" } ]
+
+    let allMatches = SemanticSplitting.expandQueryToken None splits "field"
+    let mudMatches = SemanticSplitting.expandQueryToken (Some "mud-room") splits "field"
+
+    Assert.Contains("field", allMatches)
+    Assert.Contains("field::source::mud-room", allMatches)
+    Assert.Contains("field::source::blog-article", allMatches)
+    Assert.Equal<string list>(["field"; "field::source::mud-room"], mudMatches)
+
+[<Fact>]
+let ``semantic splitting resolves zone slug scoped variants`` () =
+    let splits =
+        [ { Token = "gate"; ScopeKind = "zone-slug"; ScopeValue = "inner-keep"; VariantKey = "gate::zone::inner-keep" } ]
+
+    let resolved =
+        SemanticSplitting.resolveTokenForContext
+            (Map.ofList [ "zone-slug", "inner-keep"; "source-type", "mud-room" ])
+            splits
+            "gate"
+
+    Assert.Equal("gate::zone::inner-keep", resolved)
+
+[<Fact>]
+let ``semantic splitting resolves realm scoped variants`` () =
+    let splits =
+        [ { Token = "field"; ScopeKind = "realm"; ScopeValue = "sci-fi"; VariantKey = "field::realm::sci-fi" } ]
+
+    let resolved =
+        SemanticSplitting.resolveTokenForContext
+            (Map.ofList [ "realm", "sci-fi"; "source-type", "mud-item" ])
+            splits
+            "field"
+
+    Assert.Equal("field::realm::sci-fi", resolved)
+
+[<Fact>]
+let ``semantic splitting leaves unresolved token unchanged when scope key mismatches`` () =
+    let splits =
+        [ { Token = "gate"; ScopeKind = "zone-slug"; ScopeValue = "inner-keep"; VariantKey = "gate::zone::inner-keep" } ]
+
+    let resolved =
+        SemanticSplitting.resolveTokenForContext
+            (Map.ofList [ "zone-slug", "outer-yard"; "source-type", "mud-room" ])
+            splits
+            "gate"
+
+    Assert.Equal("gate", resolved)
 
 [<Fact>]
 let ``comparison metrics compare typed prompt response values`` () =
@@ -1819,3 +1926,130 @@ let ``semantic preprocessing selects evidence matching the analyst question`` ()
 
     Assert.Equal(2, selected.Length)
     Assert.Contains(selected, fun item -> item.Label = "observable 0")
+
+[<Fact>]
+let ``semantic query turn summary captures hit counts and similarity metrics`` () =
+    let hits : SemanticGraphRepository.SemanticChunkHit list =
+        [ { SourceType = "forum-thread"
+            SourceKey = "thread-1"
+            Title = "Drift report"
+            ChunkPosition = 0
+            Content = "drift evidence"
+            MatchedTokenCount = 2
+            MatchedWeight = 5
+            Similarity = 0.8
+            RankingScore = 0.825
+            CoOccurrenceWeightMultiplier = 1.0 }
+          { SourceType = "blog-article"
+            SourceKey = "article-1"
+            Title = "Curvature notes"
+            ChunkPosition = 1
+            Content = "curvature evidence"
+            MatchedTokenCount = 1
+            MatchedWeight = 3
+            Similarity = 0.4
+            RankingScore = 0.413
+            CoOccurrenceWeightMultiplier = 1.0 } ]
+
+    let summary =
+        SemanticGraphRepository.summarizeSemanticQueryTurn
+            [ "drift"; "curvature" ]
+            hits
+            None
+            [| 1.0f; 0.0f |]
+
+    Assert.Equal(2, summary.TokenCount)
+    Assert.Equal(2, summary.HitCount)
+    Assert.Equal(2, summary.SourceTypeDiversity)
+    Assert.Equal(3, summary.MatchedTokenTotal)
+    Assert.Equal(8, summary.MatchedWeightTotal)
+    Assert.Equal(0.8, summary.TopSimilarity, 3)
+    Assert.Equal(0.6, summary.MeanSimilarity, 3)
+    Assert.True(summary.DriftFromPrevious.IsNone)
+
+[<Fact>]
+let ``semantic query turn summary computes drift from previous embedding`` () =
+    let summary =
+        SemanticGraphRepository.summarizeSemanticQueryTurn
+            [ "drift" ]
+            []
+            (Some [| 1.0f; 0.0f |])
+            [| 0.0f; 1.0f |]
+
+    Assert.Equal(1, summary.TokenCount)
+    Assert.Equal(0, summary.HitCount)
+    Assert.Equal(0.0, summary.TopSimilarity, 3)
+    Assert.Equal(0.0, summary.MeanSimilarity, 3)
+    Assert.True(summary.DriftFromPrevious.IsSome)
+    Assert.Equal(1.0, summary.DriftFromPrevious.Value, 3)
+
+[<Fact>]
+let ``semantic drift summary stays neutral when there are too few samples`` () =
+    let status =
+        SemanticGraphRepository.summarizeDriftSamples 3 [ 0.2; 0.4; 0.6 ]
+
+    Assert.Equal(3, status.BaseMinChunkCount)
+    Assert.Equal(3, status.AdjustedMinChunkCount)
+    Assert.Equal(1.0, status.PressureMultiplier, 3)
+    Assert.False(status.MediumBandEnabled)
+
+[<Fact>]
+let ``semantic drift summary lowers threshold when sustained drift is high`` () =
+    let status =
+        SemanticGraphRepository.summarizeDriftSamples 4 [ 0.5; 0.6; 0.7; 0.8; 0.55; 0.65 ]
+
+    Assert.Equal(6, status.DriftSampleCount)
+    Assert.True(status.PressureMultiplier > 1.25)
+    Assert.True(status.AdjustedMinChunkCount < status.BaseMinChunkCount)
+    Assert.True(status.MediumBandEnabled)
+
+[<Fact>]
+let ``semantic curvature summary stays neutral without enough prior embeddings`` () =
+    let curvature =
+        SemanticGraphRepository.summarizeCurvatureFromEmbeddings
+            [ [| 1.0f; 0.0f |] ]
+            [| 0.0f; 1.0f |]
+
+    Assert.Equal(1, curvature.SampleCount)
+    Assert.Equal(0.0, curvature.Curvature, 3)
+    Assert.Equal(1.0, curvature.WeightMultiplier, 3)
+
+[<Fact>]
+let ``semantic curvature summary dampens weight on bent trajectories`` () =
+    let curvature =
+        SemanticGraphRepository.summarizeCurvatureFromEmbeddings
+            [ [| 0.0f; 0.0f |]
+              [| 1.0f; 0.0f |] ]
+            [| 1.0f; 1.0f |]
+
+    Assert.Equal(2, curvature.SampleCount)
+    Assert.True(curvature.Curvature > 0.5)
+    Assert.True(curvature.WeightMultiplier < 1.0)
+
+[<Fact>]
+let ``semantic recovery stays stable for low drift and low curvature`` () =
+    let curvature : SemanticGraphRepository.SemanticCurvatureStatus =
+        { SampleCount = 2
+          Curvature = 0.1
+          WeightMultiplier = 0.965 }
+
+    let recovery = SemanticGraphRepository.summarizeRecoveryStatus 12 (Some 0.15) curvature
+
+    Assert.False(recovery.Triggered)
+    Assert.Equal("stable primary path", recovery.Reason)
+    Assert.Equal(0.2, recovery.SimilarityFloor, 3)
+
+[<Fact>]
+let ``semantic recovery widens isolated sweep under unstable trajectory`` () =
+    let curvature : SemanticGraphRepository.SemanticCurvatureStatus =
+        { SampleCount = 2
+          Curvature = 1.2
+          WeightMultiplier = 0.58 }
+
+    let recovery = SemanticGraphRepository.summarizeRecoveryStatus 12 (Some 0.8) curvature
+
+    Assert.True(recovery.Triggered)
+    Assert.True(recovery.TriggerScore >= 0.55)
+    Assert.True(recovery.CandidateLimit > 96)
+    Assert.True(recovery.ResultLimit >= 12)
+    Assert.True(recovery.SimilarityFloor < 0.2)

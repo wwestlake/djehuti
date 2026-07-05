@@ -1614,6 +1614,29 @@ let main args =
     ) |> ignore
 
     app.MapGet(
+        "/api/admin/semantic/automation/status",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                Results.Ok(SemanticIngestionWorker.getStatus())
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/semantic/automation/run",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let _, result = SemanticIngestionWorker.runAutomationPass true None
+                Results.Ok(result)
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
         "/api/admin/semantic/search",
         Func<HttpContext, IResult>(fun ctx ->
             match tryGetAuthClaims ctx with
@@ -1636,10 +1659,412 @@ let main args =
                         | _ -> 10
                     | _ -> 10
 
+                let sessionId =
+                    match ctx.Request.Query.TryGetValue("sessionId") with
+                    | true, values when values.Count > 0 ->
+                        match Guid.TryParse(values.[0]) with
+                        | true, parsed -> Some parsed
+                        | _ -> None
+                    | _ -> None
+
+                let recordTurn =
+                    match ctx.Request.Query.TryGetValue("record") with
+                    | true, values when values.Count > 0 ->
+                        match Boolean.TryParse(values.[0]) with
+                        | true, parsed -> parsed
+                        | _ -> true
+                    | _ -> true
+
                 if String.IsNullOrWhiteSpace query then
                     Results.BadRequest("q is required")
                 else
-                    Results.Ok(SemanticGraphRepository.searchChunks query sourceType limit)
+                    match Guid.TryParse(claims.UserId) with
+                    | true, adminUserId ->
+                        Results.Ok(SemanticGraphRepository.executeTrackedSearch adminUserId query sourceType limit sessionId recordTurn)
+                    | _ -> Results.Unauthorized()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/search/sessions",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let limit =
+                    match ctx.Request.Query.TryGetValue("limit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 25
+                        | _ -> 10
+                    | _ -> 10
+
+                match Guid.TryParse(claims.UserId) with
+                | true, adminUserId -> Results.Ok(SemanticGraphRepository.listSemanticQuerySessions adminUserId limit)
+                | _ -> Results.Unauthorized()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/search/sessions/{sessionId}",
+        Func<HttpContext, Guid, IResult>(fun ctx sessionId ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let turnLimit =
+                    match ctx.Request.Query.TryGetValue("turnLimit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 25
+                        | _ -> 8
+                    | _ -> 8
+
+                match Guid.TryParse(claims.UserId) with
+                | true, adminUserId ->
+                    match SemanticGraphRepository.getSemanticQuerySessionDetail adminUserId sessionId turnLimit with
+                    | Some detail -> Results.Ok(detail)
+                    | None -> Results.NotFound()
+                | _ -> Results.Unauthorized()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/search/sessions/{sessionId}/evaluate",
+        Func<HttpContext, Guid, IResult>(fun ctx sessionId ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let limit =
+                    match ctx.Request.Query.TryGetValue("limit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 25
+                        | _ -> 10
+                    | _ -> 10
+
+                let turnLimit =
+                    match ctx.Request.Query.TryGetValue("turnLimit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 25
+                        | _ -> 8
+                    | _ -> 8
+
+                match Guid.TryParse(claims.UserId) with
+                | true, adminUserId ->
+                    match SemanticGraphRepository.evaluateSearchSession adminUserId sessionId limit turnLimit with
+                    | Some evaluation -> Results.Ok(evaluation)
+                    | None -> Results.NotFound()
+                | _ -> Results.Unauthorized()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/search/compare",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let query =
+                    match ctx.Request.Query.TryGetValue("q") with
+                    | true, values when values.Count > 0 -> values.[0]
+                    | _ -> ""
+
+                let sourceType =
+                    match ctx.Request.Query.TryGetValue("sourceType") with
+                    | true, values when values.Count > 0 && not (String.IsNullOrWhiteSpace values.[0]) -> Some(values.[0].Trim())
+                    | _ -> None
+
+                let limit =
+                    match ctx.Request.Query.TryGetValue("limit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 25
+                        | _ -> 10
+                    | _ -> 10
+
+                let sessionId =
+                    match ctx.Request.Query.TryGetValue("sessionId") with
+                    | true, values when values.Count > 0 ->
+                        match Guid.TryParse(values.[0]) with
+                        | true, parsed -> Some parsed
+                        | _ -> None
+                    | _ -> None
+
+                if String.IsNullOrWhiteSpace query then
+                    Results.BadRequest("q is required")
+                else
+                    match Guid.TryParse(claims.UserId) with
+                    | true, adminUserId ->
+                        Results.Ok(SemanticGraphRepository.compareSearchModes adminUserId query sourceType limit sessionId)
+                    | _ -> Results.Unauthorized()
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/dispersion",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let limit =
+                    match ctx.Request.Query.TryGetValue("limit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 50
+                        | _ -> 12
+                    | _ -> 12
+
+                let minChunkCount =
+                    match ctx.Request.Query.TryGetValue("minChunkCount") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 100
+                        | _ -> 3
+                    | _ -> 3
+
+                Results.Ok(SemanticGraphRepository.getDispersionCandidates limit minChunkCount)
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/drift-status",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let baseMinChunkCount =
+                    match ctx.Request.Query.TryGetValue("baseMinChunkCount") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 100
+                        | _ -> 3
+                    | _ -> 3
+
+                Results.Ok(SemanticGraphRepository.getSemanticDriftStatus baseMinChunkCount)
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/splits",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                Results.Ok(SemanticGraphRepository.listTokenSplits())
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/splits/proposals",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let limit =
+                    match ctx.Request.Query.TryGetValue("limit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 50
+                        | _ -> 12
+                    | _ -> 12
+
+                let minChunkCount =
+                    match ctx.Request.Query.TryGetValue("minChunkCount") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 100
+                        | _ -> 3
+                    | _ -> 3
+
+                let scopeKind =
+                    match ctx.Request.Query.TryGetValue("scopeKind") with
+                    | true, values when values.Count > 0 && not (String.IsNullOrWhiteSpace values.[0]) -> Some(values.[0].Trim().ToLowerInvariant())
+                    | _ -> None
+
+                Results.Ok(SemanticGraphRepository.getTokenSplitProposals limit minChunkCount scopeKind)
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/semantic/splits/history",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let limit =
+                    match ctx.Request.Query.TryGetValue("limit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 100
+                        | _ -> 25
+                    | _ -> 25
+
+                Results.Ok(SemanticGraphRepository.listSemanticAdminActions limit)
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/semantic/splits/materialize/source-types",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let limit =
+                    match ctx.Request.Query.TryGetValue("limit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 50
+                        | _ -> 12
+                    | _ -> 12
+
+                let minChunkCount =
+                    match ctx.Request.Query.TryGetValue("minChunkCount") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 100
+                        | _ -> 3
+                    | _ -> 3
+
+                let created = SemanticGraphRepository.materializeSourceTypeTokenSplits limit minChunkCount
+                let rebuilt = SemanticGraphRepository.backfillGraphChunks 1000
+                match Guid.TryParse(claims.UserId) with
+                | true, adminUserId ->
+                    SemanticGraphRepository.logSemanticAdminAction adminUserId "materialize_auto" None None None None created 0 (Some(sprintf """{"limit":%d,"minChunkCount":%d}""" limit minChunkCount))
+                | _ -> ()
+                Results.Ok({| created = created; rebuilt = rebuilt |})
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/semantic/splits/proposals/apply",
+        Func<HttpContext, SemanticGraphRepository.SemanticTokenSplitProposal, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let token = body.Token.Trim().ToLowerInvariant()
+                let scopeKind = body.ScopeKind.Trim().ToLowerInvariant()
+
+                if String.IsNullOrWhiteSpace token || String.IsNullOrWhiteSpace scopeKind then
+                    Results.BadRequest("token and scopeKind are required")
+                else
+                    let created = SemanticGraphRepository.applyTokenSplitProposal token scopeKind
+                    let rebuilt = SemanticGraphRepository.backfillGraphChunks 1000
+                    match Guid.TryParse(claims.UserId) with
+                    | true, adminUserId ->
+                        SemanticGraphRepository.logSemanticAdminAction adminUserId "proposal_apply" (Some token) (Some scopeKind) None None created 1 None
+                    | _ -> ()
+                    Results.Ok({| created = created; rebuilt = rebuilt |})
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/semantic/splits/proposals/apply-all",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let limit =
+                    match ctx.Request.Query.TryGetValue("limit") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 50
+                        | _ -> 12
+                    | _ -> 12
+
+                let minChunkCount =
+                    match ctx.Request.Query.TryGetValue("minChunkCount") with
+                    | true, values when values.Count > 0 ->
+                        match Int32.TryParse(values.[0]) with
+                        | true, parsed when parsed > 0 -> min parsed 100
+                        | _ -> 3
+                    | _ -> 3
+
+                let scopeKind =
+                    match ctx.Request.Query.TryGetValue("scopeKind") with
+                    | true, values when values.Count > 0 && not (String.IsNullOrWhiteSpace values.[0]) -> Some(values.[0].Trim().ToLowerInvariant())
+                    | _ -> None
+
+                let created, proposalsApplied = SemanticGraphRepository.applyTokenSplitProposals limit minChunkCount scopeKind
+                let rebuilt = SemanticGraphRepository.backfillGraphChunks 1000
+                match Guid.TryParse(claims.UserId) with
+                | true, adminUserId ->
+                    SemanticGraphRepository.logSemanticAdminAction adminUserId "proposal_apply_all" None scopeKind None None created proposalsApplied (Some(sprintf """{"limit":%d,"minChunkCount":%d}""" limit minChunkCount))
+                | _ -> ()
+                Results.Ok({| created = created; proposalsApplied = proposalsApplied; rebuilt = rebuilt |})
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/semantic/splits",
+        Func<HttpContext, SemanticGraphRepository.SemanticTokenSplitRecord, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let token = body.Token.Trim().ToLowerInvariant()
+                let scopeKind = body.ScopeKind.Trim().ToLowerInvariant()
+                let scopeValue = body.ScopeValue.Trim()
+                let variantKey = body.VariantKey.Trim().ToLowerInvariant()
+
+                if String.IsNullOrWhiteSpace token || String.IsNullOrWhiteSpace scopeKind || String.IsNullOrWhiteSpace scopeValue || String.IsNullOrWhiteSpace variantKey then
+                    Results.BadRequest("token, scopeKind, scopeValue, and variantKey are required")
+                else
+                    SemanticGraphRepository.upsertTokenSplit token scopeKind scopeValue variantKey
+                    let rebuilt = SemanticGraphRepository.backfillGraphChunks 1000
+                    match Guid.TryParse(claims.UserId) with
+                    | true, adminUserId ->
+                        SemanticGraphRepository.logSemanticAdminAction adminUserId "split_save" (Some token) (Some scopeKind) (Some scopeValue) (Some variantKey) 1 0 None
+                    | _ -> ()
+                    Results.Ok({| saved = true; rebuilt = rebuilt |})
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/admin/semantic/splits",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let token =
+                    match ctx.Request.Query.TryGetValue("token") with
+                    | true, values when values.Count > 0 -> values.[0].Trim().ToLowerInvariant()
+                    | _ -> ""
+
+                let scopeKind =
+                    match ctx.Request.Query.TryGetValue("scopeKind") with
+                    | true, values when values.Count > 0 -> values.[0].Trim().ToLowerInvariant()
+                    | _ -> ""
+
+                let scopeValue =
+                    match ctx.Request.Query.TryGetValue("scopeValue") with
+                    | true, values when values.Count > 0 -> values.[0].Trim()
+                    | _ -> ""
+
+                if String.IsNullOrWhiteSpace token || String.IsNullOrWhiteSpace scopeKind || String.IsNullOrWhiteSpace scopeValue then
+                    Results.BadRequest("token, scopeKind, and scopeValue are required")
+                else
+                    let deleted = SemanticGraphRepository.deleteTokenSplit token scopeKind scopeValue
+                    let rebuilt = SemanticGraphRepository.backfillGraphChunks 1000
+                    if deleted > 0 then
+                        match Guid.TryParse(claims.UserId) with
+                        | true, adminUserId ->
+                            SemanticGraphRepository.logSemanticAdminAction adminUserId "split_delete" (Some token) (Some scopeKind) (Some scopeValue) None deleted 0 None
+                        | _ -> ()
+                    Results.Ok({| deleted = deleted; rebuilt = rebuilt |})
             | Some _ -> Results.Forbid()
             | None -> Results.Unauthorized()
         )

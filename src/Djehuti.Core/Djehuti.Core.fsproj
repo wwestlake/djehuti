@@ -13,6 +13,8 @@
     <Compile Include="Ai.fs" />
     <Compile Include="SemanticPreprocessing.fs" />
     <Compile Include="SemanticRecords.fs" />
+    <Compile Include="SemanticDispersion.fs" />
+    <Compile Include="SemanticSplitting.fs" />
     <Compile Include="Storage.fs" />
     <Compile Include="Ingestion.fs" />
     <Compile Include="JsonInterop.fs" />
