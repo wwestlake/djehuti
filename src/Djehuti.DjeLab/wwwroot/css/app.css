@@ -339,6 +339,112 @@ a {
     border-radius: 12px;
 }
 
+/* ── AI Setup (Settings) ──────────────────────────────────────────────────── */
+.djelab-settings-card {
+    margin-top: 1.5rem;
+    padding: 1.25rem 1.5rem;
+    background: var(--djelab-surface);
+    border: 1px solid var(--djelab-border);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    max-width: 520px;
+}
+
+.djelab-settings-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--djelab-muted);
+    margin-top: 0.75rem;
+}
+
+    .djelab-settings-label:first-child {
+        margin-top: 0;
+    }
+
+.djelab-settings-key-row {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.djelab-settings-input {
+    flex: 1;
+    padding: 0.55rem 0.75rem;
+    background: var(--djelab-bg);
+    border: 1px solid var(--djelab-border);
+    border-radius: 8px;
+    color: var(--djelab-text);
+    font-size: 0.9rem;
+}
+
+    .djelab-settings-input:focus {
+        outline: none;
+        border-color: var(--djelab-accent);
+    }
+
+.djelab-settings-toggle {
+    padding: 0 0.9rem;
+    background: transparent;
+    border: 1px solid var(--djelab-border);
+    border-radius: 8px;
+    color: var(--djelab-muted);
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+    .djelab-settings-toggle:hover {
+        color: var(--djelab-text);
+        border-color: var(--djelab-accent);
+    }
+
+.djelab-settings-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.djelab-settings-save {
+    padding: 0.5rem 1.1rem;
+    background: var(--djelab-accent);
+    border: none;
+    border-radius: 8px;
+    color: #061019;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+    .djelab-settings-save:disabled {
+        opacity: 0.6;
+        cursor: default;
+    }
+
+.djelab-settings-clear {
+    padding: 0.5rem 1.1rem;
+    background: transparent;
+    border: 1px solid var(--djelab-border);
+    border-radius: 8px;
+    color: #ff8080;
+    cursor: pointer;
+}
+
+    .djelab-settings-clear:disabled {
+        opacity: 0.6;
+        cursor: default;
+    }
+
+.djelab-settings-saved {
+    color: #58d68d;
+    font-size: 0.85rem;
+}
+
+.djelab-settings-hint {
+    margin-top: 1rem;
+    color: var(--djelab-muted);
+    font-size: 0.8rem;
+}
+
 .djelab-status-ok {
     color: #58d68d;
     margin: 0;
