@@ -1,0 +1,64 @@
+@page "/"
+@inject HttpClient Http
+
+<PageTitle>DjeLab — Djehuti Lab AI+</PageTitle>
+
+<div class="djelab-hero">
+    <h1>DjeLab</h1>
+    <p class="djelab-tagline">Djehuti Lab AI+ — an AI-driven numerical computation environment.</p>
+
+    <div class="djelab-status-card">
+        @if (_loading)
+        {
+            <p>Checking connection to Djehuti.Api…</p>
+        }
+        else if (_error is not null)
+        {
+            <p class="djelab-status-error">Could not reach the API: @_error</p>
+        }
+        else if (_me is not null)
+        {
+            <p class="djelab-status-ok">Connected. Signed in as <strong>@_me.DisplayName</strong>.</p>
+        }
+        else
+        {
+            <p class="djelab-status-ok">Connected to Djehuti.Api. Not signed in.</p>
+        }
+    </div>
+</div>
+
+@code {
+    private bool _loading = true;
+    private string? _error;
+    private MeResponse? _me;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var response = await Http.GetAsync("/djehuti/api/auth/me");
+            if (response.IsSuccessStatusCode)
+            {
+                _me = await response.Content.ReadFromJsonAsync<MeResponse>();
+            }
+            else if (response.StatusCode != System.Net.HttpStatusCode.Unauthorized)
+            {
+                _error = $"HTTP {(int)response.StatusCode}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private sealed class MeResponse
+    {
+        public string? DisplayName { get; set; }
+        public string? Email { get; set; }
+    }
+}
