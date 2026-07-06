@@ -4993,7 +4993,7 @@ let main args =
                             |> Option.bind (fun s -> match Guid.TryParse(s) with | true, g -> Some g | false, _ -> None)
                         use conn = Database.openConnection()
                         Permissions.grantContextRole conn targetUserId request.Module request.Role scopeId grantedBy
-                        return Results.Ok()
+                        return Results.Ok({| success = true |})
                 | Some _ -> return Results.Forbid()
                 | None   -> return Results.Unauthorized()
             } |> Async.StartAsTask)
@@ -5024,7 +5024,7 @@ let main args =
                     | true, rid ->
                         use conn = Database.openConnection()
                         let removed = Permissions.revokeContextRoleById conn rid
-                        return if removed then Results.Ok() else Results.NotFound()
+                        return if removed then Results.Ok({| success = true |}) else Results.NotFound()
                 | Some _ -> return Results.Forbid()
                 | None   -> return Results.Unauthorized()
             } |> Async.StartAsTask)
