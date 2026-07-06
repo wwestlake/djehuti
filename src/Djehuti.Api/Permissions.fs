@@ -91,28 +91,35 @@ let revokeContextRole (conn: NpgsqlConnection) (userId: Guid) (mdl: string) (rol
     cmd.ExecuteNonQuery() |> ignore
 
 type ContextRoleAdmin = {
-    Id:        Guid
-    UserId:    Guid
-    Module:    string
-    Role:      string
-    ScopeId:   Guid option
-    GrantedBy: Guid
-    GrantedAt: DateTime
+    Id:              Guid
+    UserId:          Guid
+    UserEmail:       string
+    UserDisplayName: string option
+    Module:          string
+    Role:            string
+    ScopeId:         Guid option
+    GrantedBy:       Guid
+    GrantedAt:       DateTime
 }
 
 let getAllContextRoles (conn: NpgsqlConnection) : ContextRoleAdmin list =
     use cmd = new NpgsqlCommand(
-        "SELECT id, user_id, module, role, scope_id, granted_by, granted_at FROM user_roles ORDER BY granted_at DESC", conn)
+        """SELECT ur.id, ur.user_id, u.email, u.display_name, ur.module, ur.role, ur.scope_id, ur.granted_by, ur.granted_at
+           FROM user_roles ur
+           JOIN users u ON u.id = ur.user_id
+           ORDER BY ur.granted_at DESC""", conn)
     use reader = cmd.ExecuteReader()
     [ while reader.Read() do
         yield {
-            Id        = reader.GetGuid(reader.GetOrdinal("id"))
-            UserId    = reader.GetGuid(reader.GetOrdinal("user_id"))
-            Module    = reader.GetString(reader.GetOrdinal("module"))
-            Role      = reader.GetString(reader.GetOrdinal("role"))
-            ScopeId   = if reader.IsDBNull(reader.GetOrdinal("scope_id")) then None else Some(reader.GetGuid(reader.GetOrdinal("scope_id")))
-            GrantedBy = reader.GetGuid(reader.GetOrdinal("granted_by"))
-            GrantedAt = reader.GetDateTime(reader.GetOrdinal("granted_at"))
+            Id              = reader.GetGuid(reader.GetOrdinal("id"))
+            UserId          = reader.GetGuid(reader.GetOrdinal("user_id"))
+            UserEmail       = reader.GetString(reader.GetOrdinal("email"))
+            UserDisplayName = if reader.IsDBNull(reader.GetOrdinal("display_name")) then None else Some(reader.GetString(reader.GetOrdinal("display_name")))
+            Module          = reader.GetString(reader.GetOrdinal("module"))
+            Role            = reader.GetString(reader.GetOrdinal("role"))
+            ScopeId         = if reader.IsDBNull(reader.GetOrdinal("scope_id")) then None else Some(reader.GetGuid(reader.GetOrdinal("scope_id")))
+            GrantedBy       = reader.GetGuid(reader.GetOrdinal("granted_by"))
+            GrantedAt       = reader.GetDateTime(reader.GetOrdinal("granted_at"))
         } ]
 
 let revokeContextRoleById (conn: NpgsqlConnection) (id: Guid) : bool =
