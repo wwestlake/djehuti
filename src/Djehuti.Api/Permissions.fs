@@ -128,6 +128,8 @@ let ModuleForum = "forum"
 let ModuleBlog = "blog"
 [<Literal>]
 let ModulePapers = "papers"
+[<Literal>]
+let ModuleSystem = "system"
 
 [<Literal>]
 let RoleModerator = "moderator"
@@ -139,3 +141,5 @@ let RoleEditor = "editor"
 let RoleContributor = "contributor"
 [<Literal>]
 let RoleViewer = "viewer"
+[<Literal>]
+let RoleEngineer = "engineer"
