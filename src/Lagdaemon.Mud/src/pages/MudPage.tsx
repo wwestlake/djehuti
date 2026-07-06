@@ -11,6 +11,7 @@ import {
   type MudItemView,
   type MudMapExitView,
   type MudMapRoomView,
+  type MudRealmCharacterView,
   type MudRoomState,
   type MudRosterView,
   type MudStatRoll,
@@ -54,6 +55,7 @@ const SUB_VIEWS: Partial<Record<GameView, { id: string; label: string }[]>> = {
   world: [
     { id: 'room', label: 'Room' },
     { id: 'chat', label: 'Chat' },
+    { id: 'realm', label: 'Realm' },
   ],
   items: [
     { id: 'take', label: 'Take' },
@@ -561,6 +563,8 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
   const [chatNotice, setChatNotice] = useState<string | null>(null)
   const chatSinceRef = useRef<string | null>(null)
   const chatFeedRef = useRef<HTMLDivElement | null>(null)
+  const [realmRoster, setRealmRoster] = useState<MudRealmCharacterView[] | null>(null)
+  const [realmRosterLoading, setRealmRosterLoading] = useState(false)
   const [createRealm, setCreateRealm] = useState('medieval')
   const [createName, setCreateName] = useState('')
   const [createDisplayName, setCreateDisplayName] = useState('')
@@ -676,6 +680,17 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
     const feed = chatFeedRef.current
     if (feed) feed.scrollTop = feed.scrollHeight
   }, [chatMessages])
+
+  useEffect(() => {
+    if (activeView !== 'world' || subView !== 'realm' || !state?.realmSlug) return
+    let cancelled = false
+    setRealmRosterLoading(true)
+    mudApi.getRealmRoster(state.realmSlug)
+      .then(roster => { if (!cancelled) setRealmRoster(roster) })
+      .catch(() => { if (!cancelled) setRealmRoster([]) })
+      .finally(() => { if (!cancelled) setRealmRosterLoading(false) })
+    return () => { cancelled = true }
+  }, [activeView, subView, state?.realmSlug])
 
   const sendChat = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -1315,6 +1330,43 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
                       </button>
                     </form>
                     {chatNotice && <p className="mud-empty">{chatNotice}</p>}
+                  </div>
+                </div>
+              )}
+
+              {activeView === 'world' && subView === 'realm' && (
+                <div className="mud-game-view">
+                  <div className="mud-card mud-card-flat">
+                    <h2>Active in {state?.realmName}</h2>
+                    {realmRosterLoading && <p className="mud-empty">Loading…</p>}
+                    {!realmRosterLoading && realmRoster && realmRoster.length === 0 && (
+                      <p className="mud-empty">No one else is active in this realm right now.</p>
+                    )}
+                    {!realmRosterLoading && realmRoster && realmRoster.length > 0 && (
+                      <div className="mud-roster-list">
+                        {realmRoster.map(character => (
+                          <div key={character.characterId} className={`mud-roster-card${character.isSelf ? ' selected' : ''}`}>
+                            <div className="mud-roster-head">
+                              <div className="mud-roster-identity">
+                                {character.portraitUrl ? (
+                                  <img className="mud-roster-portrait" src={character.portraitUrl} alt={`${character.displayName} portrait`} />
+                                ) : (
+                                  <div className="mud-roster-portrait mud-roster-portrait-placeholder">
+                                    <UserRound size={22} />
+                                  </div>
+                                )}
+                                <div>
+                                  <strong>{character.displayName}</strong>
+                                  {character.isSelf && <span className="mud-status-pill ok" style={{ marginLeft: 8 }}>You</span>}
+                                  {character.title && <span className="mud-status-pill ok" style={{ marginLeft: 8 }}>{character.title}</span>}
+                                  <div className="mud-empty">{character.currentRoomName}</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
