@@ -1,0 +1,135 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="dock-workspace" @ref="_containerRef"
+     @onpointermove="OnContainerPointerMove" @onpointerup="OnContainerPointerUp" @onpointerleave="OnContainerPointerUp">
+    <div class="dock-toolbar">
+        <span class="dock-toolbar-title">Workspace <span class="dock-toolbar-hint">— prototype, drag tabs and dividers, not yet saved</span></span>
+        <button type="button" class="dock-reset-btn" @onclick="ResetLayout">Reset layout</button>
+    </div>
+    <div class="dock-canvas">
+        <DockNodeView Node="_root" Panes="_panes"
+                      DraggingPaneId="_draggingPaneId"
+                      OnBeginResize="BeginResize"
+                      OnTabDragStart="BeginDragPane"
+                      OnTabActivate="ActivatePane"
+                      OnDropOnTabStrip="HandleDropOnTabStrip"
+                      OnDropOnBody="HandleDropOnBody"
+                      OnDragEnd="EndDragPane" />
+    </div>
+</div>
+
+@code {
+    private ElementReference _containerRef;
+    private IJSObjectReference? _module;
+
+    private DockNode _root = default!;
+    private Dictionary<string, PaneDescriptor> _panes = default!;
+    private string? _draggingPaneId;
+
+    private SplitNode? _resizingSplit;
+    private int _resizingIndex;
+    private double _resizeContainerSizePx;
+    private double _resizeStartClientPos;
+    private double[] _resizeStartSizes = Array.Empty<double>();
+    private BoundingRect? _containerRect;
+
+    protected override void OnInitialized()
+    {
+        (_root, _panes) = DemoLayout.CreateDefault();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await RefreshContainerRectAsync();
+    }
+
+    private void ResetLayout()
+    {
+        (_root, _panes) = DemoLayout.CreateDefault();
+        _resizingSplit = null;
+        _draggingPaneId = null;
+    }
+
+    // Resize-start must be instantaneous -- a container rect fetched via JS
+    // interop at drag-start races against the drag itself (pointermove can
+    // fire before the interop call resolves, silently swallowing the first
+    // gesture). Instead we keep a cached rect and refresh it in the
+    // background after each drag starts, so the *next* drag has a fresh
+    // value without ever blocking the current one.
+    private void BeginResize(ResizeStart start)
+    {
+        if (_containerRect == null) return;
+
+        _resizingSplit = start.Split;
+        _resizingIndex = start.Index;
+        _resizeContainerSizePx = start.Split.Direction == SplitDirection.Row ? _containerRect.Width : _containerRect.Height;
+        _resizeStartClientPos = start.Split.Direction == SplitDirection.Row ? start.ClientX : start.ClientY;
+        _resizeStartSizes = new[] { start.Split.Sizes[start.Index], start.Split.Sizes[start.Index + 1] };
+
+        _ = RefreshContainerRectAsync();
+    }
+
+    private async Task RefreshContainerRectAsync()
+    {
+        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+        _containerRect = await _module.InvokeAsync<BoundingRect>("getRect", _containerRef);
+    }
+
+    private void OnContainerPointerMove(PointerEventArgs e)
+    {
+        if (_resizingSplit == null || _resizeContainerSizePx <= 0) return;
+
+        var clientPos = _resizingSplit.Direction == SplitDirection.Row ? e.ClientX : e.ClientY;
+        var deltaFrac = (clientPos - _resizeStartClientPos) / _resizeContainerSizePx;
+
+        var newA = _resizeStartSizes[0] + deltaFrac;
+        var newB = _resizeStartSizes[1] - deltaFrac;
+        const double min = 0.08;
+        if (newA < min) { newB -= (min - newA); newA = min; }
+        if (newB < min) { newA -= (min - newB); newB = min; }
+        if (newA < min || newB < min) return;
+
+        _resizingSplit.Sizes[_resizingIndex] = newA;
+        _resizingSplit.Sizes[_resizingIndex + 1] = newB;
+        StateHasChanged();
+    }
+
+    private void OnContainerPointerUp(PointerEventArgs e)
+    {
+        _resizingSplit = null;
+    }
+
+    private void BeginDragPane(string paneId) => _draggingPaneId = paneId;
+    private void EndDragPane() => _draggingPaneId = null;
+
+    private void ActivatePane(TabActivate activate)
+    {
+        activate.Group.ActiveIndex = activate.Group.PaneIds.IndexOf(activate.PaneId);
+    }
+
+    private void HandleDropOnTabStrip(TabStripDrop drop)
+    {
+        if (_draggingPaneId == null) return;
+        _root = DockTree.MoveToTabStrip(_root, drop.TargetGroupId, _draggingPaneId, drop.InsertIndex);
+        _draggingPaneId = null;
+    }
+
+    private void HandleDropOnBody(BodyDrop drop)
+    {
+        if (_draggingPaneId == null) return;
+        _root = DockTree.MoveToZone(_root, drop.TargetGroupId, _draggingPaneId, drop.Zone);
+        _draggingPaneId = null;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module != null) await _module.DisposeAsync();
+    }
+
+    private sealed class BoundingRect
+    {
+        public double Width { get; set; }
+        public double Height { get; set; }
+    }
+}

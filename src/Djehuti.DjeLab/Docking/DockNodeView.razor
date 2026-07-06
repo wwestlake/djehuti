@@ -1,0 +1,145 @@
+@inject IJSRuntime JS
+
+@if (Node is SplitNode split)
+{
+    <div class="dock-split @(split.Direction == SplitDirection.Row ? "dock-split-row" : "dock-split-col")">
+        @for (var i = 0; i < split.Children.Count; i++)
+        {
+            var child = split.Children[i];
+            var size = split.Sizes.Count > i ? split.Sizes[i] : 1.0 / split.Children.Count;
+            <div class="dock-split-child" style="flex-basis: @((size * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%;">
+                <DockNodeView Node="child" Panes="Panes" DraggingPaneId="DraggingPaneId"
+                              OnBeginResize="OnBeginResize" OnTabDragStart="OnTabDragStart"
+                              OnTabActivate="OnTabActivate" OnDropOnTabStrip="OnDropOnTabStrip"
+                              OnDropOnBody="OnDropOnBody" OnDragEnd="OnDragEnd" />
+            </div>
+            if (i < split.Children.Count - 1)
+            {
+                var capturedIndex = i;
+                <div class="dock-divider @(split.Direction == SplitDirection.Row ? "dock-divider-row" : "dock-divider-col")"
+                     @onpointerdown="e => OnBeginResize.InvokeAsync(new ResizeStart(split, capturedIndex, e.ClientX, e.ClientY))">
+                </div>
+            }
+        }
+    </div>
+}
+else if (Node is TabGroupNode group)
+{
+    <div class="dock-group">
+        <div class="dock-tabstrip"
+             @ondragover="PreventDefaultOnly" @ondragover:preventDefault="true"
+             @ondrop="e => HandleTabStripDrop(group, e)">
+            @foreach (var paneId in group.PaneIds)
+            {
+                if (!Panes.TryGetValue(paneId, out var pane)) continue;
+                var isActive = group.PaneIds.Count > 0 && group.PaneIds[Math.Min(group.ActiveIndex, group.PaneIds.Count - 1)] == paneId;
+                var capturedPaneId = paneId;
+                <div class="dock-tab @(isActive ? "active" : "") @(DraggingPaneId == paneId ? "dragging" : "")"
+                     draggable="true"
+                     style="--dock-accent: @pane.AccentColor"
+                     @ondragstart="e => HandleTabDragStart(capturedPaneId, e)"
+                     @ondragend="() => OnDragEnd.InvokeAsync()"
+                     @onclick="() => OnTabActivate.InvokeAsync(new TabActivate(group, capturedPaneId))">
+                    @pane.Title
+                </div>
+            }
+        </div>
+        <div class="dock-body" @ref="_bodyRef"
+             @ondragenter:preventDefault="true"
+             @ondragover="TrackZoneFromCache" @ondragover:preventDefault="true"
+             @ondragleave="() => _hoverZone = null"
+             @ondrop="e => HandleBodyDrop(group, e)">
+            @{
+                var activePaneId = group.PaneIds.Count > 0 ? group.PaneIds[Math.Min(group.ActiveIndex, group.PaneIds.Count - 1)] : null;
+            }
+            @if (activePaneId != null && Panes.TryGetValue(activePaneId, out var activePane))
+            {
+                <div class="dock-pane-content" style="--dock-accent: @activePane.AccentColor">
+                    <PlaceholderPaneContent Pane="activePane" />
+                </div>
+            }
+            @if (DraggingPaneId != null && _hoverZone != null)
+            {
+                <div class="dock-drop-overlay dock-zone-@_hoverZone.Value.ToString().ToLowerInvariant()"></div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public DockNode Node { get; set; } = default!;
+    [Parameter] public Dictionary<string, PaneDescriptor> Panes { get; set; } = default!;
+    [Parameter] public string? DraggingPaneId { get; set; }
+    [Parameter] public EventCallback<ResizeStart> OnBeginResize { get; set; }
+    [Parameter] public EventCallback<string> OnTabDragStart { get; set; }
+    [Parameter] public EventCallback<TabActivate> OnTabActivate { get; set; }
+    [Parameter] public EventCallback<TabStripDrop> OnDropOnTabStrip { get; set; }
+    [Parameter] public EventCallback<BodyDrop> OnDropOnBody { get; set; }
+    [Parameter] public EventCallback OnDragEnd { get; set; }
+
+    private ElementReference _bodyRef;
+    private IJSObjectReference? _module;
+    private DockZone? _hoverZone;
+    private RectDto? _cachedRect;
+
+    private void PreventDefaultOnly(DragEventArgs e) { }
+
+    private async Task HandleTabDragStart(string paneId, DragEventArgs e)
+    {
+        await OnTabDragStart.InvokeAsync(paneId);
+    }
+
+    private async Task HandleTabStripDrop(TabGroupNode group, DragEventArgs e)
+    {
+        // First pass: always append at the end of the strip. Dropping between
+        // two specific tabs (pixel-accurate reorder) is a nice next increment,
+        // not built yet.
+        await OnDropOnTabStrip.InvokeAsync(new TabStripDrop(group.Id, group.PaneIds.Count));
+    }
+
+    // The body's rect is refreshed on every render rather than lazily on
+    // dragenter -- fetching it lazily raced against dragover (a fast drag
+    // computes the zone before the async JS call resolves and silently falls
+    // back to Center every time). Same root cause as the resize-start race in
+    // DockWorkspace; same fix shape: cache eagerly, use synchronously.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+        if (Node is TabGroupNode) _cachedRect = await _module.InvokeAsync<RectDto>("getRect", _bodyRef);
+    }
+
+    private void TrackZoneFromCache(DragEventArgs e)
+    {
+        if (_cachedRect == null || _cachedRect.Width <= 0 || _cachedRect.Height <= 0) return;
+
+        var relX = (e.ClientX - _cachedRect.Left) / _cachedRect.Width;
+        var relY = (e.ClientY - _cachedRect.Top) / _cachedRect.Height;
+        _hoverZone = ComputeZone(relX, relY);
+        StateHasChanged();
+    }
+
+    private static DockZone ComputeZone(double relX, double relY)
+    {
+        const double edge = 0.25;
+        if (relX < edge) return DockZone.Left;
+        if (relX > 1 - edge) return DockZone.Right;
+        if (relY < edge) return DockZone.Top;
+        if (relY > 1 - edge) return DockZone.Bottom;
+        return DockZone.Center;
+    }
+
+    private async Task HandleBodyDrop(TabGroupNode group, DragEventArgs e)
+    {
+        var zone = _hoverZone ?? DockZone.Center;
+        _hoverZone = null;
+        await OnDropOnBody.InvokeAsync(new BodyDrop(group.Id, zone));
+    }
+
+    private sealed class RectDto
+    {
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public double Left { get; set; }
+        public double Top { get; set; }
+    }
+}

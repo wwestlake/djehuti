@@ -215,6 +215,256 @@ a {
     }
 }
 
+/* ── Full-bleed layout (Workspace) ───────────────────────────────────────── */
+.djelab-shell-full {
+    height: 100vh;
+}
+
+.djelab-main-full {
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+}
+
+/* ── Docking workspace ────────────────────────────────────────────────────
+   Big-screen-first by design: this is a desktop tool. On narrow viewports
+   we don't attempt real split/drag docking, we just stack panes with a
+   simple tab switcher (see the max-width query at the bottom of this block). */
+.dock-workspace {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+}
+
+.dock-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.5rem 0.9rem;
+    border-bottom: 1px solid var(--djelab-border);
+    flex: 0 0 auto;
+}
+
+.dock-toolbar-title {
+    font-weight: 600;
+}
+
+.dock-toolbar-hint {
+    color: var(--djelab-muted);
+    font-weight: 400;
+    font-size: 0.85rem;
+}
+
+.dock-reset-btn {
+    background: transparent;
+    border: 1px solid var(--djelab-border);
+    border-radius: 6px;
+    color: var(--djelab-muted);
+    padding: 0.35rem 0.75rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+    .dock-reset-btn:hover {
+        color: var(--djelab-text);
+        border-color: var(--djelab-accent);
+    }
+
+.dock-canvas {
+    flex: 1 1 auto;
+    min-height: 0;
+    position: relative;
+    padding: 0.5rem;
+}
+
+.dock-split {
+    display: flex;
+    height: 100%;
+    width: 100%;
+}
+
+.dock-split-row {
+    flex-direction: row;
+}
+
+.dock-split-col {
+    flex-direction: column;
+}
+
+.dock-split-child {
+    flex-grow: 0;
+    flex-shrink: 0;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+}
+
+.dock-divider {
+    flex: 0 0 auto;
+    background: var(--djelab-border);
+    z-index: 2;
+}
+
+.dock-divider-row {
+    width: 6px;
+    cursor: col-resize;
+    margin: 0 -1px;
+}
+
+.dock-divider-col {
+    height: 6px;
+    cursor: row-resize;
+    margin: -1px 0;
+}
+
+.dock-divider:hover {
+    background: var(--djelab-accent);
+}
+
+.dock-group {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    background: var(--djelab-surface);
+    border: 1px solid var(--djelab-border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 3px;
+}
+
+.dock-tabstrip {
+    display: flex;
+    gap: 2px;
+    padding: 4px 4px 0;
+    flex: 0 0 auto;
+    overflow-x: auto;
+    background: rgba(0, 0, 0, 0.15);
+}
+
+.dock-tab {
+    padding: 0.4rem 0.9rem;
+    border-radius: 6px 6px 0 0;
+    background: transparent;
+    color: var(--djelab-muted);
+    cursor: grab;
+    border-top: 2px solid transparent;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    user-select: none;
+}
+
+    .dock-tab.active {
+        background: var(--djelab-surface);
+        color: var(--djelab-text);
+        border-top-color: var(--dock-accent, var(--djelab-accent));
+    }
+
+    .dock-tab.dragging {
+        opacity: 0.4;
+    }
+
+.dock-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    position: relative;
+    overflow: auto;
+}
+
+.dock-pane-content {
+    height: 100%;
+    width: 100%;
+}
+
+.dock-drop-overlay {
+    position: absolute;
+    pointer-events: none;
+    z-index: 5;
+    background: rgba(63, 169, 245, 0.18);
+    border: 2px dashed var(--djelab-accent);
+    border-radius: 6px;
+}
+
+.dock-zone-center {
+    inset: 10px;
+}
+
+.dock-zone-top {
+    top: 0; left: 0; right: 0; height: 50%;
+}
+
+.dock-zone-bottom {
+    bottom: 0; left: 0; right: 0; height: 50%;
+}
+
+.dock-zone-left {
+    top: 0; left: 0; bottom: 0; width: 50%;
+}
+
+.dock-zone-right {
+    top: 0; right: 0; bottom: 0; width: 50%;
+}
+
+.dock-placeholder {
+    height: 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    color: var(--djelab-muted);
+    border-top: 3px solid var(--dock-accent, var(--djelab-accent));
+}
+
+.dock-placeholder-icon {
+    font-size: 2.5rem;
+}
+
+.dock-placeholder-label {
+    color: var(--djelab-text);
+    font-weight: 600;
+}
+
+.dock-placeholder-hint {
+    font-size: 0.8rem;
+}
+
+@media (max-width: 860px) {
+    .dock-canvas {
+        padding: 0;
+    }
+
+    /* No real docking on small screens -- flatten every split into a single
+       stacked column and let each group's own tab strip do the switching. */
+    .dock-split-row, .dock-split-col {
+        flex-direction: column;
+    }
+
+    .dock-split-child {
+        flex-basis: auto !important;
+        flex: 1 1 0;
+    }
+
+    .dock-divider {
+        display: none;
+    }
+
+    .dock-group {
+        margin: 2px 0;
+        border-radius: 0;
+    }
+}
+
 .valid.modified:not([type=checkbox]) {
     outline: 1px solid #26b050;
 }
