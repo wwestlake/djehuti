@@ -1,0 +1,46 @@
+@inherits LayoutComponentBase
+
+<div class="djelab-shell">
+    <header class="djelab-topbar">
+        <a class="djelab-brand" href="">
+            <img src="images/djelab-logo-nav.png" alt="DjeLab" class="djelab-brand-logo" />
+        </a>
+
+        <nav class="djelab-nav-desktop">
+            <NavMenu />
+        </nav>
+
+        <button type="button"
+                class="djelab-hamburger"
+                aria-label="Open menu"
+                aria-expanded="@_drawerOpen.ToString().ToLowerInvariant()"
+                @onclick="ToggleDrawer">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+    </header>
+
+    <div class="djelab-drawer-overlay @(_drawerOpen ? "open" : "")" @onclick="CloseDrawer"></div>
+
+    <aside class="djelab-drawer @(_drawerOpen ? "open" : "")">
+        <div class="djelab-drawer-header">
+            <img src="images/djelab-logo-nav.png" alt="DjeLab" class="djelab-brand-logo" />
+            <button type="button" class="djelab-drawer-close" aria-label="Close menu" @onclick="CloseDrawer">&times;</button>
+        </div>
+        <nav class="djelab-nav-drawer" @onclick="CloseDrawer">
+            <NavMenu />
+        </nav>
+    </aside>
+
+    <main class="djelab-main">
+        @Body
+    </main>
+</div>
+
+@code {
+    private bool _drawerOpen;
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+    private void CloseDrawer() => _drawerOpen = false;
+}
