@@ -1164,6 +1164,32 @@ let getRealmRoster (realmSlug: string) (viewerCharacterId: Guid option) : MudRea
               CurrentRoomName = reader.GetString(3)
               IsSelf = viewerCharacterId = Some characterId } ]
 
+type MudRealmNpcView =
+    { Name: string
+      Greeting: string option
+      CurrentRoomName: string }
+
+/// All active vendor NPCs in the given realm and which room they're in.
+/// Vendors are currently the only NPC concept in the world.
+let getRealmNpcs (realmSlug: string) : MudRealmNpcView list =
+    let normalizedRealm = normalizeRealmSlug realmSlug
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """SELECT v.name, v.greeting, r.name
+           FROM mud_vendors v
+           JOIN mud_rooms r ON r.id = v.room_id
+           JOIN mud_zones z ON z.id = r.zone_id
+           WHERE z.realm_slug = @realm_slug
+             AND v.active = true
+           ORDER BY v.name""", conn)
+    cmd.Parameters.AddWithValue("realm_slug", normalizedRealm) |> ignore
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do
+        yield
+            { Name = reader.GetString(0)
+              Greeting = if reader.IsDBNull(1) then None else Some (reader.GetString(1))
+              CurrentRoomName = reader.GetString(2) } ]
+
 let private paidSlotsForTier = function
     | Some "curious-mind" -> 3
     | Some "lab-assistant" -> 6
