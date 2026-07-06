@@ -3968,6 +3968,15 @@ let private migrations : (int * string) list =
             ADD COLUMN IF NOT EXISTS portrait_url TEXT,
             ADD COLUMN IF NOT EXISTS bio TEXT,
             ADD COLUMN IF NOT EXISTS archetype_slug TEXT;
+        """
+
+        62, """
+        -- Forum search (Program.fs) uses unaccent() in its tsquery; the
+        -- extension was never enabled on production, so every search
+        -- 500'd with "function unaccent(text) does not exist" until
+        -- fixed directly via psql. Tracked here so a fresh environment
+        -- doesn't hit the same gap.
+        CREATE EXTENSION IF NOT EXISTS unaccent;
         """    ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
