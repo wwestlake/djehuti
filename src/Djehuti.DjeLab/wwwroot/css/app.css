@@ -80,6 +80,140 @@ a {
             color: var(--djelab-accent);
         }
 
+/* ── Auth corner (sign in / profile chip) ────────────────────────────────── */
+.djelab-auth-corner {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    margin-left: 0.75rem;
+}
+
+.djelab-auth-loading {
+    display: block;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--djelab-border);
+    opacity: 0.5;
+}
+
+.djelab-auth-signin {
+    padding: 0.4rem 0.9rem;
+    border: 1px solid var(--djelab-border);
+    border-radius: 8px;
+    color: var(--djelab-text);
+    font-weight: 600;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+    .djelab-auth-signin:hover {
+        border-color: var(--djelab-accent);
+        color: var(--djelab-accent);
+    }
+
+.djelab-auth-chip-wrap {
+    position: relative;
+}
+
+.djelab-auth-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: transparent;
+    border: 1px solid var(--djelab-border);
+    border-radius: 20px;
+    padding: 0.3rem 0.75rem 0.3rem 0.3rem;
+    color: var(--djelab-text);
+    cursor: pointer;
+}
+
+    .djelab-auth-chip:hover {
+        border-color: var(--djelab-accent);
+    }
+
+.djelab-auth-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--djelab-accent);
+    color: #061019;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.8rem;
+    flex-shrink: 0;
+}
+
+.djelab-auth-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.djelab-auth-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    background: transparent;
+    border: none;
+    z-index: 60;
+    cursor: default;
+}
+
+.djelab-auth-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 180px;
+    background: var(--djelab-surface);
+    border: 1px solid var(--djelab-border);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    z-index: 61;
+    overflow: hidden;
+}
+
+.djelab-auth-menu-header {
+    padding: 0.65rem 0.9rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--djelab-muted);
+    border-bottom: 1px solid var(--djelab-border);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.djelab-auth-menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    padding: 0.6rem 0.9rem;
+    font-size: 0.85rem;
+    color: var(--djelab-text);
+    cursor: pointer;
+}
+
+    .djelab-auth-menu-item:hover {
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .djelab-auth-menu-item.djelab-auth-menu-danger {
+        color: #ff8080;
+    }
+
+@media (max-width: 720px) {
+    .djelab-auth-name {
+        display: none;
+    }
+}
+
 /* Hamburger button — hidden on desktop, shown on mobile */
 .djelab-hamburger {
     display: none;
