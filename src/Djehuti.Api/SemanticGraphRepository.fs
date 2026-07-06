@@ -683,6 +683,132 @@ let indexBlogArticle (articleId: Guid) =
         |> indexSourceDocument
         |> Some
 
+/// Kept in sync by hand with djehuti.wiki/DjeLab-DSL-Language-Reference.md --
+/// update both together. Indexed under a fixed source key so re-running
+/// indexDjeLabDslReference is idempotent (indexSourceDocument no-ops on an
+/// unchanged content hash).
+let private djeLabDslReferenceText =
+    """# DjeLab DSL Language Reference
+
+This document teaches the DjeLab DSL to an AI model (a user's own BYOK model, generating code for the DjeLab math tool) as well as human contributors.
+
+## Why a custom DSL instead of arbitrary F#
+
+DjeLab programs are not arbitrary F#. The language is a small, purpose-built grammar whose only vocabulary is pure mathematical computation. There is no expression form for file I/O, network access, reflection, or mutable state -- these aren't blocked by a guardrail pass over generated code, they simply have no representation in the grammar, so the parser cannot produce them in the first place. The only way to repeat computation is recursion (let rec); there is no loop construct.
+
+## Program structure
+
+A DjeLab program is a single expression. Idiomatic programs are a chain of let/let rec bindings ending in a final expression to evaluate:
+
+let a = 1 in
+let b = 2 in
+a + b
+
+There is no statement/expression distinction and no semicolons -- everything is an expression, and let ... in ... is how you sequence computation.
+
+## Values
+
+- Number: 3, 3.14, -2.5 -- all numbers are 64-bit floats, no separate int type.
+- Bool: true, false
+- Vector: [1, 2, 3] -- a 1-dimensional array. There is no matrix/tensor type yet and no matrix-specific operators; a nested vector like [[1,2],[3,4]] is just a vector of vectors, not a 2x2 matrix.
+- Function: fun x -> x * x -- functions are values, can be passed as arguments, returned, and bound with let.
+
+There is no complex number type yet.
+
+## Grammar and operator precedence (lowest to highest)
+
+1. let / let rec / if / fun (wrap the rest of the expression to their right)
+2. || (logical or, short-circuit, left-associative)
+3. && (logical and, short-circuit, left-associative)
+4. == != < <= > >= (comparison, non-associative)
+5. + - (left-associative)
+6. * / % (left-associative)
+7. ^ (power, right-associative: 2 ^ 3 ^ 0 means 2 ^ (3 ^ 0), which is 2)
+8. unary - and not (prefix)
+9. function call f(a, b) and indexing v[i] (postfix, chainable)
+10. parentheses, vector literals, numbers, booleans, identifiers
+
+let name = valueExpr in bodyExpr -- non-recursive binding; valueExpr cannot refer to name.
+
+let rec name param1 param2 = functionBody in bodyExpr -- the only repetition mechanism; no while/for exist.
+
+if conditionExpr then thenExpr else elseExpr -- both branches required, condition must be bool.
+
+fun param1 param2 -> bodyExpr -- lambda, produces a function value.
+
+f(arg1, arg2) -- function call, always with parentheses even for one argument: sqrt(2), not sqrt 2.
+
+v[0], len(v) -- vector indexing (0-based) and length.
+
+## Built-in functions
+
+sin, cos, tan (1 arg, radians), sqrt (1), abs (1), exp (1), ln (1), floor (1), ceil (1), min (2), max (2), atan2 (2), len (1, vector length), pi (constant), e (constant).
+
+There is no built-in reduce/map/fold over vectors yet -- write a let rec helper.
+
+## Semantics notes
+
+- && and || short-circuit: the right side is not evaluated if the left side already determines the result.
+- ==/!= work structurally on numbers, bools, and vectors (recursively). Comparing two functions for equality is a runtime error, not false.
+- Every evaluation has a bounded step budget (reference implementation: 1,000,000 reduction steps). A non-terminating recursive program fails with a clear "step budget exceeded" error instead of hanging.
+- Vector indexing out of range is a runtime error.
+- Unbound variables are a runtime error at the point of use, not a silent null/undefined.
+
+## Worked examples (all executed against the reference implementation)
+
+Quadratic formula:
+let a = 1 in let b = -3 in let c = 2 in (-b + sqrt(b^2 - 4*a*c)) / (2*a)
+=> 2
+
+Newton's method for square root (recursion standing in for iteration):
+let rec newton guess x n = if n == 0 then guess else newton((guess + x / guess) / 2, x, n - 1) in newton(1, 2, 10)
+=> 1.414213562... (square root of 2)
+
+Fibonacci:
+let rec fib n = if n < 2 then n else fib(n - 1) + fib(n - 2) in fib(15)
+=> 610
+
+Vector dot product (no built-in reduce, written by hand):
+let rec dot v w i acc = if i == len(v) then acc else dot(v, w, i + 1, acc + v[i] * w[i]) in dot([1, 2, 3], [4, 5, 6], 0, 0)
+=> 32
+
+Higher-order functions:
+let twice = fun f x -> f(f(x)) in let square = fun x -> x * x in twice(square, 3)
+=> 81
+
+Booleans with short-circuit:
+let isEven = fun n -> n % 2 == 0 in isEven(4) && isEven(10)
+=> true
+
+## Common mistakes to avoid when generating DjeLab code
+
+- Every let/let rec needs a matching in.
+- Function calls always need parentheses: sin(x), not sin x.
+- There is no while/for -- express iteration as let rec with a base case.
+- There is no matrix type or matrix-multiply operator yet -- vectors are 1-D only.
+- There is no complex number type yet.
+- ^ is right-associative, unlike +/-/*//.
+- A program is one expression, not a sequence of top-level statements.
+
+## Status
+
+This reflects the DSL's first implementation (arithmetic, booleans, vectors, let/let rec, lambdas, if, a small math built-in library). Planned next: native matrices/tensors, complex numbers, explicit dimensional operators, and slicing."""
+
+/// Ingests the DjeLab DSL reference into the semantic index (source type
+/// `djelab-dsl-reference`) so it's retrievable by a BYOK AI's
+/// search_math_references tool call. Idempotent -- safe to call on every
+/// startup, matching how DataLibrary re-imports its seed datasets.
+let indexDjeLabDslReference () =
+    createSourceRecord
+        "djelab-dsl-reference"
+        "djelab-dsl-v1"
+        "DjeLab DSL Language Reference"
+        djeLabDslReferenceText
+        None
+        [ "surface", "djelab" ]
+    |> indexSourceDocument
+    |> ignore
+
 let indexMudRoom (roomId: Guid) =
     use conn = openConnection()
 
