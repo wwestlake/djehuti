@@ -80,6 +80,16 @@ a {
             color: var(--djelab-accent);
         }
 
+.djelab-nav-external {
+    border-left: 1px solid var(--djelab-border);
+    padding-left: 1.5rem !important;
+    color: var(--djelab-muted);
+}
+
+    .djelab-nav-external:hover {
+        color: var(--djelab-accent);
+    }
+
 /* ── Auth corner (sign in / profile chip) ────────────────────────────────── */
 .djelab-auth-corner {
     display: flex;
