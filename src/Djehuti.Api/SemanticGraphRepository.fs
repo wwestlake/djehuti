@@ -1031,12 +1031,18 @@ let runBackgroundSync (forumLimit: int) (blogLimit: int) (mudRoomLimit: int) (mu
 let backfillGraphChunks (limit: int) =
     use conn = openConnection()
     use selectCmd = new NpgsqlCommand(
+        // Two independent NOT EXISTS checks instead of two LEFT JOINs into
+        // semantic_node_edges (890k+ rows) -- the old version joined both
+        // semantic_chunk_nodes and semantic_node_edges to semantic_chunk_tokens
+        // on the same chunk_id before the GROUP BY collapsed it, so a chunk
+        // with N chunk_nodes rows and M edges fanned out to N*M intermediate
+        // rows. That blew past even a 25s statement timeout in production;
+        // this version (index-driven existence checks, no fan-out) runs in
+        // ~260ms for the same result.
         """SELECT scn.chunk_id
-           FROM semantic_chunk_tokens scn
-           LEFT JOIN semantic_chunk_nodes cn ON cn.chunk_id = scn.chunk_id
-           LEFT JOIN semantic_node_edges ne ON ne.chunk_id = scn.chunk_id
-           GROUP BY scn.chunk_id
-           HAVING COUNT(cn.id) = 0 OR COUNT(ne.id) = 0
+           FROM (SELECT DISTINCT chunk_id FROM semantic_chunk_tokens) scn
+           WHERE NOT EXISTS (SELECT 1 FROM semantic_chunk_nodes cn WHERE cn.chunk_id = scn.chunk_id)
+              OR NOT EXISTS (SELECT 1 FROM semantic_node_edges ne WHERE ne.chunk_id = scn.chunk_id)
            ORDER BY scn.chunk_id
            LIMIT @limit""",
         conn)
