@@ -471,6 +471,69 @@ let updateRoom (roomId: Guid) (zoneId: Guid) (name: string) (slug: string) (desc
     with _ ->
         None
 
+let private directionOffset (direction: string) : (int * int) option =
+    match direction.Trim().ToLowerInvariant() with
+    | "north" -> Some (0, -1)
+    | "south" -> Some (0, 1)
+    | "east" -> Some (1, 0)
+    | "west" -> Some (-1, 0)
+    | _ -> None
+
+/// When an exit connects a room with known map coordinates to one without,
+/// place the coordinate-less room adjacent to it in the exit's direction
+/// (nudging to a nearby free cell within the same zone if the ideal spot
+/// is already occupied). Rooms created outside the seed migrations --
+/// e.g. via the admin console -- otherwise keep NULL coordinates forever,
+/// which the map falls back to rendering at their `position` index and
+/// throws them far off to one side with a long connecting line.
+let private backfillExitCoordinates (conn: NpgsqlConnection) (fromRoomId: Guid) (toRoomId: Guid) (direction: string) =
+    match directionOffset direction with
+    | None -> ()
+    | Some (dx, dy) ->
+        use lookupCmd = new NpgsqlCommand(
+            """SELECT f.zone_id, f.map_x, f.map_y, t.map_x, t.map_y
+               FROM mud_rooms f, mud_rooms t
+               WHERE f.id = @from_id AND t.id = @to_id""", conn)
+        lookupCmd.Parameters.AddWithValue("from_id", fromRoomId) |> ignore
+        lookupCmd.Parameters.AddWithValue("to_id", toRoomId) |> ignore
+        use reader = lookupCmd.ExecuteReader()
+        if reader.Read() then
+            let zoneId = reader.GetGuid(0)
+            let fromX = if reader.IsDBNull(1) then None else Some (reader.GetInt32(1))
+            let fromY = if reader.IsDBNull(2) then None else Some (reader.GetInt32(2))
+            let toX = if reader.IsDBNull(3) then None else Some (reader.GetInt32(3))
+            let toY = if reader.IsDBNull(4) then None else Some (reader.GetInt32(4))
+            reader.Close()
+
+            let placeRoom (roomId: Guid) (idealX: int) (idealY: int) =
+                use occupiedCmd = new NpgsqlCommand(
+                    """SELECT map_x, map_y FROM mud_rooms
+                       WHERE zone_id = @zone_id AND map_x IS NOT NULL AND map_y IS NOT NULL""", conn)
+                occupiedCmd.Parameters.AddWithValue("zone_id", zoneId) |> ignore
+                let occupied =
+                    [ use occReader = occupiedCmd.ExecuteReader()
+                      while occReader.Read() do
+                          yield occReader.GetInt32(0), occReader.GetInt32(1) ]
+                    |> Set.ofList
+                let candidates =
+                    (idealX, idealY)
+                    :: [ (idealX + 1, idealY); (idealX - 1, idealY); (idealX, idealY + 1); (idealX, idealY - 1)
+                         (idealX + 1, idealY + 1); (idealX - 1, idealY - 1); (idealX + 1, idealY - 1); (idealX - 1, idealY + 1) ]
+                match candidates |> List.tryFind (fun cell -> not (occupied.Contains cell)) with
+                | None -> ()
+                | Some (x, y) ->
+                    use updateCmd = new NpgsqlCommand(
+                        "UPDATE mud_rooms SET map_x = @x, map_y = @y WHERE id = @id", conn)
+                    updateCmd.Parameters.AddWithValue("x", x) |> ignore
+                    updateCmd.Parameters.AddWithValue("y", y) |> ignore
+                    updateCmd.Parameters.AddWithValue("id", roomId) |> ignore
+                    updateCmd.ExecuteNonQuery() |> ignore
+
+            match fromX, fromY, toX, toY with
+            | Some fx, Some fy, None, None -> placeRoom toRoomId (fx + dx) (fy + dy)
+            | None, None, Some tx, Some ty -> placeRoom fromRoomId (tx - dx) (ty - dy)
+            | _ -> ()
+
 let createExit (fromRoomId: Guid) (toRoomId: Guid) (direction: string) (exitType: string) (label: string option) =
     use conn = openConnection ()
     use cmd = new NpgsqlCommand(
@@ -490,7 +553,10 @@ let createExit (fromRoomId: Guid) (toRoomId: Guid) (direction: string) (exitType
     cmd.Parameters.AddWithValue("label", label |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
     try
         use reader = cmd.ExecuteReader()
-        if reader.Read() then Some (readExit reader) else None
+        let result = if reader.Read() then Some (readExit reader) else None
+        reader.Close()
+        result |> Option.iter (fun _ -> backfillExitCoordinates conn fromRoomId toRoomId direction)
+        result
     with _ ->
         None
 
