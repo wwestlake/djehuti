@@ -1998,6 +1998,12 @@ footer a:hover { text-decoration: underline; }
 .admin-id-cell { font-family: monospace; font-size: 0.8rem; color: var(--text-muted); }
 .admin-grant-form { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .admin-grant-fields { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.admin-user-picker-dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); max-height: 220px; overflow-y: auto; }
+.admin-user-picker-row { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; padding: 8px 12px; background: none; border: none; border-bottom: 1px solid var(--border); color: var(--text); font-size: 0.85rem; cursor: pointer; }
+.admin-user-picker-row:last-child { border-bottom: none; }
+.admin-user-picker-row:hover { background: var(--bg); }
+.admin-user-picker-empty { color: var(--text-muted); cursor: default; }
+.admin-user-picker-empty:hover { background: none; }
 
 /* ── Admin user management toolbar ───────────────────────────────────────── */
 .admin-toolbar { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }

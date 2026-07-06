@@ -18,7 +18,8 @@ interface AdminUser {
   createdAt: string; lastLoginAt: string | null; emailVerified: boolean
 }
 interface ContextRole {
-  id: string; userId: string; module: string; role: string; scopeId: string | null; grantedAt: string
+  id: string; userId: string; userEmail: string; userDisplayName: string | null
+  module: string; role: string; scopeId: string | null; grantedAt: string
 }
 interface Announcement {
   id: string; title: string; body: string; priority: number
@@ -180,6 +181,10 @@ export default function AdminPage() {
   const [roles, setRoles] = useState<ContextRole[]>([])
   const [grantForm, setGrantForm] = useState({ userId: '', module: 'forum', role: 'moderator', scopeId: '' })
   const [granting, setGranting] = useState(false)
+  const [grantUserQuery, setGrantUserQuery] = useState('')
+  const [grantUserResults, setGrantUserResults] = useState<AdminUser[]>([])
+  const [grantUserSearching, setGrantUserSearching] = useState(false)
+  const [selectedGrantUser, setSelectedGrantUser] = useState<AdminUser | null>(null)
 
   // Announcements
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
@@ -323,6 +328,24 @@ export default function AdminPage() {
     } catch { setError('Failed to load users') }
     finally { setLoading(false) }
   }
+
+  useEffect(() => {
+    if (!user || user.role !== 'admin') return
+    if (tab !== 'roles') return
+    if (selectedGrantUser) { setGrantUserResults([]); return }
+    const q = grantUserQuery.trim()
+    if (!q) { setGrantUserResults([]); return }
+    setGrantUserSearching(true)
+    const handle = setTimeout(async () => {
+      try {
+        const res = await apiFetch(`${BASE}/api/admin/users?${new URLSearchParams({ search: q, page: '1', pageSize: '8' })}`)
+        setGrantUserResults(Array.isArray(res) ? res : (res.data ?? []))
+      } catch { setGrantUserResults([]) }
+      finally { setGrantUserSearching(false) }
+    }, 300)
+    return () => clearTimeout(handle)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grantUserQuery, tab, selectedGrantUser])
 
   useEffect(() => {
     if (!user || user.role !== 'admin') return
@@ -483,7 +506,19 @@ export default function AdminPage() {
       })
       setRoles(await apiFetch(`${BASE}/api/admin/context-roles`))
       setGrantForm(f => ({ ...f, userId: '', scopeId: '' }))
+      setSelectedGrantUser(null); setGrantUserQuery(''); setGrantUserResults([])
     } catch { setError('Failed to grant role.') } finally { setGranting(false) }
+  }
+
+  const pickGrantUser = (u: AdminUser) => {
+    setSelectedGrantUser(u)
+    setGrantForm(f => ({ ...f, userId: u.id }))
+    setGrantUserQuery(''); setGrantUserResults([])
+  }
+
+  const clearGrantUser = () => {
+    setSelectedGrantUser(null)
+    setGrantForm(f => ({ ...f, userId: '' }))
   }
 
   const revokeRole = async (id: string) => {
@@ -1844,8 +1879,31 @@ export default function AdminPage() {
           <form className="admin-grant-form" onSubmit={grantRole}>
             <h4 style={{ margin: 0 }}>Grant Context Role</h4>
             <div className="admin-grant-fields">
-              <input placeholder="User ID" value={grantForm.userId}
-                onChange={e => setGrantForm(f => ({ ...f, userId: e.target.value }))} className="papers-new-input" />
+              <div style={{ position: 'relative', minWidth: 220 }}>
+                {selectedGrantUser ? (
+                  <div className="papers-new-input" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <span>{selectedGrantUser.displayName ?? selectedGrantUser.email} <span style={{ color: 'var(--text-muted)', fontSize: '0.85em' }}>({selectedGrantUser.email})</span></span>
+                    <button type="button" className="admin-modal-close" onClick={clearGrantUser} aria-label="Clear selected user">✕</button>
+                  </div>
+                ) : (
+                  <input placeholder="Search user by email or name…" value={grantUserQuery}
+                    onChange={e => setGrantUserQuery(e.target.value)} className="papers-new-input" autoComplete="off" />
+                )}
+                {!selectedGrantUser && (grantUserSearching || grantUserResults.length > 0) && grantUserQuery.trim() && (
+                  <div className="admin-user-picker-dropdown">
+                    {grantUserSearching && <div className="admin-user-picker-row admin-user-picker-empty">Searching…</div>}
+                    {!grantUserSearching && grantUserResults.length === 0 && (
+                      <div className="admin-user-picker-row admin-user-picker-empty">No matching users</div>
+                    )}
+                    {!grantUserSearching && grantUserResults.map(u => (
+                      <button type="button" key={u.id} className="admin-user-picker-row" onClick={() => pickGrantUser(u)}>
+                        <span>{u.displayName ?? u.email}</span>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.85em' }}>{u.email}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <select className="admin-role-select" value={grantForm.module}
                 onChange={e => setGrantForm(f => ({ ...f, module: e.target.value }))}>
                 <option value="forum">forum</option>
@@ -1871,10 +1929,10 @@ export default function AdminPage() {
           <AdminTable<ContextRole>
             data={roles}
             rowKey={r => r.id}
-            searchKeys={['module', 'role', 'userId']}
+            searchKeys={['module', 'role', 'userId', 'userEmail', 'userDisplayName']}
             emptyText="No roles granted."
             columns={[
-              { key: 'userId', label: 'User ID', render: r => <span className="admin-id-cell">{r.userId.slice(0, 8)}…</span> },
+              { key: 'userEmail', label: 'User', render: r => <span>{r.userDisplayName ?? r.userEmail} <span className="admin-id-cell">({r.userEmail})</span></span> },
               { key: 'module', label: 'Module' },
               { key: 'role', label: 'Role' },
               { key: 'scopeId', label: 'Scope', render: r => r.scopeId ? r.scopeId.slice(0, 8) + '…' : '—' },
