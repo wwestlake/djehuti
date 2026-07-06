@@ -436,6 +436,9 @@ a { color: var(--accent); }
   font-size: 0.95rem;
   line-height: 1.55;
   white-space: pre-wrap;
+  max-height: 34vh;
+  overflow-y: auto;
+  padding-right: 0.25rem;
 }
 
 .mud-meta {
