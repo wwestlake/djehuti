@@ -1608,6 +1608,15 @@ let main args =
     ) |> ignore
 
     app.MapGet(
+        "/api/mud/realm/{realmSlug}/npcs",
+        Func<HttpContext, string, IResult>(fun ctx realmSlug ->
+            match tryGetAuthClaims ctx with
+            | Some _ -> Results.Ok(MudRepository.getRealmNpcs realmSlug)
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
         "/api/mud/companions/{characterId}",
         Func<HttpContext, string, IResult>(fun ctx characterId ->
             match tryGetAuthClaims ctx with
