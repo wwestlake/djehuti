@@ -1,0 +1,27 @@
+<div class="dock-placeholder dock-placeholder-@Pane.Kind">
+    <div class="dock-placeholder-icon">@Icon</div>
+    <div class="dock-placeholder-label">@Pane.Title</div>
+    <div class="dock-placeholder-hint">@Hint</div>
+</div>
+
+@code {
+    [Parameter] public PaneDescriptor Pane { get; set; } = default!;
+
+    private string Icon => Pane.Kind switch
+    {
+        "graph" => "📈",
+        "console" => "🖥️",
+        "chat" => "💬",
+        "data" => "🗂️",
+        _ => "▫️"
+    };
+
+    private string Hint => Pane.Kind switch
+    {
+        "graph" => "A future chart/plot pane.",
+        "console" => "A future execution output/console pane.",
+        "chat" => "A future BYOK AI chat pane.",
+        "data" => "A future data table pane.",
+        _ => "Placeholder pane."
+    };
+}
