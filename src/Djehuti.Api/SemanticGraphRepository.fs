@@ -1210,31 +1210,34 @@ let getStats () =
 let getDispersionCandidates (limit: int) (minChunkCount: int) =
     use conn = openConnection()
     use cmd = new NpgsqlCommand(
+        // Neighbor counts are pre-aggregated in a subquery instead of an
+        // `OR`-joined semantic_node_edges (890k+ rows) -- the OR condition
+        // couldn't use either from_node_id/to_node_id index efficiently and
+        // took ~118s in production; this version runs in ~2s for the same
+        // result.
         """SELECT n.node_key,
                   COUNT(DISTINCT scn.chunk_id) AS chunk_count,
                   COUNT(DISTINCT sc.document_id) AS document_count,
                   COUNT(DISTINCT d.source_type) AS source_type_count,
-                  COUNT(DISTINCT CASE
-                      WHEN e.from_node_id = n.id THEN e.to_node_id
-                      WHEN e.to_node_id = n.id THEN e.from_node_id
-                      ELSE NULL
-                  END) AS neighbor_count
+                  COALESCE(nc.neighbor_count, 0) AS neighbor_count
            FROM semantic_nodes n
            JOIN semantic_chunk_nodes scn ON scn.node_id = n.id
            JOIN semantic_chunks sc ON sc.id = scn.chunk_id
            JOIN semantic_documents d ON d.id = sc.document_id
-           LEFT JOIN semantic_node_edges e
-             ON e.from_node_id = n.id
-             OR e.to_node_id = n.id
+           LEFT JOIN (
+               SELECT node_id, COUNT(DISTINCT neighbor_id) AS neighbor_count
+               FROM (
+                   SELECT from_node_id AS node_id, to_node_id AS neighbor_id FROM semantic_node_edges
+                   UNION ALL
+                   SELECT to_node_id AS node_id, from_node_id AS neighbor_id FROM semantic_node_edges
+               ) pairs
+               GROUP BY node_id
+           ) nc ON nc.node_id = n.id
            WHERE n.node_type = 'token'
-           GROUP BY n.node_key, n.id
+           GROUP BY n.node_key, n.id, nc.neighbor_count
            HAVING COUNT(DISTINCT scn.chunk_id) >= @minChunkCount
            ORDER BY COUNT(DISTINCT d.source_type) DESC,
-                    COUNT(DISTINCT CASE
-                        WHEN e.from_node_id = n.id THEN e.to_node_id
-                        WHEN e.to_node_id = n.id THEN e.from_node_id
-                        ELSE NULL
-                    END) DESC,
+                    COALESCE(nc.neighbor_count, 0) DESC,
                     COUNT(DISTINCT sc.document_id) DESC,
                     n.node_key ASC
            LIMIT @limit""",
