@@ -1647,26 +1647,28 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
             </div>
 
             <div className="mud-game-dock">
-              <div className="mud-card mud-game-command-dock">
-                <form
-                  className="mud-command-row"
-                  onSubmit={e => {
-                    e.preventDefault()
-                    void runCommand()
-                  }}
-                >
-                  <input
-                    className="mud-command-input"
-                    value={command}
-                    onChange={e => setCommand(e.target.value)}
-                    placeholder="search, get rag strip, recipes, craft torch..."
-                    disabled={busy || !user}
-                  />
-                  <button className="mud-command-btn" type="submit" disabled={busy || !user}>
-                    {busy ? 'Running' : 'Run'}
-                  </button>
-                </form>
-              </div>
+              {!(activeView === 'world' && subView === 'chat') && (
+                <div className="mud-card mud-game-command-dock">
+                  <form
+                    className="mud-command-row"
+                    onSubmit={e => {
+                      e.preventDefault()
+                      void runCommand()
+                    }}
+                  >
+                    <input
+                      className="mud-command-input"
+                      value={command}
+                      onChange={e => setCommand(e.target.value)}
+                      placeholder="search, get rag strip, recipes, craft torch..."
+                      disabled={busy || !user}
+                    />
+                    <button className="mud-command-btn" type="submit" disabled={busy || !user}>
+                      {busy ? 'Running' : 'Run'}
+                    </button>
+                  </form>
+                </div>
+              )}
 
               {SUB_VIEWS[activeView] && (
                 <div className="mud-game-subnav">
