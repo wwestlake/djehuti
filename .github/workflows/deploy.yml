@@ -67,6 +67,16 @@ jobs:
             -p:PublishSingleFile=true \
             -o artifacts/api
 
+      - name: Publish DjeLab
+        run: |
+          dotnet publish src/Djehuti.DjeLab/Djehuti.DjeLab.csproj \
+            -c Release \
+            -o artifacts/djelab
+          # Served at lagdaemon.com/math/ -- base href stays "/" in source so
+          # the local Blazor dev server works normally; rewritten here only
+          # in the published output.
+          sed -i 's#<base href="/" />#<base href="/math/" />#' artifacts/djelab/wwwroot/index.html
+
       # ── Deploy to server ─────────────────────────────────────────────────────
       - name: Set up SSH key
         run: |
@@ -87,7 +97,8 @@ jobs:
           # --exclude=djehuti preserves the /var/www/lagdaemon/djehuti symlink
           # to /var/www/djehuti that lets lagdaemon.com/djehuti/ serve the dashboard.
           # --exclude=mud preserves the standalone MUD app served at /mud/.
-          rsync -az --delete --exclude=djehuti --exclude=mud \
+          # --exclude=math preserves the standalone DjeLab app served at /math/.
+          rsync -az --delete --exclude=djehuti --exclude=mud --exclude=math \
             -e "ssh -i ~/.ssh/deploy_key" \
             src/Lagdaemon.Web/dist/ \
             ubuntu@${{ secrets.DEPLOY_HOST }}:/var/www/lagdaemon/
@@ -98,6 +109,13 @@ jobs:
             -e "ssh -i ~/.ssh/deploy_key" \
             src/Lagdaemon.Mud/dist/ \
             ubuntu@${{ secrets.DEPLOY_HOST }}:/var/www/lagdaemon/mud/
+
+      - name: Sync DjeLab app
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            artifacts/djelab/wwwroot/ \
+            ubuntu@${{ secrets.DEPLOY_HOST }}:/var/www/lagdaemon/math/
 
       - name: Sync API
         run: |
