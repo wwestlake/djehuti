@@ -116,6 +116,12 @@ export interface MudRealmCharacterView {
   isSelf: boolean
 }
 
+export interface MudRealmNpcView {
+  name: string
+  greeting?: string
+  currentRoomName: string
+}
+
 export interface MudRealmAvailability {
   realmSlug: string
   realmName: string
@@ -244,6 +250,9 @@ export const mudApi = {
 
   getRealmRoster: (realmSlug: string): Promise<MudRealmCharacterView[]> =>
     fetch(`${BASE}/realm/${realmSlug}/characters`, opts).then(readJsonOrThrow<MudRealmCharacterView[]>),
+
+  getRealmNpcs: (realmSlug: string): Promise<MudRealmNpcView[]> =>
+    fetch(`${BASE}/realm/${realmSlug}/npcs`, opts).then(readJsonOrThrow<MudRealmNpcView[]>),
 
   createCharacter: (body: {
     realmSlug: string

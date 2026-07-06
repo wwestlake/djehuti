@@ -12,6 +12,7 @@ import {
   type MudMapExitView,
   type MudMapRoomView,
   type MudRealmCharacterView,
+  type MudRealmNpcView,
   type MudRoomState,
   type MudRosterView,
   type MudStatRoll,
@@ -565,6 +566,9 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
   const chatFeedRef = useRef<HTMLDivElement | null>(null)
   const [realmRoster, setRealmRoster] = useState<MudRealmCharacterView[] | null>(null)
   const [realmRosterLoading, setRealmRosterLoading] = useState(false)
+  const [realmModalTab, setRealmModalTab] = useState<'players' | 'npcs'>('players')
+  const [realmNpcs, setRealmNpcs] = useState<MudRealmNpcView[] | null>(null)
+  const [realmNpcsLoading, setRealmNpcsLoading] = useState(false)
   const [createRealm, setCreateRealm] = useState('medieval')
   const [createName, setCreateName] = useState('')
   const [createDisplayName, setCreateDisplayName] = useState('')
@@ -683,6 +687,11 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
 
   useEffect(() => {
     if (activeView !== 'world' || subView !== 'realm' || !state?.realmSlug) return
+    setRealmModalTab('players')
+  }, [activeView, subView, state?.realmSlug])
+
+  useEffect(() => {
+    if (activeView !== 'world' || subView !== 'realm' || realmModalTab !== 'players' || !state?.realmSlug) return
     let cancelled = false
     setRealmRosterLoading(true)
     mudApi.getRealmRoster(state.realmSlug)
@@ -690,7 +699,18 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
       .catch(() => { if (!cancelled) setRealmRoster([]) })
       .finally(() => { if (!cancelled) setRealmRosterLoading(false) })
     return () => { cancelled = true }
-  }, [activeView, subView, state?.realmSlug])
+  }, [activeView, subView, realmModalTab, state?.realmSlug])
+
+  useEffect(() => {
+    if (activeView !== 'world' || subView !== 'realm' || realmModalTab !== 'npcs' || !state?.realmSlug) return
+    let cancelled = false
+    setRealmNpcsLoading(true)
+    mudApi.getRealmNpcs(state.realmSlug)
+      .then(npcs => { if (!cancelled) setRealmNpcs(npcs) })
+      .catch(() => { if (!cancelled) setRealmNpcs([]) })
+      .finally(() => { if (!cancelled) setRealmNpcsLoading(false) })
+    return () => { cancelled = true }
+  }, [activeView, subView, realmModalTab, state?.realmSlug])
 
   const sendChat = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -1340,35 +1360,80 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
                     <button type="button" className="modal-close" onClick={() => setSubView('room')} aria-label="Close">
                       <X size={20} />
                     </button>
-                    <h2>Active in {state?.realmName}</h2>
-                    {realmRosterLoading && <p className="mud-empty">Loading…</p>}
-                    {!realmRosterLoading && realmRoster && realmRoster.length === 0 && (
-                      <p className="mud-empty">No one else is active in this realm right now.</p>
-                    )}
-                    {!realmRosterLoading && realmRoster && realmRoster.length > 0 && (
-                      <div className="mud-roster-list">
-                        {realmRoster.map(character => (
-                          <div key={character.characterId} className={`mud-roster-card${character.isSelf ? ' selected' : ''}`}>
-                            <div className="mud-roster-head">
-                              <div className="mud-roster-identity">
-                                {character.portraitUrl ? (
-                                  <img className="mud-roster-portrait" src={character.portraitUrl} alt={`${character.displayName} portrait`} />
-                                ) : (
-                                  <div className="mud-roster-portrait mud-roster-portrait-placeholder">
-                                    <UserRound size={22} />
+                    <h2>{state?.realmName}</h2>
+                    <div className="mud-game-subnav">
+                      <button
+                        type="button"
+                        className={`mud-subnav-btn${realmModalTab === 'players' ? ' active' : ''}`}
+                        onClick={() => setRealmModalTab('players')}
+                      >
+                        Players
+                      </button>
+                      <button
+                        type="button"
+                        className={`mud-subnav-btn${realmModalTab === 'npcs' ? ' active' : ''}`}
+                        onClick={() => setRealmModalTab('npcs')}
+                      >
+                        NPCs
+                      </button>
+                    </div>
+
+                    {realmModalTab === 'players' && (
+                      <>
+                        {realmRosterLoading && <p className="mud-empty">Loading…</p>}
+                        {!realmRosterLoading && realmRoster && realmRoster.length === 0 && (
+                          <p className="mud-empty">No one else is active in this realm right now.</p>
+                        )}
+                        {!realmRosterLoading && realmRoster && realmRoster.length > 0 && (
+                          <div className="mud-roster-list">
+                            {realmRoster.map(character => (
+                              <div key={character.characterId} className={`mud-roster-card${character.isSelf ? ' selected' : ''}`}>
+                                <div className="mud-roster-head">
+                                  <div className="mud-roster-identity">
+                                    {character.portraitUrl ? (
+                                      <img className="mud-roster-portrait" src={character.portraitUrl} alt={`${character.displayName} portrait`} />
+                                    ) : (
+                                      <div className="mud-roster-portrait mud-roster-portrait-placeholder">
+                                        <UserRound size={22} />
+                                      </div>
+                                    )}
+                                    <div>
+                                      <strong>{character.displayName}</strong>
+                                      {character.isSelf && <span className="mud-status-pill ok" style={{ marginLeft: 8 }}>You</span>}
+                                      {character.title && <span className="mud-status-pill ok" style={{ marginLeft: 8 }}>{character.title}</span>}
+                                      <div className="mud-empty">{character.currentRoomName}</div>
+                                    </div>
                                   </div>
-                                )}
-                                <div>
-                                  <strong>{character.displayName}</strong>
-                                  {character.isSelf && <span className="mud-status-pill ok" style={{ marginLeft: 8 }}>You</span>}
-                                  {character.title && <span className="mud-status-pill ok" style={{ marginLeft: 8 }}>{character.title}</span>}
-                                  <div className="mud-empty">{character.currentRoomName}</div>
                                 </div>
                               </div>
-                            </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
+                        )}
+                      </>
+                    )}
+
+                    {realmModalTab === 'npcs' && (
+                      <>
+                        {realmNpcsLoading && <p className="mud-empty">Loading…</p>}
+                        {!realmNpcsLoading && realmNpcs && realmNpcs.length === 0 && (
+                          <p className="mud-empty">No NPCs known in this realm yet.</p>
+                        )}
+                        {!realmNpcsLoading && realmNpcs && realmNpcs.length > 0 && (
+                          <div className="mud-roster-list">
+                            {realmNpcs.map(npc => (
+                              <div key={npc.name} className="mud-roster-card">
+                                <div className="mud-roster-head">
+                                  <div>
+                                    <strong>{npc.name}</strong>
+                                    <div className="mud-empty">{npc.currentRoomName}</div>
+                                  </div>
+                                </div>
+                                {npc.greeting && <p className="mud-roster-bio">"{npc.greeting}"</p>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
