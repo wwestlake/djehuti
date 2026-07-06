@@ -1,0 +1,75 @@
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<div class="djelab-auth-corner">
+    @if (_loading)
+    {
+        <span class="djelab-auth-loading"></span>
+    }
+    else if (_me is not null)
+    {
+        <div class="djelab-auth-chip-wrap">
+            <button type="button" class="djelab-auth-chip" @onclick="ToggleMenu">
+                <span class="djelab-auth-avatar">@Initial</span>
+                <span class="djelab-auth-name">@(_me.DisplayName ?? _me.Email)</span>
+            </button>
+            @if (_menuOpen)
+            {
+                <div class="djelab-auth-menu-backdrop" @onclick="() => _menuOpen = false"></div>
+                <div class="djelab-auth-menu">
+                    <div class="djelab-auth-menu-header">@(_me.DisplayName ?? _me.Email)</div>
+                    <button type="button" class="djelab-auth-menu-item djelab-auth-menu-danger" @onclick="SignOut">Sign out</button>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <a class="djelab-auth-signin" href="/">Sign in</a>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _menuOpen;
+    private MeResponse? _me;
+
+    private string Initial => (_me?.DisplayName ?? _me?.Email ?? "?").Trim() is { Length: > 0 } s ? s[..1].ToUpperInvariant() : "?";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var response = await Http.GetAsync("/djehuti/api/auth/me");
+            if (response.IsSuccessStatusCode)
+            {
+                _me = await response.Content.ReadFromJsonAsync<MeResponse>();
+            }
+        }
+        catch
+        {
+            // Role-gating and a proper error surface come later -- for now,
+            // failing to reach the API just means "treat as signed out."
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void ToggleMenu() => _menuOpen = !_menuOpen;
+
+    private async Task SignOut()
+    {
+        _menuOpen = false;
+        try { await Http.PostAsync("/djehuti/api/auth/logout", content: null); }
+        catch { /* best effort -- reload regardless so the UI reflects intent */ }
+        Nav.NavigateTo(Nav.Uri, forceLoad: true);
+    }
+
+    private sealed class MeResponse
+    {
+        public string? DisplayName { get; set; }
+        public string? Email { get; set; }
+    }
+}
