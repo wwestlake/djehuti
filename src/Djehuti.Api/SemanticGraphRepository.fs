@@ -2674,7 +2674,7 @@ let logSemanticAdminAction
 let listSemanticAdminActions (limit: int) =
     use conn = openConnection()
     use cmd = new NpgsqlCommand(
-        """SELECT id,
+        """SELECT sal.id,
                   sal.admin_user_id,
                   COALESCE(NULLIF(u.display_name, ''), 'Anonymous') AS admin_display_name,
                   sal.action,
@@ -2688,7 +2688,7 @@ let listSemanticAdminActions (limit: int) =
                   sal.created_at
            FROM semantic_admin_action_log sal
            JOIN users u ON u.id = sal.admin_user_id
-           ORDER BY created_at DESC
+           ORDER BY sal.created_at DESC
            LIMIT @limit""",
         conn)
     cmd.Parameters.AddWithValue("limit", Math.Max(1, limit)) |> ignore
