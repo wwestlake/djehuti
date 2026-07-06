@@ -1,0 +1,129 @@
+module DslTests
+
+open Xunit
+open Djehuti.DjeLab.Dsl.Evaluator
+
+let private evalOk (source: string) =
+    match Djehuti.DjeLab.Dsl.Parser.parse source with
+    | Error e -> failwith $"parse error: {e}"
+    | Ok expr ->
+        match run expr with
+        | Error e -> failwith $"eval error: {e}"
+        | Ok value -> value
+
+let private evalNumber (source: string) =
+    match evalOk source with
+    | VNumber n -> n
+    | other -> failwith $"expected a number, got {other}"
+
+[<Fact>]
+let ``arithmetic respects precedence`` () =
+    Assert.Equal(7.0, evalNumber "1 + 2 * 3")
+    Assert.Equal(9.0, evalNumber "(1 + 2) * 3")
+    Assert.Equal(8.0, evalNumber "2 ^ 3")
+    Assert.Equal(2.0, evalNumber "2 ^ 3 ^ 0") // right-associative: 2 ^ (3 ^ 0) = 2 ^ 1
+
+[<Fact>]
+let ``unary negation and not`` () =
+    Assert.Equal(-5.0, evalNumber "-5")
+    Assert.Equal(3.0, evalNumber "1 - -2")
+    match evalOk "not true" with
+    | VBool b -> Assert.False(b)
+    | other -> failwith $"expected a bool, got {other}"
+
+[<Fact>]
+let ``let binds a value for the body`` () =
+    Assert.Equal(15.0, evalNumber "let x = 5 in x * 3")
+
+[<Fact>]
+let ``let can shadow an outer binding`` () =
+    Assert.Equal(2.0, evalNumber "let x = 1 in let x = 2 in x")
+
+[<Fact>]
+let ``if branches on a bool condition`` () =
+    Assert.Equal(1.0, evalNumber "if 1 < 2 then 1 else 0")
+    Assert.Equal(0.0, evalNumber "if 1 > 2 then 1 else 0")
+
+[<Fact>]
+let ``lambda and call`` () =
+    Assert.Equal(9.0, evalNumber "let square = fun x -> x * x in square(3)")
+
+[<Fact>]
+let ``let rec supports real recursion, not just one level`` () =
+    // This is the case that would silently break under a buggy tie-the-knot
+    // implementation: a naive immutable-Map approach lets the function call
+    // itself exactly once (the first recursive call resolves to a closure
+    // that doesn't itself know its own name) and then throws "Unbound
+    // variable" on the second recursive call. Factorial of 5 requires 5
+    // nested self-calls, so this only passes if recursion is genuinely
+    // unbounded.
+    Assert.Equal(120.0, evalNumber "let rec fact n = if n <= 1 then 1 else n * fact(n - 1) in fact(5)")
+
+[<Fact>]
+let ``let rec handles mutual-depth recursion via fibonacci`` () =
+    let src =
+        "let rec fib n = if n < 2 then n else fib(n - 1) + fib(n - 2) in fib(10)"
+    Assert.Equal(55.0, evalNumber src)
+
+[<Fact>]
+let ``vectors and indexing`` () =
+    Assert.Equal(2.0, evalNumber "let v = [1, 2, 3] in v[1]")
+    Assert.Equal(3.0, evalNumber "len([1, 2, 3])")
+
+[<Fact>]
+let ``builtin math functions`` () =
+    Assert.Equal(4.0, evalNumber "sqrt(16)")
+    Assert.Equal(5.0, evalNumber "max(3, 5)")
+
+[<Fact>]
+let ``equality on numbers, bools, and vectors`` () =
+    match evalOk "[1, 2] == [1, 2]" with
+    | VBool b -> Assert.True(b)
+    | other -> failwith $"expected a bool, got {other}"
+    match evalOk "[1, 2] == [1, 3]" with
+    | VBool b -> Assert.False(b)
+    | other -> failwith $"expected a bool, got {other}"
+
+[<Fact>]
+let ``comparing functions for equality is a DSL-level error, not a crash`` () =
+    match Djehuti.DjeLab.Dsl.Parser.parse "(fun x -> x) == (fun x -> x)" with
+    | Error e -> failwith $"parse error: {e}"
+    | Ok expr ->
+        match run expr with
+        | Error _ -> () // expected: functions are not comparable
+        | Ok v -> failwith $"expected an error, got a value: {v}"
+
+[<Fact>]
+let ``and or short-circuit`` () =
+    // The right side would error if evaluated (unbound variable), so this
+    // only passes if short-circuiting actually skips it.
+    match evalOk "false && boom" with
+    | VBool b -> Assert.False(b)
+    | other -> failwith $"expected a bool, got {other}"
+    match evalOk "true || boom" with
+    | VBool b -> Assert.True(b)
+    | other -> failwith $"expected a bool, got {other}"
+
+[<Fact>]
+let ``unbound variable is a clear error, not an exception`` () =
+    match Djehuti.DjeLab.Dsl.Parser.parse "doesNotExist" with
+    | Error e -> failwith $"parse error: {e}"
+    | Ok expr ->
+        match run expr with
+        | Error msg -> Assert.Contains("Unbound variable", msg)
+        | Ok v -> failwith $"expected an error, got a value: {v}"
+
+[<Fact>]
+let ``runaway recursion hits the step budget instead of hanging`` () =
+    match Djehuti.DjeLab.Dsl.Parser.parse "let rec loop n = loop(n + 1) in loop(0)" with
+    | Error e -> failwith $"parse error: {e}"
+    | Ok expr ->
+        match eval 1000 Djehuti.DjeLab.Dsl.Evaluator.builtinEnv expr with
+        | Error msg -> Assert.Contains("step budget", msg)
+        | Ok v -> failwith $"expected a step-budget error, got a value: {v}"
+
+[<Fact>]
+let ``parse error is reported instead of throwing`` () =
+    match Djehuti.DjeLab.Dsl.Parser.parse "1 +" with
+    | Error _ -> ()
+    | Ok expr -> failwith $"expected a parse error, got {expr}"

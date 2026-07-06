@@ -886,6 +886,11 @@ let main args =
         |> Option.defaultValue (Path.Combine(AppContext.BaseDirectory, "data", "datasets"))
     DataLibrary.migrateFromFilesystem datasetDir
 
+    try
+        SemanticGraphRepository.indexDjeLabDslReference ()
+    with ex ->
+        printfn $"[Startup] Failed to index DjeLab DSL reference: {ex.Message}"
+
     app.UseCors() |> ignore
 
     // Update last_activity_at for authenticated users on every request (debounced in DB to 1/min)

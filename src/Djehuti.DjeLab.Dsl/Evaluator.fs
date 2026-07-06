@@ -1,0 +1,264 @@
+/// Tree-walking evaluator for the DjeLab DSL AST.
+///
+/// This is a plain, pure function over the AST -- no file/network access is
+/// possible because nothing in `Value` or `eval` ever touches them. The one
+/// safety knob a pure interpreter genuinely needs is a bound on how much
+/// work a single evaluation can do, since recursion is unbounded by the
+/// grammar itself: `eval` takes a step budget and errors out rather than
+/// hanging or blowing the stack. This is a courtesy limit for this
+/// in-process evaluator, not a substitute for the process-level sandboxing
+/// (isolated process, wall-clock/CPU/memory ceiling) a real execution
+/// backend still needs -- see DjeLab_Architecture_and_Specification_V2.md.
+module Djehuti.DjeLab.Dsl.Evaluator
+
+open System
+open Djehuti.DjeLab.Dsl.Ast
+
+type Value =
+    | VNumber of float
+    | VBool of bool
+    | VVector of Value[]
+    /// The environment is a `ref` (not a plain `Env`) so `LetRec` can tie the
+    /// recursive knot: it creates the closure, then mutates this same cell
+    /// to include the closure's own name. `Map` itself is immutable --
+    /// reassigning a `Map`-typed field after construction would not be
+    /// visible to a closure holding the old value, hence the indirection.
+    /// This is the only mutation in the whole module, and it is invisible
+    /// to and unreachable from DSL code -- it only wires recursion.
+    | VClosure of parameters: string list * body: Expr * env: Env ref
+    | VBuiltin of name: string * arity: int * fn: (Value list -> Result<Value, string>)
+
+and Env = Map<string, Value>
+
+let rec private describe (value: Value) : string =
+    match value with
+    | VNumber n -> string n
+    | VBool b -> string b
+    | VVector items -> "[" + String.Join(", ", items |> Array.map describe) + "]"
+    | VClosure(parameters, _, _) -> $"""<function/{parameters.Length}>"""
+    | VBuiltin(name, _, _) -> $"<builtin:{name}>"
+
+let private asNumber (context: string) (value: Value) : Result<float, string> =
+    match value with
+    | VNumber n -> Ok n
+    | other -> Error $"{context}: expected a number, got {describe other}"
+
+let private asBool (context: string) (value: Value) : Result<bool, string> =
+    match value with
+    | VBool b -> Ok b
+    | other -> Error $"{context}: expected a bool, got {describe other}"
+
+let private asVector (context: string) (value: Value) : Result<Value[], string> =
+    match value with
+    | VVector items -> Ok items
+    | other -> Error $"{context}: expected a vector, got {describe other}"
+
+/// Built-in math functions available to every DjeLab program. This is the
+/// entire surface of "library calls" a program can make -- adding a new
+/// capability means adding an entry here, not opening up the language.
+let builtinEnv : Env =
+    let numeric1 name (f: float -> float) =
+        name, VBuiltin(name, 1, function
+            | [ v ] -> asNumber name v |> Result.map (f >> VNumber)
+            | args -> Error $"{name}: expected 1 argument, got {args.Length}")
+
+    let numeric2 name (f: float -> float -> float) =
+        name, VBuiltin(name, 2, function
+            | [ a; b ] ->
+                match asNumber name a, asNumber name b with
+                | Ok x, Ok y -> Ok(VNumber(f x y))
+                | Error e, _ | _, Error e -> Error e
+            | args -> Error $"{name}: expected 2 arguments, got {args.Length}")
+
+    [ numeric1 "sin" sin
+      numeric1 "cos" cos
+      numeric1 "tan" tan
+      numeric1 "sqrt" sqrt
+      numeric1 "abs" abs
+      numeric1 "exp" exp
+      numeric1 "ln" log
+      numeric1 "floor" floor
+      numeric1 "ceil" ceil
+      numeric2 "min" min
+      numeric2 "max" max
+      numeric2 "atan2" atan2
+      "len", VBuiltin("len", 1, function
+          | [ v ] -> asVector "len" v |> Result.map (fun items -> VNumber(float items.Length))
+          | args -> Error $"len: expected 1 argument, got {args.Length}")
+      "pi", VNumber Math.PI
+      "e", VNumber Math.E ]
+    |> Map.ofList
+
+type private Budget = { mutable Remaining: int }
+
+let private stepOrFail (budget: Budget) : Result<unit, string> =
+    if budget.Remaining <= 0 then
+        Error "Evaluation step budget exceeded (likely runaway recursion)"
+    else
+        budget.Remaining <- budget.Remaining - 1
+        Ok()
+
+let rec private evalWith (budget: Budget) (env: Env) (expr: Expr) : Result<Value, string> =
+    match stepOrFail budget with
+    | Error e -> Error e
+    | Ok() ->
+
+    match expr with
+    | Number n -> Ok(VNumber n)
+    | Bool b -> Ok(VBool b)
+    | Var name ->
+        match Map.tryFind name env with
+        | Some v -> Ok v
+        | None -> Error $"Unbound variable '{name}'"
+
+    | VectorLit items ->
+        let rec evalAll acc =
+            function
+            | [] -> Ok(List.rev acc)
+            | e :: rest ->
+                match evalWith budget env e with
+                | Ok v -> evalAll (v :: acc) rest
+                | Error err -> Error err
+        evalAll [] items |> Result.map (List.toArray >> VVector)
+
+    | Index(vecExpr, idxExpr) ->
+        match evalWith budget env vecExpr, evalWith budget env idxExpr with
+        | Ok vecVal, Ok idxVal ->
+            match asVector "index" vecVal, asNumber "index" idxVal with
+            | Ok items, Ok idx ->
+                let i = int idx
+                if i >= 0 && i < items.Length then Ok items.[i]
+                else Error $"Index {i} out of range (vector has {items.Length} elements)"
+            | Error e, _ | _, Error e -> Error e
+        | Error e, _ | _, Error e -> Error e
+
+    | UnaryOp(Neg, e) ->
+        evalWith budget env e |> Result.bind (asNumber "negation") |> Result.map (fun n -> VNumber(-n))
+    | UnaryOp(Not, e) ->
+        evalWith budget env e |> Result.bind (asBool "not") |> Result.map (fun b -> VBool(not b))
+
+    | BinaryOp(op, left, right) ->
+        match op with
+        | And ->
+            evalWith budget env left
+            |> Result.bind (asBool "&&")
+            |> Result.bind (fun l ->
+                if not l then Ok(VBool false)
+                else evalWith budget env right |> Result.bind (asBool "&&") |> Result.map VBool)
+        | Or ->
+            evalWith budget env left
+            |> Result.bind (asBool "||")
+            |> Result.bind (fun l ->
+                if l then Ok(VBool true)
+                else evalWith budget env right |> Result.bind (asBool "||") |> Result.map VBool)
+        | _ ->
+            match evalWith budget env left, evalWith budget env right with
+            | Ok lv, Ok rv -> evalBinaryOp op lv rv
+            | Error e, _ | _, Error e -> Error e
+
+    | If(cond, thenB, elseB) ->
+        evalWith budget env cond
+        |> Result.bind (asBool "if condition")
+        |> Result.bind (fun c -> evalWith budget env (if c then thenB else elseB))
+
+    | Let(name, value, body) ->
+        evalWith budget env value
+        |> Result.bind (fun v -> evalWith budget (Map.add name v env) body)
+
+    | LetRec(name, parameters, funcBody, body) ->
+        // Tie the recursive knot via the ref cell: create the closure first
+        // (holding a reference to `envCell`), then mutate that same cell to
+        // include the closure's own name. When the closure is later called,
+        // `applyCallable` dereferences the cell -- by then it contains the
+        // self-binding, so a recursive call inside `funcBody` resolves.
+        let envCell = ref env
+        let closure = VClosure(parameters, funcBody, envCell)
+        envCell.Value <- Map.add name closure env
+        evalWith budget (Map.add name closure env) body
+
+    | Lambda(parameters, body) -> Ok(VClosure(parameters, body, ref env))
+
+    | Call(calleeExpr, argExprs) ->
+        match evalWith budget env calleeExpr with
+        | Error e -> Error e
+        | Ok callee ->
+            let rec evalArgs acc =
+                function
+                | [] -> Ok(List.rev acc)
+                | e :: rest ->
+                    match evalWith budget env e with
+                    | Ok v -> evalArgs (v :: acc) rest
+                    | Error err -> Error err
+            match evalArgs [] argExprs with
+            | Error e -> Error e
+            | Ok args -> applyCallable budget callee args
+
+and private applyCallable (budget: Budget) (callee: Value) (args: Value list) : Result<Value, string> =
+    match callee with
+    | VBuiltin(name, arity, fn) ->
+        if args.Length <> arity then
+            Error $"{name}: expected {arity} argument(s), got {args.Length}"
+        else
+            fn args
+    | VClosure(parameters, body, closureEnvCell) ->
+        if args.Length <> parameters.Length then
+            Error $"function expected {parameters.Length} argument(s), got {args.Length}"
+        else
+            let callEnv = List.zip parameters args |> List.fold (fun e (p, v) -> Map.add p v e) closureEnvCell.Value
+            evalWith budget callEnv body
+    | other -> Error $"{describe other} is not callable"
+
+/// `Value` can't derive structural equality (it embeds functions via
+/// `VClosure`/`VBuiltin`), so `==`/`!=` get their own recursive comparison:
+/// numbers, bools, and vectors compare structurally; comparing a function
+/// is a DSL-level error rather than silently `false`.
+and private valueEquals (a: Value) (b: Value) : Result<bool, string> =
+    match a, b with
+    | VNumber x, VNumber y -> Ok(x = y)
+    | VBool x, VBool y -> Ok(x = y)
+    | VVector xs, VVector ys ->
+        if xs.Length <> ys.Length then
+            Ok false
+        else
+            let rec loop i =
+                if i >= xs.Length then
+                    Ok true
+                else
+                    match valueEquals xs.[i] ys.[i] with
+                    | Ok true -> loop (i + 1)
+                    | Ok false -> Ok false
+                    | Error e -> Error e
+            loop 0
+    | (VClosure _ | VBuiltin _), _
+    | _, (VClosure _ | VBuiltin _) -> Error "functions cannot be compared for equality"
+    | _ -> Ok false
+
+and private evalBinaryOp (op: BinOp) (left: Value) (right: Value) : Result<Value, string> =
+    let numOp f =
+        match asNumber "arithmetic" left, asNumber "arithmetic" right with
+        | Ok l, Ok r -> Ok(f l r)
+        | Error e, _ | _, Error e -> Error e
+    match op with
+    | Add -> numOp (fun l r -> VNumber(l + r))
+    | Sub -> numOp (fun l r -> VNumber(l - r))
+    | Mul -> numOp (fun l r -> VNumber(l * r))
+    | Div -> numOp (fun l r -> VNumber(l / r))
+    | Mod -> numOp (fun l r -> VNumber(l % r))
+    | Pow -> numOp (fun l r -> VNumber(l ** r))
+    | Lt -> numOp (fun l r -> VBool(l < r))
+    | Lte -> numOp (fun l r -> VBool(l <= r))
+    | Gt -> numOp (fun l r -> VBool(l > r))
+    | Gte -> numOp (fun l r -> VBool(l >= r))
+    | Eq -> valueEquals left right |> Result.map VBool
+    | Neq -> valueEquals left right |> Result.map (fun b -> VBool(not b))
+    | And | Or -> Error "unreachable: short-circuit ops handled before evalBinaryOp"
+
+/// Evaluates an expression with a bounded number of reduction steps
+/// (default 1,000,000) so a runaway recursive program fails fast with a
+/// clear error instead of hanging this process or overflowing the stack.
+let eval (maxSteps: int) (env: Env) (expr: Expr) : Result<Value, string> =
+    evalWith { Remaining = maxSteps } env expr
+
+/// Evaluates against the standard builtin environment.
+let run (expr: Expr) : Result<Value, string> =
+    eval 1_000_000 builtinEnv expr
