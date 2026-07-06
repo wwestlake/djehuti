@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Backpack, Compass, Eye, Locate, LogOut, Map as MapIcon, Maximize2, Minimize2, ScrollText, Settings2, UserRound, ZoomIn, ZoomOut } from 'lucide-react'
+import { Backpack, Compass, Eye, Locate, LogOut, Map as MapIcon, Maximize2, Minimize2, ScrollText, Settings2, UserRound, X, ZoomIn, ZoomOut } from 'lucide-react'
 import {
   mudApi,
   type MudArchetype,
@@ -1335,8 +1335,11 @@ export default function MudPage({ embedded = false, onExit }: MudPageProps) {
               )}
 
               {activeView === 'world' && subView === 'realm' && (
-                <div className="mud-game-view">
-                  <div className="mud-card mud-card-flat">
+                <div className={`modal-overlay${subView === 'realm' ? ' open' : ''}`} onClick={() => setSubView('room')}>
+                  <div className="modal" onClick={e => e.stopPropagation()}>
+                    <button type="button" className="modal-close" onClick={() => setSubView('room')} aria-label="Close">
+                      <X size={20} />
+                    </button>
                     <h2>Active in {state?.realmName}</h2>
                     {realmRosterLoading && <p className="mud-empty">Loading…</p>}
                     {!realmRosterLoading && realmRoster && realmRoster.length === 0 && (
