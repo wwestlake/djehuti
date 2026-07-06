@@ -1128,6 +1128,42 @@ let private deriveTitle (userId: Guid) : string option =
     |> List.tryHead
     |> Option.map _.Name
 
+type MudRealmCharacterView =
+    { CharacterId: Guid
+      DisplayName: string
+      PortraitUrl: string option
+      Title: string option
+      CurrentRoomName: string
+      IsSelf: bool }
+
+/// Characters currently active (same online window used for chat presence)
+/// in the given realm, regardless of which room they're in.
+let getRealmRoster (realmSlug: string) (viewerCharacterId: Guid option) : MudRealmCharacterView list =
+    let normalizedRealm = normalizeRealmSlug realmSlug
+    use conn = openConnection ()
+    use cmd = new NpgsqlCommand(
+        """SELECT c.id, c.display_name, c.portrait_url, r.name, u.id
+           FROM mud_characters c
+           JOIN users u ON u.active_mud_character_id = c.id
+           JOIN mud_rooms r ON r.id = c.current_room_id
+           WHERE c.realm_slug = @realm_slug
+             AND c.deleted_at IS NULL
+             AND c.last_active_at > now() - make_interval(mins => @minutes)
+           ORDER BY c.display_name""", conn)
+    cmd.Parameters.AddWithValue("realm_slug", normalizedRealm) |> ignore
+    cmd.Parameters.AddWithValue("minutes", int MudChatRepository.presenceMinutes) |> ignore
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do
+        let characterId = reader.GetGuid(0)
+        let userId = reader.GetGuid(4)
+        yield
+            { CharacterId = characterId
+              DisplayName = reader.GetString(1)
+              PortraitUrl = if reader.IsDBNull(2) then None else Some (reader.GetString(2))
+              Title = deriveTitle userId
+              CurrentRoomName = reader.GetString(3)
+              IsSelf = viewerCharacterId = Some characterId } ]
+
 let private paidSlotsForTier = function
     | Some "curious-mind" -> 3
     | Some "lab-assistant" -> 6

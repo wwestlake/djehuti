@@ -27,7 +27,7 @@ type ActiveChatCharacter =
       RoomId: Guid
       RealmSlug: string }
 
-let private presenceMinutes = 5.0
+let presenceMinutes = 5.0
 
 let tryGetActiveCharacter (userId: Guid) : ActiveChatCharacter option =
     use conn = openConnection ()

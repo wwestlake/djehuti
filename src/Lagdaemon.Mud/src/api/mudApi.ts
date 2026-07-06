@@ -107,6 +107,15 @@ export interface MudCommandResult {
   state?: MudRoomState
 }
 
+export interface MudRealmCharacterView {
+  characterId: string
+  displayName: string
+  portraitUrl?: string
+  title?: string
+  currentRoomName: string
+  isSelf: boolean
+}
+
 export interface MudRealmAvailability {
   realmSlug: string
   realmName: string
@@ -232,6 +241,9 @@ export const mudApi = {
 
   rollStats: (): Promise<MudStatRoll> =>
     fetch(`${BASE}/characters/roll`, { ...opts, method: 'POST' }).then(readJsonOrThrow<MudStatRoll>),
+
+  getRealmRoster: (realmSlug: string): Promise<MudRealmCharacterView[]> =>
+    fetch(`${BASE}/realm/${realmSlug}/characters`, opts).then(readJsonOrThrow<MudRealmCharacterView[]>),
 
   createCharacter: (body: {
     realmSlug: string

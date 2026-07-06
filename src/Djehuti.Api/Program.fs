@@ -1592,6 +1592,22 @@ let main args =
     ) |> ignore
 
     app.MapGet(
+        "/api/mud/realm/{realmSlug}/characters",
+        Func<HttpContext, string, IResult>(fun ctx realmSlug ->
+            match tryGetAuthClaims ctx with
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, userId ->
+                    let viewerCharacterId =
+                        MudChatRepository.tryGetActiveCharacter userId
+                        |> Option.map (fun active -> active.CharacterId)
+                    Results.Ok(MudRepository.getRealmRoster realmSlug viewerCharacterId)
+            | None -> Results.Unauthorized()
+        )
+    ) |> ignore
+
+    app.MapGet(
         "/api/mud/companions/{characterId}",
         Func<HttpContext, string, IResult>(fun ctx characterId ->
             match tryGetAuthClaims ctx with
