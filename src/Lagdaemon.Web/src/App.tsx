@@ -75,6 +75,9 @@ function Nav({ onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
       {user?.role === 'admin' && (
         <button className={`nav-community-link${active('/admin') ? ' active' : ''}`} onClick={() => go('/admin')}>Admin</button>
       )}
+      {user?.roles?.includes('system:engineer') && (
+        <a className="nav-community-link" href="/math/">DjeLab</a>
+      )}
       <a className="nav-cta" href="/djehuti/" onClick={() => setDrawerOpen(false)}>Open Djehuti ↗</a>
     </>
   )

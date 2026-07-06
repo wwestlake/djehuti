@@ -11,6 +11,7 @@ export type UserProfile = {
   role: string
   status: string
   createdAt: string
+  roles: string[]
 }
 
 export type AuthContextType = {

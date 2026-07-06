@@ -1851,6 +1851,7 @@ export default function AdminPage() {
                 <option value="forum">forum</option>
                 <option value="blog">blog</option>
                 <option value="papers">papers</option>
+                <option value="system">system</option>
               </select>
               <select className="admin-role-select" value={grantForm.role}
                 onChange={e => setGrantForm(f => ({ ...f, role: e.target.value }))}>
@@ -1858,6 +1859,7 @@ export default function AdminPage() {
                 <option value="author">author</option>
                 <option value="editor">editor</option>
                 <option value="contributor">contributor</option>
+                <option value="engineer">engineer</option>
               </select>
               <input placeholder="Scope ID (optional)" value={grantForm.scopeId}
                 onChange={e => setGrantForm(f => ({ ...f, scopeId: e.target.value }))} className="papers-new-input" />

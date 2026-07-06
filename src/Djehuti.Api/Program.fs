@@ -324,7 +324,15 @@ type UserDto =
       Location: string option
       Role: string
       Status: string
-      CreatedAt: DateTime }
+      CreatedAt: DateTime
+      Roles: string list }
+
+[<CLIMutable>]
+type GrantRoleRequest =
+    { UserId: string
+      Module: string
+      Role: string
+      ScopeId: string option }
 
 type PublicProfileDto =
     { Id: string
@@ -1043,6 +1051,11 @@ let main args =
     )
     |> ignore
 
+    let getUserRoleStrings (userId: Guid) : string list =
+        use conn = Database.openConnection()
+        Permissions.getUserContextRoles conn userId
+        |> List.map (fun r -> $"{r.Module}:{r.Role}")
+
     app.MapPost(
         "/api/auth/login",
         Func<LoginRequest, HttpContext, System.Threading.Tasks.Task<IResult>>(fun request ctx ->
@@ -1078,7 +1091,7 @@ let main args =
                                     Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                 )
                             )
-                            return Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt })
+                            return Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt; Roles = getUserRoleStrings u.Id })
                     | _ ->
                         return Results.BadRequest("invalid email or password")
             } |> Async.StartAsTask)
@@ -1189,7 +1202,7 @@ let main args =
                         | true, userId ->
                             let! user = UserRepository.tryGetById userId
                             return match user with
-                                   | Some u -> Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt })
+                                   | Some u -> Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt; Roles = getUserRoleStrings u.Id })
                                    | None -> Results.NotFound()
                         | _ -> return Results.Unauthorized()
                     | None -> return Results.Unauthorized()
@@ -1210,7 +1223,7 @@ let main args =
                         | true, userId ->
                             let! updated = UserRepository.updateProfile userId request.DisplayName request.Bio request.Pronouns request.Location request.NotifyByEmail
                             return match updated with
-                                   | Some u -> Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt })
+                                   | Some u -> Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt; Roles = getUserRoleStrings u.Id })
                                    | None -> Results.Problem(detail = "Failed to update profile", statusCode = 500, title = "Update failed")
                         | _ -> return Results.Unauthorized()
                     | None -> return Results.Unauthorized()
@@ -4959,6 +4972,28 @@ let main args =
                 match tryGetAuthClaims ctx with
                 | Some claims when Permissions.isAdmin claims.Role ->
                     return Results.Ok(BlogRepository.getAllArticlesAdmin ())
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/roles/grant",
+        Func<GrantRoleRequest, HttpContext, System.Threading.Tasks.Task<IResult>>(fun request ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    match Guid.TryParse(request.UserId), Guid.TryParse(claims.UserId) with
+                    | (false, _), _ -> return Results.BadRequest("Invalid user id")
+                    | (true, _), (false, _) -> return Results.Unauthorized()
+                    | (true, targetUserId), (true, grantedBy) ->
+                        let scopeId =
+                            request.ScopeId
+                            |> Option.filter (String.IsNullOrWhiteSpace >> not)
+                            |> Option.bind (fun s -> match Guid.TryParse(s) with | true, g -> Some g | false, _ -> None)
+                        use conn = Database.openConnection()
+                        Permissions.grantContextRole conn targetUserId request.Module request.Role scopeId grantedBy
+                        return Results.Ok()
                 | Some _ -> return Results.Forbid()
                 | None   -> return Results.Unauthorized()
             } |> Async.StartAsTask)
