@@ -1,0 +1,98 @@
+@page "/settings"
+@inject AiConfigStore ConfigStore
+
+<PageTitle>AI Setup — DjeLab</PageTitle>
+
+<h1>AI Setup</h1>
+<p class="djelab-tagline">
+    Bring your own OpenAI API key so DjeLab has an AI to talk to when generating and discussing
+    DSL code. This is separate from actually solving the math -- that's done deterministically by
+    the DjeLab DSL and its sandbox, not by the AI.
+</p>
+
+<div class="djelab-settings-card">
+    @if (_loading)
+    {
+        <p>Loading…</p>
+    }
+    else
+    {
+        <label class="djelab-settings-label" for="api-key">OpenAI API key</label>
+        <div class="djelab-settings-key-row">
+            <input id="api-key"
+                   class="djelab-settings-input"
+                   type="@(_showKey ? "text" : "password")"
+                   autocomplete="off"
+                   placeholder="sk-…"
+                   @bind="_apiKey"
+                   @bind:event="oninput" />
+            <button type="button" class="djelab-settings-toggle" @onclick="() => _showKey = !_showKey">
+                @(_showKey ? "Hide" : "Show")
+            </button>
+        </div>
+
+        <label class="djelab-settings-label" for="model">Model</label>
+        <input id="model"
+               class="djelab-settings-input"
+               type="text"
+               placeholder="@AiConfigStore.DefaultModel"
+               @bind="_model"
+               @bind:event="oninput" />
+
+        <div class="djelab-settings-actions">
+            <button type="button" class="djelab-settings-save" @onclick="Save" disabled="@_saving">
+                @(_saving ? "Saving…" : "Save")
+            </button>
+            <button type="button" class="djelab-settings-clear" @onclick="Clear" disabled="@_saving">
+                Remove key
+            </button>
+            @if (_savedMessage is not null)
+            {
+                <span class="djelab-settings-saved">@_savedMessage</span>
+            }
+        </div>
+
+        <p class="djelab-settings-hint">
+            Stored only in this browser's local storage. Your key is sent directly from your
+            browser to OpenAI and never touches Djehuti's servers -- the same approach Djehuti
+            Cyberscope's Live Lab already uses.
+        </p>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _saving;
+    private bool _showKey;
+    private string _apiKey = "";
+    private string _model = "";
+    private string? _savedMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _apiKey = await ConfigStore.GetApiKeyAsync() ?? "";
+        _model = await ConfigStore.GetModelAsync();
+        _loading = false;
+    }
+
+    private async Task Save()
+    {
+        _saving = true;
+        _savedMessage = null;
+        await ConfigStore.SetApiKeyAsync(_apiKey);
+        await ConfigStore.SetModelAsync(_model);
+        _saving = false;
+        _savedMessage = "Saved.";
+    }
+
+    private async Task Clear()
+    {
+        _saving = true;
+        _savedMessage = null;
+        await ConfigStore.ClearAsync();
+        _apiKey = "";
+        _model = "";
+        _saving = false;
+        _savedMessage = "Removed.";
+    }
+}
