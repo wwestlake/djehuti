@@ -102,6 +102,7 @@
     {
         if (_hasKey)
         {
+            await TryInvokeJsAsync("renderMath", _messagesRef);
             await TryInvokeJsAsync("scrollToBottom", _messagesRef);
         }
     }
