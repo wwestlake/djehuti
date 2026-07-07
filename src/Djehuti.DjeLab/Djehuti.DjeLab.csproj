@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Djehuti.DjeLab.Dsl\Djehuti.DjeLab.Dsl.fsproj" />
+    <ProjectReference Include="..\Djehuti.Core\Djehuti.Core.fsproj" />
   </ItemGroup>
 
 </Project>

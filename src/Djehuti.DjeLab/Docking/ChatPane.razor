@@ -206,6 +206,14 @@
 
                 return JsonSerializer.Serialize(SummarizeFile(resolved.Value, readResult.Value));
             }
+            case "tree":
+            {
+                var treeResult = await FilesClient.ReadStructuredDataAsync(path);
+                if (!treeResult.Success || treeResult.Value is null)
+                    return treeResult.Error ?? "Could not read that structure.";
+
+                return treeResult.Value;
+            }
             case "write":
             {
                 if (string.IsNullOrWhiteSpace(content))
@@ -225,7 +233,7 @@
                 });
             }
             default:
-                return "Unknown file action. Use list, read, or write.";
+                return "Unknown file action. Use list, read, tree, or write.";
         }
     }
 
