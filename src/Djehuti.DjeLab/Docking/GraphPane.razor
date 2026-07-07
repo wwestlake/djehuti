@@ -34,6 +34,16 @@
             }
         </div>
 
+        @* Read-only, not an input -- but "no manual editing" doesn't mean
+           "no visibility." Without this there was no way for the user (or
+           me, debugging their report) to see what program actually ran when
+           something failed. Open by default on error since that's exactly
+           when it matters; collapsed otherwise to stay out of the way. *@
+        <details class="graph-source-details" open="@(_error is not null)">
+            <summary>Program</summary>
+            <pre class="graph-source"><code>@_source</code></pre>
+        </details>
+
         <div class="graph-plot-host" id="@_plotElementId"></div>
     }
 </div>
@@ -55,6 +65,7 @@
     private string _xLabel = "x";
     private string _yLabel = "y";
     private string _zLabel = "z";
+    private string _source = "";
     private bool _hasRun;
     private bool _running;
     private int _pointCount;
@@ -99,6 +110,7 @@
         _running = true;
         _pointCount = 0;
         _error = null;
+        _source = source;
         StateHasChanged();
 
         var outcome = await _worker.RunAsync(source, OnEmit);

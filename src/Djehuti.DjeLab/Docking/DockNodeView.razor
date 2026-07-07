@@ -11,7 +11,7 @@
                 <DockNodeView Node="child" Panes="Panes" DraggingPaneId="DraggingPaneId"
                               OnBeginResize="OnBeginResize" OnTabDragStart="OnTabDragStart"
                               OnTabActivate="OnTabActivate" OnDropOnTabStrip="OnDropOnTabStrip"
-                              OnDropOnBody="OnDropOnBody" OnDragEnd="OnDragEnd" />
+                              OnDropOnBody="OnDropOnBody" OnDragEnd="OnDragEnd" OnClosePane="OnClosePane" />
             </div>
             if (i < split.Children.Count - 1)
             {
@@ -40,7 +40,10 @@ else if (Node is TabGroupNode group)
                      @ondragstart="e => HandleTabDragStart(capturedPaneId, e)"
                      @ondragend="() => OnDragEnd.InvokeAsync()"
                      @onclick="() => OnTabActivate.InvokeAsync(new TabActivate(group, capturedPaneId))">
-                    @pane.Title
+                    <span class="dock-tab-title">@pane.Title</span>
+                    <button type="button" class="dock-tab-close" title="Close"
+                            @onclick="() => OnClosePane.InvokeAsync(capturedPaneId)"
+                            @onclick:stopPropagation="true">&times;</button>
                 </div>
             }
         </div>
@@ -103,6 +106,7 @@ else if (Node is TabGroupNode group)
     [Parameter] public EventCallback<TabStripDrop> OnDropOnTabStrip { get; set; }
     [Parameter] public EventCallback<BodyDrop> OnDropOnBody { get; set; }
     [Parameter] public EventCallback OnDragEnd { get; set; }
+    [Parameter] public EventCallback<string> OnClosePane { get; set; }
 
     private ElementReference _bodyRef;
     private IJSObjectReference? _module;

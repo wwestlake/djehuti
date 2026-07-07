@@ -610,7 +610,10 @@ a {
 }
 
 .dock-tab {
-    padding: 0.4rem 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.4rem 0.5rem 0.4rem 0.9rem;
     border-radius: 6px 6px 0 0;
     background: transparent;
     color: var(--djelab-muted);
@@ -630,6 +633,35 @@ a {
     .dock-tab.dragging {
         opacity: 0.4;
     }
+
+.dock-tab-title {
+    pointer-events: none;
+}
+
+.dock-tab-close {
+    background: none;
+    border: none;
+    color: inherit;
+    opacity: 0.5;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0 0.15rem;
+}
+
+    .dock-tab-close:hover {
+        opacity: 1;
+        color: #ff8080;
+    }
+
+.dock-reopen-select {
+    background: var(--djelab-bg);
+    border: 1px solid var(--djelab-border);
+    border-radius: 6px;
+    color: var(--djelab-muted);
+    padding: 0.35rem 0.5rem;
+    font-size: 0.85rem;
+}
 
 .dock-body {
     flex: 1 1 auto;
@@ -1224,6 +1256,30 @@ a {
 
 .graph-status-error {
     color: #ff8080;
+}
+
+.graph-source-details {
+    flex: 0 0 auto;
+    border-bottom: 1px solid var(--djelab-border);
+    font-size: 0.78rem;
+}
+
+.graph-source-details summary {
+    padding: 0.3rem 0.75rem;
+    color: var(--djelab-muted);
+    cursor: pointer;
+    user-select: none;
+}
+
+.graph-source {
+    margin: 0;
+    padding: 0.5rem 0.75rem 0.75rem;
+    max-height: 160px;
+    overflow: auto;
+    color: var(--djelab-text);
+    font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 .graph-plot-host {
