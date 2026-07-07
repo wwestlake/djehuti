@@ -289,3 +289,80 @@ let deleteEntry (conn: NpgsqlConnection) (userId: Guid) (fileId: Guid) : Result<
             delCmd.ExecuteNonQuery() |> ignore
 
         Ok ()
+
+// ── Hierarchy snapshots ─────────────────────────────────────────────────────
+
+type HierarchicalDocumentSnapshot = {
+    Id:             Guid
+    UserId:         Guid
+    SourceFileId:   Guid
+    SourcePath:     string
+    SourceKind:     string
+    DocumentName:   string
+    TreeJson:       string
+    CreatedAt:      DateTime
+    UpdatedAt:      DateTime
+}
+
+let private readHierarchySnapshot (r: System.Data.Common.DbDataReader) : HierarchicalDocumentSnapshot =
+    {
+        Id            = r.GetGuid(r.GetOrdinal("id"))
+        UserId        = r.GetGuid(r.GetOrdinal("user_id"))
+        SourceFileId  = r.GetGuid(r.GetOrdinal("source_file_id"))
+        SourcePath    = r.GetString(r.GetOrdinal("source_path"))
+        SourceKind    = r.GetString(r.GetOrdinal("source_kind"))
+        DocumentName  = r.GetString(r.GetOrdinal("document_name"))
+        TreeJson      = r.GetString(r.GetOrdinal("tree_json"))
+        CreatedAt     = r.GetFieldValue<DateTime>(r.GetOrdinal("created_at"))
+        UpdatedAt     = r.GetFieldValue<DateTime>(r.GetOrdinal("updated_at"))
+    }
+
+let upsertHierarchySnapshot
+    (conn: NpgsqlConnection)
+    (userId: Guid)
+    (sourceFileId: Guid)
+    (sourcePath: string)
+    (sourceKind: string)
+    (documentName: string)
+    (treeJson: string)
+    : Result<HierarchicalDocumentSnapshot, string> =
+    try
+        use cmd = new NpgsqlCommand(
+            $"""INSERT INTO djelab_hierarchical_documents
+                    (user_id, source_file_id, source_path, source_kind, document_name, tree_json)
+                VALUES
+                    (@uid, @fid, @path, @kind, @name, @tree::jsonb)
+                ON CONFLICT (user_id, source_file_id)
+                DO UPDATE SET
+                    source_path = EXCLUDED.source_path,
+                    source_kind = EXCLUDED.source_kind,
+                    document_name = EXCLUDED.document_name,
+                    tree_json = EXCLUDED.tree_json,
+                    updated_at = NOW()
+                RETURNING id, user_id, source_file_id, source_path, source_kind, document_name, tree_json::text AS tree_json, created_at, updated_at""",
+            conn)
+        cmd.Parameters.AddWithValue("uid", userId) |> ignore
+        cmd.Parameters.AddWithValue("fid", sourceFileId) |> ignore
+        cmd.Parameters.AddWithValue("path", sourcePath) |> ignore
+        cmd.Parameters.AddWithValue("kind", sourceKind) |> ignore
+        cmd.Parameters.AddWithValue("name", documentName) |> ignore
+        cmd.Parameters.AddWithValue("tree", treeJson) |> ignore
+        use reader = cmd.ExecuteReader()
+        if reader.Read() then Ok (readHierarchySnapshot reader) else Error "Could not store the hierarchy snapshot."
+    with ex ->
+        Error ex.Message
+
+let getHierarchySnapshot
+    (conn: NpgsqlConnection)
+    (userId: Guid)
+    (sourceFileId: Guid)
+    : HierarchicalDocumentSnapshot option =
+    use cmd = new NpgsqlCommand(
+        """SELECT id, user_id, source_file_id, source_path, source_kind, document_name, tree_json::text AS tree_json, created_at, updated_at
+           FROM djelab_hierarchical_documents
+           WHERE user_id = @uid AND source_file_id = @fid""",
+        conn)
+    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+    cmd.Parameters.AddWithValue("fid", sourceFileId) |> ignore
+    use reader = cmd.ExecuteReader()
+    if reader.Read() then Some (readHierarchySnapshot reader) else None
