@@ -10,6 +10,15 @@
 // values rather than a single point.
 const counters = new Map();
 
+// line/scatter/bar support multiple series in one chart: emit([x, y1, y2,
+// ..., yN]) (more than 2 elements) plots N separate colored lines/series
+// sharing the same x, instead of just one. The series count isn't known
+// until the first point arrives (Spinoza vectors are dynamically shaped),
+// so it's discovered lazily and extra traces are added on the fly the
+// moment a wider-than-2 point shows up.
+const seriesCounts = new Map();
+const seriesPalette = ['#3fa9f5', '#e8b354', '#58d68d', '#ff6b81', '#a78bfa', '#4dd0e1', '#f472b6', '#fbbf24'];
+
 function nextIndex(elementId) {
     const n = counters.get(elementId) ?? 0;
     counters.set(elementId, n + 1);
@@ -39,13 +48,13 @@ function baseLayout(chartType, xLabel, yLabel, zLabel) {
     return layout;
 }
 
-function baseTrace(chartType) {
+function baseTrace(chartType, color, name) {
     switch (chartType) {
-        case 'line': return { type: 'scatter', mode: 'lines', x: [], y: [], line: { color: '#3fa9f5' } };
-        case 'scatter': return { type: 'scatter', mode: 'markers', x: [], y: [], marker: { color: '#3fa9f5' } };
-        case 'bar': return { type: 'bar', x: [], y: [], marker: { color: '#3fa9f5' } };
-        case 'histogram': return { type: 'histogram', x: [], marker: { color: '#3fa9f5' } };
-        case 'scatter3d': return { type: 'scatter3d', mode: 'lines+markers', x: [], y: [], z: [], line: { color: '#3fa9f5' }, marker: { color: '#3fa9f5', size: 3 } };
+        case 'line': return { type: 'scatter', mode: 'lines', x: [], y: [], name, line: { color } };
+        case 'scatter': return { type: 'scatter', mode: 'markers', x: [], y: [], name, marker: { color } };
+        case 'bar': return { type: 'bar', x: [], y: [], name, marker: { color } };
+        case 'histogram': return { type: 'histogram', x: [], marker: { color } };
+        case 'scatter3d': return { type: 'scatter3d', mode: 'lines+markers', x: [], y: [], z: [], line: { color }, marker: { color, size: 3 } };
         case 'surface': return { type: 'surface', z: [], colorscale: 'Viridis' };
         default: throw new Error(`Unknown chart type: ${chartType}`);
     }
@@ -53,12 +62,31 @@ function baseTrace(chartType) {
 
 export function createChart(elementId, chartType, xLabel, yLabel, zLabel) {
     counters.delete(elementId);
+    seriesCounts.delete(elementId);
     const el = document.getElementById(elementId);
     if (!el) return;
-    Plotly.newPlot(el, [baseTrace(chartType)], baseLayout(chartType, xLabel, yLabel, zLabel), { responsive: true, displaylogo: false });
+    Plotly.newPlot(el, [baseTrace(chartType, seriesPalette[0], 'y1')], baseLayout(chartType, xLabel, yLabel, zLabel), { responsive: true, displaylogo: false });
 }
 
-// point is already-parsed JSON: a number, or an array of 2-3 numbers (or,
+// Only line/scatter/bar support multiple series. Adds (count - 1) more
+// traces the first time `count` is seen for this element; a no-op on every
+// later call once the count is already established, so this is cheap to
+// call on every single point.
+function ensureSeriesCount(el, elementId, chartType, count) {
+    const known = seriesCounts.get(elementId) ?? 1;
+    if (count <= known) return known;
+
+    seriesCounts.set(elementId, count);
+    const extraTraces = [];
+    for (let i = known; i < count; i++) {
+        extraTraces.push(baseTrace(chartType, seriesPalette[i % seriesPalette.length], `y${i + 1}`));
+    }
+    Plotly.addTraces(el, extraTraces);
+    Plotly.relayout(el, { showlegend: true });
+    return count;
+}
+
+// point is already-parsed JSON: a number, or an array of 2+ numbers (or,
 // for "surface", an array representing one full row of z values).
 export function addPoint(elementId, chartType, point) {
     const el = document.getElementById(elementId);
@@ -70,8 +98,18 @@ export function addPoint(elementId, chartType, point) {
         case 'line':
         case 'scatter':
         case 'bar': {
-            const [x, y] = asArray.length >= 2 ? asArray : [nextIndex(elementId), asArray[0]];
-            Plotly.extendTraces(el, { x: [[x]], y: [[y]] }, [0]);
+            if (asArray.length <= 2) {
+                const [x, y] = asArray.length === 2 ? asArray : [nextIndex(elementId), asArray[0]];
+                Plotly.extendTraces(el, { x: [[x]], y: [[y]] }, [0]);
+                break;
+            }
+            // [x, y1, y2, ..., yN] -- N series sharing one x.
+            const [x, ...ys] = asArray;
+            const seriesCount = ensureSeriesCount(el, elementId, chartType, ys.length);
+            const traceIndices = Array.from({ length: seriesCount }, (_, i) => i);
+            const xUpdate = traceIndices.map(() => [x]);
+            const yUpdate = ys.map((y) => [y]);
+            Plotly.extendTraces(el, { x: xUpdate, y: yUpdate }, traceIndices);
             break;
         }
         case 'histogram':
@@ -92,6 +130,7 @@ export function addPoint(elementId, chartType, point) {
 
 export function dispose(elementId) {
     counters.delete(elementId);
+    seriesCounts.delete(elementId);
     const el = document.getElementById(elementId);
     if (el) Plotly.purge(el);
 }

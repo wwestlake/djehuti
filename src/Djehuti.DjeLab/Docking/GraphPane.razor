@@ -43,9 +43,20 @@
             <summary>Program</summary>
             <pre class="graph-source"><code>@_source</code></pre>
         </details>
-
-        <div class="graph-plot-host" id="@_plotElementId"></div>
     }
+
+    @* Deliberately NOT inside the @if/@else above and NOT display:none'd
+       away by _hasRun -- this div must already exist in the DOM the moment
+       RunAsync's very first createChart call looks for it via
+       getElementById. It used to live inside the "else" branch, rendered
+       only once _hasRun flipped true -- but createChart ran BEFORE that
+       flip, so getElementById found nothing, Plotly.newPlot silently never
+       ran (createChart's own `if (!el) return`), and every subsequent
+       addPoint call silently no-op'd too (its `!el.data` guard, since
+       Plotly had never initialized the element). The point counter still
+       incremented correctly in C# the whole time, which is exactly why
+       this looked like a successful run that just never rendered anything. *@
+    <div class="graph-plot-host" style="@(_hasRun ? "" : "display: none;")" id="@_plotElementId"></div>
 </div>
 
 @code {
@@ -71,7 +82,7 @@
     private int _pointCount;
     private string? _error;
     private bool _chartCreated;
-    private bool _autoRunStarted;
+    private string? _lastRunId;
 
     private bool Is3D => _chartType is "scatter3d" or "surface";
 
@@ -83,12 +94,16 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        // A graph pane is only ever auto-run once, the instant the AI's
-        // pending source/chart-type parameters first arrive -- this method
-        // can fire again later for unrelated reasons (parent re-render), so
-        // the guard is load-bearing, not just an optimization.
-        if (_autoRunStarted || PendingRunId is null || string.IsNullOrWhiteSpace(PendingSource)) return;
-        _autoRunStarted = true;
+        // This pane is reused across multiple runs now -- DockWorkspace
+        // mutates an EXISTING PaneDescriptor's Pending* fields rather than
+        // creating a new pane each time, so this method fires again on
+        // every subsequent AI-triggered run, not just the first. The guard
+        // is "is this a genuinely new run" (a fresh PendingRunId), not "has
+        // this pane ever run before" -- it can also fire for unrelated
+        // parent re-renders, where PendingRunId is unchanged and this must
+        // stay a no-op.
+        if (PendingRunId is null || PendingRunId == _lastRunId || string.IsNullOrWhiteSpace(PendingSource)) return;
+        _lastRunId = PendingRunId;
 
         _chartType = PendingChartType ?? "line";
         _xLabel = PendingXLabel ?? "x";
@@ -101,6 +116,15 @@
     private async Task RunAsync(string runId, string source)
     {
         if (_worker is null) return;
+
+        // A reused pane could in principle receive a new run while the
+        // previous one is still executing (e.g. two run_simulation calls in
+        // quick succession) -- the worker's own thread would just queue the
+        // second 'run' message behind the first, but both would end up
+        // emitting onto the SAME chart element, interleaved. Stopping first
+        // guarantees a clean slate; the old run's worker is torn down and a
+        // fresh one boots for the new run.
+        if (_running) await _worker.StopAsync();
 
         _plotly ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/plotly-interop.js");
         await _plotly.InvokeVoidAsync("createChart", _plotElementId, _chartType, _xLabel, _yLabel, _zLabel);

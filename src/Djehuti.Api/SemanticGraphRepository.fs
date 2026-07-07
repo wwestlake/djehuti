@@ -715,6 +715,8 @@ There is no statement/expression distinction and no semicolons -- everything is 
 
 There is no complex number type yet.
 
+There is no unit/void/nothing value. Every branch of an if -- including a branch that just means "stop" or "done, nothing more to do" -- must evaluate to a real Number, Bool, Vector, or Function. `if x > limit then () else ...` does not parse: () is not a value here. When a recursive loop needs to terminate, the terminal branch should return whatever the loop already returns on every other branch (e.g. the final x, or an accumulated Vector), not an empty placeholder.
+
 ## Grammar and operator precedence (lowest to highest)
 
 1. let / let rec / if / fun (wrap the rest of the expression to their right)
@@ -748,10 +750,15 @@ There is no built-in reduce/map/fold over vectors yet -- write a let rec helper.
 
 ## Live plotting with emit
 
-emit(point) is the one deliberate exception to "Spinoza has no side effects": when a program runs in a Graph pane (not just discussed in chat), every emit call streams point out to that pane's live chart the instant it happens, while the rest of the program keeps running -- a simulation traces out point by point instead of only showing a final answer. emit returns its argument unchanged, so it composes inline without a sequencing construct; the common idiom is `let dummy = emit(...) in ...` to call it purely for the side effect. point is usually a 2-vector [x, y] or 3-vector [x, y, z] (the Graph pane's chart type decides how it's interpreted -- 2-vectors for line/scatter/bar/histogram, 3-vectors for the 3D scatter/surface types), but a bare number also works (the pane auto-assigns an increasing x). A program meant to be plotted should be pasted into a Graph pane and run there -- it cannot be executed from chat.
+emit(point) is the one deliberate exception to "Spinoza has no side effects": when a program runs via the run_simulation tool, every emit call streams point out to the graph pane's live chart the instant it happens, while the rest of the program keeps running -- a simulation traces out point by point instead of only showing a final answer. emit returns its argument unchanged, so it composes inline without a sequencing construct; the common idiom is `let dummy = emit(...) in ...` to call it purely for the side effect.
 
-Live sine wave (2D line chart):
+point shapes, for line/scatter/bar/histogram chart types: a bare number (pane auto-assigns an increasing x, becomes y); a 2-vector [x, y] (one series); or a vector with MORE than 2 elements, [x, y1, y2, ..., yN] -- N separate series sharing one x-axis, each drawn as its own colored line/points with its own legend entry. Use this whenever each step's result is naturally a vector of several related values. Keep the vector length consistent across every emit call in one program. For the 3D chart types (scatter3d, surface), point is a 3-vector [x, y, z] (or, for surface, one full row of z values) -- there is no multi-series form for 3D yet.
+
+Live sine wave (2D line chart, one series):
 let rec loop i = if i == 60 then i else (let dummy = emit([i, sin(i / 5)]) in loop(i + 1)) in loop(0)
+
+Two coupled oscillators, one chart, two colored lines (2D line chart, multi-series):
+let rec loop i = if i == 60 then i else (let dummy = emit([i, sin(i / 5), cos(i / 3)]) in loop(i + 1)) in loop(0)
 
 Live 3D helix (scatter3d chart):
 let rec loop i = if i == 60 then i else (let dummy = emit([cos(i / 4), sin(i / 4), i / 10]) in loop(i + 1)) in loop(0)
@@ -800,6 +807,7 @@ let isEven = fun n -> n % 2 == 0 in isEven(4) && isEven(10)
 - ^ is right-associative, unlike +/-/*//.
 - A program is one expression, not a sequence of top-level statements.
 - emit returns whatever you passed it, not a loop counter -- loop(emit([i, y]) + 1) tries to add 1 to a vector and errors. Sequence it instead: let dummy = emit([i, y]) in loop(i + 1).
+- There is no ()/unit value -- a terminal if branch that means "stop" must still return a real value of the same kind every other branch returns, e.g. if i == 60 then i else ..., not if i == 60 then () else ....
 
 ## Status
 
