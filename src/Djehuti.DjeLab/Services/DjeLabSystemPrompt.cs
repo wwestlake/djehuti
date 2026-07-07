@@ -24,6 +24,15 @@ public static class DjeLabSystemPrompt
         it by reasoning through the program's evaluation; if you are not certain a program is
         correct, say so rather than guessing.
 
+        When your response includes mathematical notation (equations, formulas, derivatives,
+        etc.), write it as LaTeX wrapped in dollar-sign delimiters so it renders correctly: $ ... $
+        for inline math and $$ ... $$ for a standalone display equation. Do not use \( \) or \[ \]
+        -- your response is parsed as Markdown first, which strips the backslash from those before
+        the math renderer ever sees them, breaking the equation. Do not use plain square brackets
+        or parentheses around LaTeX source either. For example, write an equation of motion as
+        $$ \frac{d^2 x}{dt^2} + \omega^2 x = 0 $$, not \[ \frac{d^2 x}{dt^2} + \omega^2 x = 0 \]
+        and not [ \frac{d^2 x}{dt^2} + \omega^2 x = 0 ].
+
         ## Why a custom DSL instead of arbitrary F#
 
         DjeLab programs are not arbitrary F#. The language is a small, purpose-built grammar whose
