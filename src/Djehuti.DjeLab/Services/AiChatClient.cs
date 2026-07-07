@@ -33,9 +33,14 @@ public sealed class AiChatClient
     private const string Endpoint = "https://api.openai.com/v1/responses";
 
     // A tool loop that never terminates would hang the chat forever if a
-    // model got stuck calling tools back-to-back; this is a generous but
-    // real ceiling, not a expected-case limit.
-    private const int MaxToolRounds = 6;
+    // model got stuck calling tools back-to-back; this is a real ceiling,
+    // not an expected-case limit. Started at 6 -- found live to be too low
+    // for a model retrying run_simulation against a genuinely confusing
+    // parser error (see Parser.fs's attempt-wrapping fix); raised once that
+    // was fixed, since a model that can actually see its own mistake should
+    // converge within a handful of retries, but the margin is worth keeping
+    // generous rather than fighting this exact failure mode again.
+    private const int MaxToolRounds = 12;
 
     private static readonly object[] Tools =
     [

@@ -73,6 +73,12 @@ public static class DjeLabSystemPrompt
           matrix-specific operators; `[[1,2],[3,4]]` is just a vector of vectors, not a 2x2 matrix.
         - Function: `fun x -> x * x` -- functions are values.
         - There is no complex number type yet.
+        - There is no unit/void/nothing value. Every branch of an `if` -- including a branch that
+          just means "stop" or "done, nothing more to do" -- must evaluate to a real Number, Bool,
+          Vector, or Function. `if x > limit then () else ...` does not parse: `()` is not a value
+          here. When a recursive loop needs to terminate, the terminal branch should return
+          whatever the loop already returns on every other branch (e.g. the final `x`, or an
+          accumulated Vector), not an empty placeholder.
 
         ## Grammar and operator precedence (lowest to highest)
 
@@ -189,5 +195,8 @@ public static class DjeLabSystemPrompt
         - `emit` returns whatever you passed it, not the loop counter -- `loop(emit([i, y]) + 1)`
           tries to add 1 to a vector and errors. Sequence it instead:
           `let dummy = emit([i, y]) in loop(i + 1)`.
+        - There is no `()`/unit value -- a terminal `if` branch that means "stop" must still return
+          a real value of the same kind every other branch returns, e.g. `if i == 60 then i else
+          ...`, not `if i == 60 then () else ...`.
         """;
 }
