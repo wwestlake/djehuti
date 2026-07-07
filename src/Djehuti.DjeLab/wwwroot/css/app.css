@@ -1228,6 +1228,10 @@ a {
 }
 
 .graph-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
     flex: 0 0 auto;
     padding: 0.5rem 0.75rem;
     border-bottom: 1px solid var(--djelab-border);
@@ -1256,6 +1260,10 @@ a {
 
 .graph-status-error {
     color: #ff8080;
+}
+
+.graph-action-btn {
+    flex: 0 0 auto;
 }
 
 .graph-source-details {

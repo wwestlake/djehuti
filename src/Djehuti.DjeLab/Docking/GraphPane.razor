@@ -17,6 +17,10 @@
     {
         <div class="graph-toolbar">
             <span class="graph-summary">@_chartType &middot; x: @_xLabel &middot; y: @_yLabel@(Is3D ? $" · z: {_zLabel}" : "")</span>
+            @if (_running)
+            {
+                <button type="button" class="files-action-btn graph-action-btn" @onclick="StopRunAsync" disabled="@_stopping">Stop</button>
+            }
         </div>
 
         <div class="graph-status-row">
@@ -79,6 +83,7 @@
     private string _source = "";
     private bool _hasRun;
     private bool _running;
+    private bool _stopping;
     private int _pointCount;
     private string? _error;
     private bool _chartCreated;
@@ -135,6 +140,7 @@
 
         _hasRun = true;
         _running = true;
+        _stopping = false;
         _pointCount = 0;
         _error = null;
         _source = source;
@@ -143,12 +149,24 @@
         var outcome = await _worker.RunAsync(source, OnEmit);
 
         _running = false;
+        _stopping = false;
         _error = outcome.Success ? null : outcome.Error;
         StateHasChanged();
 
         Actions.CompleteGraphDataRun(runId, new GraphRunOutcome(outcome.Success, _pointCount, outcome.Error));
         Actions.ReportOutcome(runId, new GraphRunOutcome(outcome.Success, _pointCount, outcome.Error));
         _activeRunId = null;
+    }
+
+    private async Task StopRunAsync()
+    {
+        if (_worker is null || !_running || _stopping)
+            return;
+
+        _stopping = true;
+        StateHasChanged();
+
+        await _worker.StopAsync();
     }
 
     private void OnEmit(JsonElement point)

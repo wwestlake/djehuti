@@ -135,7 +135,8 @@ public static class DjeLabSystemPrompt
         For the 3D chart types:
         - `scatter3d` is for point clouds or parametric curves; `point` is a 3-vector `[x, y, z]`.
         - `surface` is for real height fields such as a sombrero / Mexican hat; emit one full row
-          of z values per x-step, with every row the same length.
+          of z values per x-step, with every row the same length. Do not emit `[x, y, z]` tuples
+          for `surface`.
         - Prefer `surface` when the user is asking for a mathematical surface, and prefer
           `scatter3d` when the user is asking for a path, lattice, or sampled point cloud.
         - There is no multi-series form for 3D yet.

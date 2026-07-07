@@ -65,7 +65,7 @@ public sealed class AiChatClient
         {
             type = "function",
             name = "run_simulation",
-            description = "Runs a Spinoza program in a new graph pane and plots the points it emits. Use this whenever the user wants something graphed, plotted, or visualized -- write a complete Spinoza program yourself (it must call emit(point) to produce chart data; see the language reference) and call this tool with it, rather than only describing the program in your reply. Prefer surface for actual height fields and scatter3d for point clouds or parametric curves. You will be told whether it ran successfully and how many points it produced.",
+            description = "Runs a Spinoza program in a new graph pane and plots the points it emits. Use this whenever the user wants something graphed, plotted, or visualized -- write a complete Spinoza program yourself (it must call emit(point) to produce chart data; see the language reference) and call this tool with it, rather than only describing the program in your reply. Prefer surface for actual height fields and scatter3d for point clouds or parametric curves. For surface, emit one full row of z values per step; do not send [x, y, z] tuples for surface. You will be told whether it ran successfully and how many points it produced.",
             parameters = new
             {
                 type = "object",
@@ -74,12 +74,12 @@ public sealed class AiChatClient
                     chartType = new
                     {
                         type = "string",
-                        description = "line/scatter/bar/histogram plot 2-vectors [x, y]; scatter3d/surface plot 3-vectors [x, y, z].",
+                        description = "line/scatter/bar/histogram plot 2-vectors [x, y]; scatter3d plots [x, y, z] tuples; surface plots one full row of z values per emit.",
                         @enum = new[] { "line", "scatter", "bar", "histogram", "scatter3d", "surface" }
                     },
                     xLabel = new { type = "string" },
                     yLabel = new { type = "string" },
-                    zLabel = new { type = "string", description = "Only meaningful for scatter3d/surface; pass an empty string otherwise." },
+                    zLabel = new { type = "string", description = "Only meaningful for scatter3d; for surface, pass an empty string unless you want a label for the height axis." },
                     spinozaSource = new { type = "string", description = "A complete Spinoza program that calls emit(...) to produce chart data." }
                 },
                 required = new[] { "chartType", "xLabel", "yLabel", "zLabel", "spinozaSource" },
