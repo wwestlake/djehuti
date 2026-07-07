@@ -219,7 +219,8 @@
                 if (string.IsNullOrWhiteSpace(content))
                     return "No content provided.";
 
-                var writeResult = await FilesClient.WriteTextFileAsync(path, content, contentType);
+                var normalizedContentType = string.IsNullOrWhiteSpace(contentType) ? "text/plain" : contentType;
+                var writeResult = await FilesClient.WriteTextFileAsync(path, content, normalizedContentType);
                 if (!writeResult.Success || writeResult.Value is null)
                     return writeResult.Error ?? "Could not write that file.";
 
