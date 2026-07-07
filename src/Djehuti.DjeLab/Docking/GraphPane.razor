@@ -60,7 +60,7 @@
        Plotly had never initialized the element). The point counter still
        incremented correctly in C# the whole time, which is exactly why
        this looked like a successful run that just never rendered anything. *@
-    <div class="graph-plot-host" style="@(_hasRun ? "" : "display: none;")" id="@_plotElementId"></div>
+    <div class="graph-plot-host" style="@(_hasRun ? "" : "visibility: hidden;")" id="@_plotElementId"></div>
 </div>
 
 @code {
@@ -89,6 +89,7 @@
     private bool _chartCreated;
     private string? _lastRunId;
     private string? _activeRunId;
+    private bool _needsResize;
 
     private bool Is3D => _chartType is "scatter3d" or "surface";
 
@@ -144,6 +145,7 @@
         _pointCount = 0;
         _error = null;
         _source = source;
+        _needsResize = true;
         StateHasChanged();
 
         var outcome = await _worker.RunAsync(source, OnEmit);
@@ -178,6 +180,23 @@
             _ = _plotly.InvokeVoidAsync("addPoint", _plotElementId, _chartType, point);
         }
         InvokeAsync(StateHasChanged);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_needsResize && _plotly is not null)
+        {
+            _needsResize = false;
+            try
+            {
+                await _plotly.InvokeVoidAsync("resize", _plotElementId);
+            }
+            catch (JSDisconnectedException)
+            {
+                // The chart will be recreated on the next run if the browser
+                // is already gone.
+            }
+        }
     }
 
     public async ValueTask DisposeAsync()
