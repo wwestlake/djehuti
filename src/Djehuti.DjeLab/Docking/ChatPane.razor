@@ -83,8 +83,13 @@
     private static readonly MarkdownPipeline MarkdownPipeline =
         new MarkdownPipelineBuilder().UseAdvancedExtensions().DisableHtml().Build();
 
+    // Normalizing again here (AiChatClient already does it once when a reply
+    // first arrives) is deliberate belt-and-suspenders: it also retroactively
+    // fixes any turn already sitting in saved chat history from before this
+    // existed, and guards against the receive-time pass being bypassed for
+    // any reason.
     private static MarkupString RenderMarkdown(string content) =>
-        new(Markdown.ToHtml(content, MarkdownPipeline));
+        new(Markdown.ToHtml(MathDelimiterNormalizer.Normalize(content), MarkdownPipeline));
 
     protected override async Task OnInitializedAsync()
     {
