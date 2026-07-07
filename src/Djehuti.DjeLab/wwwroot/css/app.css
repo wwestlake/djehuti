@@ -1162,6 +1162,114 @@ a {
         border-color: #ff8080;
     }
 
+.dock-toolbar-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex: 0 0 auto;
+}
+
+/* ── Graph pane ───────────────────────────────────────────────────────────── */
+.graph-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+}
+
+.graph-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--djelab-border);
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+}
+
+.graph-toolbar-spacer {
+    flex: 1 1 auto;
+}
+
+.graph-type-select,
+.graph-axis-input {
+    background: var(--djelab-bg);
+    border: 1px solid var(--djelab-border);
+    border-radius: 6px;
+    color: var(--djelab-text);
+    padding: 0.3rem 0.5rem;
+    font-size: 0.82rem;
+    font-family: inherit;
+}
+
+.graph-axis-input {
+    width: 6rem;
+}
+
+.graph-action-btn {
+    padding: 0.35rem 0.9rem;
+    background: var(--djelab-accent);
+    border: none;
+    border-radius: 6px;
+    color: #061019;
+    font-weight: 700;
+    font-size: 0.82rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+    .graph-action-btn:disabled {
+        opacity: 0.5;
+        cursor: default;
+    }
+
+.graph-stop-btn {
+    background: #ff8080;
+}
+
+.graph-code-input {
+    flex: 0 0 auto;
+    resize: vertical;
+    min-height: 72px;
+    max-height: 200px;
+    padding: 0.5rem 0.7rem;
+    background: var(--djelab-bg);
+    border: none;
+    border-bottom: 1px solid var(--djelab-border);
+    color: var(--djelab-text);
+    font-size: 0.82rem;
+    font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    line-height: 1.4;
+}
+
+    .graph-code-input:focus {
+        outline: none;
+    }
+
+.graph-status-row {
+    flex: 0 0 auto;
+    padding: 0.3rem 0.75rem;
+    min-height: 1.4rem;
+    font-size: 0.78rem;
+}
+
+.graph-status {
+    color: var(--djelab-muted);
+}
+
+.graph-status-running {
+    color: var(--djelab-accent);
+}
+
+.graph-status-error {
+    color: #ff8080;
+}
+
+.graph-plot-host {
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+}
+
 @media (max-width: 860px) {
     .dock-canvas {
         padding: 0;

@@ -16,12 +16,17 @@
     <link href="Djehuti.DjeLab.styles.css" rel="stylesheet" /> -->
 
     <!-- KaTeX: renders LaTeX math notation in Chat pane messages. Loaded from
-         a CDN rather than vendored -- this is the one external runtime
-         dependency in DjeLab, everything else is self-hosted. defer
-         preserves script execution order (katex core before auto-render). -->
+         a CDN rather than vendored -- defer preserves script execution order
+         (katex core before auto-render). -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+
+    <!-- Plotly: renders every chart type in the Graph pane, 2D and 3D, from
+         one library. CDN rather than vendored -- the full bundle (needed for
+         scatter3d/surface, which the smaller "basic"/"cartesian" bundles
+         omit) is ~3.5MB minified, too large to justify committing to the repo. -->
+    <script defer src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js" crossorigin="anonymous"></script>
 </head>
 
 <body>

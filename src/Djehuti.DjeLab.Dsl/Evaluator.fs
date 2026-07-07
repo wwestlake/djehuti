@@ -56,7 +56,17 @@ let private asVector (context: string) (value: Value) : Result<Value[], string> 
 /// Built-in math functions available to every DjeLab program. This is the
 /// entire surface of "library calls" a program can make -- adding a new
 /// capability means adding an entry here, not opening up the language.
-let builtinEnv : Env =
+///
+/// `onEmit` wires Spinoza's one deliberate side channel: calling
+/// `emit(point)` reports `point` to the host (used to stream simulation/plot
+/// points out to a live chart while a longer-running program is still
+/// executing) and returns `point` unchanged, so it composes inline without
+/// needing a sequencing operator. It is write-only -- a program can never
+/// read anything back through it -- so the language stays otherwise pure;
+/// this is the same category of thing as a trace/log effect, not a general
+/// I/O escape hatch. When no host is listening (e.g. normal `run`), `emit`
+/// is simply a no-op pass-through.
+let makeBuiltinEnv (onEmit: (Value -> unit) option) : Env =
     let numeric1 name (f: float -> float) =
         name, VBuiltin(name, 1, function
             | [ v ] -> asNumber name v |> Result.map (f >> VNumber)
@@ -85,9 +95,16 @@ let builtinEnv : Env =
       "len", VBuiltin("len", 1, function
           | [ v ] -> asVector "len" v |> Result.map (fun items -> VNumber(float items.Length))
           | args -> Error $"len: expected 1 argument, got {args.Length}")
+      "emit", VBuiltin("emit", 1, function
+          | [ v ] ->
+              onEmit |> Option.iter (fun f -> f v)
+              Ok v
+          | args -> Error $"emit: expected 1 argument, got {args.Length}")
       "pi", VNumber Math.PI
       "e", VNumber Math.E ]
     |> Map.ofList
+
+let builtinEnv : Env = makeBuiltinEnv None
 
 type private Budget = { mutable Remaining: int }
 
@@ -262,3 +279,35 @@ let eval (maxSteps: int) (env: Env) (expr: Expr) : Result<Value, string> =
 /// Evaluates against the standard builtin environment.
 let run (expr: Expr) : Result<Value, string> =
     eval 1_000_000 builtinEnv expr
+
+/// Evaluates with `emit(...)` wired to `onEmit`, called synchronously the
+/// instant each `emit` call is reached during the walk -- not batched or
+/// deferred -- so a host streaming these out (e.g. over a Web Worker's
+/// postMessage) sees them as the program actually computes them.
+let runWithEmit (onEmit: Value -> unit) (expr: Expr) : Result<Value, string> =
+    eval 1_000_000 (makeBuiltinEnv (Some onEmit)) expr
+
+/// Renders a Value as JSON, for transport across a worker postMessage
+/// boundary or similar host interop. Numbers that aren't finite (NaN,
+/// +/-Infinity -- both reachable from ordinary DSL arithmetic like `1/0` or
+/// `sqrt(-1)`... no, sqrt(-1) errors, but `1/0` and `0/0` do not) serialize
+/// as JSON `null` rather than throwing, since raw NaN/Infinity have no JSON
+/// representation; the host is expected to treat a null point as "skip it."
+/// A function value (VClosure/VBuiltin) has no meaningful JSON form and is
+/// a hard error here, same as any other DSL type mismatch.
+let rec toJson (value: Value) : Result<string, string> =
+    match value with
+    | VNumber n ->
+        if Double.IsFinite n then Ok(n.ToString("R", Globalization.CultureInfo.InvariantCulture))
+        else Ok "null"
+    | VBool b -> Ok(if b then "true" else "false")
+    | VVector items ->
+        let rec collect acc =
+            function
+            | [] -> Ok(List.rev acc)
+            | x :: rest ->
+                match toJson x with
+                | Ok j -> collect (j :: acc) rest
+                | Error e -> Error e
+        items |> Array.toList |> collect [] |> Result.map (fun parts -> "[" + String.Join(",", parts) + "]")
+    | VClosure _ | VBuiltin _ -> Error $"cannot serialize {describe value} to JSON"

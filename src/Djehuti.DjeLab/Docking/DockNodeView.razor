@@ -52,20 +52,33 @@ else if (Node is TabGroupNode group)
             @{
                 var activePaneId = group.PaneIds.Count > 0 ? group.PaneIds[Math.Min(group.ActiveIndex, group.PaneIds.Count - 1)] : null;
             }
-            @if (activePaneId != null && Panes.TryGetValue(activePaneId, out var activePane))
+            @* Every pane in this group renders, not just the active one --
+               display:none hides the inactive ones instead of omitting them
+               from the tree, so switching tabs doesn't destroy and recreate
+               the component. A pane like GraphPane owns real running state
+               (a live worker, an in-progress simulation, a rendered chart);
+               tearing that down on every tab switch would defeat the entire
+               point of having more than one graph pane open at once. *@
+            @foreach (var paneId in group.PaneIds)
             {
-                <div class="dock-pane-content" style="--dock-accent: @activePane.AccentColor">
-                    @if (activePane.Kind == "chat")
+                if (!Panes.TryGetValue(paneId, out var pane)) continue;
+                var isActive = paneId == activePaneId;
+                <div class="dock-pane-content" style="--dock-accent: @pane.AccentColor; @(isActive ? "" : "display: none;")">
+                    @if (pane.Kind == "chat")
                     {
-                        <ChatPane />
+                        <ChatPane @key="pane.Id" />
                     }
-                    else if (activePane.Kind == "files")
+                    else if (pane.Kind == "files")
                     {
-                        <FilesPane />
+                        <FilesPane @key="pane.Id" />
+                    }
+                    else if (pane.Kind == "graph")
+                    {
+                        <GraphPane @key="pane.Id" PaneId="@pane.Id" />
                     }
                     else
                     {
-                        <PlaceholderPaneContent Pane="activePane" />
+                        <PlaceholderPaneContent @key="pane.Id" Pane="pane" />
                     }
                 </div>
             }

@@ -5,7 +5,10 @@
      @onpointermove="OnContainerPointerMove" @onpointerup="OnContainerPointerUp" @onpointerleave="OnContainerPointerUp">
     <div class="dock-toolbar">
         <span class="dock-toolbar-title">Workspace <span class="dock-toolbar-hint">— prototype, drag tabs and dividers, not yet saved</span></span>
-        <button type="button" class="dock-reset-btn" @onclick="ResetLayout">Reset layout</button>
+        <div class="dock-toolbar-actions">
+            <button type="button" class="dock-reset-btn" @onclick="NewGraph">New Graph</button>
+            <button type="button" class="dock-reset-btn" @onclick="ResetLayout">Reset layout</button>
+        </div>
     </div>
     <div class="dock-canvas">
         <DockNodeView Node="_root" Panes="_panes"
@@ -50,6 +53,35 @@
         _resizingSplit = null;
         _draggingPaneId = null;
     }
+
+    // "More than one graph window" means new Graph panes are created on
+    // demand, not baked into the static initial layout like every other
+    // pane -- the docking model already supported this (PaneDescriptor.Id
+    // is always a fresh Guid), it just needed something to actually call
+    // InsertAsTab with a freshly minted pane. New graphs land as a tab
+    // alongside any existing graph pane; from there the user's normal
+    // drag-to-dock gesture (already supported) splits it into its own
+    // side-by-side window if they want that instead of a tab.
+    private void NewGraph()
+    {
+        var count = _panes.Values.Count(p => p.Kind == "graph") + 1;
+        var pane = new PaneDescriptor { Title = $"Graph {count}", Kind = "graph", AccentColor = "#3fa9f5" };
+        _panes[pane.Id] = pane;
+
+        var existingGraphPaneId = _panes.Values.FirstOrDefault(p => p.Kind == "graph" && p.Id != pane.Id)?.Id;
+        var targetGroup = existingGraphPaneId is not null
+            ? DockTree.FindGroupContainingPane(_root, existingGraphPaneId)
+            : FindFirstGroup(_root);
+
+        if (targetGroup is not null) DockTree.InsertAsTab(_root, targetGroup.Id, pane.Id);
+    }
+
+    private static TabGroupNode? FindFirstGroup(DockNode node) => node switch
+    {
+        TabGroupNode group => group,
+        SplitNode split => split.Children.Select(FindFirstGroup).FirstOrDefault(g => g is not null),
+        _ => null
+    };
 
     // Resize-start must be instantaneous -- a container rect fetched via JS
     // interop at drag-start races against the drag itself (pointermove can

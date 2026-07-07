@@ -4,12 +4,20 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Required by [JSImport]/[JSExport] (SpinozaWorker), which runs the
+         Spinoza evaluator inside a Web Worker so a long-running simulation
+         never blocks the UI thread. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Markdig" Version="1.3.2" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="9.0.3" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="9.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Djehuti.DjeLab.Dsl\Djehuti.DjeLab.Dsl.fsproj" />
   </ItemGroup>
 
 </Project>

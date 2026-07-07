@@ -1,0 +1,132 @@
+@using System.Text.Json
+@using Djehuti.DjeLab.Services
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<div class="graph-pane">
+    <div class="graph-toolbar">
+        <select class="graph-type-select" @bind="_chartType" disabled="@_running">
+            <option value="line">Line</option>
+            <option value="scatter">Scatter</option>
+            <option value="bar">Bar</option>
+            <option value="histogram">Histogram</option>
+            <option value="scatter3d">3D Scatter/Line</option>
+            <option value="surface">3D Surface</option>
+        </select>
+        <input class="graph-axis-input" placeholder="x axis" @bind="_xLabel" @bind:event="oninput" disabled="@_running" />
+        <input class="graph-axis-input" placeholder="y axis" @bind="_yLabel" @bind:event="oninput" disabled="@_running" />
+        @if (Is3D)
+        {
+            <input class="graph-axis-input" placeholder="z axis" @bind="_zLabel" @bind:event="oninput" disabled="@_running" />
+        }
+        <div class="graph-toolbar-spacer"></div>
+        @if (_running)
+        {
+            <button type="button" class="graph-action-btn graph-stop-btn" @onclick="StopAsync">Stop</button>
+        }
+        else
+        {
+            <button type="button" class="graph-action-btn" @onclick="RunAsync" disabled="@string.IsNullOrWhiteSpace(_source)">Run</button>
+        }
+    </div>
+
+    <textarea class="graph-code-input" placeholder="A Spinoza program. Call emit(point) to plot points as they're computed, e.g. let rec loop i = if i == 50 then i else loop(emit([i, sin(i / 5)]) + 1) in loop(0)"
+              @bind="_source" @bind:event="oninput" disabled="@_running"></textarea>
+
+    <div class="graph-status-row">
+        @if (_running)
+        {
+            <span class="graph-status graph-status-running">Running… @_pointCount point(s)</span>
+        }
+        else if (_error is not null)
+        {
+            <span class="graph-status graph-status-error">@_error</span>
+        }
+        else if (_pointCount > 0)
+        {
+            <span class="graph-status">Done — @_pointCount point(s)</span>
+        }
+    </div>
+
+    <div class="graph-plot-host" id="@_plotElementId"></div>
+</div>
+
+@code {
+    [Parameter] public string PaneId { get; set; } = "";
+
+    private string _plotElementId = "";
+    private SpinozaWorkerClient? _worker;
+    private IJSObjectReference? _plotly;
+
+    private string _chartType = "line";
+    private string _xLabel = "x";
+    private string _yLabel = "y";
+    private string _zLabel = "z";
+    private string _source = "";
+    private bool _running;
+    private int _pointCount;
+    private string? _error;
+    private bool _chartCreated;
+
+    private bool Is3D => _chartType is "scatter3d" or "surface";
+
+    protected override void OnInitialized()
+    {
+        _plotElementId = $"plot-{PaneId}";
+        _worker = new SpinozaWorkerClient(JS, Nav);
+    }
+
+    private async Task RunAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_source) || _worker is null) return;
+
+        _plotly ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/plotly-interop.js");
+        await _plotly.InvokeVoidAsync("createChart", _plotElementId, _chartType, _xLabel, _yLabel, _zLabel);
+        _chartCreated = true;
+
+        _running = true;
+        _pointCount = 0;
+        _error = null;
+        StateHasChanged();
+
+        var outcome = await _worker.RunAsync(_source, OnEmit);
+
+        _running = false;
+        _error = outcome.Success ? null : outcome.Error;
+        StateHasChanged();
+    }
+
+    private void OnEmit(JsonElement point)
+    {
+        _pointCount++;
+        if (_plotly is not null)
+        {
+            _ = _plotly.InvokeVoidAsync("addPoint", _plotElementId, _chartType, point);
+        }
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task StopAsync()
+    {
+        if (_worker is null) return;
+        await _worker.StopAsync();
+        _running = false;
+        _error = "Stopped";
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_worker is not null) await _worker.DisposeAsync();
+        if (_plotly is not null)
+        {
+            if (_chartCreated)
+            {
+                try { await _plotly.InvokeVoidAsync("dispose", _plotElementId); }
+                catch (JSDisconnectedException) { /* app is tearing down; nothing to clean up client-side for */ }
+            }
+            await _plotly.DisposeAsync();
+        }
+    }
+}
