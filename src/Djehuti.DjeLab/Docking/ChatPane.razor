@@ -1,5 +1,6 @@
 @using Markdig
 @using System.Text.Json
+@inject DjeLabFilesClient FilesClient
 @inject AiConfigStore ConfigStore
 @inject ChatHistoryStore HistoryStore
 @inject AiChatClient ChatClient
@@ -155,8 +156,78 @@
     private IReadOnlyDictionary<string, ToolHandler> ToolHandlers => new Dictionary<string, ToolHandler>
     {
         ["search_math_references"] = SearchMathReferencesAsync,
-        ["run_simulation"] = RunSimulationAsync
+        ["run_simulation"] = RunSimulationAsync,
+        ["manage_file_data"] = ManageFileDataAsync
     };
+
+    private async Task<string> ManageFileDataAsync(string argumentsJson)
+    {
+        using var args = JsonDocument.Parse(argumentsJson);
+        string Get(string name, string fallback = "") =>
+            args.RootElement.TryGetProperty(name, out var v) ? v.GetString() ?? fallback : fallback;
+
+        var action = Get("action").Trim().ToLowerInvariant();
+        var path = Get("path");
+        var content = Get("content");
+        var contentType = Get("contentType", "text/plain");
+
+        if (string.IsNullOrWhiteSpace(path))
+            return "No path provided.";
+
+        switch (action)
+        {
+            case "list":
+            {
+                var entries = await FilesClient.ListFolderAsync(path);
+                return JsonSerializer.Serialize(new
+                {
+                    action,
+                    path,
+                    entries = entries.Select(entry => new
+                    {
+                        Id = entry.Id,
+                        IsFolder = entry.IsFolder,
+                        Path = entry.Path,
+                        Name = entry.Name,
+                        ContentType = entry.ContentType,
+                        SizeBytes = entry.SizeBytes
+                    })
+                });
+            }
+            case "read":
+            {
+                var readResult = await FilesClient.ReadTextFileAsync(path);
+                if (!readResult.Success || readResult.Value is null)
+                    return readResult.Error ?? "Could not read that file.";
+
+                var resolved = await FilesClient.ResolvePathAsync(path);
+                if (!resolved.Success || resolved.Value is null)
+                    return resolved.Error ?? "Could not resolve that file.";
+
+                return JsonSerializer.Serialize(SummarizeFile(resolved.Value, readResult.Value));
+            }
+            case "write":
+            {
+                if (string.IsNullOrWhiteSpace(content))
+                    return "No content provided.";
+
+                var writeResult = await FilesClient.WriteTextFileAsync(path, content, contentType);
+                if (!writeResult.Success || writeResult.Value is null)
+                    return writeResult.Error ?? "Could not write that file.";
+
+                return JsonSerializer.Serialize(new
+                {
+                    action,
+                    path = writeResult.Value.Path,
+                    Id = writeResult.Value.Id,
+                    ContentType = writeResult.Value.ContentType,
+                    SizeBytes = writeResult.Value.SizeBytes
+                });
+            }
+            default:
+                return "Unknown file action. Use list, read, or write.";
+        }
+    }
 
     private async Task<string> SearchMathReferencesAsync(string argumentsJson)
     {
@@ -198,6 +269,106 @@
         return outcome.Success
             ? $"Ran successfully in a new {chartType} graph pane; emitted {outcome.PointCount} point(s)."
             : $"The program failed to run: {outcome.Error}";
+    }
+
+    private static object SummarizeFile(DjeLabFileEntry entry, string content)
+    {
+        var kind = DetectKind(entry, content);
+        var preview = content.Length > 20000 ? content[..20000] : content;
+
+        return kind switch
+        {
+            "json" => SummarizeJson(entry, content, preview),
+            "csv" => SummarizeCsv(entry, content, preview),
+            _ => new
+            {
+                kind = "text",
+                Path = entry.Path,
+                ContentType = entry.ContentType,
+                SizeBytes = entry.SizeBytes,
+                preview,
+                truncated = content.Length > preview.Length
+            }
+        };
+    }
+
+    private static object SummarizeJson(DjeLabFileEntry entry, string content, string preview)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(content);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                var sample = doc.RootElement.EnumerateArray().Take(5).Select(item => item.ValueKind == JsonValueKind.Object
+                    ? item.EnumerateObject().Take(20).ToDictionary(prop => prop.Name, prop => prop.Value.ToString())
+                    : new Dictionary<string, string> { ["value"] = item.ToString() }).ToArray();
+
+                return new
+                {
+                    kind = "json-array",
+                    Path = entry.Path,
+                    ContentType = entry.ContentType,
+                    SizeBytes = entry.SizeBytes,
+                    count = doc.RootElement.GetArrayLength(),
+                    sample,
+                    preview = preview.Length == content.Length ? preview : preview + "\n..."
+                };
+            }
+
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                return new
+                {
+                    kind = "json-object",
+                    Path = entry.Path,
+                    ContentType = entry.ContentType,
+                    SizeBytes = entry.SizeBytes,
+                    keys = doc.RootElement.EnumerateObject().Select(prop => prop.Name).Take(50).ToArray(),
+                    preview = preview.Length == content.Length ? preview : preview + "\n..."
+                };
+            }
+        }
+        catch (JsonException)
+        {
+            // Fall through to generic text summary.
+        }
+
+        return new
+        {
+            kind = "json-text",
+            Path = entry.Path,
+            ContentType = entry.ContentType,
+            SizeBytes = entry.SizeBytes,
+            preview = preview.Length == content.Length ? preview : preview + "\n..."
+        };
+    }
+
+    private static object SummarizeCsv(DjeLabFileEntry entry, string content, string preview)
+    {
+        var lines = content.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        var headers = lines.Length > 0 ? lines[0].Split(',').Select(x => x.Trim()).ToArray() : Array.Empty<string>();
+        var sampleRows = lines.Skip(1).Take(5).Select(line => line.Split(',').Select(x => x.Trim()).ToArray()).ToArray();
+
+        return new
+        {
+            kind = "csv",
+            Path = entry.Path,
+            ContentType = entry.ContentType,
+            SizeBytes = entry.SizeBytes,
+            headers,
+            rowCount = Math.Max(0, lines.Length - 1),
+            sampleRows,
+            preview = preview.Length == content.Length ? preview : preview + "\n..."
+        };
+    }
+
+    private static string DetectKind(DjeLabFileEntry entry, string content)
+    {
+        var type = (entry.ContentType ?? "").ToLowerInvariant();
+        if (type.Contains("json")) return "json";
+        if (type.Contains("csv") || entry.Path.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)) return "csv";
+        if (entry.Path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) return "json";
+        return "text";
     }
 
     private async Task Send()
@@ -251,3 +422,7 @@
         }
     }
 }
+
+
+
+
