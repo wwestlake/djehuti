@@ -1,0 +1,288 @@
+module Djehuti.Api.DjeLabFilesRepository
+
+open System
+open Amazon.S3
+open Amazon.S3.Model
+open Npgsql
+open Database
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+type DjeLabFileEntry = {
+    Id:          Guid
+    IsFolder:    bool
+    Path:        string
+    ParentPath:  string
+    Name:        string
+    ContentType: string option
+    SizeBytes:   int64 option
+    CreatedAt:   DateTime
+    UpdatedAt:   DateTime
+}
+
+type StorageUsage = {
+    UsedBytes:  int64
+    QuotaBytes: int64
+    TierName:   string
+}
+
+// ── S3 config (mirrors MediaService.fs -- each module keeps its own small
+//    env-reading helpers rather than sharing one, matching existing
+//    convention in this codebase) ────────────────────────────────────────────
+
+let private bucket () =
+    let b = Environment.GetEnvironmentVariable("S3_BUCKET")
+    if String.IsNullOrWhiteSpace(b) then failwith "S3_BUCKET not set"
+    b
+
+let private region () =
+    let r = Environment.GetEnvironmentVariable("S3_REGION")
+    if String.IsNullOrWhiteSpace(r) then "us-east-1" else r
+
+let private makeS3Client () =
+    let r = Amazon.RegionEndpoint.GetBySystemName(region ())
+    new AmazonS3Client(r)
+
+// Keyed by the file's own id, not its user-facing name/path -- renaming or
+// moving a file is then just a DB update, never an S3 rename (S3 has no
+// atomic rename anyway).
+let private s3KeyFor (userId: Guid) (fileId: Guid) = $"DjeLab/{userId}/{fileId}"
+
+let private presignedGetUrl (s3Key: string) (expiryMinutes: int) : string =
+    use client = makeS3Client ()
+    let request = GetPreSignedUrlRequest(
+        BucketName = bucket (),
+        Key = s3Key,
+        Verb = HttpVerb.GET,
+        Expires = DateTime.UtcNow.AddMinutes(float expiryMinutes)
+    )
+    client.GetPreSignedURL(request)
+
+// ── Quota ────────────────────────────────────────────────────────────────────
+
+// Placeholder numbers, deliberately isolated to this one function -- easy to
+// retune without touching anything else. Roughly follows the same shape as
+// MudRepository's paidSlotsForTier.
+let storageQuotaBytesForTier (tierId: string option) : int64 =
+    let mb (n: int64) = n * 1024L * 1024L
+    let gb (n: int64) = mb n * 1024L
+    match tierId with
+    | Some "curious-mind"    -> mb 100L
+    | Some "lab-assistant"   -> mb 500L
+    | Some "research-fellow" -> gb 2L
+    | Some "professor"       -> gb 5L
+    | Some "dean"            -> gb 20L
+    | _                      -> mb 25L // Free
+
+let getUsedBytes (conn: NpgsqlConnection) (userId: Guid) : int64 =
+    use cmd = new NpgsqlCommand(
+        "SELECT COALESCE(SUM(size_bytes), 0) FROM djelab_files WHERE user_id = @uid AND is_folder = FALSE", conn)
+    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+    cmd.ExecuteScalar() :?> int64
+
+let getStorageUsage (conn: NpgsqlConnection) (userId: Guid) : StorageUsage =
+    let usedBytes = getUsedBytes conn userId
+    match PatreonService.getTierLimits userId with
+    | Some limits ->
+        { UsedBytes = usedBytes; QuotaBytes = storageQuotaBytesForTier limits.tierId; TierName = limits.tierName }
+    | None ->
+        { UsedBytes = usedBytes; QuotaBytes = storageQuotaBytesForTier None; TierName = "Free" }
+
+// ── Reading ──────────────────────────────────────────────────────────────────
+
+let private readEntry (r: System.Data.Common.DbDataReader) : DjeLabFileEntry =
+    {
+        Id          = r.GetGuid(r.GetOrdinal("id"))
+        IsFolder    = r.GetBoolean(r.GetOrdinal("is_folder"))
+        Path        = r.GetString(r.GetOrdinal("path"))
+        ParentPath  = r.GetString(r.GetOrdinal("parent_path"))
+        Name        = r.GetString(r.GetOrdinal("name"))
+        ContentType = let o = r.GetOrdinal("content_type") in if r.IsDBNull(o) then None else Some (r.GetString(o))
+        SizeBytes   = let o = r.GetOrdinal("size_bytes") in if r.IsDBNull(o) then None else Some (r.GetInt64(o))
+        CreatedAt   = r.GetFieldValue<DateTime>(r.GetOrdinal("created_at"))
+        UpdatedAt   = r.GetFieldValue<DateTime>(r.GetOrdinal("updated_at"))
+    }
+
+let private entryColumns = "id, is_folder, path, parent_path, name, content_type, size_bytes, created_at, updated_at"
+
+let listFolder (conn: NpgsqlConnection) (userId: Guid) (parentPath: string) : DjeLabFileEntry list =
+    use cmd = new NpgsqlCommand(
+        $"""SELECT {entryColumns} FROM djelab_files
+            WHERE user_id = @uid AND parent_path = @parent
+            ORDER BY is_folder DESC, name ASC""", conn)
+    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+    cmd.Parameters.AddWithValue("parent", parentPath) |> ignore
+    use r = cmd.ExecuteReader()
+    [ while r.Read() do yield readEntry r ]
+
+let getEntry (conn: NpgsqlConnection) (userId: Guid) (fileId: Guid) : DjeLabFileEntry option =
+    use cmd = new NpgsqlCommand(
+        $"SELECT {entryColumns} FROM djelab_files WHERE user_id = @uid AND id = @id", conn)
+    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+    cmd.Parameters.AddWithValue("id", fileId) |> ignore
+    use r = cmd.ExecuteReader()
+    if r.Read() then Some (readEntry r) else None
+
+let private folderExists (conn: NpgsqlConnection) (userId: Guid) (path: string) : bool =
+    if path = "/" then true
+    else
+        use cmd = new NpgsqlCommand(
+            "SELECT 1 FROM djelab_files WHERE user_id = @uid AND path = @path AND is_folder = TRUE", conn)
+        cmd.Parameters.AddWithValue("uid", userId) |> ignore
+        cmd.Parameters.AddWithValue("path", path) |> ignore
+        use r = cmd.ExecuteReader()
+        r.Read()
+
+let private joinPath (parentPath: string) (name: string) =
+    if parentPath = "/" then "/" + name else parentPath + "/" + name
+
+// ── Folders ──────────────────────────────────────────────────────────────────
+
+let createFolder (conn: NpgsqlConnection) (userId: Guid) (parentPath: string) (name: string) : Result<DjeLabFileEntry, string> =
+    let name = name.Trim()
+    if String.IsNullOrWhiteSpace(name) || name.Contains("/") then
+        Error "Folder names can't be empty or contain a slash."
+    elif not (folderExists conn userId parentPath) then
+        Error "The parent folder no longer exists."
+    else
+        let path = joinPath parentPath name
+        try
+            use cmd = new NpgsqlCommand(
+                $"""INSERT INTO djelab_files (user_id, is_folder, path, parent_path, name)
+                    VALUES (@uid, TRUE, @path, @parent, @name)
+                    RETURNING {entryColumns}""", conn)
+            cmd.Parameters.AddWithValue("uid", userId) |> ignore
+            cmd.Parameters.AddWithValue("path", path) |> ignore
+            cmd.Parameters.AddWithValue("parent", parentPath) |> ignore
+            cmd.Parameters.AddWithValue("name", name) |> ignore
+            use r = cmd.ExecuteReader()
+            if r.Read() then Ok (readEntry r) else Error "Could not create the folder."
+        with :? PostgresException as ex when ex.SqlState = "23505" ->
+            Error "A folder or file with that name already exists here."
+
+// ── Uploads ──────────────────────────────────────────────────────────────────
+
+type UploadUrlResult = {
+    FileId:       Guid
+    PresignedUrl: string
+    S3Key:        string
+}
+
+let requestUploadUrl
+    (conn: NpgsqlConnection)
+    (userId: Guid)
+    (parentPath: string)
+    (filename: string)
+    (contentType: string)
+    (declaredSizeBytes: int64)
+    : Result<UploadUrlResult, string> =
+    let filename = filename.Trim()
+    if String.IsNullOrWhiteSpace(filename) || filename.Contains("/") then
+        Error "File names can't be empty or contain a slash."
+    elif not (folderExists conn userId parentPath) then
+        Error "The target folder no longer exists."
+    else
+        let usage = getStorageUsage conn userId
+        if usage.UsedBytes + declaredSizeBytes > usage.QuotaBytes then
+            let mb (b: int64) = float b / 1024.0 / 1024.0
+            Error $"That would exceed your storage quota ({mb usage.UsedBytes:F1} MB of {mb usage.QuotaBytes:F1} MB used)."
+        else
+            let fileId = Guid.NewGuid()
+            let s3Key = s3KeyFor userId fileId
+            let presignedUrl = MediaService.generatePresignedUploadUrl s3Key contentType 15
+            Ok { FileId = fileId; PresignedUrl = presignedUrl; S3Key = s3Key }
+
+let confirmUpload
+    (conn: NpgsqlConnection)
+    (userId: Guid)
+    (fileId: Guid)
+    (parentPath: string)
+    (filename: string)
+    (contentType: string)
+    : Result<DjeLabFileEntry, string> =
+    let s3Key = s3KeyFor userId fileId
+    use client = makeS3Client ()
+    let realSize =
+        try
+            let meta = client.GetObjectMetadataAsync(bucket (), s3Key) |> Async.AwaitTask |> Async.RunSynchronously
+            Some meta.ContentLength
+        with _ -> None
+
+    match realSize with
+    | None -> Error "Upload not found -- the file may not have finished uploading."
+    | Some realSize ->
+        let usage = getStorageUsage conn userId
+        if usage.UsedBytes + realSize > usage.QuotaBytes then
+            let req = DeleteObjectRequest(BucketName = bucket (), Key = s3Key)
+            client.DeleteObjectAsync(req) |> Async.AwaitTask |> Async.RunSynchronously |> ignore
+            let mb (b: int64) = float b / 1024.0 / 1024.0
+            Error $"That upload ({mb realSize:F1} MB) would exceed your storage quota ({mb usage.UsedBytes:F1} MB of {mb usage.QuotaBytes:F1} MB used). It has been removed."
+        else
+            let filename = filename.Trim()
+            let path = joinPath parentPath filename
+            try
+                use cmd = new NpgsqlCommand(
+                    $"""INSERT INTO djelab_files (id, user_id, is_folder, path, parent_path, name, s3_key, content_type, size_bytes)
+                        VALUES (@id, @uid, FALSE, @path, @parent, @name, @key, @ct, @size)
+                        RETURNING {entryColumns}""", conn)
+                cmd.Parameters.AddWithValue("id", fileId) |> ignore
+                cmd.Parameters.AddWithValue("uid", userId) |> ignore
+                cmd.Parameters.AddWithValue("path", path) |> ignore
+                cmd.Parameters.AddWithValue("parent", parentPath) |> ignore
+                cmd.Parameters.AddWithValue("name", filename) |> ignore
+                cmd.Parameters.AddWithValue("key", s3Key) |> ignore
+                cmd.Parameters.AddWithValue("ct", contentType) |> ignore
+                cmd.Parameters.AddWithValue("size", realSize) |> ignore
+                use r = cmd.ExecuteReader()
+                if r.Read() then Ok (readEntry r) else Error "Could not record the upload."
+            with :? PostgresException as ex when ex.SqlState = "23505" ->
+                let req = DeleteObjectRequest(BucketName = bucket (), Key = s3Key)
+                client.DeleteObjectAsync(req) |> Async.AwaitTask |> Async.RunSynchronously |> ignore
+                Error "A folder or file with that name already exists here."
+
+// s3_key is deterministic from (userId, fileId) -- s3KeyFor -- so there's no
+// need to store or query it separately just to build a download link.
+let getDownloadUrl (userId: Guid) (entry: DjeLabFileEntry) : string option =
+    if entry.IsFolder then None
+    else Some (presignedGetUrl (s3KeyFor userId entry.Id) 15)
+
+// ── Delete (files delete their S3 object; folders cascade to everything
+//    inside them, matching ordinary file-explorer behavior) ──────────────────
+
+let deleteEntry (conn: NpgsqlConnection) (userId: Guid) (fileId: Guid) : Result<unit, string> =
+    match getEntry conn userId fileId with
+    | None -> Error "Not found."
+    | Some entry ->
+        use client = makeS3Client ()
+
+        let deleteS3 (s3Key: string) =
+            let req = DeleteObjectRequest(BucketName = bucket (), Key = s3Key)
+            client.DeleteObjectAsync(req) |> Async.AwaitTask |> Async.RunSynchronously |> ignore
+
+        if entry.IsFolder then
+            use descCmd = new NpgsqlCommand(
+                """SELECT id FROM djelab_files
+                   WHERE user_id = @uid AND is_folder = FALSE
+                     AND (path LIKE @prefix)""", conn)
+            descCmd.Parameters.AddWithValue("uid", userId) |> ignore
+            descCmd.Parameters.AddWithValue("prefix", entry.Path + "/%") |> ignore
+            let descendantFileIds =
+                use r = descCmd.ExecuteReader()
+                [ while r.Read() do yield r.GetGuid(0) ]
+            for id in descendantFileIds do
+                deleteS3 (s3KeyFor userId id)
+
+            use delCmd = new NpgsqlCommand(
+                "DELETE FROM djelab_files WHERE user_id = @uid AND (path = @path OR path LIKE @prefix)", conn)
+            delCmd.Parameters.AddWithValue("uid", userId) |> ignore
+            delCmd.Parameters.AddWithValue("path", entry.Path) |> ignore
+            delCmd.Parameters.AddWithValue("prefix", entry.Path + "/%") |> ignore
+            delCmd.ExecuteNonQuery() |> ignore
+        else
+            deleteS3 (s3KeyFor userId entry.Id)
+            use delCmd = new NpgsqlCommand("DELETE FROM djelab_files WHERE user_id = @uid AND id = @id", conn)
+            delCmd.Parameters.AddWithValue("uid", userId) |> ignore
+            delCmd.Parameters.AddWithValue("id", fileId) |> ignore
+            delCmd.ExecuteNonQuery() |> ignore
+
+        Ok ()
