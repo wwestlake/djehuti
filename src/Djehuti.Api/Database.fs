@@ -4006,6 +4006,29 @@ let private migrations : (int * string) list =
         CREATE INDEX IF NOT EXISTS idx_djelab_files_parent ON djelab_files(user_id, parent_path);
 
         GRANT ALL ON TABLE djelab_files TO djehuti;
+        """
+
+        64, """
+        -- Parsed hierarchy snapshots for DjeLab files. This keeps JSON/CSV/
+        -- ROOT-derived structure available for later analysis without needing
+        -- to re-parse the source file every time.
+        CREATE TABLE IF NOT EXISTS djelab_hierarchical_documents (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            source_file_id  UUID NOT NULL REFERENCES djelab_files(id) ON DELETE CASCADE,
+            source_path     TEXT NOT NULL,
+            source_kind     TEXT NOT NULL,
+            document_name   TEXT NOT NULL,
+            tree_json       JSONB NOT NULL,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+            UNIQUE (user_id, source_file_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_djelab_hierarchical_documents_user_id ON djelab_hierarchical_documents(user_id);
+        CREATE INDEX IF NOT EXISTS idx_djelab_hierarchical_documents_source_path ON djelab_hierarchical_documents(user_id, source_path);
+
+        GRANT ALL ON TABLE djelab_hierarchical_documents TO djehuti;
         """    ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

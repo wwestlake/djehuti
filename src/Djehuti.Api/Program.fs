@@ -1597,6 +1597,51 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    app.MapGet(
+        "/api/djelab/files/{fileId}/hierarchy",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun fileId ctx ->
+            async {
+                match Guid.TryParse(fileId) with
+                | false, _ -> return Results.BadRequest("Invalid file id")
+                | true, fid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            match DjeLabFilesRepository.getHierarchySnapshot conn userId fid with
+                            | Some snapshot -> return Results.Ok(snapshot)
+                            | None -> return Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/djelab/files/{fileId}/hierarchy",
+        Func<string, HttpContext, {| sourceKind: string; treeJson: string |}, System.Threading.Tasks.Task<IResult>>(fun fileId ctx body ->
+            async {
+                match Guid.TryParse(fileId) with
+                | false, _ -> return Results.BadRequest("Invalid file id")
+                | true, fid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            match DjeLabFilesRepository.getEntry conn userId fid with
+                            | None -> return Results.NotFound()
+                            | Some entry ->
+                                let sourceKind = if String.IsNullOrWhiteSpace body.sourceKind then "unknown" else body.sourceKind.Trim()
+                                let treeJson = if String.IsNullOrWhiteSpace body.treeJson then "{}" else body.treeJson
+                                match DjeLabFilesRepository.upsertHierarchySnapshot conn userId fid entry.Path sourceKind entry.Name treeJson with
+                                | Ok snapshot -> return Results.Ok(snapshot)
+                                | Error msg -> return Results.BadRequest(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     app.MapDelete(
         "/api/djelab/files/{fileId}",
         Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun fileId ctx ->
