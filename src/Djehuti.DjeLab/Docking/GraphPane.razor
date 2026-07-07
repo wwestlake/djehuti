@@ -3,57 +3,49 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject WorkspaceActions Actions
 
 <div class="graph-pane">
-    <div class="graph-toolbar">
-        <select class="graph-type-select" @bind="_chartType" disabled="@_running">
-            <option value="line">Line</option>
-            <option value="scatter">Scatter</option>
-            <option value="bar">Bar</option>
-            <option value="histogram">Histogram</option>
-            <option value="scatter3d">3D Scatter/Line</option>
-            <option value="surface">3D Surface</option>
-        </select>
-        <input class="graph-axis-input" placeholder="x axis" @bind="_xLabel" @bind:event="oninput" disabled="@_running" />
-        <input class="graph-axis-input" placeholder="y axis" @bind="_yLabel" @bind:event="oninput" disabled="@_running" />
-        @if (Is3D)
-        {
-            <input class="graph-axis-input" placeholder="z axis" @bind="_zLabel" @bind:event="oninput" disabled="@_running" />
-        }
-        <div class="graph-toolbar-spacer"></div>
-        @if (_running)
-        {
-            <button type="button" class="graph-action-btn graph-stop-btn" @onclick="StopAsync">Stop</button>
-        }
-        else
-        {
-            <button type="button" class="graph-action-btn" @onclick="RunAsync" disabled="@string.IsNullOrWhiteSpace(_source)">Run</button>
-        }
-    </div>
+    @if (!_hasRun)
+    {
+        <div class="graph-empty">
+            <p>Nothing plotted yet.</p>
+            <p class="graph-empty-hint">Ask the AI to graph or simulate something in Chat.</p>
+        </div>
+    }
+    else
+    {
+        <div class="graph-toolbar">
+            <span class="graph-summary">@_chartType &middot; x: @_xLabel &middot; y: @_yLabel@(Is3D ? $" · z: {_zLabel}" : "")</span>
+        </div>
 
-    <textarea class="graph-code-input" placeholder="A Spinoza program. Call emit(point) to plot points as they're computed, e.g. let rec loop i = if i == 50 then i else loop(emit([i, sin(i / 5)]) + 1) in loop(0)"
-              @bind="_source" @bind:event="oninput" disabled="@_running"></textarea>
+        <div class="graph-status-row">
+            @if (_running)
+            {
+                <span class="graph-status graph-status-running">Running… @_pointCount point(s)</span>
+            }
+            else if (_error is not null)
+            {
+                <span class="graph-status graph-status-error">@_error</span>
+            }
+            else
+            {
+                <span class="graph-status">Done — @_pointCount point(s)</span>
+            }
+        </div>
 
-    <div class="graph-status-row">
-        @if (_running)
-        {
-            <span class="graph-status graph-status-running">Running… @_pointCount point(s)</span>
-        }
-        else if (_error is not null)
-        {
-            <span class="graph-status graph-status-error">@_error</span>
-        }
-        else if (_pointCount > 0)
-        {
-            <span class="graph-status">Done — @_pointCount point(s)</span>
-        }
-    </div>
-
-    <div class="graph-plot-host" id="@_plotElementId"></div>
+        <div class="graph-plot-host" id="@_plotElementId"></div>
+    }
 </div>
 
 @code {
     [Parameter] public string PaneId { get; set; } = "";
+    [Parameter] public string? PendingRunId { get; set; }
+    [Parameter] public string? PendingChartType { get; set; }
+    [Parameter] public string? PendingXLabel { get; set; }
+    [Parameter] public string? PendingYLabel { get; set; }
+    [Parameter] public string? PendingZLabel { get; set; }
+    [Parameter] public string? PendingSource { get; set; }
 
     private string _plotElementId = "";
     private SpinozaWorkerClient? _worker;
@@ -63,11 +55,12 @@
     private string _xLabel = "x";
     private string _yLabel = "y";
     private string _zLabel = "z";
-    private string _source = "";
+    private bool _hasRun;
     private bool _running;
     private int _pointCount;
     private string? _error;
     private bool _chartCreated;
+    private bool _autoRunStarted;
 
     private bool Is3D => _chartType is "scatter3d" or "surface";
 
@@ -77,24 +70,44 @@
         _worker = new SpinozaWorkerClient(JS, Nav);
     }
 
-    private async Task RunAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        if (string.IsNullOrWhiteSpace(_source) || _worker is null) return;
+        // A graph pane is only ever auto-run once, the instant the AI's
+        // pending source/chart-type parameters first arrive -- this method
+        // can fire again later for unrelated reasons (parent re-render), so
+        // the guard is load-bearing, not just an optimization.
+        if (_autoRunStarted || PendingRunId is null || string.IsNullOrWhiteSpace(PendingSource)) return;
+        _autoRunStarted = true;
+
+        _chartType = PendingChartType ?? "line";
+        _xLabel = PendingXLabel ?? "x";
+        _yLabel = PendingYLabel ?? "y";
+        _zLabel = string.IsNullOrWhiteSpace(PendingZLabel) ? "z" : PendingZLabel;
+
+        await RunAsync(PendingRunId, PendingSource);
+    }
+
+    private async Task RunAsync(string runId, string source)
+    {
+        if (_worker is null) return;
 
         _plotly ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/plotly-interop.js");
         await _plotly.InvokeVoidAsync("createChart", _plotElementId, _chartType, _xLabel, _yLabel, _zLabel);
         _chartCreated = true;
 
+        _hasRun = true;
         _running = true;
         _pointCount = 0;
         _error = null;
         StateHasChanged();
 
-        var outcome = await _worker.RunAsync(_source, OnEmit);
+        var outcome = await _worker.RunAsync(source, OnEmit);
 
         _running = false;
         _error = outcome.Success ? null : outcome.Error;
         StateHasChanged();
+
+        Actions.ReportOutcome(runId, new GraphRunOutcome(outcome.Success, _pointCount, outcome.Error));
     }
 
     private void OnEmit(JsonElement point)
@@ -105,15 +118,6 @@
             _ = _plotly.InvokeVoidAsync("addPoint", _plotElementId, _chartType, point);
         }
         InvokeAsync(StateHasChanged);
-    }
-
-    private async Task StopAsync()
-    {
-        if (_worker is null) return;
-        await _worker.StopAsync();
-        _running = false;
-        _error = "Stopped";
-        StateHasChanged();
     }
 
     public async ValueTask DisposeAsync()

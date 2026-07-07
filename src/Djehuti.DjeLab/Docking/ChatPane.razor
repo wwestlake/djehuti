@@ -1,8 +1,11 @@
 @using Markdig
+@using System.Text.Json
 @inject AiConfigStore ConfigStore
 @inject ChatHistoryStore HistoryStore
 @inject AiChatClient ChatClient
 @inject IJSRuntime JS
+@inject HttpClient Http
+@inject WorkspaceActions Actions
 
 <div class="chat-pane">
     @if (_loading)
@@ -145,6 +148,58 @@
         }
     }
 
+    // Built once per pane instance (captures Http/Actions via closure) --
+    // these are what actually makes AiChatClient's generic tool loop DO
+    // anything in this app; AiChatClient itself only knows the OpenAI
+    // protocol, not what search_math_references or run_simulation mean.
+    private IReadOnlyDictionary<string, ToolHandler> ToolHandlers => new Dictionary<string, ToolHandler>
+    {
+        ["search_math_references"] = SearchMathReferencesAsync,
+        ["run_simulation"] = RunSimulationAsync
+    };
+
+    private async Task<string> SearchMathReferencesAsync(string argumentsJson)
+    {
+        using var args = JsonDocument.Parse(argumentsJson);
+        var query = args.RootElement.TryGetProperty("query", out var q) ? q.GetString() ?? "" : "";
+        if (string.IsNullOrWhiteSpace(query)) return "No query provided.";
+
+        var response = await Http.GetAsync($"/djehuti/api/djelab/search-references?q={Uri.EscapeDataString(query)}");
+        if (!response.IsSuccessStatusCode) return $"Search failed with HTTP {(int)response.StatusCode}.";
+
+        using var results = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        if (results.RootElement.ValueKind != JsonValueKind.Array || results.RootElement.GetArrayLength() == 0)
+            return "No matching reference material found.";
+
+        var parts = results.RootElement.EnumerateArray().Select(hit =>
+        {
+            var title = hit.TryGetProperty("title", out var t) ? t.GetString() : "";
+            var content = hit.TryGetProperty("content", out var c) ? c.GetString() : "";
+            return $"## {title}\n{content}";
+        });
+        return string.Join("\n\n", parts);
+    }
+
+    private async Task<string> RunSimulationAsync(string argumentsJson)
+    {
+        using var args = JsonDocument.Parse(argumentsJson);
+        string Get(string name, string fallback = "") =>
+            args.RootElement.TryGetProperty(name, out var v) ? v.GetString() ?? fallback : fallback;
+
+        var chartType = Get("chartType", "line");
+        var xLabel = Get("xLabel", "x");
+        var yLabel = Get("yLabel", "y");
+        var zLabel = Get("zLabel", "z");
+        var source = Get("spinozaSource");
+
+        if (string.IsNullOrWhiteSpace(source)) return "No spinozaSource provided.";
+
+        var outcome = await Actions.RunInNewGraphAsync(chartType, xLabel, yLabel, zLabel, source);
+        return outcome.Success
+            ? $"Ran successfully in a new {chartType} graph pane; emitted {outcome.PointCount} point(s)."
+            : $"The program failed to run: {outcome.Error}";
+    }
+
     private async Task Send()
     {
         var text = _input.Trim();
@@ -160,7 +215,7 @@
         try
         {
             await TryInvokeJsAsync("resetTextareaHeight", _inputRef);
-            var reply = await ChatClient.AskAsync(_apiKey, _model, history, text);
+            var reply = await ChatClient.AskAsync(_apiKey, _model, history, text, ToolHandlers);
             LogMathDelimiterDiagnostics(reply);
             _turns.Add(new ChatTurn { Role = "assistant", Content = reply });
             await HistoryStore.SaveTurnsAsync(_turns);

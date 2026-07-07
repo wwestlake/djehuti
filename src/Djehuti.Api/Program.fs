@@ -1617,6 +1617,34 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // Backs the AI's search_math_references tool call (DjeLabSystemPrompt /
+    // AiChatClient) -- deliberately NOT the same endpoint as
+    // /api/admin/semantic/search, which is admin-gated and carries session/
+    // curvature tracking for the admin search-quality dashboard, neither of
+    // which apply to an ordinary signed-in user's AI grounding itself in the
+    // Spinoza reference. Any signed-in user, no admin role required; scoped
+    // to djelab-dsl-reference since that's the only thing this tool is for.
+    app.MapGet(
+        "/api/djelab/search-references",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some _ ->
+                let query =
+                    match ctx.Request.Query.TryGetValue("q") with
+                    | true, values when values.Count > 0 -> values.[0]
+                    | _ -> ""
+                if String.IsNullOrWhiteSpace query then
+                    Results.BadRequest("q is required")
+                else
+                    let hits = SemanticGraphRepository.searchChunks query (Some "djelab-dsl-reference") 5
+                    let results =
+                        hits
+                        |> List.map (fun h -> {| title = h.Title; content = h.Content; similarity = h.Similarity |})
+                    Results.Ok(results)
+        )
+    ) |> ignore
+
     // ── Forum: Categories (read=anonymous, write=admin) ───────────────────────
 
     // MUD
