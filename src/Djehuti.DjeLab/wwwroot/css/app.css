@@ -634,8 +634,14 @@ a {
 .dock-body {
     flex: 1 1 auto;
     min-height: 0;
+    min-width: 0;
     position: relative;
-    overflow: auto;
+    /* Each concrete pane owns its own internal scroll region (e.g.
+       .chat-pane-messages, .files-list) with a fixed input/toolbar area
+       that must never scroll. `auto` here let the whole pane -- input row
+       included -- become a second, outer scrollbar whenever content (e.g.
+       a wide KaTeX render) overflowed, producing a confusing double-scroll. */
+    overflow: hidden;
 }
 
 .dock-pane-content {
@@ -731,6 +737,7 @@ a {
 .chat-pane-messages {
     flex: 1 1 auto;
     min-height: 0;
+    min-width: 0;
     overflow-y: auto;
     padding: 0.75rem;
     display: flex;
