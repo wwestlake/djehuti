@@ -317,6 +317,14 @@ a {
     margin: 0 auto;
 }
 
+.djelab-hero-logo {
+    display: block;
+    height: 260px;
+    width: auto;
+    margin-bottom: 1rem;
+    border-radius: 12px;
+}
+
 .djelab-hero h1 {
     font-size: 2.4rem;
     margin-bottom: 0.25rem;
