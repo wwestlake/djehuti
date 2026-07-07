@@ -82,6 +82,10 @@ else if (Node is TabGroupNode group)
                                    PendingXLabel="@pane.PendingXLabel" PendingYLabel="@pane.PendingYLabel"
                                    PendingZLabel="@pane.PendingZLabel" PendingSource="@pane.PendingSource" />
                     }
+                    else if (pane.Kind == "data")
+                    {
+                        <DataPane @key="pane.Id" />
+                    }
                     else
                     {
                         <PlaceholderPaneContent @key="pane.Id" Pane="pane" />
