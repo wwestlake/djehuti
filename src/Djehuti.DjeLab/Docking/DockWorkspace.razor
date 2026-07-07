@@ -78,20 +78,34 @@
         _closedPanes.Clear();
     }
 
-    // Graph panes only exist as a destination for the AI's run_simulation
-    // tool call now -- there's no manual "New Graph" / hand-type-code path
-    // anymore, so panes are created here and only here, on demand, each
-    // pre-loaded with the chart type/code the AI wrote. GraphPane detects
-    // the pending-run parameters on mount and runs immediately. New graphs
-    // land as a tab alongside any existing graph pane; the user's normal
-    // drag-to-dock gesture (already supported) splits one into its own
-    // side-by-side window if they want that instead of a tab.
+    // Graph panes are populated by the AI's run_simulation tool call -- there
+    // is no manual "New Graph" / hand-type-code path anymore. Reuses
+    // whichever graph pane already exists (the static one from the default
+    // layout counts) rather than spawning a fresh tab on every single run:
+    // mutating an EXISTING PaneDescriptor's Pending* fields and letting
+    // Blazor re-render the already-mounted <GraphPane> with new parameter
+    // values triggers a genuine re-run there (see GraphPane's
+    // OnParametersSetAsync), without destroying and recreating the
+    // component. Only creates a new pane if none exists -- e.g. the first
+    // run ever, or after the user closed the last graph pane.
     private void HandleOpenGraphRequested(OpenGraphRequest request)
     {
-        var count = _panes.Values.Count(p => p.Kind == "graph") + 1;
+        var existing = _panes.Values.FirstOrDefault(p => p.Kind == "graph");
+        if (existing is not null)
+        {
+            existing.PendingRunId = request.RunId;
+            existing.PendingChartType = request.ChartType;
+            existing.PendingXLabel = request.XLabel;
+            existing.PendingYLabel = request.YLabel;
+            existing.PendingZLabel = request.ZLabel;
+            existing.PendingSource = request.SpinozaSource;
+            InvokeAsync(StateHasChanged);
+            return;
+        }
+
         var pane = new PaneDescriptor
         {
-            Title = $"Graph {count}",
+            Title = "Graph",
             Kind = "graph",
             AccentColor = "#3fa9f5",
             PendingRunId = request.RunId,
