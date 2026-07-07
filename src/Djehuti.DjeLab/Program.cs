@@ -9,5 +9,7 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 builder.Services.AddSingleton<AiConfigStore>();
+builder.Services.AddSingleton<ChatHistoryStore>();
+builder.Services.AddScoped<AiChatClient>();
 
 await builder.Build().RunAsync();
