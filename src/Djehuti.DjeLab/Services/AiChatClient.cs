@@ -65,7 +65,7 @@ public sealed class AiChatClient
         {
             type = "function",
             name = "run_simulation",
-            description = "Runs a Spinoza program in a new graph pane and plots the points it emits. Use this whenever the user wants something graphed, plotted, or visualized -- write a complete Spinoza program yourself (it must call emit(point) to produce chart data; see the language reference) and call this tool with it, rather than only describing the program in your reply. You will be told whether it ran successfully and how many points it produced.",
+            description = "Runs a Spinoza program in a new graph pane and plots the points it emits. Use this whenever the user wants something graphed, plotted, or visualized -- write a complete Spinoza program yourself (it must call emit(point) to produce chart data; see the language reference) and call this tool with it, rather than only describing the program in your reply. Prefer surface for actual height fields and scatter3d for point clouds or parametric curves. You will be told whether it ran successfully and how many points it produced.",
             parameters = new
             {
                 type = "object",

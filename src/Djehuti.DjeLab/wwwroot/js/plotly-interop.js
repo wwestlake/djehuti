@@ -40,6 +40,10 @@ function baseLayout(chartType, xLabel, yLabel, zLabel) {
             yaxis: { title: yLabel || 'y', gridcolor: '#2a3f52' },
             zaxis: { title: zLabel || 'z', gridcolor: '#2a3f52' },
             bgcolor: 'transparent',
+            aspectmode: 'cube',
+            camera: {
+                eye: { x: 1.7, y: 1.5, z: 1.1 }
+            }
         };
     } else {
         layout.xaxis = { title: xLabel || 'x', gridcolor: '#2a3f52' };
@@ -55,7 +59,17 @@ function baseTrace(chartType, color, name) {
         case 'bar': return { type: 'bar', x: [], y: [], name, marker: { color } };
         case 'histogram': return { type: 'histogram', x: [], marker: { color } };
         case 'scatter3d': return { type: 'scatter3d', mode: 'lines+markers', x: [], y: [], z: [], line: { color }, marker: { color, size: 3 } };
-        case 'surface': return { type: 'surface', z: [], colorscale: 'Viridis' };
+        case 'surface': return {
+            type: 'surface',
+            z: [],
+            colorscale: 'Viridis',
+            contours: {
+                x: { show: true, highlight: false, color: '#304860', width: 1 },
+                y: { show: true, highlight: false, color: '#304860', width: 1 },
+                z: { show: true, usecolormap: true, highlightcolor: '#ffffff', project: { z: true } }
+            },
+            lighting: { ambient: 0.78, diffuse: 0.72, specular: 0.18, roughness: 0.85, fresnel: 0.1 }
+        };
         default: throw new Error(`Unknown chart type: ${chartType}`);
     }
 }
