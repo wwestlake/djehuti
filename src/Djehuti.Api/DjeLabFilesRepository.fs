@@ -78,7 +78,10 @@ let getUsedBytes (conn: NpgsqlConnection) (userId: Guid) : int64 =
     use cmd = new NpgsqlCommand(
         "SELECT COALESCE(SUM(size_bytes), 0) FROM djelab_files WHERE user_id = @uid AND is_folder = FALSE", conn)
     cmd.Parameters.AddWithValue("uid", userId) |> ignore
-    cmd.ExecuteScalar() :?> int64
+    // Postgres's SUM(bigint) returns numeric, which Npgsql boxes as System.Decimal,
+    // not int64 -- a direct `:?> int64` downcast throws on every call. Convert.ToInt64
+    // handles the widening/narrowing conversion; file sizes are well within int64 range.
+    Convert.ToInt64(cmd.ExecuteScalar())
 
 let getStorageUsage (conn: NpgsqlConnection) (userId: Guid) : StorageUsage =
     let usedBytes = getUsedBytes conn userId
