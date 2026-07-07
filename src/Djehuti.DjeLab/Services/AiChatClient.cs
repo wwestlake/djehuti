@@ -86,6 +86,30 @@ public sealed class AiChatClient
                 additionalProperties = false
             },
             strict = true
+        },
+        new
+        {
+            type = "function",
+            name = "manage_file_data",
+            description = "List, read, or write the user's DjeLab S3-backed data files. Use this for CSV, JSON, and text files in the personal file area when you need to inspect data, save analysis output, or stage a data file for later math work. Reading returns file content plus a compact structural summary; writing stores a text file at the requested path.",
+            parameters = new
+            {
+                type = "object",
+                properties = new
+                {
+                    action = new
+                    {
+                        type = "string",
+                        @enum = new[] { "list", "read", "write" }
+                    },
+                    path = new { type = "string", description = "Folder path for list, file path for read/write." },
+                    content = new { type = "string", description = "Text to write when action is write." },
+                    contentType = new { type = "string", description = "Optional MIME type for write, e.g. application/json or text/csv." }
+                },
+                required = new[] { "action", "path" },
+                additionalProperties = false
+            },
+            strict = true
         }
     ];
 
