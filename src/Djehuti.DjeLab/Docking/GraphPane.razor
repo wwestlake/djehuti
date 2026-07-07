@@ -43,9 +43,20 @@
             <summary>Program</summary>
             <pre class="graph-source"><code>@_source</code></pre>
         </details>
-
-        <div class="graph-plot-host" id="@_plotElementId"></div>
     }
+
+    @* Deliberately NOT inside the @if/@else above and NOT display:none'd
+       away by _hasRun -- this div must already exist in the DOM the moment
+       RunAsync's very first createChart call looks for it via
+       getElementById. It used to live inside the "else" branch, rendered
+       only once _hasRun flipped true -- but createChart ran BEFORE that
+       flip, so getElementById found nothing, Plotly.newPlot silently never
+       ran (createChart's own `if (!el) return`), and every subsequent
+       addPoint call silently no-op'd too (its `!el.data` guard, since
+       Plotly had never initialized the element). The point counter still
+       incremented correctly in C# the whole time, which is exactly why
+       this looked like a successful run that just never rendered anything. *@
+    <div class="graph-plot-host" style="@(_hasRun ? "" : "display: none;")" id="@_plotElementId"></div>
 </div>
 
 @code {
