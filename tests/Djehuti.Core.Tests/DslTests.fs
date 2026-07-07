@@ -123,6 +123,43 @@ let ``runaway recursion hits the step budget instead of hanging`` () =
         | Ok v -> failwith $"expected a step-budget error, got a value: {v}"
 
 [<Fact>]
+let ``emit is a no-op pass-through when nothing is listening`` () =
+    Assert.Equal(5.0, evalNumber "emit(5) + 0")
+
+[<Fact>]
+let ``runWithEmit invokes the callback for every emit call, in order`` () =
+    let seen = System.Collections.Generic.List<Value>()
+    let source = "let rec loop i = if i == 3 then i else loop(emit(i) + 1) in loop(0)"
+    match Djehuti.DjeLab.Dsl.Parser.parse source with
+    | Error e -> failwith $"parse error: {e}"
+    | Ok expr ->
+        match runWithEmit seen.Add expr with
+        | Error e -> failwith $"eval error: {e}"
+        | Ok(VNumber 3.0) -> ()
+        | Ok v -> failwith $"expected 3, got {v}"
+    // Value has no structural equality (it embeds functions), so compare
+    // via the numbers actually seen rather than the Value list itself.
+    let seenNumbers = seen |> Seq.map (function VNumber n -> n | v -> failwith $"expected a number, got {v}") |> List.ofSeq
+    Assert.Equal<float list>([ 0.0; 1.0; 2.0 ], seenNumbers)
+
+[<Fact>]
+let ``toJson serializes numbers, bools, and vectors`` () =
+    Assert.Equal(Ok "3", toJson (VNumber 3.0))
+    Assert.Equal(Ok "true", toJson (VBool true))
+    Assert.Equal(Ok "[1,2,3]", toJson (VVector [| VNumber 1.0; VNumber 2.0; VNumber 3.0 |]))
+
+[<Fact>]
+let ``toJson renders non-finite numbers as null instead of throwing`` () =
+    Assert.Equal(Ok "null", toJson (VNumber(1.0 / 0.0)))
+    Assert.Equal(Ok "null", toJson (VNumber(0.0 / 0.0)))
+
+[<Fact>]
+let ``toJson rejects function values`` () =
+    match toJson (VBuiltin("sin", 1, Ok << List.head)) with
+    | Error _ -> ()
+    | Ok j -> failwith $"expected an error, got {j}"
+
+[<Fact>]
 let ``parse error is reported instead of throwing`` () =
     match Djehuti.DjeLab.Dsl.Parser.parse "1 +" with
     | Error _ -> ()
