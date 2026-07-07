@@ -147,3 +147,9 @@ export function dispose(elementId) {
     const el = document.getElementById(elementId);
     if (el) Plotly.purge(el);
 }
+
+export function resize(elementId) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    Plotly.Plots.resize(el);
+}
