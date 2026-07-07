@@ -1,0 +1,137 @@
+@inject AiConfigStore ConfigStore
+@inject ChatHistoryStore HistoryStore
+@inject AiChatClient ChatClient
+@inject IJSRuntime JS
+
+<div class="chat-pane">
+    @if (_loading)
+    {
+        <div class="chat-pane-loading">Loading…</div>
+    }
+    else if (!_hasKey)
+    {
+        <div class="chat-pane-empty">
+            <p>No AI configured yet.</p>
+            <a class="chat-pane-setup-link" href="settings">Go to AI Setup</a>
+        </div>
+    }
+    else
+    {
+        <div class="chat-pane-messages" @ref="_messagesRef">
+            @if (_turns.Count == 0)
+            {
+                <div class="chat-pane-empty-history">Ask anything about the math you're working on.</div>
+            }
+            @foreach (var turn in _turns)
+            {
+                <div class="chat-message chat-message-@turn.Role">
+                    <div class="chat-message-bubble">@turn.Content</div>
+                </div>
+            }
+            @if (_sending)
+            {
+                <div class="chat-message chat-message-assistant">
+                    <div class="chat-message-bubble chat-message-pending">Thinking…</div>
+                </div>
+            }
+        </div>
+
+        @if (_error is not null)
+        {
+            <div class="chat-pane-error">@_error</div>
+        }
+
+        <form class="chat-pane-input-row" @onsubmit="Send">
+            <textarea class="chat-pane-input"
+                      placeholder="Ask about a math problem…"
+                      @bind="_input"
+                      @bind:event="oninput"
+                      @onkeydown="OnKeyDown"></textarea>
+            <div class="chat-pane-input-actions">
+                <button type="submit" class="chat-pane-send" disabled="@(_sending || string.IsNullOrWhiteSpace(_input))">
+                    Send
+                </button>
+                <button type="button" class="chat-pane-clear" @onclick="ClearChat" disabled="@_sending">
+                    Clear
+                </button>
+            </div>
+        </form>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _hasKey;
+    private bool _sending;
+    private string? _error;
+    private string _apiKey = "";
+    private string _model = "";
+    private string _input = "";
+    private List<ChatTurn> _turns = new();
+    private ElementReference _messagesRef;
+    private IJSObjectReference? _module;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _apiKey = await ConfigStore.GetApiKeyAsync() ?? "";
+        _model = await ConfigStore.GetModelAsync();
+        _hasKey = !string.IsNullOrWhiteSpace(_apiKey);
+        if (_hasKey)
+        {
+            _turns = await HistoryStore.GetTurnsAsync();
+        }
+        _loading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_hasKey)
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+            await _module.InvokeVoidAsync("scrollToBottom", _messagesRef);
+        }
+    }
+
+    private async Task OnKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await Send();
+        }
+    }
+
+    private async Task Send()
+    {
+        var text = _input.Trim();
+        if (string.IsNullOrEmpty(text) || _sending) return;
+
+        _input = "";
+        _error = null;
+        var history = _turns.ToList();
+        _turns.Add(new ChatTurn { Role = "user", Content = text });
+        _sending = true;
+        StateHasChanged();
+
+        try
+        {
+            var reply = await ChatClient.AskAsync(_apiKey, _model, history, text);
+            _turns.Add(new ChatTurn { Role = "assistant", Content = reply });
+            await HistoryStore.SaveTurnsAsync(_turns);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    private async Task ClearChat()
+    {
+        _turns.Clear();
+        _error = null;
+        await HistoryStore.ClearAsync();
+    }
+}

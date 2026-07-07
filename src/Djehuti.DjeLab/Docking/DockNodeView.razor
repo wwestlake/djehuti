@@ -55,7 +55,14 @@ else if (Node is TabGroupNode group)
             @if (activePaneId != null && Panes.TryGetValue(activePaneId, out var activePane))
             {
                 <div class="dock-pane-content" style="--dock-accent: @activePane.AccentColor">
-                    <PlaceholderPaneContent Pane="activePane" />
+                    @if (activePane.Kind == "chat")
+                    {
+                        <ChatPane />
+                    }
+                    else
+                    {
+                        <PlaceholderPaneContent Pane="activePane" />
+                    }
                 </div>
             }
             @if (DraggingPaneId != null && _hoverZone != null)
