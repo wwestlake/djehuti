@@ -102,8 +102,7 @@
     {
         if (_hasKey)
         {
-            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
-            await _module.InvokeVoidAsync("scrollToBottom", _messagesRef);
+            await TryInvokeJsAsync("scrollToBottom", _messagesRef);
         }
     }
 
@@ -118,19 +117,26 @@
     private async Task OnInputChanged(ChangeEventArgs e)
     {
         _input = e.Value?.ToString() ?? "";
-        await AutoGrowInputAsync();
+        await TryInvokeJsAsync("autoGrowTextarea", _inputRef, InputMaxHeightPx);
     }
 
-    private async Task AutoGrowInputAsync()
+    // All JS interop for this pane is cosmetic (auto-scroll, textarea
+    // sizing) -- never something the actual send/receive flow depends on.
+    // A mismatch between the compiled app and a stale cached copy of
+    // dock-interop.js (browsers can hold onto an old version across a
+    // deploy) must never take down the chat itself, so failures here are
+    // swallowed rather than left to bubble up as an unhandled exception.
+    private async Task TryInvokeJsAsync(string function, params object[] args)
     {
-        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
-        await _module.InvokeVoidAsync("autoGrowTextarea", _inputRef, InputMaxHeightPx);
-    }
-
-    private async Task ResetInputHeightAsync()
-    {
-        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
-        await _module.InvokeVoidAsync("resetTextareaHeight", _inputRef);
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+            await _module.InvokeVoidAsync(function, args);
+        }
+        catch (JSException)
+        {
+            _module = null; // force re-import next time, in case the cached module was the problem
+        }
     }
 
     private async Task Send()
@@ -144,10 +150,10 @@
         _turns.Add(new ChatTurn { Role = "user", Content = text });
         _sending = true;
         StateHasChanged();
-        await ResetInputHeightAsync();
 
         try
         {
+            await TryInvokeJsAsync("resetTextareaHeight", _inputRef);
             var reply = await ChatClient.AskAsync(_apiKey, _model, history, text);
             _turns.Add(new ChatTurn { Role = "assistant", Content = reply });
             await HistoryStore.SaveTurnsAsync(_turns);
