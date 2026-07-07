@@ -34,18 +34,18 @@
                     <div class="chat-message-bubble chat-message-pending">Thinking…</div>
                 </div>
             }
+            @if (_error is not null)
+            {
+                <div class="chat-message-system">@_error</div>
+            }
         </div>
 
-        @if (_error is not null)
-        {
-            <div class="chat-pane-error">@_error</div>
-        }
-
         <form class="chat-pane-input-row" @onsubmit="Send">
-            <textarea class="chat-pane-input"
+            <textarea @ref="_inputRef"
+                      class="chat-pane-input"
                       placeholder="Ask about a math problem…"
-                      @bind="_input"
-                      @bind:event="oninput"
+                      value="@_input"
+                      @oninput="OnInputChanged"
                       @onkeydown="OnKeyDown"></textarea>
             <div class="chat-pane-input-actions">
                 <button type="submit" class="chat-pane-send" disabled="@(_sending || string.IsNullOrWhiteSpace(_input))">
@@ -69,7 +69,10 @@
     private string _input = "";
     private List<ChatTurn> _turns = new();
     private ElementReference _messagesRef;
+    private ElementReference _inputRef;
     private IJSObjectReference? _module;
+
+    private const int InputMaxHeightPx = 260;
 
     protected override async Task OnInitializedAsync()
     {
@@ -100,6 +103,24 @@
         }
     }
 
+    private async Task OnInputChanged(ChangeEventArgs e)
+    {
+        _input = e.Value?.ToString() ?? "";
+        await AutoGrowInputAsync();
+    }
+
+    private async Task AutoGrowInputAsync()
+    {
+        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+        await _module.InvokeVoidAsync("autoGrowTextarea", _inputRef, InputMaxHeightPx);
+    }
+
+    private async Task ResetInputHeightAsync()
+    {
+        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+        await _module.InvokeVoidAsync("resetTextareaHeight", _inputRef);
+    }
+
     private async Task Send()
     {
         var text = _input.Trim();
@@ -111,6 +132,7 @@
         _turns.Add(new ChatTurn { Role = "user", Content = text });
         _sending = true;
         StateHasChanged();
+        await ResetInputHeightAsync();
 
         try
         {
