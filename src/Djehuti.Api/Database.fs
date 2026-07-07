@@ -4029,7 +4029,34 @@ let private migrations : (int * string) list =
         CREATE INDEX IF NOT EXISTS idx_djelab_hierarchical_documents_source_path ON djelab_hierarchical_documents(user_id, source_path);
 
         GRANT ALL ON TABLE djelab_hierarchical_documents TO djehuti;
-        """    ]
+        """
+
+        65, """
+        -- Normalized hierarchy nodes for queryable tree traversal. A snapshot
+        -- row keeps the original structure blob, while these rows let the API
+        -- search, filter, and walk the tree by path or parent node.
+        CREATE TABLE IF NOT EXISTS djelab_hierarchical_nodes (
+            id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            snapshot_id   UUID NOT NULL REFERENCES djelab_hierarchical_documents(id) ON DELETE CASCADE,
+            parent_id     UUID REFERENCES djelab_hierarchical_nodes(id) ON DELETE CASCADE,
+            node_path     TEXT NOT NULL,
+            name          TEXT NOT NULL,
+            kind          TEXT NOT NULL,
+            value_text    TEXT,
+            metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+            sort_order    INTEGER NOT NULL DEFAULT 0,
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+            UNIQUE (snapshot_id, node_path)
+        );
+        CREATE INDEX IF NOT EXISTS idx_djelab_hierarchical_nodes_snapshot_id ON djelab_hierarchical_nodes(snapshot_id);
+        CREATE INDEX IF NOT EXISTS idx_djelab_hierarchical_nodes_parent_id ON djelab_hierarchical_nodes(parent_id);
+        CREATE INDEX IF NOT EXISTS idx_djelab_hierarchical_nodes_path ON djelab_hierarchical_nodes(snapshot_id, node_path);
+
+        GRANT ALL ON TABLE djelab_hierarchical_nodes TO djehuti;
+        """
+    ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
     // schema_migrations may not exist yet on first run

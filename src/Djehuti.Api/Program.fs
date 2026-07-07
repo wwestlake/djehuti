@@ -1642,6 +1642,25 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    app.MapGet(
+        "/api/djelab/files/{fileId}/hierarchy/nodes",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun fileId ctx ->
+            async {
+                match Guid.TryParse(fileId) with
+                | false, _ -> return Results.BadRequest("Invalid file id")
+                | true, fid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            let nodes = DjeLabFilesRepository.getHierarchyNodes conn userId fid
+                            return Results.Ok(nodes)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     app.MapDelete(
         "/api/djelab/files/{fileId}",
         Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun fileId ctx ->

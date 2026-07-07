@@ -242,6 +242,10 @@ public sealed class DjeLabFilesClient
         return response.IsSuccessStatusCode;
     }
 
+    public async Task<List<HierarchicalNodeRecord>> GetHierarchyNodesAsync(Guid fileId, CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync<List<HierarchicalNodeRecord>>($"{Base}/files/{fileId}/hierarchy/nodes", ct)
+        ?? new List<HierarchicalNodeRecord>();
+
     public async Task<FilesResult<DjeLabFileEntry>> WriteTextFileAsync(
         string fullPath,
         string content,
@@ -396,5 +400,20 @@ public sealed class DjeLabFilesClient
     private sealed class UrlResponse
     {
         public string Url { get; set; } = "";
+    }
+
+    public sealed class HierarchicalNodeRecord
+    {
+        public Guid Id { get; set; }
+        public Guid SnapshotId { get; set; }
+        public Guid? ParentId { get; set; }
+        public string NodePath { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Kind { get; set; } = "";
+        public string? ValueText { get; set; }
+        public string MetadataJson { get; set; } = "{}";
+        public int SortOrder { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
     }
 }

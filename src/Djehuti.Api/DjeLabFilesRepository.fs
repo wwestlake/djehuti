@@ -1,6 +1,7 @@
 module Djehuti.Api.DjeLabFilesRepository
 
 open System
+open System.Text.Json
 open Amazon.S3
 open Amazon.S3.Model
 open Npgsql
@@ -304,6 +305,20 @@ type HierarchicalDocumentSnapshot = {
     UpdatedAt:      DateTime
 }
 
+type HierarchicalNodeRecord = {
+    Id:           Guid
+    SnapshotId:   Guid
+    ParentId:     Guid option
+    NodePath:     string
+    Name:         string
+    Kind:         string
+    ValueText:    string option
+    MetadataJson: string
+    SortOrder:    int
+    CreatedAt:    DateTime
+    UpdatedAt:    DateTime
+}
+
 let private readHierarchySnapshot (r: System.Data.Common.DbDataReader) : HierarchicalDocumentSnapshot =
     {
         Id            = r.GetGuid(r.GetOrdinal("id"))
@@ -316,6 +331,136 @@ let private readHierarchySnapshot (r: System.Data.Common.DbDataReader) : Hierarc
         CreatedAt     = r.GetFieldValue<DateTime>(r.GetOrdinal("created_at"))
         UpdatedAt     = r.GetFieldValue<DateTime>(r.GetOrdinal("updated_at"))
     }
+
+let private readHierarchyNode (r: System.Data.Common.DbDataReader) : HierarchicalNodeRecord =
+    {
+        Id           = r.GetGuid(r.GetOrdinal("id"))
+        SnapshotId   = r.GetGuid(r.GetOrdinal("snapshot_id"))
+        ParentId     = let ordinal = r.GetOrdinal("parent_id") in if r.IsDBNull(ordinal) then None else Some (r.GetGuid(ordinal))
+        NodePath     = r.GetString(r.GetOrdinal("node_path"))
+        Name         = r.GetString(r.GetOrdinal("name"))
+        Kind         = r.GetString(r.GetOrdinal("kind"))
+        ValueText    = let ordinal = r.GetOrdinal("value_text") in if r.IsDBNull(ordinal) then None else Some (r.GetString(ordinal))
+        MetadataJson = r.GetString(r.GetOrdinal("metadata_json"))
+        SortOrder    = r.GetInt32(r.GetOrdinal("sort_order"))
+        CreatedAt    = r.GetFieldValue<DateTime>(r.GetOrdinal("created_at"))
+        UpdatedAt    = r.GetFieldValue<DateTime>(r.GetOrdinal("updated_at"))
+    }
+
+let private tryGetTextProperty (name: string) (element: JsonElement) : string option =
+    let mutable property = Unchecked.defaultof<JsonElement>
+    if element.ValueKind = JsonValueKind.Object && element.TryGetProperty(name, &property) then
+        match property.ValueKind with
+        | JsonValueKind.String -> Some (property.GetString())
+        | JsonValueKind.Null
+        | JsonValueKind.Undefined -> None
+        | _ -> Some (property.GetRawText())
+    else
+        None
+
+let private tryGetChildArray (element: JsonElement) : JsonElement option =
+    let mutable children = Unchecked.defaultof<JsonElement>
+    if element.ValueKind = JsonValueKind.Object && element.TryGetProperty("children", &children) && children.ValueKind = JsonValueKind.Array then
+        Some children
+    else
+        None
+
+let private tryGetMetadataJson (element: JsonElement) : string =
+    let mutable metadata = Unchecked.defaultof<JsonElement>
+    if element.ValueKind = JsonValueKind.Object && element.TryGetProperty("metadata", &metadata) then
+        metadata.GetRawText()
+    else
+        "{}"
+
+let private deleteHierarchyNodes (conn: NpgsqlConnection) (snapshotId: Guid) =
+    use cmd = new NpgsqlCommand("DELETE FROM djelab_hierarchical_nodes WHERE snapshot_id = @sid", conn)
+    cmd.Parameters.AddWithValue("sid", snapshotId) |> ignore
+    cmd.ExecuteNonQuery() |> ignore
+
+let private insertHierarchyNode
+    (conn: NpgsqlConnection)
+    (snapshotId: Guid)
+    (parentId: Guid option)
+    (nodePath: string)
+    (element: JsonElement)
+    (sortOrder: int)
+    : HierarchicalNodeRecord =
+    let name = tryGetTextProperty "name" element |> Option.defaultValue "node"
+    let kind = tryGetTextProperty "kind" element |> Option.defaultValue "unknown"
+    let valueText = tryGetTextProperty "value" element
+    let metadataJson = tryGetMetadataJson element
+
+    use cmd = new NpgsqlCommand(
+        """INSERT INTO djelab_hierarchical_nodes
+               (snapshot_id, parent_id, node_path, name, kind, value_text, metadata_json, sort_order)
+           VALUES
+               (@sid, @pid, @path, @name, @kind, @value, @meta::jsonb, @sort)
+           RETURNING id, snapshot_id, parent_id, node_path, name, kind, value_text, metadata_json::text AS metadata_json, sort_order, created_at, updated_at""",
+        conn)
+    cmd.Parameters.AddWithValue("sid", snapshotId) |> ignore
+    match parentId with
+    | Some value -> cmd.Parameters.AddWithValue("pid", value) |> ignore
+    | None -> cmd.Parameters.AddWithValue("pid", DBNull.Value) |> ignore
+    cmd.Parameters.AddWithValue("path", nodePath) |> ignore
+    cmd.Parameters.AddWithValue("name", name) |> ignore
+    cmd.Parameters.AddWithValue("kind", kind) |> ignore
+    match valueText with
+    | Some value -> cmd.Parameters.AddWithValue("value", value) |> ignore
+    | None -> cmd.Parameters.AddWithValue("value", DBNull.Value) |> ignore
+    cmd.Parameters.AddWithValue("meta", metadataJson) |> ignore
+    cmd.Parameters.AddWithValue("sort", sortOrder) |> ignore
+    use reader = cmd.ExecuteReader()
+    if reader.Read() then readHierarchyNode reader else failwith "Could not store hierarchy node."
+
+let private rebuildHierarchyNodes
+    (conn: NpgsqlConnection)
+    (snapshotId: Guid)
+    (treeJson: string)
+    =
+    deleteHierarchyNodes conn snapshotId
+    use document = JsonDocument.Parse(treeJson)
+
+    let rec insertChildren (parentId: Guid option) (basePath: string) (element: JsonElement) =
+        let name = tryGetTextProperty "name" element |> Option.defaultValue "node"
+        let kind = tryGetTextProperty "kind" element |> Option.defaultValue "unknown"
+        let currentPath =
+            if String.IsNullOrWhiteSpace basePath then name
+            else $"{basePath}/{name}"
+
+        let record = insertHierarchyNode conn snapshotId parentId currentPath element 0
+
+        match tryGetChildArray element with
+        | None -> record
+        | Some children ->
+            let mutable index = 0
+            for child in children.EnumerateArray() do
+                let childName =
+                    tryGetTextProperty "name" child
+                    |> Option.defaultValue $"item-{index}"
+                let childPath = $"{currentPath}/{childName}"
+                let childRecord = insertHierarchyNode conn snapshotId (Some record.Id) childPath child index
+                match tryGetChildArray child with
+                | Some grandChildren ->
+                    let rec walkChildren (ancestorId: Guid) (ancestorPath: string) (arrayElement: JsonElement) =
+                        let mutable nestedIndex = 0
+                        for nestedChild in arrayElement.EnumerateArray() do
+                            let nestedName =
+                                tryGetTextProperty "name" nestedChild
+                                |> Option.defaultValue $"item-{nestedIndex}"
+                            let nestedPath = $"{ancestorPath}/{nestedName}"
+                            let nestedRecord = insertHierarchyNode conn snapshotId (Some ancestorId) nestedPath nestedChild nestedIndex
+                            match tryGetChildArray nestedChild with
+                            | Some deeper -> walkChildren nestedRecord.Id nestedPath deeper
+                            | None -> ()
+                            nestedIndex <- nestedIndex + 1
+                    walkChildren childRecord.Id childPath grandChildren
+                | None -> ()
+                index <- index + 1
+            record
+
+    let root = document.RootElement
+    let rootRecord = insertChildren None "" root
+    rootRecord |> ignore
 
 let upsertHierarchySnapshot
     (conn: NpgsqlConnection)
@@ -348,7 +493,12 @@ let upsertHierarchySnapshot
         cmd.Parameters.AddWithValue("name", documentName) |> ignore
         cmd.Parameters.AddWithValue("tree", treeJson) |> ignore
         use reader = cmd.ExecuteReader()
-        if reader.Read() then Ok (readHierarchySnapshot reader) else Error "Could not store the hierarchy snapshot."
+        if reader.Read() then
+            let snapshot = readHierarchySnapshot reader
+            reader.Close()
+            rebuildHierarchyNodes conn snapshot.Id treeJson
+            Ok snapshot
+        else Error "Could not store the hierarchy snapshot."
     with ex ->
         Error ex.Message
 
@@ -366,3 +516,20 @@ let getHierarchySnapshot
     cmd.Parameters.AddWithValue("fid", sourceFileId) |> ignore
     use reader = cmd.ExecuteReader()
     if reader.Read() then Some (readHierarchySnapshot reader) else None
+
+let getHierarchyNodes
+    (conn: NpgsqlConnection)
+    (userId: Guid)
+    (sourceFileId: Guid)
+    : HierarchicalNodeRecord list =
+    use cmd = new NpgsqlCommand(
+        """SELECT n.id, n.snapshot_id, n.parent_id, n.node_path, n.name, n.kind, n.value_text, n.metadata_json::text AS metadata_json, n.sort_order, n.created_at, n.updated_at
+           FROM djelab_hierarchical_nodes n
+           INNER JOIN djelab_hierarchical_documents d ON d.id = n.snapshot_id
+           WHERE d.user_id = @uid AND d.source_file_id = @fid
+           ORDER BY n.node_path, n.sort_order""",
+        conn)
+    cmd.Parameters.AddWithValue("uid", userId) |> ignore
+    cmd.Parameters.AddWithValue("fid", sourceFileId) |> ignore
+    use reader = cmd.ExecuteReader()
+    [ while reader.Read() do yield readHierarchyNode reader ]
