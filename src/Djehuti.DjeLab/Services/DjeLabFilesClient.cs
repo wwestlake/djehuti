@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Djehuti.Core;
 
 namespace Djehuti.DjeLab.Services;
 
@@ -117,6 +118,68 @@ public sealed class DjeLabFilesClient
         return FilesResult<string>.Ok(text);
     }
 
+    public async Task<FilesResult<string>> ReadStructuredDataAsync(string path, CancellationToken ct = default)
+    {
+        var resolved = await ResolvePathAsync(path, ct);
+        if (!resolved.Success || resolved.Value is null)
+            return FilesResult<string>.Fail(resolved.Error ?? "Could not find that file.");
+
+        if (resolved.Value.IsFolder)
+        {
+            var folderTree = await BuildFolderTreeAsync(resolved.Value, ct);
+            return FilesResult<string>.Ok(JsonSerializer.Serialize(folderTree));
+        }
+
+        var contentType = (resolved.Value.ContentType ?? "").ToLowerInvariant();
+        var extension = Path.GetExtension(resolved.Value.Name).ToLowerInvariant();
+
+        if (contentType.Contains("json") || extension == ".json")
+        {
+            var rawJson = await ReadTextFileAsync(path, ct: ct);
+            if (!rawJson.Success || rawJson.Value is null)
+                return FilesResult<string>.Fail(rawJson.Error ?? "Could not read JSON content.");
+
+            var document = HierarchicalData.fromJsonText(resolved.Value.Name, rawJson.Value);
+            return FilesResult<string>.Ok(JsonSerializer.Serialize(HierarchicalData.toSerializable(document.Root)));
+        }
+
+        if (contentType.Contains("csv") || extension == ".csv")
+        {
+            var rawCsv = await ReadTextFileAsync(path, ct: ct);
+            if (!rawCsv.Success || rawCsv.Value is null)
+                return FilesResult<string>.Fail(rawCsv.Error ?? "Could not read CSV content.");
+
+            var csvTree = ParseCsvToTree(resolved.Value.Name, rawCsv.Value);
+            return FilesResult<string>.Ok(JsonSerializer.Serialize(HierarchicalData.toSerializable(csvTree.Root)));
+        }
+
+        if (extension == ".root" || contentType.Contains("root"))
+        {
+            return FilesResult<string>.Ok(JsonSerializer.Serialize(new
+            {
+                name = resolved.Value.Name,
+                kind = "root-file",
+                path = resolved.Value.Path,
+                sizeBytes = resolved.Value.SizeBytes,
+                contentType = resolved.Value.ContentType,
+                note = "Binary ROOT parsing is not wired in yet. Use a hierarchy manifest or convert the file to JSON/CSV for direct analysis."
+            }));
+        }
+
+        var raw = await ReadTextFileAsync(path, ct: ct);
+        if (!raw.Success || raw.Value is null)
+            return FilesResult<string>.Fail(raw.Error ?? "Could not read that file.");
+
+        return FilesResult<string>.Ok(JsonSerializer.Serialize(new
+        {
+            name = resolved.Value.Name,
+            kind = "text",
+            path = resolved.Value.Path,
+            sizeBytes = resolved.Value.SizeBytes,
+            preview = raw.Value.Length > 5000 ? raw.Value[..5000] + "\n..." : raw.Value
+        }));
+    }
+
     public async Task<FilesResult<DjeLabFileEntry>> CreateFolderAsync(string parentPath, string name, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync($"{Base}/files/folder", new { parentPath, name }, ct);
@@ -210,6 +273,83 @@ public sealed class DjeLabFilesClient
         while (trimmed.Length > 1 && trimmed.EndsWith('/'))
             trimmed = trimmed[..^1];
         return trimmed;
+    }
+
+    private async Task<object> BuildFolderTreeAsync(DjeLabFileEntry folder, CancellationToken ct)
+    {
+        var entries = await ListFolderAsync(folder.Path, ct);
+        var children = new List<object>();
+
+        foreach (var entry in entries)
+        {
+            if (entry.IsFolder)
+            {
+                children.Add(await BuildFolderTreeAsync(entry, ct));
+            }
+            else
+            {
+                children.Add(new
+                {
+                    name = entry.Name,
+                    kind = "file",
+                    path = entry.Path,
+                    contentType = entry.ContentType,
+                    sizeBytes = entry.SizeBytes
+                });
+            }
+        }
+
+        return new
+        {
+            name = folder.Name,
+            kind = "folder",
+            path = folder.Path,
+            children
+        };
+    }
+
+    private static HierarchicalDocument ParseCsvToTree(string name, string csv)
+    {
+        var lines = csv.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        var headers = lines.Length > 0 ? ParseCsvLine(lines[0]) : new List<string>();
+        var rows = lines.Skip(1).Select(ParseCsvLine).ToList();
+        return HierarchicalData.fromCsv(name, headers, rows);
+    }
+
+    private static List<string> ParseCsvLine(string line)
+    {
+        var cells = new List<string>();
+        var current = new StringBuilder();
+        var inQuotes = false;
+
+        for (var index = 0; index < line.Length; index++)
+        {
+            var character = line[index];
+            if (character == '"')
+            {
+                if (inQuotes && index + 1 < line.Length && line[index + 1] == '"')
+                {
+                    current.Append('"');
+                    index++;
+                }
+                else
+                {
+                    inQuotes = !inQuotes;
+                }
+            }
+            else if (character == ',' && !inQuotes)
+            {
+                cells.Add(current.ToString());
+                current.Clear();
+            }
+            else
+            {
+                current.Append(character);
+            }
+        }
+
+        cells.Add(current.ToString());
+        return cells;
     }
 
     private static async Task<FilesResult<T>> ReadResultAsync<T>(HttpResponseMessage response, CancellationToken ct)
