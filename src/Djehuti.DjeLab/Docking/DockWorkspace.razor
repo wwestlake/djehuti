@@ -8,6 +8,17 @@
     <div class="dock-toolbar">
         <span class="dock-toolbar-title">Workspace <span class="dock-toolbar-hint">— prototype, drag tabs and dividers, not yet saved</span></span>
         <div class="dock-toolbar-actions">
+            @if (_closedPanes.Count > 0)
+            {
+                <select class="dock-reopen-select" @onchange="OnReopenSelected">
+                    <option value="">Reopen…</option>
+                    @for (var i = 0; i < _closedPanes.Count; i++)
+                    {
+                        var index = i;
+                        <option value="@index">@_closedPanes[index].Title</option>
+                    }
+                </select>
+            }
             <button type="button" class="dock-reset-btn" @onclick="ResetLayout">Reset layout</button>
         </div>
     </div>
@@ -19,7 +30,8 @@
                       OnTabActivate="ActivatePane"
                       OnDropOnTabStrip="HandleDropOnTabStrip"
                       OnDropOnBody="HandleDropOnBody"
-                      OnDragEnd="EndDragPane" />
+                      OnDragEnd="EndDragPane"
+                      OnClosePane="HandleClosePane" />
     </div>
 </div>
 
@@ -38,6 +50,15 @@
     private double[] _resizeStartSizes = Array.Empty<double>();
     private BoundingRect? _containerRect;
 
+    // Closing loses whatever live state a pane had (a GraphPane's worker and
+    // chart are genuinely gone -- Blazor disposes the component the instant
+    // it's removed from the tree) -- this is only enough to recreate an
+    // EMPTY pane of the same kind/title, a "bring back what I closed" list,
+    // not an undo. Capped so it can't grow unbounded over a long session.
+    private const int MaxClosedPanes = 10;
+    private readonly List<ClosedPane> _closedPanes = new();
+    private sealed record ClosedPane(string Title, string Kind, string AccentColor);
+
     protected override void OnInitialized()
     {
         (_root, _panes) = DemoLayout.CreateDefault();
@@ -54,6 +75,7 @@
         (_root, _panes) = DemoLayout.CreateDefault();
         _resizingSplit = null;
         _draggingPaneId = null;
+        _closedPanes.Clear();
     }
 
     // Graph panes only exist as a destination for the AI's run_simulation
@@ -79,16 +101,25 @@
             PendingZLabel = request.ZLabel,
             PendingSource = request.SpinozaSource
         };
+        InsertPane(pane);
+        InvokeAsync(StateHasChanged);
+    }
+
+    // Lands a new pane as a tab alongside any existing pane of the same
+    // kind (so e.g. several graphs cluster together by default); falls back
+    // to the first group in the tree if none of that kind exist yet. The
+    // user's normal drag-to-dock gesture (already supported) splits it into
+    // its own side-by-side window afterward if they want that instead.
+    private void InsertPane(PaneDescriptor pane)
+    {
         _panes[pane.Id] = pane;
 
-        var existingGraphPaneId = _panes.Values.FirstOrDefault(p => p.Kind == "graph" && p.Id != pane.Id)?.Id;
-        var targetGroup = existingGraphPaneId is not null
-            ? DockTree.FindGroupContainingPane(_root, existingGraphPaneId)
+        var existingSameKindId = _panes.Values.FirstOrDefault(p => p.Kind == pane.Kind && p.Id != pane.Id)?.Id;
+        var targetGroup = existingSameKindId is not null
+            ? DockTree.FindGroupContainingPane(_root, existingSameKindId)
             : FindFirstGroup(_root);
 
         if (targetGroup is not null) DockTree.InsertAsTab(_root, targetGroup.Id, pane.Id);
-
-        InvokeAsync(StateHasChanged);
     }
 
     private static TabGroupNode? FindFirstGroup(DockNode node) => node switch
@@ -97,6 +128,27 @@
         SplitNode split => split.Children.Select(FindFirstGroup).FirstOrDefault(g => g is not null),
         _ => null
     };
+
+    private void HandleClosePane(string paneId)
+    {
+        if (!_panes.TryGetValue(paneId, out var pane)) return;
+
+        _closedPanes.Insert(0, new ClosedPane(pane.Title, pane.Kind, pane.AccentColor));
+        if (_closedPanes.Count > MaxClosedPanes) _closedPanes.RemoveAt(_closedPanes.Count - 1);
+
+        _root = DockTree.RemovePane(_root, paneId);
+        _panes.Remove(paneId);
+    }
+
+    private void OnReopenSelected(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var index) || index < 0 || index >= _closedPanes.Count) return;
+
+        var closed = _closedPanes[index];
+        _closedPanes.RemoveAt(index);
+
+        InsertPane(new PaneDescriptor { Title = closed.Title, Kind = closed.Kind, AccentColor = closed.AccentColor });
+    }
 
     // Resize-start must be instantaneous -- a container rect fetched via JS
     // interop at drag-start races against the drag itself (pointermove can
