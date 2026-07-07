@@ -139,12 +139,24 @@ let private lambdaExpr: P<Expr> =
     strWs "fun" >>. many1 identifier .>> strWs "->" .>>. exprRef
     |>> fun (parameters, body) -> Lambda(parameters, body)
 
+// Deliberately NOT `attempt`-wrapped: `let`/`if`/`fun` are unambiguous
+// lookahead tokens in this grammar (§ the module doc comment) -- if the
+// input starts with the literal word "let", it can only be a let-form,
+// never anything else. `pstring "let"` already fails without consuming
+// input when the token doesn't match, which is all `choice` needs to try
+// the next alternative; wrapping the FULL let/if/fun parsers in `attempt`
+// bought nothing for that case but was actively harmful for every other
+// case: it silently discarded the true failure position whenever the
+// keyword matched but something LATER in that construct was wrong (e.g. a
+// missing `in`), backtracking all the way to column 1 and letting the
+// fallback `identifier` parser misreport the real error as "'let' is a
+// reserved word" pointing at the wrong place entirely.
 do
     exprRefImpl.Value <-
         choice
-            [ attempt letExpr
-              attempt ifExpr
-              attempt lambdaExpr
+            [ letExpr
+              ifExpr
+              lambdaExpr
               orExpr ]
 
 let private program: P<Expr> = ws >>. exprRef .>> ws .>> eof

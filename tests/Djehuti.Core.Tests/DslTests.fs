@@ -160,6 +160,34 @@ let ``toJson rejects function values`` () =
     | Ok j -> failwith $"expected an error, got {j}"
 
 [<Fact>]
+let ``a missing 'in' after a nested let reports the real location, not a misleading reserved-word error`` () =
+    // Found live: a nested `let` written without its `in` (a very natural
+    // mistake for an LLM used to Python/JS-style one-statement-per-line) used
+    // to make `letExpr` fail deep inside, backtrack all the way to column 1,
+    // and fall through to the plain-identifier parser mistakenly rejecting
+    // the outer "let" as a reserved word -- nowhere near the real problem.
+    match Djehuti.DjeLab.Dsl.Parser.parse
+        """
+        let rec loop t =
+            if t == 100 then t
+            else
+                let dummy = emit([t, sin(t)])
+                loop(t + 1)
+        in loop(0)
+        """
+    with
+    | Ok v -> failwith $"expected a parse error, got {v}"
+    | Error e ->
+        Assert.DoesNotContain("reserved word", e)
+        Assert.Contains("Ln: 6", e) // the "loop(t + 1)" line, not line 1
+
+[<Fact>]
+let ``emit called with brackets instead of parens reports the real location`` () =
+    match Djehuti.DjeLab.Dsl.Parser.parse "let rec loop t = if t == 1 then t else let d = emit [t, t] in loop(t + 1) in loop(0)" with
+    | Ok v -> failwith $"expected a parse error, got {v}"
+    | Error e -> Assert.DoesNotContain("reserved word", e)
+
+[<Fact>]
 let ``parse error is reported instead of throwing`` () =
     match Djehuti.DjeLab.Dsl.Parser.parse "1 +" with
     | Error _ -> ()

@@ -1226,6 +1226,30 @@ a {
     color: #ff8080;
 }
 
+.graph-source-details {
+    flex: 0 0 auto;
+    border-bottom: 1px solid var(--djelab-border);
+    font-size: 0.78rem;
+}
+
+.graph-source-details summary {
+    padding: 0.3rem 0.75rem;
+    color: var(--djelab-muted);
+    cursor: pointer;
+    user-select: none;
+}
+
+.graph-source {
+    margin: 0;
+    padding: 0.5rem 0.75rem 0.75rem;
+    max-height: 160px;
+    overflow: auto;
+    color: var(--djelab-text);
+    font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 .graph-plot-host {
     flex: 1 1 auto;
     min-height: 0;
