@@ -1482,6 +1482,141 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // ── DjeLab Files ──────────────────────────────────────────────────────────
+    // S3-backed file manager for DjeLab, quota-limited by Patreon tier
+    // (Djehuti.Api/DjeLabFilesRepository.fs). Available to every tier
+    // including Free -- quota just scales down.
+
+    app.MapGet(
+        "/api/djelab/storage/usage",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        use conn = Database.openConnection()
+                        let usage = DjeLabFilesRepository.getStorageUsage conn userId
+                        return Results.Ok(usage)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapGet(
+        "/api/djelab/files",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        let path = let v = string ctx.Request.Query.["path"] in if String.IsNullOrWhiteSpace v then "/" else v
+                        use conn = Database.openConnection()
+                        let entries = DjeLabFilesRepository.listFolder conn userId path
+                        return Results.Ok(entries)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/djelab/files/folder",
+        Func<HttpContext, {| parentPath: string; name: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        use conn = Database.openConnection()
+                        match DjeLabFilesRepository.createFolder conn userId body.parentPath body.name with
+                        | Ok entry -> return Results.Ok(entry)
+                        | Error msg -> return Results.BadRequest(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/djelab/files/upload-url",
+        Func<HttpContext, {| parentPath: string; filename: string; contentType: string; sizeBytes: int64 |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        use conn = Database.openConnection()
+                        let ct = if String.IsNullOrWhiteSpace body.contentType then "application/octet-stream" else body.contentType
+                        match DjeLabFilesRepository.requestUploadUrl conn userId body.parentPath body.filename ct body.sizeBytes with
+                        | Ok result -> return Results.Ok({| fileId = result.FileId; presignedUrl = result.PresignedUrl; s3Key = result.S3Key |})
+                        | Error msg -> return Results.BadRequest(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/djelab/files/confirm",
+        Func<HttpContext, {| fileId: string; parentPath: string; filename: string; contentType: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId), Guid.TryParse(body.fileId) with
+                    | (false, _), _ -> return Results.Unauthorized()
+                    | _, (false, _) -> return Results.BadRequest("Invalid file id")
+                    | (true, userId), (true, fileId) ->
+                        use conn = Database.openConnection()
+                        let ct = if String.IsNullOrWhiteSpace body.contentType then "application/octet-stream" else body.contentType
+                        match DjeLabFilesRepository.confirmUpload conn userId fileId body.parentPath body.filename ct with
+                        | Ok entry -> return Results.Ok(entry)
+                        | Error msg -> return Results.BadRequest(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapGet(
+        "/api/djelab/files/{fileId}/download-url",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun fileId ctx ->
+            async {
+                match Guid.TryParse(fileId) with
+                | false, _ -> return Results.BadRequest("Invalid file id")
+                | true, fid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            match DjeLabFilesRepository.getEntry conn userId fid with
+                            | None -> return Results.NotFound()
+                            | Some entry ->
+                                match DjeLabFilesRepository.getDownloadUrl userId entry with
+                                | Some url -> return Results.Ok({| url = url |})
+                                | None -> return Results.BadRequest("Folders cannot be downloaded")
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/djelab/files/{fileId}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun fileId ctx ->
+            async {
+                match Guid.TryParse(fileId) with
+                | false, _ -> return Results.BadRequest("Invalid file id")
+                | true, fid ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            match DjeLabFilesRepository.deleteEntry conn userId fid with
+                            | Ok () -> return Results.Ok({| success = true |})
+                            | Error msg -> return Results.BadRequest(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     // ── Forum: Categories (read=anonymous, write=admin) ───────────────────────
 
     // MUD

@@ -10,6 +10,7 @@ public static class DemoLayout
         var console = new PaneDescriptor { Title = "Console", Kind = "console", AccentColor = "#8fa0bd" };
         var chat = new PaneDescriptor { Title = "Chat", Kind = "chat", AccentColor = "#e8b354" };
         var data = new PaneDescriptor { Title = "Data", Kind = "data", AccentColor = "#58d68d" };
+        var files = new PaneDescriptor { Title = "Files", Kind = "files", AccentColor = "#c792ea" };
 
         var panes = new Dictionary<string, PaneDescriptor>
         {
@@ -17,6 +18,7 @@ public static class DemoLayout
             [console.Id] = console,
             [chat.Id] = chat,
             [data.Id] = data,
+            [files.Id] = files,
         };
 
         var graphGroup = new TabGroupNode();
@@ -33,6 +35,7 @@ public static class DemoLayout
         var rightGroup = new TabGroupNode();
         rightGroup.PaneIds.Add(chat.Id);
         rightGroup.PaneIds.Add(data.Id);
+        rightGroup.PaneIds.Add(files.Id);
 
         var root = new SplitNode { Direction = SplitDirection.Row };
         root.Children.Add(leftColumn);

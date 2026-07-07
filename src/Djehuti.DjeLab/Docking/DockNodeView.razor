@@ -59,6 +59,10 @@ else if (Node is TabGroupNode group)
                     {
                         <ChatPane />
                     }
+                    else if (activePane.Kind == "files")
+                    {
+                        <FilesPane />
+                    }
                     else
                     {
                         <PlaceholderPaneContent Pane="activePane" />

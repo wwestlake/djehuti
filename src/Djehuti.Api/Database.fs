@@ -3977,6 +3977,35 @@ let private migrations : (int * string) list =
         -- fixed directly via psql. Tracked here so a fresh environment
         -- doesn't hit the same gap.
         CREATE EXTENSION IF NOT EXISTS unaccent;
+        """
+
+        63, """
+        -- DjeLab's S3-backed file manager. Folders and files share one
+        -- table (is_folder distinguishes them) so a folder listing is a
+        -- single query. s3_key is NULL for folders (they aren't real S3
+        -- objects, just organizational rows) and is the file's own id
+        -- (not its user-facing name/path) for real files -- renaming or
+        -- moving a file is then just a DB update, never an S3 rename.
+        CREATE TABLE IF NOT EXISTS djelab_files (
+            id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            is_folder    BOOLEAN NOT NULL,
+            path         TEXT NOT NULL,
+            parent_path  TEXT NOT NULL,
+            name         TEXT NOT NULL,
+            s3_key       TEXT,
+            content_type TEXT,
+            size_bytes   BIGINT,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+            UNIQUE (user_id, path),
+            CHECK (is_folder OR s3_key IS NOT NULL)
+        );
+        CREATE INDEX IF NOT EXISTS idx_djelab_files_user_id ON djelab_files(user_id);
+        CREATE INDEX IF NOT EXISTS idx_djelab_files_parent ON djelab_files(user_id, parent_path);
+
+        GRANT ALL ON TABLE djelab_files TO djehuti;
         """    ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

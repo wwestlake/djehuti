@@ -11,5 +11,6 @@ builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.
 builder.Services.AddSingleton<AiConfigStore>();
 builder.Services.AddSingleton<ChatHistoryStore>();
 builder.Services.AddScoped<AiChatClient>();
+builder.Services.AddScoped<DjeLabFilesClient>();
 
 await builder.Build().RunAsync();

@@ -1,0 +1,300 @@
+@inject DjeLabFilesClient FilesClient
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<div class="files-pane">
+    @if (_checkingAuth)
+    {
+        <div class="files-empty">Loading…</div>
+    }
+    else if (!_signedIn)
+    {
+        <div class="files-empty">
+            <p>Sign in to use file storage.</p>
+            <a class="files-signin-link" href="/">Sign in</a>
+        </div>
+    }
+    else
+    {
+        <div class="files-toolbar">
+            <div class="files-breadcrumb">
+                @foreach (var crumb in Breadcrumbs())
+                {
+                    <button type="button" class="files-breadcrumb-segment" @onclick="() => NavigateTo(crumb.Path)">@crumb.Label</button>
+                    <span class="files-breadcrumb-sep">/</span>
+                }
+            </div>
+            <div class="files-toolbar-actions">
+                <button type="button" class="files-action-btn" @onclick="ShowNewFolderInput" disabled="@_uploading">New Folder</button>
+                <InputFile OnChange="OnFileSelected" class="files-upload-input" disabled="@_uploading" />
+            </div>
+        </div>
+
+        @if (_usage is not null)
+        {
+            var pct = _usage.QuotaBytes > 0 ? Math.Min(100.0, 100.0 * _usage.UsedBytes / _usage.QuotaBytes) : 0.0;
+            <div class="files-usage-bar">
+                <div class="files-usage-track"><div class="files-usage-fill" style="width: @(pct.ToString("F1"))%"></div></div>
+                <span class="files-usage-label">@FormatBytes(_usage.UsedBytes) / @FormatBytes(_usage.QuotaBytes) &middot; @_usage.TierName</span>
+            </div>
+        }
+
+        @if (_showNewFolder)
+        {
+            <form class="files-new-folder-row" @onsubmit="SubmitNewFolder">
+                <input class="files-new-folder-input" @bind="_newFolderName" @bind:event="oninput" placeholder="Folder name" />
+                <button type="submit" class="files-action-btn">Create</button>
+                <button type="button" class="files-action-btn" @onclick="() => _showNewFolder = false">Cancel</button>
+            </form>
+        }
+
+        @if (_error is not null)
+        {
+            <div class="files-error">@_error</div>
+        }
+
+        <div class="files-list">
+            @if (_loading)
+            {
+                <div class="files-empty">Loading…</div>
+            }
+            else if (_entries.Count == 0)
+            {
+                <div class="files-empty">This folder is empty.</div>
+            }
+            else
+            {
+                @foreach (var entry in _entries)
+                {
+                    <div class="files-row">
+                        @if (entry.IsFolder)
+                        {
+                            <button type="button" class="files-row-name files-row-folder" @onclick="() => NavigateTo(entry.Path)">
+                                <span class="files-row-icon">📁</span> @entry.Name
+                            </button>
+                        }
+                        else
+                        {
+                            <span class="files-row-name">
+                                <span class="files-row-icon">📄</span> @entry.Name
+                            </span>
+                            <span class="files-row-size">@FormatBytes(entry.SizeBytes ?? 0)</span>
+                        }
+                        <span class="files-row-actions">
+                            @if (!entry.IsFolder)
+                            {
+                                <button type="button" class="files-row-btn" title="Download" @onclick="() => Download(entry)">⬇</button>
+                            }
+                            <button type="button" class="files-row-btn files-row-btn-danger" title="Delete" @onclick="() => Delete(entry)">✕</button>
+                        </span>
+                    </div>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    // Browser-memory buffering constraint for a single upload (separate from
+    // the tier storage quota, which the server enforces) -- IBrowserFile
+    // reads the whole file into memory before it can be streamed to S3, so
+    // an unbounded per-file size would risk hanging the tab on something huge.
+    private const long MaxSingleFileBytes = 100L * 1024 * 1024;
+
+    private bool _checkingAuth = true;
+    private bool _signedIn;
+    private bool _loading = true;
+    private bool _uploading;
+    private bool _showNewFolder;
+    private string _currentPath = "/";
+    private string _newFolderName = "";
+    private string? _error;
+    private List<DjeLabFileEntry> _entries = new();
+    private StorageUsage? _usage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var response = await Http.GetAsync("/djehuti/api/auth/me");
+            // A bare status-code check isn't enough: in local dev (no API
+            // proxy configured), an unmapped request falls through to a 200
+            // HTML page rather than a real 401, which would otherwise read
+            // as "signed in". Require the body to actually parse as the
+            // expected shape, matching Home.razor's same defensive check.
+            _signedIn = response.IsSuccessStatusCode
+                && (await response.Content.ReadFromJsonAsync<MeResponse>()) is not null;
+        }
+        catch
+        {
+            _signedIn = false;
+        }
+        finally
+        {
+            _checkingAuth = false;
+        }
+
+        if (_signedIn) await RefreshAsync();
+    }
+
+    private IEnumerable<(string Label, string Path)> Breadcrumbs()
+    {
+        yield return ("Home", "/");
+        if (_currentPath == "/") yield break;
+
+        var accPath = "";
+        foreach (var segment in _currentPath.Trim('/').Split('/'))
+        {
+            accPath += "/" + segment;
+            yield return (segment, accPath);
+        }
+    }
+
+    private async Task NavigateTo(string path)
+    {
+        _currentPath = path;
+        _showNewFolder = false;
+        _error = null;
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            _entries = await FilesClient.ListFolderAsync(_currentPath);
+            _usage = await FilesClient.GetUsageAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ShowNewFolderInput()
+    {
+        _showNewFolder = true;
+        _newFolderName = "";
+        _error = null;
+    }
+
+    private async Task SubmitNewFolder()
+    {
+        var name = _newFolderName.Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        var result = await FilesClient.CreateFolderAsync(_currentPath, name);
+        if (!result.Success)
+        {
+            _error = result.Error;
+            return;
+        }
+
+        _showNewFolder = false;
+        _newFolderName = "";
+        await RefreshAsync();
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        _uploading = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            if (file.Size > MaxSingleFileBytes)
+            {
+                _error = $"{file.Name} is larger than the {FormatBytes(MaxSingleFileBytes)} per-file limit.";
+                return;
+            }
+
+            var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
+
+            var urlResult = await FilesClient.RequestUploadUrlAsync(_currentPath, file.Name, contentType, file.Size);
+            if (!urlResult.Success)
+            {
+                _error = urlResult.Error;
+                return;
+            }
+
+            await using (var stream = file.OpenReadStream(MaxSingleFileBytes))
+            {
+                await FilesClient.UploadToPresignedUrlAsync(urlResult.Value!.PresignedUrl, stream, contentType);
+            }
+
+            var confirmResult = await FilesClient.ConfirmUploadAsync(urlResult.Value!.FileId, _currentPath, file.Name, contentType);
+            if (!confirmResult.Success)
+            {
+                _error = confirmResult.Error;
+                return;
+            }
+
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _uploading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task Download(DjeLabFileEntry entry)
+    {
+        var url = await FilesClient.GetDownloadUrlAsync(entry.Id);
+        if (url is null)
+        {
+            _error = "Could not get a download link.";
+            return;
+        }
+        await JS.InvokeVoidAsync("open", url, "_blank");
+    }
+
+    private async Task Delete(DjeLabFileEntry entry)
+    {
+        var message = entry.IsFolder
+            ? $"Delete the folder \"{entry.Name}\" and everything inside it?"
+            : $"Delete \"{entry.Name}\"?";
+        var confirmed = await JS.InvokeAsync<bool>("confirm", message);
+        if (!confirmed) return;
+
+        var ok = await FilesClient.DeleteAsync(entry.Id);
+        if (!ok)
+        {
+            _error = "Could not delete that.";
+            return;
+        }
+        await RefreshAsync();
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = { "B", "KB", "MB", "GB" };
+        double size = bytes;
+        var unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.Length - 1)
+        {
+            size /= 1024;
+            unitIndex++;
+        }
+        return $"{size:F1} {units[unitIndex]}";
+    }
+
+    private sealed class MeResponse
+    {
+        public string? DisplayName { get; set; }
+        public string? Email { get; set; }
+    }
+}
