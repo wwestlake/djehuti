@@ -1,0 +1,88 @@
+@using Djehuti.DjeLab.Services
+@implements IDisposable
+@inject WorkspaceActions Actions
+
+<div class="data-pane">
+    @if (!_hasData)
+    {
+        <div class="data-empty">
+            <p>No graph data yet.</p>
+            @if (_snapshot.Running)
+            {
+                <p class="data-empty-hint">A simulation is running.</p>
+            }
+            else if (!string.IsNullOrWhiteSpace(_snapshot.Error))
+            {
+                <p class="data-empty-hint data-empty-error">@_snapshot.Error</p>
+            }
+            else
+            {
+                <p class="data-empty-hint">Run a simulation in Chat to populate this table.</p>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="data-toolbar">
+            <span class="data-summary">@_snapshot.ChartType &middot; @_snapshot.Rows.Count row(s)</span>
+            <span class="data-status @(string.IsNullOrWhiteSpace(_snapshot.Error) ? (_snapshot.Running ? "data-status-running" : "data-status-ready") : "data-status-error")">
+                @GetStatusText()
+            </span>
+        </div>
+
+        <div class="data-table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        @foreach (var header in _snapshot.Headers)
+                        {
+                            <th>@header</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in _snapshot.Rows)
+                    {
+                        <tr>
+                            @foreach (var cell in row)
+                            {
+                                <td>@cell</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private GraphDataSnapshot _snapshot = default!;
+    private bool _hasData;
+
+    protected override void OnInitialized()
+    {
+        _snapshot = Actions.CurrentGraphData;
+        _hasData = _snapshot.Rows.Count > 0;
+        Actions.GraphDataChanged += HandleGraphDataChanged;
+    }
+
+    private void HandleGraphDataChanged(GraphDataSnapshot snapshot)
+    {
+        _snapshot = snapshot;
+        _hasData = snapshot.Rows.Count > 0;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private string GetStatusText()
+    {
+        if (!string.IsNullOrWhiteSpace(_snapshot.Error)) return _snapshot.Error!;
+        if (_snapshot.Running) return "Running…";
+        return "Done";
+    }
+
+    public void Dispose()
+    {
+        Actions.GraphDataChanged -= HandleGraphDataChanged;
+    }
+}

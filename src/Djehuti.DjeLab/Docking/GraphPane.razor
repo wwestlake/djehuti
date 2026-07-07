@@ -83,6 +83,7 @@
     private string? _error;
     private bool _chartCreated;
     private string? _lastRunId;
+    private string? _activeRunId;
 
     private bool Is3D => _chartType is "scatter3d" or "surface";
 
@@ -129,6 +130,8 @@
         _plotly ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/plotly-interop.js");
         await _plotly.InvokeVoidAsync("createChart", _plotElementId, _chartType, _xLabel, _yLabel, _zLabel);
         _chartCreated = true;
+        _activeRunId = runId;
+        Actions.BeginGraphDataRun(runId, PaneId, _chartType, _xLabel, _yLabel, _zLabel);
 
         _hasRun = true;
         _running = true;
@@ -143,12 +146,15 @@
         _error = outcome.Success ? null : outcome.Error;
         StateHasChanged();
 
+        Actions.CompleteGraphDataRun(runId, new GraphRunOutcome(outcome.Success, _pointCount, outcome.Error));
         Actions.ReportOutcome(runId, new GraphRunOutcome(outcome.Success, _pointCount, outcome.Error));
+        _activeRunId = null;
     }
 
     private void OnEmit(JsonElement point)
     {
         _pointCount++;
+        if (_activeRunId is not null) Actions.ReportGraphDataEmit(_activeRunId, point);
         if (_plotly is not null)
         {
             _ = _plotly.InvokeVoidAsync("addPoint", _plotElementId, _chartType, point);
