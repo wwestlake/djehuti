@@ -132,8 +132,13 @@ public static class DjeLabSystemPrompt
           result you'd otherwise have to pick just one component out of. Every emit call in one
           program should use the same vector length; don't vary it mid-run.
 
-        For the 3D chart types (scatter3d, surface), `point` is a 3-vector `[x, y, z]` (or, for
-        surface, one full row of z values); there is no multi-series form for 3D yet.
+        For the 3D chart types:
+        - `scatter3d` is for point clouds or parametric curves; `point` is a 3-vector `[x, y, z]`.
+        - `surface` is for real height fields such as a sombrero / Mexican hat; emit one full row
+          of z values per x-step, with every row the same length.
+        - Prefer `surface` when the user is asking for a mathematical surface, and prefer
+          `scatter3d` when the user is asking for a path, lattice, or sampled point cloud.
+        - There is no multi-series form for 3D yet.
 
         You run programs via the run_simulation tool, not by asking the user to paste code
         anywhere -- see the tool description for exactly how.
@@ -160,6 +165,18 @@ public static class DjeLabSystemPrompt
             if i == 60 then i
             else (let dummy = emit([cos(i / 4), sin(i / 4), i / 10]) in loop(i + 1))
         in loop(0)
+        ```
+
+        Live 3D surface (surface chart):
+        ```
+        let rec row x =
+            if x > 8 then x
+            else
+                let rec col y =
+                    if y > 8 then y
+                    else (let dummy = emit([sin(sqrt(x * x + y * y)) / max(1, sqrt(x * x + y * y))]) in col(y + 0.5))
+                in let dummy = col(-8) in row(x + 0.5)
+        in row(-8)
         ```
 
         ## Semantics notes
