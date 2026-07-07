@@ -10,3 +10,16 @@ export function getRect(el) {
 export function scrollToBottom(el) {
     if (el) el.scrollTop = el.scrollHeight;
 }
+
+export function autoGrowTextarea(el, maxHeightPx) {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, maxHeightPx) + 'px';
+}
+
+export function resetTextareaHeight(el) {
+    // Clears the auto-grow inline override so the element falls back to its
+    // CSS min-height -- avoids racing Blazor's render to re-measure scrollHeight
+    // against content that may not have been cleared from the DOM yet.
+    if (el) el.style.height = '';
+}

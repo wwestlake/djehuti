@@ -1,3 +1,4 @@
+@using Markdig
 @inject AiConfigStore ConfigStore
 @inject ChatHistoryStore HistoryStore
 @inject AiChatClient ChatClient
@@ -25,7 +26,7 @@
             @foreach (var turn in _turns)
             {
                 <div class="chat-message chat-message-@turn.Role">
-                    <div class="chat-message-bubble">@turn.Content</div>
+                    <div class="chat-message-bubble">@RenderMarkdown(turn.Content)</div>
                 </div>
             }
             @if (_sending)
@@ -34,18 +35,18 @@
                     <div class="chat-message-bubble chat-message-pending">Thinking…</div>
                 </div>
             }
+            @if (_error is not null)
+            {
+                <div class="chat-message-system">@_error</div>
+            }
         </div>
 
-        @if (_error is not null)
-        {
-            <div class="chat-pane-error">@_error</div>
-        }
-
         <form class="chat-pane-input-row" @onsubmit="Send">
-            <textarea class="chat-pane-input"
+            <textarea @ref="_inputRef"
+                      class="chat-pane-input"
                       placeholder="Ask about a math problem…"
-                      @bind="_input"
-                      @bind:event="oninput"
+                      value="@_input"
+                      @oninput="OnInputChanged"
                       @onkeydown="OnKeyDown"></textarea>
             <div class="chat-pane-input-actions">
                 <button type="submit" class="chat-pane-send" disabled="@(_sending || string.IsNullOrWhiteSpace(_input))">
@@ -69,7 +70,21 @@
     private string _input = "";
     private List<ChatTurn> _turns = new();
     private ElementReference _messagesRef;
+    private ElementReference _inputRef;
     private IJSObjectReference? _module;
+
+    private const int InputMaxHeightPx = 260;
+
+    // Raw HTML passthrough is disabled -- the assistant's content (and, in
+    // principle, the user's own retyped/pasted content) is untrusted text
+    // rendered via MarkupString, which bypasses Blazor's normal HTML
+    // encoding. DisableHtml makes Markdig render literal "<...>" text
+    // instead of interpreting it as HTML, closing that off.
+    private static readonly MarkdownPipeline MarkdownPipeline =
+        new MarkdownPipelineBuilder().UseAdvancedExtensions().DisableHtml().Build();
+
+    private static MarkupString RenderMarkdown(string content) =>
+        new(Markdown.ToHtml(content, MarkdownPipeline));
 
     protected override async Task OnInitializedAsync()
     {
@@ -100,6 +115,24 @@
         }
     }
 
+    private async Task OnInputChanged(ChangeEventArgs e)
+    {
+        _input = e.Value?.ToString() ?? "";
+        await AutoGrowInputAsync();
+    }
+
+    private async Task AutoGrowInputAsync()
+    {
+        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+        await _module.InvokeVoidAsync("autoGrowTextarea", _inputRef, InputMaxHeightPx);
+    }
+
+    private async Task ResetInputHeightAsync()
+    {
+        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+        await _module.InvokeVoidAsync("resetTextareaHeight", _inputRef);
+    }
+
     private async Task Send()
     {
         var text = _input.Trim();
@@ -111,6 +144,7 @@
         _turns.Add(new ChatTurn { Role = "user", Content = text });
         _sending = true;
         StateHasChanged();
+        await ResetInputHeightAsync();
 
         try
         {

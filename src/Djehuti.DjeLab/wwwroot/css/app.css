@@ -754,9 +754,58 @@ a {
     padding: 0.55rem 0.85rem;
     border-radius: 12px;
     font-size: 0.88rem;
-    white-space: pre-wrap;
     word-break: break-word;
 }
+
+    .chat-message-bubble :first-child {
+        margin-top: 0;
+    }
+
+    .chat-message-bubble :last-child {
+        margin-bottom: 0;
+    }
+
+    .chat-message-bubble p {
+        margin: 0.4em 0;
+    }
+
+    .chat-message-bubble ul,
+    .chat-message-bubble ol {
+        margin: 0.4em 0;
+        padding-left: 1.3em;
+    }
+
+    .chat-message-bubble code {
+        background: rgba(0, 0, 0, 0.22);
+        padding: 0.1em 0.35em;
+        border-radius: 4px;
+        font-size: 0.85em;
+    }
+
+    .chat-message-bubble pre {
+        background: rgba(0, 0, 0, 0.28);
+        padding: 0.6em 0.75em;
+        border-radius: 6px;
+        overflow-x: auto;
+        margin: 0.5em 0;
+    }
+
+        .chat-message-bubble pre code {
+            background: none;
+            padding: 0;
+        }
+
+    .chat-message-bubble a {
+        color: inherit;
+        text-decoration: underline;
+    }
+
+    .chat-message-bubble blockquote {
+        margin: 0.4em 0;
+        padding-left: 0.75em;
+        border-left: 2px solid currentColor;
+        opacity: 0.85;
+    }
 
 .chat-message-user .chat-message-bubble {
     background: var(--djelab-accent);
@@ -776,14 +825,11 @@ a {
     font-style: italic;
 }
 
-.chat-pane-error {
-    margin: 0 0.75rem 0.5rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: 8px;
-    background: rgba(255, 107, 107, 0.12);
-    border: 1px solid rgba(255, 107, 107, 0.4);
+.chat-message-system {
+    text-align: center;
     color: #ff8080;
-    font-size: 0.82rem;
+    font-size: 0.8rem;
+    padding: 0.4rem 0.75rem;
 }
 
 .chat-pane-input-row {
@@ -797,8 +843,9 @@ a {
 .chat-pane-input {
     flex: 1;
     resize: none;
-    min-height: 40px;
-    max-height: 120px;
+    min-height: 108px;
+    max-height: 260px;
+    overflow-y: auto;
     padding: 0.5rem 0.7rem;
     background: var(--djelab-bg);
     border: 1px solid var(--djelab-border);
@@ -806,6 +853,7 @@ a {
     color: var(--djelab-text);
     font-size: 0.88rem;
     font-family: inherit;
+    line-height: 1.4;
 }
 
     .chat-pane-input:focus {
