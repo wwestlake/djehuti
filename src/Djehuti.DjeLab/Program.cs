@@ -12,5 +12,6 @@ builder.Services.AddSingleton<AiConfigStore>();
 builder.Services.AddSingleton<ChatHistoryStore>();
 builder.Services.AddScoped<AiChatClient>();
 builder.Services.AddScoped<DjeLabFilesClient>();
+builder.Services.AddSingleton<WorkspaceActions>();
 
 await builder.Build().RunAsync();

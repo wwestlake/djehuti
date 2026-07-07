@@ -1,12 +1,13 @@
+@using Djehuti.DjeLab.Services
 @implements IAsyncDisposable
 @inject IJSRuntime JS
+@inject WorkspaceActions Actions
 
 <div class="dock-workspace" @ref="_containerRef"
      @onpointermove="OnContainerPointerMove" @onpointerup="OnContainerPointerUp" @onpointerleave="OnContainerPointerUp">
     <div class="dock-toolbar">
         <span class="dock-toolbar-title">Workspace <span class="dock-toolbar-hint">— prototype, drag tabs and dividers, not yet saved</span></span>
         <div class="dock-toolbar-actions">
-            <button type="button" class="dock-reset-btn" @onclick="NewGraph">New Graph</button>
             <button type="button" class="dock-reset-btn" @onclick="ResetLayout">Reset layout</button>
         </div>
     </div>
@@ -40,6 +41,7 @@
     protected override void OnInitialized()
     {
         (_root, _panes) = DemoLayout.CreateDefault();
+        Actions.OpenGraphRequested += HandleOpenGraphRequested;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -54,18 +56,29 @@
         _draggingPaneId = null;
     }
 
-    // "More than one graph window" means new Graph panes are created on
-    // demand, not baked into the static initial layout like every other
-    // pane -- the docking model already supported this (PaneDescriptor.Id
-    // is always a fresh Guid), it just needed something to actually call
-    // InsertAsTab with a freshly minted pane. New graphs land as a tab
-    // alongside any existing graph pane; from there the user's normal
-    // drag-to-dock gesture (already supported) splits it into its own
+    // Graph panes only exist as a destination for the AI's run_simulation
+    // tool call now -- there's no manual "New Graph" / hand-type-code path
+    // anymore, so panes are created here and only here, on demand, each
+    // pre-loaded with the chart type/code the AI wrote. GraphPane detects
+    // the pending-run parameters on mount and runs immediately. New graphs
+    // land as a tab alongside any existing graph pane; the user's normal
+    // drag-to-dock gesture (already supported) splits one into its own
     // side-by-side window if they want that instead of a tab.
-    private void NewGraph()
+    private void HandleOpenGraphRequested(OpenGraphRequest request)
     {
         var count = _panes.Values.Count(p => p.Kind == "graph") + 1;
-        var pane = new PaneDescriptor { Title = $"Graph {count}", Kind = "graph", AccentColor = "#3fa9f5" };
+        var pane = new PaneDescriptor
+        {
+            Title = $"Graph {count}",
+            Kind = "graph",
+            AccentColor = "#3fa9f5",
+            PendingRunId = request.RunId,
+            PendingChartType = request.ChartType,
+            PendingXLabel = request.XLabel,
+            PendingYLabel = request.YLabel,
+            PendingZLabel = request.ZLabel,
+            PendingSource = request.SpinozaSource
+        };
         _panes[pane.Id] = pane;
 
         var existingGraphPaneId = _panes.Values.FirstOrDefault(p => p.Kind == "graph" && p.Id != pane.Id)?.Id;
@@ -74,6 +87,8 @@
             : FindFirstGroup(_root);
 
         if (targetGroup is not null) DockTree.InsertAsTab(_root, targetGroup.Id, pane.Id);
+
+        InvokeAsync(StateHasChanged);
     }
 
     private static TabGroupNode? FindFirstGroup(DockNode node) => node switch
@@ -156,6 +171,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        Actions.OpenGraphRequested -= HandleOpenGraphRequested;
         if (_module != null) await _module.DisposeAsync();
     }
 

@@ -4,15 +4,85 @@ using System.Text.Json;
 
 namespace Djehuti.DjeLab.Services;
 
+/// <summary>A tool handler receives the raw JSON arguments string the model
+/// supplied and returns a plain-text result that becomes the tool's
+/// function_call_output -- the model sees this and can react to it (e.g.
+/// mention how many points a simulation actually produced) in its next
+/// turn. Handlers are supplied by the caller (ChatPane), not this class --
+/// AiChatClient only knows the OpenAI protocol for running the tool loop,
+/// not what any given tool actually does in this app.</summary>
+public delegate Task<string> ToolHandler(string argumentsJson);
+
 /// <summary>
 /// Calls OpenAI's Responses API directly from the browser using the user's
 /// own key (BYOK) -- mirrors Djehuti.Dashboard's Live Lab (src/features/live/
 /// liveLab.ts) exactly: same endpoint, same request shape, same response
 /// parsing, non-streaming. The key never touches Djehuti's own servers.
+///
+/// Implements the tool-calling layer from the original architecture spec
+/// (research/DjeLab_Architecture_and_Specification_V2.md section 3.1):
+/// search_math_references and run_simulation. The Responses API's tool
+/// protocol is a loop, not a single round trip -- the model's function_call
+/// items must be echoed back into `input` alongside a matching
+/// function_call_output before it will produce more output, and it may ask
+/// for another tool call after seeing a result, so this keeps requesting
+/// until the model responds with plain text instead of a tool call.
 /// </summary>
 public sealed class AiChatClient
 {
     private const string Endpoint = "https://api.openai.com/v1/responses";
+
+    // A tool loop that never terminates would hang the chat forever if a
+    // model got stuck calling tools back-to-back; this is a generous but
+    // real ceiling, not a expected-case limit.
+    private const int MaxToolRounds = 6;
+
+    private static readonly object[] Tools =
+    [
+        new
+        {
+            type = "function",
+            name = "search_math_references",
+            description = "Search DjeLab's indexed reference material (including the Spinoza language reference) for content relevant to the user's question. Use this to ground Spinoza code generation in the actual language spec instead of guessing from memory.",
+            parameters = new
+            {
+                type = "object",
+                properties = new
+                {
+                    query = new { type = "string", description = "What to search for, e.g. 'vector indexing' or 'recursion step budget'." }
+                },
+                required = new[] { "query" },
+                additionalProperties = false
+            },
+            strict = true
+        },
+        new
+        {
+            type = "function",
+            name = "run_simulation",
+            description = "Runs a Spinoza program in a new graph pane and plots the points it emits. Use this whenever the user wants something graphed, plotted, or visualized -- write a complete Spinoza program yourself (it must call emit(point) to produce chart data; see the language reference) and call this tool with it, rather than only describing the program in your reply. You will be told whether it ran successfully and how many points it produced.",
+            parameters = new
+            {
+                type = "object",
+                properties = new
+                {
+                    chartType = new
+                    {
+                        type = "string",
+                        description = "line/scatter/bar/histogram plot 2-vectors [x, y]; scatter3d/surface plot 3-vectors [x, y, z].",
+                        @enum = new[] { "line", "scatter", "bar", "histogram", "scatter3d", "surface" }
+                    },
+                    xLabel = new { type = "string" },
+                    yLabel = new { type = "string" },
+                    zLabel = new { type = "string", description = "Only meaningful for scatter3d/surface; pass an empty string otherwise." },
+                    spinozaSource = new { type = "string", description = "A complete Spinoza program that calls emit(...) to produce chart data." }
+                },
+                required = new[] { "chartType", "xLabel", "yLabel", "zLabel", "spinozaSource" },
+                additionalProperties = false
+            },
+            strict = true
+        }
+    ];
 
     private readonly HttpClient _http;
 
@@ -26,6 +96,7 @@ public sealed class AiChatClient
         string model,
         IReadOnlyList<ChatTurn> history,
         string newMessage,
+        IReadOnlyDictionary<string, ToolHandler> toolHandlers,
         CancellationToken ct = default)
     {
         var input = new List<object>(history.Count + 1);
@@ -33,11 +104,71 @@ public sealed class AiChatClient
             input.Add(new { role = turn.Role, content = turn.Content });
         input.Add(new { role = "user", content = newMessage });
 
+        for (var round = 0; round < MaxToolRounds; round++)
+        {
+            var responseText = await SendAsync(apiKey, model, input, ct);
+            using var doc = JsonDocument.Parse(responseText);
+
+            var functionCalls = ExtractFunctionCalls(doc.RootElement);
+            if (functionCalls.Count == 0)
+            {
+                return MathDelimiterNormalizer.Normalize(ExtractAssistantText(doc.RootElement));
+            }
+
+            foreach (var call in functionCalls)
+            {
+                // The API requires the original function_call item echoed
+                // back verbatim (id and call_id both) before it will accept
+                // the matching output -- this isn't a paraphrase, it's how
+                // the call gets tied together across the request boundary.
+                input.Add(new
+                {
+                    type = "function_call",
+                    id = call.Id,
+                    call_id = call.CallId,
+                    name = call.Name,
+                    arguments = call.ArgumentsJson
+                });
+
+                string output;
+                if (toolHandlers.TryGetValue(call.Name, out var handler))
+                {
+                    try
+                    {
+                        output = await handler(call.ArgumentsJson);
+                    }
+                    catch (Exception ex)
+                    {
+                        output = $"Tool error: {ex.Message}";
+                    }
+                }
+                else
+                {
+                    output = $"Unknown tool '{call.Name}'.";
+                }
+
+                input.Add(new
+                {
+                    type = "function_call_output",
+                    call_id = call.CallId,
+                    output
+                });
+            }
+            // Loop again: the model sees the tool outputs and either replies
+            // with text or asks for another tool call.
+        }
+
+        throw new InvalidOperationException("The assistant made too many tool calls in a row without finishing its reply.");
+    }
+
+    private async Task<string> SendAsync(string apiKey, string model, List<object> input, CancellationToken ct)
+    {
         var body = new
         {
             model,
             instructions = DjeLabSystemPrompt.Text,
             input,
+            tools = Tools,
             store = false
         };
 
@@ -57,7 +188,29 @@ public sealed class AiChatClient
             throw new InvalidOperationException(message);
         }
 
-        return MathDelimiterNormalizer.Normalize(ExtractAssistantText(responseText));
+        return responseText;
+    }
+
+    private sealed record FunctionCall(string Id, string CallId, string Name, string ArgumentsJson);
+
+    private static List<FunctionCall> ExtractFunctionCalls(JsonElement root)
+    {
+        var calls = new List<FunctionCall>();
+        if (!root.TryGetProperty("output", out var output) || output.ValueKind != JsonValueKind.Array)
+            return calls;
+
+        foreach (var item in output.EnumerateArray())
+        {
+            if (!item.TryGetProperty("type", out var type) || type.GetString() != "function_call")
+                continue;
+
+            var id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
+            var callId = item.GetProperty("call_id").GetString() ?? "";
+            var name = item.GetProperty("name").GetString() ?? "";
+            var arguments = item.TryGetProperty("arguments", out var argsEl) ? argsEl.GetString() ?? "{}" : "{}";
+            calls.Add(new FunctionCall(id, callId, name, arguments));
+        }
+        return calls;
     }
 
     private static string? TryExtractErrorMessage(string json)
@@ -79,11 +232,8 @@ public sealed class AiChatClient
         return null;
     }
 
-    private static string ExtractAssistantText(string json)
+    private static string ExtractAssistantText(JsonElement root)
     {
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-
         if (root.TryGetProperty("output_text", out var outputText) &&
             outputText.ValueKind == JsonValueKind.String)
         {
@@ -111,6 +261,11 @@ public sealed class AiChatClient
             if (parts.Count > 0) return string.Join("\n", parts);
         }
 
+        // A turn that was pure tool calls with no accompanying text is valid
+        // (the model may reply with text only after seeing the tool result,
+        // which happens on a later loop iteration) -- but if this is reached
+        // it means the FINAL round produced neither text nor a function
+        // call, which genuinely has nothing to show the user.
         throw new InvalidOperationException("OpenAI's response did not contain any assistant text.");
     }
 }

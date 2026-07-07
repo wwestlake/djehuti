@@ -74,7 +74,10 @@ else if (Node is TabGroupNode group)
                     }
                     else if (pane.Kind == "graph")
                     {
-                        <GraphPane @key="pane.Id" PaneId="@pane.Id" />
+                        <GraphPane @key="pane.Id" PaneId="@pane.Id"
+                                   PendingRunId="@pane.PendingRunId" PendingChartType="@pane.PendingChartType"
+                                   PendingXLabel="@pane.PendingXLabel" PendingYLabel="@pane.PendingYLabel"
+                                   PendingZLabel="@pane.PendingZLabel" PendingSource="@pane.PendingSource" />
                     }
                     else
                     {

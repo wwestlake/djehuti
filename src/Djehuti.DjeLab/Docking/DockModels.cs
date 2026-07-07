@@ -39,6 +39,18 @@ public sealed class PaneDescriptor
     public string Title { get; set; } = "";
     public string Kind { get; set; } = "placeholder";
     public string AccentColor { get; set; } = "#3fa9f5";
+
+    // Set only when a graph pane is created via WorkspaceActions (the AI's
+    // run_simulation tool call), not by the "New Graph" button or the
+    // initial layout -- GraphPane checks for this on mount and immediately
+    // runs it, then reports the outcome back via WorkspaceActions.ReportOutcome
+    // keyed by PendingRunId.
+    public string? PendingRunId { get; set; }
+    public string? PendingChartType { get; set; }
+    public string? PendingXLabel { get; set; }
+    public string? PendingYLabel { get; set; }
+    public string? PendingZLabel { get; set; }
+    public string? PendingSource { get; set; }
 }
 
 public sealed record ResizeStart(SplitNode Split, int Index, double ClientX, double ClientY);
