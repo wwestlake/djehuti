@@ -11,12 +11,18 @@ namespace Djehuti.DjeLab.Services;
 /// render time -- belt and suspenders, and the render-time pass also
 /// retroactively fixes any turn already sitting in saved chat history from
 /// before this existed.
+///
+/// Matches one-or-more leading backslashes (\+) rather than exactly one --
+/// some responses have arrived with \\( \\) (double-escaped) rather than
+/// \( \), and matching only a single backslash silently failed to
+/// normalize those. Tolerating either form costs nothing for the common
+/// single-backslash case.
 /// </summary>
 public static class MathDelimiterNormalizer
 {
-    private static readonly Regex DisplayMathPattern = new(@"\\\[(.+?)\\\]", RegexOptions.Singleline);
-    private static readonly Regex InlineMathPattern = new(@"\\\((.+?)\\\)", RegexOptions.Singleline);
-    private static readonly Regex AlignEnvironmentPattern = new(@"\\(begin|end)\{align\*?\}");
+    private static readonly Regex DisplayMathPattern = new(@"\\+\[(.+?)\\+\]", RegexOptions.Singleline);
+    private static readonly Regex InlineMathPattern = new(@"\\+\((.+?)\\+\)", RegexOptions.Singleline);
+    private static readonly Regex AlignEnvironmentPattern = new(@"\\+(begin|end)\{align\*?\}");
 
     public static string Normalize(string content)
     {
