@@ -688,17 +688,17 @@ let indexBlogArticle (articleId: Guid) =
 /// indexDjeLabDslReference is idempotent (indexSourceDocument no-ops on an
 /// unchanged content hash).
 let private djeLabDslReferenceText =
-    """# DjeLab DSL Language Reference
+    """# Spinoza Language Reference
 
-This document teaches the DjeLab DSL to an AI model (a user's own BYOK model, generating code for the DjeLab math tool) as well as human contributors.
+This document teaches Spinoza, DjeLab's math computation language, to an AI model (a user's own BYOK model, generating code for the DjeLab math tool) as well as human contributors.
 
-## Why a custom DSL instead of arbitrary F#
+## Why Spinoza instead of arbitrary F#
 
-DjeLab programs are not arbitrary F#. The language is a small, purpose-built grammar whose only vocabulary is pure mathematical computation. There is no expression form for file I/O, network access, reflection, or mutable state -- these aren't blocked by a guardrail pass over generated code, they simply have no representation in the grammar, so the parser cannot produce them in the first place. The only way to repeat computation is recursion (let rec); there is no loop construct.
+Named after the philosopher, whose Ethics derived everything as strict logical consequence from a small set of definitions -- Spinoza programs are not arbitrary F#. The language is a small, purpose-built grammar whose only vocabulary is pure mathematical computation. There is no expression form for file I/O, network access, reflection, or mutable state -- these aren't blocked by a guardrail pass over generated code, they simply have no representation in the grammar, so the parser cannot produce them in the first place. The only way to repeat computation is recursion (let rec); there is no loop construct.
 
 ## Program structure
 
-A DjeLab program is a single expression. Idiomatic programs are a chain of let/let rec bindings ending in a final expression to evaluate:
+A Spinoza program is a single expression. Idiomatic programs are a chain of let/let rec bindings ending in a final expression to evaluate:
 
 let a = 1 in
 let b = 2 in
@@ -780,7 +780,7 @@ Booleans with short-circuit:
 let isEven = fun n -> n % 2 == 0 in isEven(4) && isEven(10)
 => true
 
-## Common mistakes to avoid when generating DjeLab code
+## Common mistakes to avoid when generating Spinoza code
 
 - Every let/let rec needs a matching in.
 - Function calls always need parentheses: sin(x), not sin x.
@@ -792,7 +792,7 @@ let isEven = fun n -> n % 2 == 0 in isEven(4) && isEven(10)
 
 ## Status
 
-This reflects the DSL's first implementation (arithmetic, booleans, vectors, let/let rec, lambdas, if, a small math built-in library). Planned next: native matrices/tensors, complex numbers, explicit dimensional operators, and slicing."""
+This reflects Spinoza's first implementation (arithmetic, booleans, vectors, let/let rec, lambdas, if, a small math built-in library). Planned next: native matrices/tensors, complex numbers, explicit dimensional operators, and slicing."""
 
 /// Ingests the DjeLab DSL reference into the semantic index (source type
 /// `djelab-dsl-reference`) so it's retrievable by a BYOK AI's
@@ -802,7 +802,7 @@ let indexDjeLabDslReference () =
     createSourceRecord
         "djelab-dsl-reference"
         "djelab-dsl-v1"
-        "DjeLab DSL Language Reference"
+        "Spinoza Language Reference"
         djeLabDslReferenceText
         None
         [ "surface", "djelab" ]
