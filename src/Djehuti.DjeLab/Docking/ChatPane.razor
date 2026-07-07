@@ -1,3 +1,4 @@
+@using Markdig
 @inject AiConfigStore ConfigStore
 @inject ChatHistoryStore HistoryStore
 @inject AiChatClient ChatClient
@@ -25,7 +26,7 @@
             @foreach (var turn in _turns)
             {
                 <div class="chat-message chat-message-@turn.Role">
-                    <div class="chat-message-bubble">@turn.Content</div>
+                    <div class="chat-message-bubble">@RenderMarkdown(turn.Content)</div>
                 </div>
             }
             @if (_sending)
@@ -73,6 +74,17 @@
     private IJSObjectReference? _module;
 
     private const int InputMaxHeightPx = 260;
+
+    // Raw HTML passthrough is disabled -- the assistant's content (and, in
+    // principle, the user's own retyped/pasted content) is untrusted text
+    // rendered via MarkupString, which bypasses Blazor's normal HTML
+    // encoding. DisableHtml makes Markdig render literal "<...>" text
+    // instead of interpreting it as HTML, closing that off.
+    private static readonly MarkdownPipeline MarkdownPipeline =
+        new MarkdownPipelineBuilder().UseAdvancedExtensions().DisableHtml().Build();
+
+    private static MarkupString RenderMarkdown(string content) =>
+        new(Markdown.ToHtml(content, MarkdownPipeline));
 
     protected override async Task OnInitializedAsync()
     {

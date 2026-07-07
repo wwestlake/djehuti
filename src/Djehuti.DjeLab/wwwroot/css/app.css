@@ -754,9 +754,58 @@ a {
     padding: 0.55rem 0.85rem;
     border-radius: 12px;
     font-size: 0.88rem;
-    white-space: pre-wrap;
     word-break: break-word;
 }
+
+    .chat-message-bubble :first-child {
+        margin-top: 0;
+    }
+
+    .chat-message-bubble :last-child {
+        margin-bottom: 0;
+    }
+
+    .chat-message-bubble p {
+        margin: 0.4em 0;
+    }
+
+    .chat-message-bubble ul,
+    .chat-message-bubble ol {
+        margin: 0.4em 0;
+        padding-left: 1.3em;
+    }
+
+    .chat-message-bubble code {
+        background: rgba(0, 0, 0, 0.22);
+        padding: 0.1em 0.35em;
+        border-radius: 4px;
+        font-size: 0.85em;
+    }
+
+    .chat-message-bubble pre {
+        background: rgba(0, 0, 0, 0.28);
+        padding: 0.6em 0.75em;
+        border-radius: 6px;
+        overflow-x: auto;
+        margin: 0.5em 0;
+    }
+
+        .chat-message-bubble pre code {
+            background: none;
+            padding: 0;
+        }
+
+    .chat-message-bubble a {
+        color: inherit;
+        text-decoration: underline;
+    }
+
+    .chat-message-bubble blockquote {
+        margin: 0.4em 0;
+        padding-left: 0.75em;
+        border-left: 2px solid currentColor;
+        opacity: 0.85;
+    }
 
 .chat-message-user .chat-message-bubble {
     background: var(--djelab-accent);
