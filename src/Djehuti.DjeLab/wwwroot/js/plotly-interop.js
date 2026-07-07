@@ -5,9 +5,8 @@
 // the chart genuinely build up live rather than jump/flash on every update.
 //
 // A running counter (per element) supplies an auto x-axis for chart types
-// fed a bare number instead of a [x, y] / [x, y, z] point, and supplies the
-// row index for "surface", where each emitted vector is one full row of z
-// values rather than a single point.
+// fed a bare number instead of a [x, y] / [x, y, z] point. For "surface",
+// each emitted vector is one full row of z values rather than a single point.
 const counters = new Map();
 
 // line/scatter/bar support multiple series in one chart: emit([x, y1, y2,
@@ -135,8 +134,8 @@ export function addPoint(elementId, chartType, point) {
             break;
         }
         case 'surface':
-            // Each emitted vector is one full row; extendTraces appends it
-            // as the next row of the z matrix.
+            // Each emitted vector is one full row of z values; extendTraces
+            // appends it as the next row of the z matrix.
             Plotly.extendTraces(el, { z: [[asArray]] }, [0]);
             break;
     }
