@@ -100,7 +100,7 @@ public sealed class AiChatClient
                     action = new
                     {
                         type = "string",
-                        @enum = new[] { "list", "read", "write" }
+                        @enum = new[] { "list", "read", "tree", "write" }
                     },
                     path = new { type = "string", description = "Folder path for list, file path for read/write." },
                     content = new { type = "string", description = "Text to write when action is write." },
