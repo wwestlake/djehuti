@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Djehuti.DjeLab.Services;
 
@@ -13,6 +14,26 @@ namespace Djehuti.DjeLab.Services;
 public sealed class AiChatClient
 {
     private const string Endpoint = "https://api.openai.com/v1/responses";
+
+    // The system prompt asks for $ $ / $$ $$ (the only delimiters that
+    // survive Markdown parsing intact -- see DjeLabSystemPrompt.cs), but
+    // models don't reliably follow formatting instructions every time and
+    // \( \) / \[ \] are, if anything, the more common LaTeX convention in
+    // their training data. Rather than depend on compliance, normalize
+    // whatever the model actually sent: this runs on the raw response
+    // BEFORE Markdown ever sees it, while the backslashes are still intact,
+    // so it's an unambiguous rewrite rather than a guess.
+    private static readonly Regex DisplayMathPattern = new(@"\\\[(.+?)\\\]", RegexOptions.Singleline | RegexOptions.Compiled);
+    private static readonly Regex InlineMathPattern = new(@"\\\((.+?)\\\)", RegexOptions.Singleline | RegexOptions.Compiled);
+
+    // KaTeX doesn't support the standalone align/align* environment nested
+    // inside $$ $$ (it's meant to establish its own display-math context,
+    // which conflicts with being wrapped) -- it renders in an error state
+    // instead of the equation. aligned is the form KaTeX actually supports
+    // in that position, and has the same "no equation numbering" semantics
+    // align* does, so this is a safe like-for-like substitution rather than
+    // a lossy one.
+    private static readonly Regex AlignEnvironmentPattern = new(@"\\(begin|end)\{align\*?\}", RegexOptions.Compiled);
 
     private readonly HttpClient _http;
 
@@ -57,7 +78,15 @@ public sealed class AiChatClient
             throw new InvalidOperationException(message);
         }
 
-        return ExtractAssistantText(responseText);
+        return NormalizeMathDelimiters(ExtractAssistantText(responseText));
+    }
+
+    private static string NormalizeMathDelimiters(string content)
+    {
+        content = DisplayMathPattern.Replace(content, m => $"$${m.Groups[1].Value}$$");
+        content = InlineMathPattern.Replace(content, m => $"${m.Groups[1].Value}$");
+        content = AlignEnvironmentPattern.Replace(content, m => $"\\{m.Groups[1].Value}{{aligned}}");
+        return content;
     }
 
     private static string? TryExtractErrorMessage(string json)
