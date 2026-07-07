@@ -161,6 +161,7 @@
         {
             await TryInvokeJsAsync("resetTextareaHeight", _inputRef);
             var reply = await ChatClient.AskAsync(_apiKey, _model, history, text);
+            LogMathDelimiterDiagnostics(reply);
             _turns.Add(new ChatTurn { Role = "assistant", Content = reply });
             await HistoryStore.SaveTurnsAsync(_turns);
         }
@@ -179,5 +180,19 @@
         _turns.Clear();
         _error = null;
         await HistoryStore.ClearAsync();
+    }
+
+    // Diagnostic only -- routes to the browser devtools console (Console.
+    // WriteLine does this in Blazor WASM). If math delimiters ever silently
+    // fail to normalize again, this shows the actual raw text directly
+    // rather than needing another screenshot round-trip to guess from.
+    private static void LogMathDelimiterDiagnostics(string reply)
+    {
+        var stillHasRawDelimiters = reply.Contains(@"\(") || reply.Contains(@"\[");
+        if (stillHasRawDelimiters)
+        {
+            var preview = reply.Length > 200 ? reply[..200] + "…" : reply;
+            Console.WriteLine($"[DjeLab] Reply still contains raw \\( or \\[ after normalization. Preview: {preview}");
+        }
     }
 }
