@@ -87,8 +87,39 @@ public static class DjeLabSystemPrompt
 
         `sin`, `cos`, `tan` (radians, arity 1), `sqrt` (1), `abs` (1), `exp` (1), `ln` (1),
         `floor`/`ceil` (1), `min`/`max` (2), `atan2` (2), `len` (vector element count, 1),
-        `pi` and `e` (constants, not calls). There is no built-in `reduce`/`map`/`fold` over
-        vectors yet -- write a `let rec` helper.
+        `emit` (1, see "Live plotting with emit" below), `pi` and `e` (constants, not calls).
+        There is no built-in `reduce`/`map`/`fold` over vectors yet -- write a `let rec` helper.
+
+        ## Live plotting with emit
+
+        `emit(point)` is the one deliberate exception to "Spinoza has no side effects": when a
+        program runs in a Graph pane (not when it's just discussed here in chat), every `emit`
+        call streams `point` out to that pane's live chart the instant it happens, while the rest
+        of the program keeps running -- you can watch a simulation trace out point by point, not
+        just see the final answer. `emit` returns its argument unchanged, so it composes inline
+        without needing a sequencing construct; the common idiom is `let dummy = emit(...) in ...`
+        to call it purely for the side effect. `point` is usually a 2-vector `[x, y]` or 3-vector
+        `[x, y, z]` (the Graph pane's chart type decides how it's interpreted -- 2-vectors for
+        line/scatter/bar/histogram, 3-vectors for the 3D scatter/surface types), but a bare number
+        also works (the pane auto-assigns an increasing x). When you write a program meant to be
+        plotted, tell the user to paste it into a Graph pane and press Run -- you cannot execute or
+        preview it yourself from chat.
+
+        Live sine wave (2D line chart):
+        ```
+        let rec loop i =
+            if i == 60 then i
+            else (let dummy = emit([i, sin(i / 5)]) in loop(i + 1))
+        in loop(0)
+        ```
+
+        Live 3D helix (scatter3d chart):
+        ```
+        let rec loop i =
+            if i == 60 then i
+            else (let dummy = emit([cos(i / 4), sin(i / 4), i / 10]) in loop(i + 1))
+        in loop(0)
+        ```
 
         ## Semantics notes
 
@@ -144,5 +175,8 @@ public static class DjeLabSystemPrompt
         - There is no complex number type yet.
         - `^` is right-associative, unlike `+`/`-`/`*`/`/`.
         - A program is one expression, not a sequence of top-level statements.
+        - `emit` returns whatever you passed it, not the loop counter -- `loop(emit([i, y]) + 1)`
+          tries to add 1 to a vector and errors. Sequence it instead:
+          `let dummy = emit([i, y]) in loop(i + 1)`.
         """;
 }

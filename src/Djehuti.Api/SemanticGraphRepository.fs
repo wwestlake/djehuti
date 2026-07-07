@@ -742,9 +742,19 @@ v[0], len(v) -- vector indexing (0-based) and length.
 
 ## Built-in functions
 
-sin, cos, tan (1 arg, radians), sqrt (1), abs (1), exp (1), ln (1), floor (1), ceil (1), min (2), max (2), atan2 (2), len (1, vector length), pi (constant), e (constant).
+sin, cos, tan (1 arg, radians), sqrt (1), abs (1), exp (1), ln (1), floor (1), ceil (1), min (2), max (2), atan2 (2), len (1, vector length), emit (1, see "Live plotting with emit" below), pi (constant), e (constant).
 
 There is no built-in reduce/map/fold over vectors yet -- write a let rec helper.
+
+## Live plotting with emit
+
+emit(point) is the one deliberate exception to "Spinoza has no side effects": when a program runs in a Graph pane (not just discussed in chat), every emit call streams point out to that pane's live chart the instant it happens, while the rest of the program keeps running -- a simulation traces out point by point instead of only showing a final answer. emit returns its argument unchanged, so it composes inline without a sequencing construct; the common idiom is `let dummy = emit(...) in ...` to call it purely for the side effect. point is usually a 2-vector [x, y] or 3-vector [x, y, z] (the Graph pane's chart type decides how it's interpreted -- 2-vectors for line/scatter/bar/histogram, 3-vectors for the 3D scatter/surface types), but a bare number also works (the pane auto-assigns an increasing x). A program meant to be plotted should be pasted into a Graph pane and run there -- it cannot be executed from chat.
+
+Live sine wave (2D line chart):
+let rec loop i = if i == 60 then i else (let dummy = emit([i, sin(i / 5)]) in loop(i + 1)) in loop(0)
+
+Live 3D helix (scatter3d chart):
+let rec loop i = if i == 60 then i else (let dummy = emit([cos(i / 4), sin(i / 4), i / 10]) in loop(i + 1)) in loop(0)
 
 ## Semantics notes
 
@@ -789,6 +799,7 @@ let isEven = fun n -> n % 2 == 0 in isEven(4) && isEven(10)
 - There is no complex number type yet.
 - ^ is right-associative, unlike +/-/*//.
 - A program is one expression, not a sequence of top-level statements.
+- emit returns whatever you passed it, not a loop counter -- loop(emit([i, y]) + 1) tries to add 1 to a vector and errors. Sequence it instead: let dummy = emit([i, y]) in loop(i + 1).
 
 ## Status
 
