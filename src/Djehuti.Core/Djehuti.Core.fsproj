@@ -17,6 +17,7 @@
     <Compile Include="SemanticSplitting.fs" />
     <Compile Include="Storage.fs" />
     <Compile Include="Ingestion.fs" />
+    <Compile Include="CsvText.fs" />
     <Compile Include="HierarchicalData.fs" />
     <Compile Include="JsonInterop.fs" />
   </ItemGroup>
