@@ -144,7 +144,7 @@ public sealed class DjeLabFilesClient
             await StoreHierarchySnapshotAsync(resolved.Value.Id, document.SourceKind, treeJson, ct);
 
             using var treeDoc = JsonDocument.Parse(treeJson);
-            var treeStats = SummarizeTree(treeDoc.RootElement);
+            var treeStats = HierarchicalData.summarize(document.Root);
             var structured = new
             {
                 kind = "json",
@@ -172,7 +172,7 @@ public sealed class DjeLabFilesClient
             using var treeDoc = JsonDocument.Parse(treeJson);
             var headers = parsed.Headers.ToArray();
             var rows = parsed.Rows.Select(row => row.ToArray()).ToArray();
-            var treeStats = SummarizeTree(treeDoc.RootElement);
+            var treeStats = HierarchicalData.summarize(csvTree.Root);
             var structured = new
             {
                 kind = "csv",
@@ -420,37 +420,4 @@ public sealed class DjeLabFilesClient
         public DateTime UpdatedAt { get; set; }
     }
 
-    private static (int NodeCount, int LeafCount, int MaxDepth) SummarizeTree(JsonElement element) =>
-        SummarizeTree(element, 0);
-
-    private static (int NodeCount, int LeafCount, int MaxDepth) SummarizeTree(JsonElement element, int depth)
-    {
-        var nodeCount = 1;
-        var leafCount = 0;
-        var maxDepth = depth;
-
-        if (element.ValueKind == JsonValueKind.Object &&
-            element.TryGetProperty("children", out var children) &&
-            children.ValueKind == JsonValueKind.Array)
-        {
-            if (children.GetArrayLength() == 0)
-            {
-                return (nodeCount, 1, maxDepth);
-            }
-
-            foreach (var child in children.EnumerateArray())
-            {
-                var childStats = SummarizeTree(child, depth + 1);
-                nodeCount += childStats.NodeCount;
-                leafCount += childStats.LeafCount;
-                maxDepth = Math.Max(maxDepth, childStats.MaxDepth);
-            }
-        }
-        else
-        {
-            leafCount = 1;
-        }
-
-        return (nodeCount, leafCount, maxDepth);
-    }
 }
