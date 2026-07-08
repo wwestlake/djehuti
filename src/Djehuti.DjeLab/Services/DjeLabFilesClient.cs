@@ -151,10 +151,26 @@ public sealed class DjeLabFilesClient
             if (!rawCsv.Success || rawCsv.Value is null)
                 return FilesResult<string>.Fail(rawCsv.Error ?? "Could not read CSV content.");
 
-            var csvTree = ParseCsvToTree(resolved.Value.Name, rawCsv.Value);
+            var parsed = CsvText.parse(rawCsv.Value);
+            var csvTree = HierarchicalData.fromCsv(resolved.Value.Name, parsed.Headers, parsed.Rows);
             var treeJson = JsonSerializer.Serialize(HierarchicalData.toSerializable(csvTree.Root));
             await StoreHierarchySnapshotAsync(resolved.Value.Id, csvTree.SourceKind, treeJson, ct);
-            return FilesResult<string>.Ok(treeJson);
+
+            using var treeDoc = JsonDocument.Parse(treeJson);
+            var headers = parsed.Headers.ToArray();
+            var rows = parsed.Rows.Select(row => row.ToArray()).ToArray();
+            var structured = new
+            {
+                kind = "csv",
+                name = resolved.Value.Name,
+                headers,
+                rows,
+                rowCount = rows.Length,
+                columnCount = headers.Length,
+                tree = treeDoc.RootElement.Clone()
+            };
+
+            return FilesResult<string>.Ok(JsonSerializer.Serialize(structured));
         }
 
         if (extension == ".root" || contentType.Contains("root"))
@@ -326,12 +342,6 @@ public sealed class DjeLabFilesClient
             path = folder.Path,
             children
         };
-    }
-
-    private static HierarchicalDocument ParseCsvToTree(string name, string csv)
-    {
-        var parsed = CsvText.parse(csv);
-        return HierarchicalData.fromCsv(name, parsed.Headers, parsed.Rows);
     }
 
     private static async Task<FilesResult<T>> ReadResultAsync<T>(HttpResponseMessage response, CancellationToken ct)
