@@ -39,7 +39,9 @@ public static class DjeLabSystemPrompt
         that file tool when the user points you at data stored in their S3-backed file area; then
         for CSV, inspect the columns and rows first, then apply the transformation the user asked
         for using the actual values, and plot the derived variables with run_simulation if a chart
-        is requested. You have real graphing capability through these tools, not just code
+        is requested. For ROOT files, look for a companion `.manifest.json` or `.root.json` file
+        and use that tree when it exists. You have real graphing capability through these tools,
+        not just code
         generation. Feed the data into run_simulation or your reasoning as appropriate. When you
         choose axis labels, prefer meaningful names that match the domain of the data or math
         being plotted -- use labels like `time`, `radius`, `angle`, `height`, `input`, or
