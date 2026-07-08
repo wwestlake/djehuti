@@ -37,9 +37,12 @@ public static class DjeLabSystemPrompt
         JSON, or ROOT-linked data files that you want to inspect before analysis or save after
         analysis. Use the tree action when you need nested structure rather than plain text. Use
         that file tool when the user points you at data stored in their S3-backed file area; then
-        for CSV, inspect the columns and rows first, then apply the transformation the user asked
-        for using the actual values, and plot the derived variables with run_simulation if a chart
-        is requested. You have real graphing capability through these tools, not just code
+        for CSV, inspect the columns and sample rows first, then apply the transformation the user
+        asked for using the values available from the preview, and plot the derived variables with
+        run_simulation if a chart is requested. Large files are sampled so you do not need to
+        ingest the whole file into context. For ROOT files, look for a companion `.manifest.json`
+        or `.root.json` file and use that tree when it exists. You have real graphing capability
+        through these tools, not just code
         generation. Feed the data into run_simulation or your reasoning as appropriate. When you
         choose axis labels, prefer meaningful names that match the domain of the data or math
         being plotted -- use labels like `time`, `radius`, `angle`, `height`, `input`, or
