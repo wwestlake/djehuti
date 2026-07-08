@@ -53,6 +53,7 @@ public readonly struct FilesResult<T>
 public sealed class DjeLabFilesClient
 {
     private const string Base = "/djehuti/api/djelab";
+    private const long DefaultPreviewBytes = 128 * 1024;
 
     private readonly HttpClient _http;
 
@@ -99,23 +100,51 @@ public sealed class DjeLabFilesClient
         return FilesResult<DjeLabFileEntry>.Ok(currentEntry);
     }
 
-    public async Task<FilesResult<string>> ReadTextFileAsync(string path, long maxBytes = 1024 * 1024, CancellationToken ct = default)
+    public async Task<FilesResult<string>> ReadTextFileAsync(string path, long maxBytes = DefaultPreviewBytes, CancellationToken ct = default)
+    {
+        var preview = await ReadTextPreviewAsync(path, maxBytes, ct);
+        if (!preview.Success || preview.Value is null)
+            return FilesResult<string>.Fail(preview.Error ?? "Could not read that file.");
+
+        return FilesResult<string>.Ok(preview.Value.Content);
+    }
+
+    private async Task<FilesResult<TextPreviewResult>> ReadTextPreviewAsync(string path, long maxBytes = DefaultPreviewBytes, CancellationToken ct = default)
     {
         var resolved = await ResolvePathAsync(path, ct);
         if (!resolved.Success || resolved.Value is null)
-            return FilesResult<string>.Fail(resolved.Error ?? "Could not find that file.");
+            return FilesResult<TextPreviewResult>.Fail(resolved.Error ?? "Could not find that file.");
 
         if (resolved.Value.IsFolder)
-            return FilesResult<string>.Fail("Folders cannot be read as files.");
-        if (resolved.Value.SizeBytes is long size && size > maxBytes)
-            return FilesResult<string>.Fail($"That file is too large to read safely here ({size} bytes).");
+            return FilesResult<TextPreviewResult>.Fail("Folders cannot be read as files.");
 
         var url = await GetDownloadUrlAsync(resolved.Value.Id, ct);
         if (string.IsNullOrWhiteSpace(url))
-            return FilesResult<string>.Fail("Could not get a download link.");
+            return FilesResult<TextPreviewResult>.Fail("Could not get a download link.");
 
-        var text = await _http.GetStringAsync(url, ct);
-        return FilesResult<string>.Ok(text);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+            return FilesResult<TextPreviewResult>.Fail($"Could not read the file content (HTTP {(int)response.StatusCode}).");
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var buffer = new MemoryStream();
+        var scratch = new byte[8192];
+        long totalRead = 0;
+        while (totalRead < maxBytes)
+        {
+            var toRead = (int)Math.Min(scratch.Length, maxBytes - totalRead);
+            var read = await stream.ReadAsync(scratch.AsMemory(0, toRead), ct);
+            if (read <= 0)
+                break;
+
+            buffer.Write(scratch, 0, read);
+            totalRead += read;
+        }
+
+        var text = Encoding.UTF8.GetString(buffer.ToArray());
+        var truncated = resolved.Value.SizeBytes is long size ? size > totalRead : totalRead >= maxBytes;
+        return FilesResult<TextPreviewResult>.Ok(new TextPreviewResult(text, truncated, totalRead));
     }
 
     public async Task<FilesResult<string>> ReadStructuredDataAsync(string path, CancellationToken ct = default)
@@ -135,36 +164,53 @@ public sealed class DjeLabFilesClient
 
         if (contentType.Contains("json") || extension == ".json")
         {
-            var rawJson = await ReadTextFileAsync(path, ct: ct);
+            var rawJson = await ReadTextPreviewAsync(path, ct: ct);
             if (!rawJson.Success || rawJson.Value is null)
                 return FilesResult<string>.Fail(rawJson.Error ?? "Could not read JSON content.");
 
-            var document = HierarchicalData.fromJsonText(resolved.Value.Name, rawJson.Value);
-            var treeJson = JsonSerializer.Serialize(HierarchicalData.toSerializable(document.Root));
-            await StoreHierarchySnapshotAsync(resolved.Value.Id, document.SourceKind, treeJson, ct);
-
-            using var treeDoc = JsonDocument.Parse(treeJson);
-            var treeStats = HierarchicalData.summarize(document.Root);
-            var structured = new
+            if (!rawJson.Value.Truncated)
             {
-                kind = "json",
+                var document = HierarchicalData.fromJsonText(resolved.Value.Name, rawJson.Value.Content);
+                var treeJson = JsonSerializer.Serialize(HierarchicalData.toSerializable(document.Root));
+                await StoreHierarchySnapshotAsync(resolved.Value.Id, document.SourceKind, treeJson, ct);
+
+                using var treeDoc = JsonDocument.Parse(treeJson);
+                var treeStats = HierarchicalData.summarize(document.Root);
+                var structured = new
+                {
+                    kind = "json",
+                    name = resolved.Value.Name,
+                    truncated = false,
+                    previewBytes = rawJson.Value.BytesRead,
+                    nodeCount = treeStats.NodeCount,
+                    leafCount = treeStats.LeafCount,
+                    maxDepth = treeStats.MaxDepth,
+                    tree = treeDoc.RootElement.Clone()
+                };
+
+                return FilesResult<string>.Ok(JsonSerializer.Serialize(structured));
+            }
+
+            var previewStructured = new
+            {
+                kind = "json-preview",
                 name = resolved.Value.Name,
-                nodeCount = treeStats.NodeCount,
-                leafCount = treeStats.LeafCount,
-                maxDepth = treeStats.MaxDepth,
-                tree = treeDoc.RootElement.Clone()
+                truncated = true,
+                previewBytes = rawJson.Value.BytesRead,
+                preview = rawJson.Value.Content,
+                note = "Large JSON files are previewed here so the AI can inspect the top of the file without loading the whole thing."
             };
 
-            return FilesResult<string>.Ok(JsonSerializer.Serialize(structured));
+            return FilesResult<string>.Ok(JsonSerializer.Serialize(previewStructured));
         }
 
         if (contentType.Contains("csv") || extension == ".csv")
         {
-            var rawCsv = await ReadTextFileAsync(path, ct: ct);
+            var rawCsv = await ReadTextPreviewAsync(path, ct: ct);
             if (!rawCsv.Success || rawCsv.Value is null)
                 return FilesResult<string>.Fail(rawCsv.Error ?? "Could not read CSV content.");
 
-            var parsed = CsvText.parse(rawCsv.Value);
+            var parsed = CsvText.parse(rawCsv.Value.Content);
             var csvTree = HierarchicalData.fromCsv(resolved.Value.Name, parsed.Headers, parsed.Rows);
             var treeJson = JsonSerializer.Serialize(HierarchicalData.toSerializable(csvTree.Root));
             await StoreHierarchySnapshotAsync(resolved.Value.Id, csvTree.SourceKind, treeJson, ct);
@@ -177,6 +223,8 @@ public sealed class DjeLabFilesClient
             {
                 kind = "csv",
                 name = resolved.Value.Name,
+                truncated = rawCsv.Value.Truncated,
+                previewBytes = rawCsv.Value.BytesRead,
                 headers,
                 rows,
                 rowCount = rows.Length,
@@ -252,6 +300,7 @@ public sealed class DjeLabFilesClient
             kind = "text",
             path = resolved.Value.Path,
             sizeBytes = resolved.Value.SizeBytes,
+            truncated = resolved.Value.SizeBytes is long size && size > raw.Value.Length,
             preview = raw.Value.Length > 5000 ? raw.Value[..5000] + "\n..." : raw.Value
         }));
     }
@@ -427,6 +476,8 @@ public sealed class DjeLabFilesClient
     {
         public string Url { get; set; } = "";
     }
+
+    private sealed record TextPreviewResult(string Content, bool Truncated, long BytesRead);
 
     public sealed class HierarchicalNodeRecord
     {

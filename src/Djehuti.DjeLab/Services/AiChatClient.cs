@@ -91,7 +91,7 @@ public sealed class AiChatClient
         {
             type = "function",
             name = "manage_file_data",
-            description = "List, read, inspect tree structure, or write the user's DjeLab S3-backed data files. Use this for CSV, JSON, ROOT-linked, and text files in the personal file area when you need to inspect data, save analysis output, or stage a data file for later math work. For CSV, inspect the headers and rows first, then feed the actual values into the transform or plot the user asked for. For ROOT files, look for a companion .manifest.json or .root.json file and use that hierarchy if it exists. For non-write actions, send content and contentType as empty strings. Reading returns file content plus a compact structural summary; writing stores a text file at the requested path.",
+            description = "List, read, inspect tree structure, or write the user's DjeLab S3-backed data files. Use this for CSV, JSON, ROOT-linked, and text files in the personal file area when you need to inspect data, save analysis output, or stage a data file for later math work. Large files are previewed and sampled instead of being sent in full, so for CSV inspect the headers and top rows first, then feed those values into the transform or plot the user asked for. For ROOT files, look for a companion .manifest.json or .root.json file and use that hierarchy if it exists. For non-write actions, send content and contentType as empty strings. Reading returns file content or a compact preview plus a structural summary; writing stores a text file at the requested path.",
             parameters = new
             {
                 type = "object",
