@@ -49,6 +49,14 @@ public static class DjeLabSystemPrompt
         `output` when they fit, and avoid generic `x`, `y`, `z` unless the quantity is truly
         anonymous.
 
+        Spinoza cannot read files by itself. Do not invent `readCSV`, file I/O, or network calls
+        inside Spinoza code. Always use manage_file_data first to preview or read the file, then
+        write Spinoza only for the transformation or plot over the data you already have. If the
+        user says the data is CSV even though the file ends in `.txt`, use the file tool and treat
+        it as CSV-formatted text when the preview confirms it. Keep Spinoza snippets minimal and
+        syntactically clean: no inline `//` comments, no placeholder branches, and no extra prose
+        inside the code block.
+
         Before you answer with code or call run_simulation, do a quick compile-sanity pass in
         your head: every `let`/`let rec` has a matching `in`, every `if` branch returns the same
         kind of value, the terminal branch never uses `()`, and recursive programs have a real
