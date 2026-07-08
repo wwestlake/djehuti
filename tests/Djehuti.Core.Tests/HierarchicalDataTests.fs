@@ -30,3 +30,15 @@ let ``json hierarchy summary tracks nested objects and arrays`` () =
     Assert.Equal(6, summary.NodeCount)
     Assert.Equal(3, summary.LeafCount)
     Assert.Equal(3, summary.MaxDepth)
+
+[<Fact>]
+let ``root manifest hierarchy uses the manifest json shape`` () =
+    let document =
+        use parsed = System.Text.Json.JsonDocument.Parse("""{"tree":{"branches":[{"name":"run-1"},{"name":"run-2"}]}}""")
+        HierarchicalData.fromRootManifest "sample.root" parsed.RootElement
+
+    let summary = HierarchicalData.summarize document.Root
+
+    Assert.Equal(7, summary.NodeCount)
+    Assert.Equal(2, summary.LeafCount)
+    Assert.Equal(4, summary.MaxDepth)

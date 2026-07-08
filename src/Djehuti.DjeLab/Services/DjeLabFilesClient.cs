@@ -192,19 +192,42 @@ public sealed class DjeLabFilesClient
 
         if (extension == ".root" || contentType.Contains("root"))
         {
-            var treeJson = JsonSerializer.Serialize(new
+            var manifest = await TryReadRootManifestAsync(resolved.Value, ct);
+            if (manifest.Success && manifest.Value is not null)
+            {
+                var document = HierarchicalData.fromRootManifest(resolved.Value.Name, manifest.Value.Value);
+                var manifestTreeJson = JsonSerializer.Serialize(HierarchicalData.toSerializable(document.Root));
+                await StoreHierarchySnapshotAsync(resolved.Value.Id, document.SourceKind, manifestTreeJson, ct);
+
+                using var manifestTreeDoc = JsonDocument.Parse(manifestTreeJson);
+                var treeStats = HierarchicalData.summarize(document.Root);
+                var manifestStructured = new
+                {
+                    kind = "root-manifest",
+                    name = resolved.Value.Name,
+                    manifestPath = manifest.ManifestPath,
+                    nodeCount = treeStats.NodeCount,
+                    leafCount = treeStats.LeafCount,
+                    maxDepth = treeStats.MaxDepth,
+                    tree = manifestTreeDoc.RootElement.Clone()
+                };
+
+                return FilesResult<string>.Ok(JsonSerializer.Serialize(manifestStructured));
+            }
+
+            var rootTreeJson = JsonSerializer.Serialize(new
             {
                 name = resolved.Value.Name,
                 kind = "root-file",
                 path = resolved.Value.Path,
                 sizeBytes = resolved.Value.SizeBytes,
                 contentType = resolved.Value.ContentType,
-                note = "Binary ROOT parsing is not wired in yet. Use a hierarchy manifest or convert the file to JSON/CSV for direct analysis."
+                note = "Binary ROOT parsing is not wired in yet. Add a companion .manifest.json or .root.json file to describe the hierarchy."
             });
-            await StoreHierarchySnapshotAsync(resolved.Value.Id, "root-file", treeJson, ct);
+            await StoreHierarchySnapshotAsync(resolved.Value.Id, "root-file", rootTreeJson, ct);
 
-            using var treeDoc = JsonDocument.Parse(treeJson);
-            var structured = new
+            using var rootTreeDoc = JsonDocument.Parse(rootTreeJson);
+            var rootStructured = new
             {
                 kind = "root-file",
                 name = resolved.Value.Name,
@@ -213,10 +236,10 @@ public sealed class DjeLabFilesClient
                 nodeCount = 1,
                 leafCount = 1,
                 maxDepth = 0,
-                tree = treeDoc.RootElement.Clone()
+                tree = rootTreeDoc.RootElement.Clone()
             };
 
-            return FilesResult<string>.Ok(JsonSerializer.Serialize(structured));
+            return FilesResult<string>.Ok(JsonSerializer.Serialize(rootStructured));
         }
 
         var raw = await ReadTextFileAsync(path, ct: ct);
@@ -418,6 +441,55 @@ public sealed class DjeLabFilesClient
         public int SortOrder { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
+    }
+
+    private sealed class RootManifestReadResult
+    {
+        public bool Success { get; init; }
+        public JsonElement? Value { get; init; }
+        public string? ManifestPath { get; init; }
+    }
+
+    private async Task<RootManifestReadResult> TryReadRootManifestAsync(DjeLabFileEntry rootFile, CancellationToken ct)
+    {
+        foreach (var candidate in BuildRootManifestCandidates(rootFile))
+        {
+            var manifest = await ReadTextFileAsync(candidate, ct: ct);
+            if (!manifest.Success || manifest.Value is null)
+                continue;
+
+            try
+            {
+                using var document = JsonDocument.Parse(manifest.Value);
+                return new RootManifestReadResult
+                {
+                    Success = true,
+                    Value = document.RootElement.Clone(),
+                    ManifestPath = candidate
+                };
+            }
+            catch (JsonException)
+            {
+                // Keep looking; a non-JSON sibling is not a hierarchy manifest.
+            }
+        }
+
+        return new RootManifestReadResult { Success = false };
+    }
+
+    private IReadOnlyList<string> BuildRootManifestCandidates(DjeLabFileEntry rootFile)
+    {
+        var directory = rootFile.ParentPath;
+        var stem = Path.GetFileNameWithoutExtension(rootFile.Name);
+        return new List<string>
+        {
+            NormalizePath(Path.Combine(directory, $"{rootFile.Name}.manifest.json")),
+            NormalizePath(Path.Combine(directory, $"{stem}.root.json")),
+            NormalizePath(Path.Combine(directory, $"{stem}.manifest.json")),
+            NormalizePath(Path.Combine(directory, $"{stem}.json"))
+        }
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToList();
     }
 
 }
