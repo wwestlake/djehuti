@@ -91,7 +91,7 @@ public sealed class AiChatClient
         {
             type = "function",
             name = "manage_file_data",
-            description = "List, read, or write the user's DjeLab S3-backed data files. Use this for CSV, JSON, and text files in the personal file area when you need to inspect data, save analysis output, or stage a data file for later math work. Reading returns file content plus a compact structural summary; writing stores a text file at the requested path.",
+            description = "List, read, or write the user's DjeLab S3-backed data files. Use this for CSV, JSON, and text files in the personal file area when you need to inspect data, save analysis output, or stage a data file for later math work. For CSV, inspect the headers and rows first, then feed the actual values into the transform or plot the user asked for. Reading returns file content plus a compact structural summary; writing stores a text file at the requested path.",
             parameters = new
             {
                 type = "object",
