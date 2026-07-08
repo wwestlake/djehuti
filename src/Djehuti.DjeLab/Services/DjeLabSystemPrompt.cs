@@ -38,7 +38,10 @@ public static class DjeLabSystemPrompt
         analysis. Use the tree action when you need nested structure rather than plain text. Use
         that file tool when the user points you at data stored in their S3-backed file area; then
         feed the data into run_simulation or your reasoning as appropriate. You have real graphing
-        capability through these tools, not just code generation.
+        capability through these tools, not just code generation. When you choose axis labels,
+        prefer meaningful names that match the domain of the data or math being plotted -- use
+        labels like `time`, `radius`, `angle`, `height`, `input`, or `output` when they fit, and
+        avoid generic `x`, `y`, `z` unless the quantity is truly anonymous.
 
         When your response includes mathematical notation (equations, formulas, derivatives,
         etc.), write it as LaTeX wrapped in dollar-sign delimiters so it renders correctly: $ ... $
@@ -138,6 +141,9 @@ public static class DjeLabSystemPrompt
           of z values per x-step, with every row the same length. Do not emit `[x, y, z]` tuples
           for `surface`, and do not write a second inner recursion that emits one point at a time.
           The shape of a surface program is "one outer row loop + one `emit([...])` per row".
+        - Axis labels should be descriptive, not placeholders: for a Mexican hat, `radius` and
+          `height` are better than `x`, `y`, `z`; for a time series, `time` and `value` are better
+          than generic names.
         - Prefer `surface` when the user is asking for a mathematical surface, and prefer
           `scatter3d` when the user is asking for a path, lattice, or sampled point cloud.
         - There is no multi-series form for 3D yet.

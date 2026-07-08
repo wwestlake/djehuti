@@ -267,9 +267,9 @@
             args.RootElement.TryGetProperty(name, out var v) ? v.GetString() ?? fallback : fallback;
 
         var chartType = Get("chartType", "line");
-        var xLabel = Get("xLabel", "x");
-        var yLabel = Get("yLabel", "y");
-        var zLabel = Get("zLabel", "z");
+        var xLabel = NormalizeAxisLabel(Get("xLabel", ""), chartType, axis: "x");
+        var yLabel = NormalizeAxisLabel(Get("yLabel", ""), chartType, axis: "y");
+        var zLabel = NormalizeAxisLabel(Get("zLabel", ""), chartType, axis: "z");
         var source = Get("spinozaSource");
 
         if (string.IsNullOrWhiteSpace(source)) return "No spinozaSource provided.";
@@ -279,6 +279,38 @@
             ? $"Ran successfully in a new {chartType} graph pane; emitted {outcome.PointCount} point(s)."
             : $"The program failed to run: {outcome.Error}";
     }
+
+    private static string NormalizeAxisLabel(string? label, string chartType, string axis)
+    {
+        var trimmed = string.IsNullOrWhiteSpace(label) ? "" : label.Trim();
+        if (!IsGenericAxisLabel(trimmed)) return trimmed;
+
+        return chartType switch
+        {
+            "surface" => axis switch
+            {
+                "x" => "x position",
+                "y" => "y position",
+                _ => "height"
+            },
+            "scatter3d" => axis switch
+            {
+                "x" => "x position",
+                "y" => "y position",
+                _ => "height"
+            },
+            _ => axis switch
+            {
+                "x" => "input",
+                "y" => "value",
+                _ => "value"
+            }
+        };
+    }
+
+    private static bool IsGenericAxisLabel(string label) =>
+        string.IsNullOrWhiteSpace(label) ||
+        label is "x" or "y" or "z" or "X" or "Y" or "Z" or "x-axis" or "y-axis" or "z-axis";
 
     private static object SummarizeFile(DjeLabFileEntry entry, string content)
     {
