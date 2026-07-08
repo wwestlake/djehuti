@@ -142,7 +142,20 @@ public sealed class DjeLabFilesClient
             var document = HierarchicalData.fromJsonText(resolved.Value.Name, rawJson.Value);
             var treeJson = JsonSerializer.Serialize(HierarchicalData.toSerializable(document.Root));
             await StoreHierarchySnapshotAsync(resolved.Value.Id, document.SourceKind, treeJson, ct);
-            return FilesResult<string>.Ok(treeJson);
+
+            using var treeDoc = JsonDocument.Parse(treeJson);
+            var treeStats = SummarizeTree(treeDoc.RootElement);
+            var structured = new
+            {
+                kind = "json",
+                name = resolved.Value.Name,
+                nodeCount = treeStats.NodeCount,
+                leafCount = treeStats.LeafCount,
+                maxDepth = treeStats.MaxDepth,
+                tree = treeDoc.RootElement.Clone()
+            };
+
+            return FilesResult<string>.Ok(JsonSerializer.Serialize(structured));
         }
 
         if (contentType.Contains("csv") || extension == ".csv")
@@ -159,6 +172,7 @@ public sealed class DjeLabFilesClient
             using var treeDoc = JsonDocument.Parse(treeJson);
             var headers = parsed.Headers.ToArray();
             var rows = parsed.Rows.Select(row => row.ToArray()).ToArray();
+            var treeStats = SummarizeTree(treeDoc.RootElement);
             var structured = new
             {
                 kind = "csv",
@@ -167,6 +181,9 @@ public sealed class DjeLabFilesClient
                 rows,
                 rowCount = rows.Length,
                 columnCount = headers.Length,
+                nodeCount = treeStats.NodeCount,
+                leafCount = treeStats.LeafCount,
+                maxDepth = treeStats.MaxDepth,
                 tree = treeDoc.RootElement.Clone()
             };
 
@@ -185,7 +202,21 @@ public sealed class DjeLabFilesClient
                 note = "Binary ROOT parsing is not wired in yet. Use a hierarchy manifest or convert the file to JSON/CSV for direct analysis."
             });
             await StoreHierarchySnapshotAsync(resolved.Value.Id, "root-file", treeJson, ct);
-            return FilesResult<string>.Ok(treeJson);
+
+            using var treeDoc = JsonDocument.Parse(treeJson);
+            var structured = new
+            {
+                kind = "root-file",
+                name = resolved.Value.Name,
+                sizeBytes = resolved.Value.SizeBytes,
+                contentType = resolved.Value.ContentType,
+                nodeCount = 1,
+                leafCount = 1,
+                maxDepth = 0,
+                tree = treeDoc.RootElement.Clone()
+            };
+
+            return FilesResult<string>.Ok(JsonSerializer.Serialize(structured));
         }
 
         var raw = await ReadTextFileAsync(path, ct: ct);
@@ -387,5 +418,39 @@ public sealed class DjeLabFilesClient
         public int SortOrder { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
+    }
+
+    private static (int NodeCount, int LeafCount, int MaxDepth) SummarizeTree(JsonElement element) =>
+        SummarizeTree(element, 0);
+
+    private static (int NodeCount, int LeafCount, int MaxDepth) SummarizeTree(JsonElement element, int depth)
+    {
+        var nodeCount = 1;
+        var leafCount = 0;
+        var maxDepth = depth;
+
+        if (element.ValueKind == JsonValueKind.Object &&
+            element.TryGetProperty("children", out var children) &&
+            children.ValueKind == JsonValueKind.Array)
+        {
+            if (children.GetArrayLength() == 0)
+            {
+                return (nodeCount, 1, maxDepth);
+            }
+
+            foreach (var child in children.EnumerateArray())
+            {
+                var childStats = SummarizeTree(child, depth + 1);
+                nodeCount += childStats.NodeCount;
+                leafCount += childStats.LeafCount;
+                maxDepth = Math.Max(maxDepth, childStats.MaxDepth);
+            }
+        }
+        else
+        {
+            leafCount = 1;
+        }
+
+        return (nodeCount, leafCount, maxDepth);
     }
 }
