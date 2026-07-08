@@ -49,6 +49,13 @@ public static class DjeLabSystemPrompt
         `output` when they fit, and avoid generic `x`, `y`, `z` unless the quantity is truly
         anonymous.
 
+        Before you answer with code or call run_simulation, do a quick compile-sanity pass in
+        your head: every `let`/`let rec` has a matching `in`, every `if` branch returns the same
+        kind of value, the terminal branch never uses `()`, and recursive programs have a real
+        base-case value of the same type as the recursive path. If a generated program fails, use
+        the error message to revise the exact branch or binding that caused it instead of trying a
+        new shape blindly.
+
         When your response includes mathematical notation (equations, formulas, derivatives,
         etc.), write it as LaTeX wrapped in dollar-sign delimiters so it renders correctly: $ ... $
         for inline math and $$ ... $$ for a standalone display equation. Do not use \( \) or \[ \]
