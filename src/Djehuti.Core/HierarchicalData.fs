@@ -27,6 +27,11 @@ type HierarchicalDocument =
       SourceKind: string
       Root: HierarchicalNode }
 
+type HierarchicalSummary =
+    { NodeCount: int
+      LeafCount: int
+      MaxDepth: int }
+
 module HierarchicalData =
     let private kindText kind =
         match kind with
@@ -186,3 +191,21 @@ module HierarchicalData =
             :> obj
 
         convert node
+
+    let summarize (node: HierarchicalNode) : HierarchicalSummary =
+        let rec loop depth (current: HierarchicalNode) =
+            let mutable nodeCount = 1
+            let mutable leafCount = if current.Children.IsEmpty then 1 else 0
+            let mutable maxDepth = depth
+
+            for child in current.Children do
+                let childSummary = loop (depth + 1) child
+                nodeCount <- nodeCount + childSummary.NodeCount
+                leafCount <- leafCount + childSummary.LeafCount
+                maxDepth <- max maxDepth childSummary.MaxDepth
+
+            { NodeCount = nodeCount
+              LeafCount = leafCount
+              MaxDepth = maxDepth }
+
+        loop 0 node
