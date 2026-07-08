@@ -316,11 +316,12 @@
     {
         var kind = DetectKind(entry, content);
         var preview = content.Length > 20000 ? content[..20000] : content;
+        var truncated = entry.SizeBytes is long size && size > content.Length;
 
         return kind switch
         {
-            "json" => SummarizeJson(entry, content, preview),
-            "csv" => SummarizeCsv(entry, content, preview),
+            "json" => SummarizeJson(entry, content, preview, truncated),
+            "csv" => SummarizeCsv(entry, content, preview, truncated),
             _ => new
             {
                 kind = "text",
@@ -328,12 +329,12 @@
                 ContentType = entry.ContentType,
                 SizeBytes = entry.SizeBytes,
                 preview,
-                truncated = content.Length > preview.Length
+                truncated = truncated || content.Length > preview.Length
             }
         };
     }
 
-    private static object SummarizeJson(DjeLabFileEntry entry, string content, string preview)
+    private static object SummarizeJson(DjeLabFileEntry entry, string content, string preview, bool truncated)
     {
         try
         {
@@ -352,7 +353,8 @@
                     SizeBytes = entry.SizeBytes,
                     count = doc.RootElement.GetArrayLength(),
                     sample,
-                    preview = preview.Length == content.Length ? preview : preview + "\n..."
+                    preview = preview.Length == content.Length ? preview : preview + "\n...",
+                    truncated
                 };
             }
 
@@ -365,7 +367,8 @@
                     ContentType = entry.ContentType,
                     SizeBytes = entry.SizeBytes,
                     keys = doc.RootElement.EnumerateObject().Select(prop => prop.Name).Take(50).ToArray(),
-                    preview = preview.Length == content.Length ? preview : preview + "\n..."
+                    preview = preview.Length == content.Length ? preview : preview + "\n...",
+                    truncated
                 };
             }
         }
@@ -380,11 +383,12 @@
             Path = entry.Path,
             ContentType = entry.ContentType,
             SizeBytes = entry.SizeBytes,
-            preview = preview.Length == content.Length ? preview : preview + "\n..."
+            preview = preview.Length == content.Length ? preview : preview + "\n...",
+            truncated
         };
     }
 
-    private static object SummarizeCsv(DjeLabFileEntry entry, string content, string preview)
+    private static object SummarizeCsv(DjeLabFileEntry entry, string content, string preview, bool truncated)
     {
         var lines = content.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         var headers = lines.Length > 0 ? lines[0].Split(',').Select(x => x.Trim()).ToArray() : Array.Empty<string>();
@@ -399,7 +403,8 @@
             headers,
             rowCount = Math.Max(0, lines.Length - 1),
             sampleRows,
-            preview = preview.Length == content.Length ? preview : preview + "\n..."
+            preview = preview.Length == content.Length ? preview : preview + "\n...",
+            truncated
         };
     }
 
