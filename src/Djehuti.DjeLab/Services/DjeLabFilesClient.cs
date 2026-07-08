@@ -330,46 +330,8 @@ public sealed class DjeLabFilesClient
 
     private static HierarchicalDocument ParseCsvToTree(string name, string csv)
     {
-        var lines = csv.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
-        var headers = lines.Length > 0 ? ParseCsvLine(lines[0]) : new List<string>();
-        var rows = lines.Skip(1).Select(ParseCsvLine).ToList();
-        return HierarchicalData.fromCsv(name, headers, rows);
-    }
-
-    private static List<string> ParseCsvLine(string line)
-    {
-        var cells = new List<string>();
-        var current = new StringBuilder();
-        var inQuotes = false;
-
-        for (var index = 0; index < line.Length; index++)
-        {
-            var character = line[index];
-            if (character == '"')
-            {
-                if (inQuotes && index + 1 < line.Length && line[index + 1] == '"')
-                {
-                    current.Append('"');
-                    index++;
-                }
-                else
-                {
-                    inQuotes = !inQuotes;
-                }
-            }
-            else if (character == ',' && !inQuotes)
-            {
-                cells.Add(current.ToString());
-                current.Clear();
-            }
-            else
-            {
-                current.Append(character);
-            }
-        }
-
-        cells.Add(current.ToString());
-        return cells;
+        var parsed = CsvText.parse(csv);
+        return HierarchicalData.fromCsv(name, parsed.Headers, parsed.Rows);
     }
 
     private static async Task<FilesResult<T>> ReadResultAsync<T>(HttpResponseMessage response, CancellationToken ct)
