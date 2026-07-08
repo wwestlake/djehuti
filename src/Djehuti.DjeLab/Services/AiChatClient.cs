@@ -65,7 +65,7 @@ public sealed class AiChatClient
         {
             type = "function",
             name = "run_simulation",
-            description = "Runs a Spinoza program in a new graph pane and plots the points it emits. Use this whenever the user wants something graphed, plotted, or visualized -- write a complete Spinoza program yourself (it must call emit(point) to produce chart data; see the language reference) and call this tool with it, rather than only describing the program in your reply. You will be told whether it ran successfully and how many points it produced.",
+            description = "Runs a Spinoza program in a new graph pane and plots the points it emits. Use this whenever the user wants something graphed, plotted, or visualized -- write a complete Spinoza program yourself (it must call emit(point) to produce chart data; see the language reference) and call this tool with it, rather than only describing the program in your reply. Prefer surface for actual height fields and scatter3d for point clouds or parametric curves. For surface, emit one full row of z values per step; use rows with several samples across the y-axis, do not send [x, y, z] tuples, do not build the surface as a nested point-by-point loop, and choose descriptive axis labels instead of generic x/y/z when the math has a clearer name. You will be told whether it ran successfully and how many points it produced.",
             parameters = new
             {
                 type = "object",
@@ -74,12 +74,12 @@ public sealed class AiChatClient
                     chartType = new
                     {
                         type = "string",
-                        description = "line/scatter/bar/histogram plot 2-vectors [x, y]; scatter3d/surface plot 3-vectors [x, y, z].",
+                        description = "line/scatter/bar/histogram plot 2-vectors [x, y]; scatter3d plots [x, y, z] tuples; surface plots one full row of z values per emit.",
                         @enum = new[] { "line", "scatter", "bar", "histogram", "scatter3d", "surface" }
                     },
                     xLabel = new { type = "string" },
                     yLabel = new { type = "string" },
-                    zLabel = new { type = "string", description = "Only meaningful for scatter3d/surface; pass an empty string otherwise." },
+                    zLabel = new { type = "string", description = "Only meaningful for scatter3d; for surface, pass an empty string unless you want a label for the height axis." },
                     spinozaSource = new { type = "string", description = "A complete Spinoza program that calls emit(...) to produce chart data." }
                 },
                 required = new[] { "chartType", "xLabel", "yLabel", "zLabel", "spinozaSource" },
@@ -91,7 +91,7 @@ public sealed class AiChatClient
         {
             type = "function",
             name = "manage_file_data",
-            description = "List, read, or write the user's DjeLab S3-backed data files. Use this for CSV, JSON, and text files in the personal file area when you need to inspect data, save analysis output, or stage a data file for later math work. For CSV, inspect the headers and rows first, then feed the actual values into the transform or plot the user asked for. Reading returns file content plus a compact structural summary; writing stores a text file at the requested path.",
+            description = "List, read, inspect tree structure, or write the user's DjeLab S3-backed data files. Use this for CSV, JSON, ROOT-linked, and text files in the personal file area when you need to inspect data, save analysis output, or stage a data file for later math work. For CSV, inspect the headers and rows first, then feed the actual values into the transform or plot the user asked for. For non-write actions, send content and contentType as empty strings. Reading returns file content plus a compact structural summary; writing stores a text file at the requested path.",
             parameters = new
             {
                 type = "object",
@@ -106,7 +106,7 @@ public sealed class AiChatClient
                     content = new { type = "string", description = "Text to write when action is write." },
                     contentType = new { type = "string", description = "Optional MIME type for write, e.g. application/json or text/csv." }
                 },
-                required = new[] { "action", "path" },
+                required = new[] { "action", "path", "content", "contentType" },
                 additionalProperties = false
             },
             strict = true

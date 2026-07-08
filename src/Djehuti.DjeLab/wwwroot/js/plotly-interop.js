@@ -5,9 +5,8 @@
 // the chart genuinely build up live rather than jump/flash on every update.
 //
 // A running counter (per element) supplies an auto x-axis for chart types
-// fed a bare number instead of a [x, y] / [x, y, z] point, and supplies the
-// row index for "surface", where each emitted vector is one full row of z
-// values rather than a single point.
+// fed a bare number instead of a [x, y] / [x, y, z] point. For "surface",
+// each emitted vector is one full row of z values rather than a single point.
 const counters = new Map();
 
 // line/scatter/bar support multiple series in one chart: emit([x, y1, y2,
@@ -40,6 +39,10 @@ function baseLayout(chartType, xLabel, yLabel, zLabel) {
             yaxis: { title: yLabel || 'y', gridcolor: '#2a3f52' },
             zaxis: { title: zLabel || 'z', gridcolor: '#2a3f52' },
             bgcolor: 'transparent',
+            aspectmode: 'cube',
+            camera: {
+                eye: { x: 1.7, y: 1.5, z: 1.1 }
+            }
         };
     } else {
         layout.xaxis = { title: xLabel || 'x', gridcolor: '#2a3f52' };
@@ -55,7 +58,17 @@ function baseTrace(chartType, color, name) {
         case 'bar': return { type: 'bar', x: [], y: [], name, marker: { color } };
         case 'histogram': return { type: 'histogram', x: [], marker: { color } };
         case 'scatter3d': return { type: 'scatter3d', mode: 'lines+markers', x: [], y: [], z: [], line: { color }, marker: { color, size: 3 } };
-        case 'surface': return { type: 'surface', z: [], colorscale: 'Viridis' };
+        case 'surface': return {
+            type: 'surface',
+            z: [],
+            colorscale: 'Viridis',
+            contours: {
+                x: { show: true, highlight: false, color: '#304860', width: 1 },
+                y: { show: true, highlight: false, color: '#304860', width: 1 },
+                z: { show: true, usecolormap: true, highlightcolor: '#ffffff', project: { z: true } }
+            },
+            lighting: { ambient: 0.78, diffuse: 0.72, specular: 0.18, roughness: 0.85, fresnel: 0.1 }
+        };
         default: throw new Error(`Unknown chart type: ${chartType}`);
     }
 }
@@ -121,8 +134,8 @@ export function addPoint(elementId, chartType, point) {
             break;
         }
         case 'surface':
-            // Each emitted vector is one full row; extendTraces appends it
-            // as the next row of the z matrix.
+            // Each emitted vector is one full row of z values; extendTraces
+            // appends it as the next row of the z matrix.
             Plotly.extendTraces(el, { z: [[asArray]] }, [0]);
             break;
     }
@@ -133,4 +146,10 @@ export function dispose(elementId) {
     seriesCounts.delete(elementId);
     const el = document.getElementById(elementId);
     if (el) Plotly.purge(el);
+}
+
+export function resize(elementId) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    Plotly.Plots.resize(el);
 }

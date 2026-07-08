@@ -40,7 +40,11 @@ public static class DjeLabSystemPrompt
         for CSV, inspect the columns and rows first, then apply the transformation the user asked
         for using the actual values, and plot the derived variables with run_simulation if a chart
         is requested. You have real graphing capability through these tools, not just code
-        generation.
+        generation. Feed the data into run_simulation or your reasoning as appropriate. When you
+        choose axis labels, prefer meaningful names that match the domain of the data or math
+        being plotted -- use labels like `time`, `radius`, `angle`, `height`, `input`, or
+        `output` when they fit, and avoid generic `x`, `y`, `z` unless the quantity is truly
+        anonymous.
 
         When your response includes mathematical notation (equations, formulas, derivatives,
         etc.), write it as LaTeX wrapped in dollar-sign delimiters so it renders correctly: $ ... $
@@ -134,8 +138,18 @@ public static class DjeLabSystemPrompt
           result you'd otherwise have to pick just one component out of. Every emit call in one
           program should use the same vector length; don't vary it mid-run.
 
-        For the 3D chart types (scatter3d, surface), `point` is a 3-vector `[x, y, z]` (or, for
-        surface, one full row of z values); there is no multi-series form for 3D yet.
+        For the 3D chart types:
+        - `scatter3d` is for point clouds or parametric curves; `point` is a 3-vector `[x, y, z]`.
+        - `surface` is for real height fields such as a sombrero / Mexican hat; emit one full row
+          of z values per x-step, with every row the same length. Do not emit `[x, y, z]` tuples
+          for `surface`, and do not write a second inner recursion that emits one point at a time.
+          The shape of a surface program is "one outer row loop + one `emit([...])` per row".
+        - Axis labels should be descriptive, not placeholders: for a Mexican hat, `radius` and
+          `height` are better than `x`, `y`, `z`; for a time series, `time` and `value` are better
+          than generic names.
+        - Prefer `surface` when the user is asking for a mathematical surface, and prefer
+          `scatter3d` when the user is asking for a path, lattice, or sampled point cloud.
+        - There is no multi-series form for 3D yet.
 
         You run programs via the run_simulation tool, not by asking the user to paste code
         anywhere -- see the tool description for exactly how.
@@ -163,6 +177,28 @@ public static class DjeLabSystemPrompt
             else (let dummy = emit([cos(i / 4), sin(i / 4), i / 10]) in loop(i + 1))
         in loop(0)
         ```
+
+        Live 3D surface (surface chart):
+        ```
+        let zAt x y = (1 - (x*x + y*y)) * exp(-(x*x + y*y)) in
+        let rec row x =
+            if x > 8 then x
+            else (let dummy = emit([
+                zAt(x, -8.0),
+                zAt(x, -6.0),
+                zAt(x, -4.0),
+                zAt(x, -2.0),
+                zAt(x, 0.0),
+                zAt(x, 2.0),
+                zAt(x, 4.0),
+                zAt(x, 6.0),
+                zAt(x, 8.0)
+            ]) in row(x + 0.5))
+        in row(-8)
+        ```
+        When writing a surface from scratch, use that exact row-vector shape rather than a
+        nested `col` loop or `emit([x, y, z])` point stream. Surface charts are rows of heights,
+        not triples of coordinates.
 
         ## Semantics notes
 
@@ -224,5 +260,8 @@ public static class DjeLabSystemPrompt
         - There is no `()`/unit value -- a terminal `if` branch that means "stop" must still return
           a real value of the same kind every other branch returns, e.g. `if i == 60 then i else
           ...`, not `if i == 60 then () else ...`.
+        - Surface charts should never be written as statement lists with semicolons. If the code
+          needs to "do one thing, then another," bind the first result with `let dummy = ... in`
+          and continue the expression from there.
         """;
 }

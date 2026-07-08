@@ -140,7 +140,9 @@ public sealed class DjeLabFilesClient
                 return FilesResult<string>.Fail(rawJson.Error ?? "Could not read JSON content.");
 
             var document = HierarchicalData.fromJsonText(resolved.Value.Name, rawJson.Value);
-            return FilesResult<string>.Ok(JsonSerializer.Serialize(HierarchicalData.toSerializable(document.Root)));
+            var treeJson = JsonSerializer.Serialize(HierarchicalData.toSerializable(document.Root));
+            await StoreHierarchySnapshotAsync(resolved.Value.Id, document.SourceKind, treeJson, ct);
+            return FilesResult<string>.Ok(treeJson);
         }
 
         if (contentType.Contains("csv") || extension == ".csv")
@@ -150,12 +152,14 @@ public sealed class DjeLabFilesClient
                 return FilesResult<string>.Fail(rawCsv.Error ?? "Could not read CSV content.");
 
             var csvTree = ParseCsvToTree(resolved.Value.Name, rawCsv.Value);
-            return FilesResult<string>.Ok(JsonSerializer.Serialize(HierarchicalData.toSerializable(csvTree.Root)));
+            var treeJson = JsonSerializer.Serialize(HierarchicalData.toSerializable(csvTree.Root));
+            await StoreHierarchySnapshotAsync(resolved.Value.Id, csvTree.SourceKind, treeJson, ct);
+            return FilesResult<string>.Ok(treeJson);
         }
 
         if (extension == ".root" || contentType.Contains("root"))
         {
-            return FilesResult<string>.Ok(JsonSerializer.Serialize(new
+            var treeJson = JsonSerializer.Serialize(new
             {
                 name = resolved.Value.Name,
                 kind = "root-file",
@@ -163,7 +167,9 @@ public sealed class DjeLabFilesClient
                 sizeBytes = resolved.Value.SizeBytes,
                 contentType = resolved.Value.ContentType,
                 note = "Binary ROOT parsing is not wired in yet. Use a hierarchy manifest or convert the file to JSON/CSV for direct analysis."
-            }));
+            });
+            await StoreHierarchySnapshotAsync(resolved.Value.Id, "root-file", treeJson, ct);
+            return FilesResult<string>.Ok(treeJson);
         }
 
         var raw = await ReadTextFileAsync(path, ct: ct);
@@ -225,6 +231,20 @@ public sealed class DjeLabFilesClient
         var response = await _http.DeleteAsync($"{Base}/files/{fileId}", ct);
         return response.IsSuccessStatusCode;
     }
+
+    public async Task<bool> StoreHierarchySnapshotAsync(
+        Guid fileId, string sourceKind, string treeJson, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync(
+            $"{Base}/files/{fileId}/hierarchy",
+            new { sourceKind, treeJson },
+            ct);
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<List<HierarchicalNodeRecord>> GetHierarchyNodesAsync(Guid fileId, CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync<List<HierarchicalNodeRecord>>($"{Base}/files/{fileId}/hierarchy/nodes", ct)
+        ?? new List<HierarchicalNodeRecord>();
 
     public async Task<FilesResult<DjeLabFileEntry>> WriteTextFileAsync(
         string fullPath,
@@ -342,5 +362,20 @@ public sealed class DjeLabFilesClient
     private sealed class UrlResponse
     {
         public string Url { get; set; } = "";
+    }
+
+    public sealed class HierarchicalNodeRecord
+    {
+        public Guid Id { get; set; }
+        public Guid SnapshotId { get; set; }
+        public Guid? ParentId { get; set; }
+        public string NodePath { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Kind { get; set; } = "";
+        public string? ValueText { get; set; }
+        public string MetadataJson { get; set; } = "{}";
+        public int SortOrder { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
     }
 }
