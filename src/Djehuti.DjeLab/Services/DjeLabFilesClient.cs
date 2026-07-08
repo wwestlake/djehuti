@@ -82,9 +82,9 @@ public sealed class DjeLabFilesClient
         for (var i = 0; i < segments.Length; i++)
         {
             var entries = await ListFolderAsync(currentPath, ct);
-            currentEntry = entries.FirstOrDefault(entry => string.Equals(entry.Name, segments[i], StringComparison.Ordinal));
+            currentEntry = FindEntry(entries, segments[i]);
             if (currentEntry is null)
-                return FilesResult<DjeLabFileEntry>.Fail($"Could not find \"{normalized}\".");
+                return FilesResult<DjeLabFileEntry>.Fail(BuildNotFoundMessage(normalized, segments[i], entries));
 
             if (i < segments.Length - 1)
             {
@@ -98,6 +98,50 @@ public sealed class DjeLabFilesClient
             return FilesResult<DjeLabFileEntry>.Fail($"Could not find \"{normalized}\".");
 
         return FilesResult<DjeLabFileEntry>.Ok(currentEntry);
+    }
+
+    private static DjeLabFileEntry? FindEntry(IReadOnlyList<DjeLabFileEntry> entries, string segment)
+    {
+        var exact = entries.FirstOrDefault(entry => string.Equals(entry.Name, segment, StringComparison.Ordinal));
+        if (exact is not null)
+            return exact;
+
+        var caseInsensitive = entries.FirstOrDefault(entry => string.Equals(entry.Name, segment, StringComparison.OrdinalIgnoreCase));
+        if (caseInsensitive is not null)
+            return caseInsensitive;
+
+        var requestedStem = Path.GetFileNameWithoutExtension(segment);
+        var stemMatch = entries.FirstOrDefault(entry =>
+            string.Equals(Path.GetFileNameWithoutExtension(entry.Name), requestedStem, StringComparison.OrdinalIgnoreCase));
+        if (stemMatch is not null)
+            return stemMatch;
+
+        if (!segment.Contains('.'))
+        {
+            var prefixMatch = entries.FirstOrDefault(entry =>
+                Path.GetFileNameWithoutExtension(entry.Name).StartsWith(segment, StringComparison.OrdinalIgnoreCase));
+            if (prefixMatch is not null)
+                return prefixMatch;
+        }
+
+        return null;
+    }
+
+    private static string BuildNotFoundMessage(string normalized, string segment, IReadOnlyList<DjeLabFileEntry> entries)
+    {
+        var suggestions =
+            entries
+                .Where(entry =>
+                    entry.Name.Contains(segment, StringComparison.OrdinalIgnoreCase) ||
+                    Path.GetFileNameWithoutExtension(entry.Name).Equals(Path.GetFileNameWithoutExtension(segment), StringComparison.OrdinalIgnoreCase))
+                .Select(entry => entry.Path)
+                .Take(5)
+                .ToArray();
+
+        if (suggestions.Length == 0)
+            return $"Could not find \"{normalized}\".";
+
+        return $"Could not find \"{normalized}\". Closest matches: {string.Join(", ", suggestions)}.";
     }
 
     public async Task<FilesResult<string>> ReadTextFileAsync(string path, long maxBytes = DefaultPreviewBytes, CancellationToken ct = default)
