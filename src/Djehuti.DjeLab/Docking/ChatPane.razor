@@ -215,6 +215,23 @@
 
                 return treeResult.Value;
             }
+            case "bundle":
+            {
+                var bundleResult = await FilesClient.BundleProjectAsync(path);
+                if (!bundleResult.Success || bundleResult.Value is null)
+                    return bundleResult.Error ?? "Could not bundle that project.";
+
+                return JsonSerializer.Serialize(new
+                {
+                    action,
+                    entryPath = bundleResult.Value.EntryPath,
+                    resolvedEntryPath = bundleResult.Value.ResolvedEntryPath,
+                    includedFiles = bundleResult.Value.IncludedFiles,
+                    warnings = bundleResult.Value.Warnings,
+                    totalBytes = bundleResult.Value.TotalBytes,
+                    expandedSource = bundleResult.Value.ExpandedSource
+                });
+            }
             case "write":
             {
                 if (string.IsNullOrWhiteSpace(content))
@@ -235,7 +252,7 @@
                 });
             }
             default:
-                return "Unknown file action. Use list, read, tree, or write.";
+                return "Unknown file action. Use list, read, tree, bundle, or write.";
         }
     }
 
@@ -272,8 +289,19 @@
         var yLabel = NormalizeAxisLabel(Get("yLabel", ""), chartType, axis: "y");
         var zLabel = NormalizeAxisLabel(Get("zLabel", ""), chartType, axis: "z");
         var source = Get("spinozaSource");
+        var projectPath = Get("projectPath");
 
-        if (string.IsNullOrWhiteSpace(source)) return "No spinozaSource provided.";
+        if (string.IsNullOrWhiteSpace(source) && string.IsNullOrWhiteSpace(projectPath))
+            return "No spinozaSource or projectPath provided.";
+
+        if (string.IsNullOrWhiteSpace(source) && !string.IsNullOrWhiteSpace(projectPath))
+        {
+            var bundle = await FilesClient.BundleProjectAsync(projectPath);
+            if (!bundle.Success || bundle.Value is null)
+                return bundle.Error ?? "Could not bundle that project.";
+
+            source = bundle.Value.ExpandedSource;
+        }
 
         var outcome = await Actions.RunInNewGraphAsync(chartType, xLabel, yLabel, zLabel, source);
         return outcome.Success
