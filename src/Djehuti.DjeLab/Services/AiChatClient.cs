@@ -90,7 +90,7 @@ public sealed class AiChatClient
                         items = new { type = "string" }
                     }
                 },
-                required = new[] { "chartType", "xLabel", "yLabel", "zLabel", "spinozaSource" },
+                required = new[] { "chartType", "xLabel", "yLabel", "zLabel", "spinozaSource", "projectPath", "dataPath", "dataColumns" },
                 additionalProperties = false
             },
             strict = true
