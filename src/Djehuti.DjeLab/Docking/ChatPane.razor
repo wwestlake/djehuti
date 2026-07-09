@@ -54,9 +54,18 @@
                       @oninput="OnInputChanged"
                       @onkeydown="OnKeyDown"></textarea>
             <div class="chat-pane-input-actions">
-                <button type="submit" class="chat-pane-send" disabled="@(_sending || string.IsNullOrWhiteSpace(_input))">
-                    Send
-                </button>
+                @if (_sending)
+                {
+                    <button type="button" class="chat-pane-stop" @onclick="StopSendAsync">
+                        Stop
+                    </button>
+                }
+                else
+                {
+                    <button type="submit" class="chat-pane-send" disabled="@string.IsNullOrWhiteSpace(_input)">
+                        Send
+                    </button>
+                }
                 <button type="button" class="chat-pane-clear" @onclick="ClearChat" disabled="@_sending">
                     Clear
                 </button>
@@ -77,6 +86,7 @@
     private ElementReference _messagesRef;
     private ElementReference _inputRef;
     private IJSObjectReference? _module;
+    private CancellationTokenSource? _sendCts;
 
     private const int InputMaxHeightPx = 260;
 
@@ -162,7 +172,7 @@
         ["manage_file_data"] = ManageFileDataAsync
     };
 
-    private async Task<string> ManageFileDataAsync(string argumentsJson)
+    private async Task<string> ManageFileDataAsync(string argumentsJson, CancellationToken ct)
     {
         using var args = JsonDocument.Parse(argumentsJson);
         string Get(string name, string fallback = "") =>
@@ -180,7 +190,7 @@
         {
             case "list":
             {
-                var entries = await FilesClient.ListFolderAsync(path);
+                var entries = await FilesClient.ListFolderAsync(path, ct);
                 return JsonSerializer.Serialize(new
                 {
                     action,
@@ -198,11 +208,11 @@
             }
             case "read":
             {
-                var readResult = await FilesClient.ReadTextFileAsync(path);
+                var readResult = await FilesClient.ReadTextFileAsync(path, ct: ct);
                 if (!readResult.Success || readResult.Value is null)
                     return readResult.Error ?? "Could not read that file.";
 
-                var resolved = await FilesClient.ResolvePathAsync(path);
+                var resolved = await FilesClient.ResolvePathAsync(path, ct);
                 if (!resolved.Success || resolved.Value is null)
                     return resolved.Error ?? "Could not resolve that file.";
 
@@ -210,7 +220,7 @@
             }
             case "tree":
             {
-                var treeResult = await FilesClient.ReadStructuredDataAsync(path);
+                var treeResult = await FilesClient.ReadStructuredDataAsync(path, ct);
                 if (!treeResult.Success || treeResult.Value is null)
                     return treeResult.Error ?? "Could not read that structure.";
 
@@ -218,7 +228,7 @@
             }
             case "bundle":
             {
-                var bundleResult = await FilesClient.BundleProjectAsync(path);
+                var bundleResult = await FilesClient.BundleProjectAsync(path, ct);
                 if (!bundleResult.Success || bundleResult.Value is null)
                     return bundleResult.Error ?? "Could not bundle that project.";
 
@@ -239,7 +249,7 @@
                     return "No content provided.";
 
                 var normalizedContentType = string.IsNullOrWhiteSpace(contentType) ? "text/plain" : contentType;
-                var writeResult = await FilesClient.WriteTextFileAsync(path, content, normalizedContentType);
+                var writeResult = await FilesClient.WriteTextFileAsync(path, content, normalizedContentType, ct);
                 if (!writeResult.Success || writeResult.Value is null)
                     return writeResult.Error ?? "Could not write that file.";
 
@@ -257,13 +267,13 @@
         }
     }
 
-    private async Task<string> SearchMathReferencesAsync(string argumentsJson)
+    private async Task<string> SearchMathReferencesAsync(string argumentsJson, CancellationToken ct)
     {
         using var args = JsonDocument.Parse(argumentsJson);
         var query = args.RootElement.TryGetProperty("query", out var q) ? q.GetString() ?? "" : "";
         if (string.IsNullOrWhiteSpace(query)) return "No query provided.";
 
-        var response = await Http.GetAsync($"/djehuti/api/djelab/search-references?q={Uri.EscapeDataString(query)}");
+        var response = await Http.GetAsync($"/djehuti/api/djelab/search-references?q={Uri.EscapeDataString(query)}", ct);
         if (!response.IsSuccessStatusCode) return $"Search failed with HTTP {(int)response.StatusCode}.";
 
         using var results = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -279,7 +289,7 @@
         return string.Join("\n\n", parts);
     }
 
-    private async Task<string> RunSimulationAsync(string argumentsJson)
+    private async Task<string> RunSimulationAsync(string argumentsJson, CancellationToken ct)
     {
         using var args = JsonDocument.Parse(argumentsJson);
         string Get(string name, string fallback = "") =>
@@ -299,7 +309,7 @@
 
         if (string.IsNullOrWhiteSpace(source) && !string.IsNullOrWhiteSpace(projectPath))
         {
-            var bundle = await FilesClient.BundleProjectAsync(projectPath);
+            var bundle = await FilesClient.BundleProjectAsync(projectPath, ct);
             if (!bundle.Success || bundle.Value is null)
                 return bundle.Error ?? "Could not bundle that project.";
 
@@ -309,7 +319,7 @@
         string? runtimeDataJson = null;
         if (!string.IsNullOrWhiteSpace(dataPath))
         {
-            var runtimeDataResult = await BuildRuntimeDataJsonAsync(dataPath, dataColumns);
+            var runtimeDataResult = await BuildRuntimeDataJsonAsync(dataPath, dataColumns, ct);
             if (!runtimeDataResult.Success || runtimeDataResult.Value is null)
                 return runtimeDataResult.Error ?? "Could not prepare runtime data.";
 
@@ -335,9 +345,9 @@
             .ToArray();
     }
 
-    private async Task<FilesResult<string>> BuildRuntimeDataJsonAsync(string dataPath, IReadOnlyList<string> dataColumns)
+    private async Task<FilesResult<string>> BuildRuntimeDataJsonAsync(string dataPath, IReadOnlyList<string> dataColumns, CancellationToken ct)
     {
-        var resolved = await FilesClient.ResolvePathAsync(dataPath);
+        var resolved = await FilesClient.ResolvePathAsync(dataPath, ct);
         if (!resolved.Success || resolved.Value is null)
             return FilesResult<string>.Fail(resolved.Error ?? "Could not resolve the data file.");
 
@@ -349,7 +359,7 @@
             return FilesResult<string>.Fail("Could not get a download link for the runtime data file.");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, CancellationToken.None);
+        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!response.IsSuccessStatusCode)
             return FilesResult<string>.Fail($"Could not read the runtime data file (HTTP {(int)response.StatusCode}).");
 
@@ -365,7 +375,7 @@
 
         if (contentType.Contains("root") || extension == ".root")
         {
-            var manifestResult = await FilesClient.TryReadRootManifestTextAsync(dataPath);
+            var manifestResult = await FilesClient.TryReadRootManifestTextAsync(dataPath, ct);
             if (!manifestResult.Success || manifestResult.Value is null)
                 return FilesResult<string>.Fail(manifestResult.Error ?? "Could not read the ROOT manifest.");
 
@@ -768,7 +778,7 @@
         return false;
     }
 
-    private async Task<string> ValidateSpinozaAsync(string argumentsJson)
+    private async Task<string> ValidateSpinozaAsync(string argumentsJson, CancellationToken ct)
     {
         using var args = JsonDocument.Parse(argumentsJson);
         var source = args.RootElement.TryGetProperty("spinozaSource", out var sourceValue) ? sourceValue.GetString() ?? "" : "";
@@ -950,15 +960,21 @@
         var history = _turns.ToList();
         _turns.Add(new ChatTurn { Role = "user", Content = text });
         _sending = true;
+        _sendCts?.Dispose();
+        _sendCts = new CancellationTokenSource();
         StateHasChanged();
 
         try
         {
             await TryInvokeJsAsync("resetTextareaHeight", _inputRef);
-            var reply = await ChatClient.AskAsync(_apiKey, _model, history, text, ToolHandlers);
+            var reply = await ChatClient.AskAsync(_apiKey, _model, history, text, ToolHandlers, _sendCts.Token);
             LogMathDelimiterDiagnostics(reply);
             _turns.Add(new ChatTurn { Role = "assistant", Content = reply });
             await HistoryStore.SaveTurnsAsync(_turns);
+        }
+        catch (OperationCanceledException)
+        {
+            _error = "Stopped.";
         }
         catch (Exception ex)
         {
@@ -967,7 +983,15 @@
         finally
         {
             _sending = false;
+            _sendCts?.Dispose();
+            _sendCts = null;
         }
+    }
+
+    private Task StopSendAsync()
+    {
+        _sendCts?.Cancel();
+        return Task.CompletedTask;
     }
 
     private async Task ClearChat()

@@ -11,7 +11,7 @@ namespace Djehuti.DjeLab.Services;
 /// turn. Handlers are supplied by the caller (ChatPane), not this class --
 /// AiChatClient only knows the OpenAI protocol for running the tool loop,
 /// not what any given tool actually does in this app.</summary>
-public delegate Task<string> ToolHandler(string argumentsJson);
+public delegate Task<string> ToolHandler(string argumentsJson, CancellationToken ct);
 
 /// <summary>
 /// Calls OpenAI's Responses API directly from the browser using the user's
@@ -189,7 +189,7 @@ public sealed class AiChatClient
                 {
                     try
                     {
-                        output = await handler(call.ArgumentsJson);
+                        output = await handler(call.ArgumentsJson, ct);
                     }
                     catch (Exception ex)
                     {
