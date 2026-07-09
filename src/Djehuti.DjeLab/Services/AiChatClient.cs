@@ -83,7 +83,12 @@ public sealed class AiChatClient
                     spinozaSource = new { type = "string", description = "A complete Spinoza program that calls emit(...) to produce chart data. For multi-file projects, you may leave this empty and provide projectPath instead." },
                     projectPath = new { type = "string", description = "Optional entry file or project folder path for a multi-file Spinoza project. The host will bundle import/include directives before running it." },
                     dataPath = new { type = "string", description = "Optional S3 file path for the runtime dataset. The host will read it directly and inject the selected columns as a `data` binding." },
-                    dataColumns = new { type = "string[]", description = "Optional column names or zero-based indices to extract from the dataset before execution. Leave empty to use all columns." }
+                    dataColumns = new
+                    {
+                        type = "array",
+                        description = "Optional column names or zero-based indices to extract from the dataset before execution. Leave empty to use all columns.",
+                        items = new { type = "string" }
+                    }
                 },
                 required = new[] { "chartType", "xLabel", "yLabel", "zLabel", "spinozaSource" },
                 additionalProperties = false
