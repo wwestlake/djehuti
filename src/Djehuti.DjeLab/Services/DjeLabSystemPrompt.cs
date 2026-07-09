@@ -40,9 +40,10 @@ public static class DjeLabSystemPrompt
         for CSV, inspect the columns and sample rows first, then apply the transformation the user
         asked for using the values available from the preview, and plot the derived variables with
         run_simulation if a chart is requested. Large files are sampled so you do not need to
-        ingest the whole file into context. For ROOT files, look for a companion `.manifest.json`
-        or `.root.json` file and use that tree when it exists. You have real graphing capability
-        through these tools, not just code
+        ingest the whole file into context. The structured CSV read includes headers, sampled rows,
+        and column profiles; use those before deciding on a transform. For ROOT files, look for a
+        companion `.manifest.json` or `.root.json` file and use that tree when it exists. You have
+        real graphing capability through these tools, not just code
         generation. Feed the data into run_simulation or your reasoning as appropriate. When you
         choose axis labels, prefer meaningful names that match the domain of the data or math
         being plotted -- use labels like `time`, `radius`, `angle`, `height`, `input`, or
