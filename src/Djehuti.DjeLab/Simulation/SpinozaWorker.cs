@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Linq;
@@ -32,7 +33,7 @@ public static partial class SpinozaWorker
     }
 
     [JSExport]
-    internal static void Run(string runId, string source)
+    internal static void Run(string runId, string source, string? runtimeDataJson)
     {
         try
         {
@@ -55,6 +56,12 @@ public static partial class SpinozaWorker
             // it directly. FromConverter wraps a real Converter<T,TResult>
             // delegate (whose Invoke must return something; null stands in
             // for Unit's one value, since Unit is a reference type) instead.
+            var (runtimeData, runtimeDataError) = TryParseRuntimeData(runtimeDataJson);
+            if (!string.IsNullOrWhiteSpace(runtimeDataError))
+            {
+                PostError(runId, runtimeDataError);
+                return;
+            }
             var onEmit = FSharpFunc<Evaluator.Value, Unit>.FromConverter(v =>
             {
                 var json = Evaluator.toJson(v);
@@ -66,7 +73,7 @@ public static partial class SpinozaWorker
                 if (json.IsOk) PostEmit(runId, json.ResultValue);
                 return null!;
             });
-            var evalResult = Evaluator.runWithEmit(onEmit, parseResult.ResultValue);
+            var evalResult = Evaluator.runWithEmitAndData(onEmit, runtimeData, parseResult.ResultValue);
 
             if (evalResult.IsError)
             {
@@ -92,4 +99,23 @@ public static partial class SpinozaWorker
 
     [JSImport("postError", "SpinozaWorkerInterop")]
     private static partial void PostError(string runId, string message);
+
+    private static (FSharpOption<Evaluator.Value>? RuntimeData, string? Error) TryParseRuntimeData(string? runtimeDataJson)
+    {
+        if (string.IsNullOrWhiteSpace(runtimeDataJson))
+            return (null, null);
+
+        try
+        {
+            using var document = JsonDocument.Parse(runtimeDataJson);
+            var converted = Evaluator.fromJson(document.RootElement);
+            return converted.IsOk
+                ? (FSharpOption<Evaluator.Value>.Some(converted.ResultValue), null)
+                : (null, converted.ErrorValue);
+        }
+        catch (Exception ex)
+        {
+            return (null, $"Could not parse runtime data: {ex.Message}");
+        }
+    }
 }

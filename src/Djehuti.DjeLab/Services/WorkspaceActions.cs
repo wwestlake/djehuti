@@ -49,13 +49,19 @@ public sealed class WorkspaceActions
         }
     }
 
-    public Task<GraphRunOutcome> RunInNewGraphAsync(string chartType, string xLabel, string yLabel, string zLabel, string spinozaSource)
+    public Task<GraphRunOutcome> RunInNewGraphAsync(
+        string chartType,
+        string xLabel,
+        string yLabel,
+        string zLabel,
+        string spinozaSource,
+        string? runtimeInputJson = null)
     {
         var runId = Guid.NewGuid().ToString("N");
         var tcs = new TaskCompletionSource<GraphRunOutcome>();
         _pending[runId] = tcs;
 
-        OpenGraphRequested?.Invoke(new OpenGraphRequest(runId, chartType, xLabel, yLabel, zLabel, spinozaSource));
+        OpenGraphRequested?.Invoke(new OpenGraphRequest(runId, chartType, xLabel, yLabel, zLabel, spinozaSource, runtimeInputJson));
 
         return tcs.Task;
     }
@@ -212,4 +218,11 @@ public sealed class WorkspaceActions
     }
 }
 
-public sealed record OpenGraphRequest(string RunId, string ChartType, string XLabel, string YLabel, string ZLabel, string SpinozaSource);
+public sealed record OpenGraphRequest(
+    string RunId,
+    string ChartType,
+    string XLabel,
+    string YLabel,
+    string ZLabel,
+    string SpinozaSource,
+    string? RuntimeInputJson);

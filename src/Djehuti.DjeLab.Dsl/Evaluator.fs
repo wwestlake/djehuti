@@ -12,6 +12,7 @@
 module Djehuti.DjeLab.Dsl.Evaluator
 
 open System
+open System.Text.Json
 open Djehuti.DjeLab.Dsl.Ast
 
 type Value =
@@ -270,6 +271,27 @@ and private evalBinaryOp (op: BinOp) (left: Value) (right: Value) : Result<Value
     | Neq -> valueEquals left right |> Result.map (fun b -> VBool(not b))
     | And | Or -> Error "unreachable: short-circuit ops handled before evalBinaryOp"
 
+let rec fromJson (element: JsonElement) : Result<Value, string> =
+    match element.ValueKind with
+    | JsonValueKind.Number -> Ok(VNumber(element.GetDouble()))
+    | JsonValueKind.True -> Ok(VBool true)
+    | JsonValueKind.False -> Ok(VBool false)
+    | JsonValueKind.Array ->
+        let rec collect acc (items: JsonElement list) =
+            match items with
+            | [] -> Ok(List.rev acc |> List.toArray |> VVector)
+            | head :: tail ->
+                match fromJson head with
+                | Ok value -> collect (value :: acc) tail
+                | Error e -> Error e
+
+        element.EnumerateArray() |> Seq.toList |> collect []
+    | JsonValueKind.Null
+    | JsonValueKind.Undefined -> Error "null values cannot be used as Spinoza data bindings"
+    | JsonValueKind.String -> Error "string values cannot be used as Spinoza data bindings"
+    | JsonValueKind.Object -> Error "object values cannot be used as Spinoza data bindings"
+    | _ -> Error $"unsupported JSON value kind: {element.ValueKind}"
+
 /// Evaluates an expression with a bounded number of reduction steps
 /// (default 1,000,000) so a runaway recursive program fails fast with a
 /// clear error instead of hanging this process or overflowing the stack.
@@ -286,6 +308,16 @@ let run (expr: Expr) : Result<Value, string> =
 /// postMessage) sees them as the program actually computes them.
 let runWithEmit (onEmit: Value -> unit) (expr: Expr) : Result<Value, string> =
     eval 1_000_000 (makeBuiltinEnv (Some onEmit)) expr
+
+/// Evaluates with `emit(...)` wired to `onEmit` and a host-supplied `data`
+/// binding available to the program.
+let runWithEmitAndData (onEmit: Value -> unit) (dataValue: Value option) (expr: Expr) : Result<Value, string> =
+    let env =
+        match dataValue with
+        | Some value -> Map.add "data" value (makeBuiltinEnv (Some onEmit))
+        | None -> makeBuiltinEnv (Some onEmit)
+
+    eval 1_000_000 env expr
 
 /// Renders a Value as JSON, for transport across a worker postMessage
 /// boundary or similar host interop. Numbers that aren't finite (NaN,

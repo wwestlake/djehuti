@@ -65,7 +65,7 @@ public sealed class AiChatClient
         {
             type = "function",
             name = "run_simulation",
-            description = "Runs a Spinoza program in a new graph pane and plots the points it emits. Use this whenever the user wants something graphed, plotted, or visualized -- write a complete Spinoza program yourself (it must call emit(point) to produce chart data; see the language reference) and call this tool with it, rather than only describing the program in your reply. Prefer surface for actual height fields and scatter3d for point clouds or parametric curves. For surface, emit one full row of z values per step; use rows with several samples across the y-axis, do not send [x, y, z] tuples, do not build the surface as a nested point-by-point loop, and choose descriptive axis labels instead of generic x/y/z when the math has a clearer name. You will be told whether it ran successfully and how many points it produced.",
+            description = "Runs a Spinoza program in a new graph pane and plots the points it emits. Use this whenever the user wants something graphed, plotted, or visualized -- write a complete Spinoza program yourself (it must call emit(point) to produce chart data; see the language reference) and call this tool with it, rather than only describing the program in your reply. Prefer surface for actual height fields and scatter3d for point clouds or parametric curves. For surface, emit one full row of z values per step; use rows with several samples across the y-axis, do not send [x, y, z] tuples, do not build the surface as a nested point-by-point loop, and choose descriptive axis labels instead of generic x/y/z when the math has a clearer name. If the user provided a dataPath, the host will read the file directly and inject the selected data columns into the runtime as a `data` binding, so you can write code against the real dataset without copying the whole file into chat context. You will be told whether it ran successfully and how many points it produced.",
             parameters = new
             {
                 type = "object",
@@ -81,7 +81,9 @@ public sealed class AiChatClient
                     yLabel = new { type = "string" },
                     zLabel = new { type = "string", description = "Only meaningful for scatter3d; for surface, pass an empty string unless you want a label for the height axis." },
                     spinozaSource = new { type = "string", description = "A complete Spinoza program that calls emit(...) to produce chart data. For multi-file projects, you may leave this empty and provide projectPath instead." },
-                    projectPath = new { type = "string", description = "Optional entry file or project folder path for a multi-file Spinoza project. The host will bundle import/include directives before running it." }
+                    projectPath = new { type = "string", description = "Optional entry file or project folder path for a multi-file Spinoza project. The host will bundle import/include directives before running it." },
+                    dataPath = new { type = "string", description = "Optional S3 file path for the runtime dataset. The host will read it directly and inject the selected columns as a `data` binding." },
+                    dataColumns = new { type = "string[]", description = "Optional column names or zero-based indices to extract from the dataset before execution. Leave empty to use all columns." }
                 },
                 required = new[] { "chartType", "xLabel", "yLabel", "zLabel", "spinozaSource" },
                 additionalProperties = false

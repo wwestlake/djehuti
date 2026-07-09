@@ -47,7 +47,10 @@ public static class DjeLabSystemPrompt
         asked for using the values available from the preview, and plot the derived variables with
         run_simulation if a chart is requested. Large files are sampled so you do not need to
         ingest the whole file into context. The structured CSV read includes headers, sampled rows,
-        and column profiles; use those before deciding on a transform. For ROOT files, look for a
+        and column profiles; use those before deciding on a transform. When you need the actual
+        runtime dataset, pass dataPath and optional dataColumns to run_simulation so the host reads
+        the file directly and injects the selected columns into the program's `data` binding; do
+        not paste megabytes of raw rows into chat. For ROOT files, look for a
         companion `.manifest.json` or `.root.json` file and use that tree when it exists. For
         Spinoza projects that span multiple files, use the bundle action to expand any
         `import`/`include` directives into one source file before validation or execution. You have
