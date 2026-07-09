@@ -156,6 +156,7 @@
     private IReadOnlyDictionary<string, ToolHandler> ToolHandlers => new Dictionary<string, ToolHandler>
     {
         ["search_math_references"] = SearchMathReferencesAsync,
+        ["validate_spinoza"] = ValidateSpinozaAsync,
         ["run_simulation"] = RunSimulationAsync,
         ["manage_file_data"] = ManageFileDataAsync
     };
@@ -278,6 +279,27 @@
         return outcome.Success
             ? $"Ran successfully in a new {chartType} graph pane; emitted {outcome.PointCount} point(s)."
             : $"The program failed to run: {outcome.Error}";
+    }
+
+    private async Task<string> ValidateSpinozaAsync(string argumentsJson)
+    {
+        using var args = JsonDocument.Parse(argumentsJson);
+        var source = args.RootElement.TryGetProperty("spinozaSource", out var sourceValue) ? sourceValue.GetString() ?? "" : "";
+        if (string.IsNullOrWhiteSpace(source))
+            return "No spinozaSource provided.";
+
+        var report = Djehuti.DjeLab.Dsl.Preflight.validate(source);
+        return JsonSerializer.Serialize(new
+        {
+            report.CanRun,
+            report.Parsed,
+            report.Summary,
+            issues = report.Issues.Select(issue => new
+            {
+                severity = issue.Severity.ToString().ToLowerInvariant(),
+                message = issue.Message
+            })
+        });
     }
 
     private static string NormalizeAxisLabel(string? label, string chartType, string axis)
