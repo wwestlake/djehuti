@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
+using System.Linq;
 using Djehuti.DjeLab.Dsl;
 using Microsoft.FSharp.Core;
 
@@ -35,6 +36,13 @@ public static partial class SpinozaWorker
     {
         try
         {
+            var preflight = Preflight.validate(source);
+            if (!preflight.CanRun)
+            {
+                PostError(runId, string.Join(" ", preflight.Issues.Select(issue => issue.Message)));
+                return;
+            }
+
             var parseResult = Parser.parse(source);
             if (parseResult.IsError)
             {
