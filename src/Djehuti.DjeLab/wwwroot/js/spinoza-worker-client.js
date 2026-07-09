@@ -30,8 +30,8 @@ export function createWorker(dotNetHelper, workerScriptUrl) {
     return worker;
 }
 
-export function postRun(worker, runId, source) {
-    worker.postMessage({ command: 'run', runId, source });
+export function postRun(worker, runId, source, runtimeDataJson) {
+    worker.postMessage({ command: 'run', runId, source, runtimeDataJson: runtimeDataJson ?? null });
 }
 
 export function terminate(worker) {

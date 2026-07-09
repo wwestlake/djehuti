@@ -71,6 +71,7 @@
     [Parameter] public string? PendingYLabel { get; set; }
     [Parameter] public string? PendingZLabel { get; set; }
     [Parameter] public string? PendingSource { get; set; }
+    [Parameter] public string? PendingRuntimeInputJson { get; set; }
 
     private string _plotElementId = "";
     private SpinozaWorkerClient? _worker;
@@ -117,10 +118,10 @@
         _yLabel = PendingYLabel ?? "y";
         _zLabel = string.IsNullOrWhiteSpace(PendingZLabel) ? "z" : PendingZLabel;
 
-        await RunAsync(PendingRunId, PendingSource);
+        await RunAsync(PendingRunId, PendingSource, PendingRuntimeInputJson);
     }
 
-    private async Task RunAsync(string runId, string source)
+    private async Task RunAsync(string runId, string source, string? runtimeInputJson)
     {
         if (_worker is null) return;
 
@@ -148,7 +149,7 @@
         _needsResize = true;
         StateHasChanged();
 
-        var outcome = await _worker.RunAsync(source, OnEmit);
+        var outcome = await _worker.RunAsync(source, OnEmit, runtimeInputJson);
 
         _running = false;
         _stopping = false;
