@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Djehuti.Core;
@@ -262,6 +263,7 @@ public sealed class DjeLabFilesClient
             using var treeDoc = JsonDocument.Parse(treeJson);
             var headers = parsed.Headers.ToArray();
             var rows = parsed.Rows.Select(row => row.ToArray()).ToArray();
+            var columnProfiles = BuildCsvColumnProfiles(headers, rows);
             var treeStats = HierarchicalData.summarize(csvTree.Root);
             var structured = new
             {
@@ -273,6 +275,7 @@ public sealed class DjeLabFilesClient
                 rows,
                 rowCount = rows.Length,
                 columnCount = headers.Length,
+                columnProfiles,
                 nodeCount = treeStats.NodeCount,
                 leafCount = treeStats.LeafCount,
                 maxDepth = treeStats.MaxDepth,
@@ -521,6 +524,17 @@ public sealed class DjeLabFilesClient
         public string Url { get; set; } = "";
     }
 
+    private sealed record CsvColumnProfile(
+        string Name,
+        string Kind,
+        int NonEmptyCount,
+        int ParsedNumericCount,
+        int ParsedBooleanCount,
+        string[] SampleValues,
+        double? Minimum,
+        double? Maximum,
+        double? Mean);
+
     private sealed record TextPreviewResult(string Content, bool Truncated, long BytesRead);
 
     public sealed class HierarchicalNodeRecord
@@ -585,6 +599,49 @@ public sealed class DjeLabFilesClient
         }
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .ToList();
+    }
+
+    private static IReadOnlyList<CsvColumnProfile> BuildCsvColumnProfiles(IReadOnlyList<string> headers, IReadOnlyList<string[]> rows)
+    {
+        var profiles = new List<CsvColumnProfile>(headers.Count);
+
+        for (var columnIndex = 0; columnIndex < headers.Count; columnIndex++)
+        {
+            var values = rows
+                .Select(row => row.ElementAtOrDefault(columnIndex))
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!.Trim())
+                .ToArray();
+
+            var numericValues = new List<double>();
+            var booleanCount = 0;
+            foreach (var value in values)
+            {
+                if (double.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var numeric))
+                    numericValues.Add(numeric);
+                if (bool.TryParse(value, out _))
+                    booleanCount++;
+            }
+
+            var kind =
+                values.Length == 0 ? "empty" :
+                numericValues.Count == values.Length ? "number" :
+                booleanCount == values.Length ? "boolean" :
+                "text";
+
+            profiles.Add(new CsvColumnProfile(
+                Name: headers[columnIndex],
+                Kind: kind,
+                NonEmptyCount: values.Length,
+                ParsedNumericCount: numericValues.Count,
+                ParsedBooleanCount: booleanCount,
+                SampleValues: values.Distinct(StringComparer.OrdinalIgnoreCase).Take(5).ToArray(),
+                Minimum: numericValues.Count > 0 ? numericValues.Min() : null,
+                Maximum: numericValues.Count > 0 ? numericValues.Max() : null,
+                Mean: numericValues.Count > 0 ? numericValues.Average() : null));
+        }
+
+        return profiles;
     }
 
 }
