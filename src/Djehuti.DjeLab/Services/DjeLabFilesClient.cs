@@ -109,7 +109,7 @@ public sealed class DjeLabFilesClient
         return FilesResult<string>.Ok(preview.Value.Content);
     }
 
-    private async Task<FilesResult<TextPreviewResult>> ReadTextPreviewAsync(string path, long maxBytes = DefaultPreviewBytes, CancellationToken ct = default)
+    public async Task<FilesResult<TextPreviewResult>> ReadTextPreviewAsync(string path, long maxBytes = DefaultPreviewBytes, CancellationToken ct = default)
     {
         var resolved = await ResolvePathAsync(path, ct);
         if (!resolved.Success || resolved.Value is null)
@@ -145,6 +145,31 @@ public sealed class DjeLabFilesClient
         var text = Encoding.UTF8.GetString(buffer.ToArray());
         var truncated = resolved.Value.SizeBytes is long size ? size > totalRead : totalRead >= maxBytes;
         return FilesResult<TextPreviewResult>.Ok(new TextPreviewResult(text, truncated, totalRead));
+    }
+
+    public async Task<FilesResult<SourceBundleResult>> BundleProjectAsync(string path, CancellationToken ct = default)
+    {
+        var entry = await ResolveProjectEntryAsync(path, ct);
+        if (!entry.Success || entry.Value is null)
+            return FilesResult<SourceBundleResult>.Fail(entry.Error ?? "Could not resolve a project entry file.");
+
+        var included = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var warnings = new List<string>();
+        var stack = new Stack<string>();
+
+        var expanded = await BundleFileAsync(entry.Value.Path, included, warnings, stack, ct);
+        if (!expanded.Success)
+            return FilesResult<SourceBundleResult>.Fail(expanded.Error ?? "Could not bundle that project.");
+
+        return FilesResult<SourceBundleResult>.Ok(new SourceBundleResult
+        {
+            EntryPath = path,
+            ResolvedEntryPath = entry.Value.Path,
+            IncludedFiles = included.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray(),
+            Warnings = warnings.ToArray(),
+            ExpandedSource = expanded.Value.ExpandedSource,
+            TotalBytes = expanded.Value.TotalBytes
+        });
     }
 
     public async Task<FilesResult<string>> ReadStructuredDataAsync(string path, CancellationToken ct = default)
@@ -472,12 +497,33 @@ public sealed class DjeLabFilesClient
         public string S3Key { get; set; } = "";
     }
 
+    public sealed class SourceBundleResult
+    {
+        public string EntryPath { get; set; } = "";
+        public string ResolvedEntryPath { get; set; } = "";
+        public string ExpandedSource { get; set; } = "";
+        public string[] IncludedFiles { get; set; } = Array.Empty<string>();
+        public string[] Warnings { get; set; } = Array.Empty<string>();
+        public long TotalBytes { get; set; }
+    }
+
     private sealed class UrlResponse
     {
         public string Url { get; set; } = "";
     }
 
-    private sealed record TextPreviewResult(string Content, bool Truncated, long BytesRead);
+    private sealed record CsvColumnProfile(
+        string Name,
+        string Kind,
+        int NonEmptyCount,
+        int ParsedNumericCount,
+        int ParsedBooleanCount,
+        string[] SampleValues,
+        double? Minimum,
+        double? Maximum,
+        double? Mean);
+
+    public sealed record TextPreviewResult(string Content, bool Truncated, long BytesRead);
 
     public sealed class HierarchicalNodeRecord
     {
@@ -526,6 +572,247 @@ public sealed class DjeLabFilesClient
         }
 
         return new RootManifestReadResult { Success = false };
+    }
+
+    private async Task<FilesResult<DjeLabFileEntry>> ResolveProjectEntryAsync(string path, CancellationToken ct)
+    {
+        var resolved = await ResolvePathAsync(path, ct);
+        if (!resolved.Success || resolved.Value is null)
+            return FilesResult<DjeLabFileEntry>.Fail(resolved.Error ?? "Could not resolve that project path.");
+
+        if (!resolved.Value.IsFolder)
+            return resolved;
+
+        var entries = await ListFolderAsync(resolved.Value.Path, ct);
+        var sourceEntries = entries
+            .Where(entry => !entry.IsFolder && IsSourceFile(entry.Name))
+            .ToList();
+
+        var entryCandidates =
+            new[]
+            {
+                "main.spi", "main.spinoza", "main.spz",
+                "index.spi", "index.spinoza", "index.spz",
+                $"{resolved.Value.Name}.spi", $"{resolved.Value.Name}.spinoza", $"{resolved.Value.Name}.spz"
+            }
+            .Select(candidate => sourceEntries.FirstOrDefault(entry => string.Equals(entry.Name, candidate, StringComparison.OrdinalIgnoreCase)))
+            .Where(entry => entry is not null)
+            .ToList();
+
+        if (entryCandidates.Count > 0)
+            return FilesResult<DjeLabFileEntry>.Ok(entryCandidates[0]!);
+
+        if (sourceEntries.Count == 1)
+            return FilesResult<DjeLabFileEntry>.Ok(sourceEntries[0]);
+
+        if (sourceEntries.Count == 0)
+        {
+            return FilesResult<DjeLabFileEntry>.Fail(
+                $"No Spinoza source file was found in \"{resolved.Value.Path}\". Add a `main.spi`, `index.spi`, or similarly named source file.");
+        }
+
+        var names = string.Join(", ", sourceEntries.Take(8).Select(entry => entry.Name));
+        return FilesResult<DjeLabFileEntry>.Fail(
+            $"Multiple source files were found in \"{resolved.Value.Path}\" ({names}). Choose a single entry file to bundle.");
+    }
+
+    private static bool IsSourceFile(string name)
+    {
+        var extension = Path.GetExtension(name).ToLowerInvariant();
+        return extension is ".spi" or ".spinoza" or ".spz" or ".djl";
+    }
+
+    private async Task<FilesResult<(string ExpandedSource, long TotalBytes)>> BundleFileAsync(
+        string path,
+        HashSet<string> included,
+        List<string> warnings,
+        Stack<string> stack,
+        CancellationToken ct)
+    {
+        var resolved = await ResolvePathAsync(path, ct);
+        if (!resolved.Success || resolved.Value is null)
+            return FilesResult<(string ExpandedSource, long TotalBytes)>.Fail(resolved.Error ?? $"Could not resolve \"{path}\".");
+
+        if (resolved.Value.IsFolder)
+            return FilesResult<(string ExpandedSource, long TotalBytes)>.Fail($"\"{resolved.Value.Path}\" is a folder, not a source file.");
+
+        if (stack.Any(value => string.Equals(value, resolved.Value.Path, StringComparison.OrdinalIgnoreCase)))
+        {
+            var cycle = string.Join(" -> ", stack.Reverse().Concat(new[] { resolved.Value.Path }));
+            return FilesResult<(string ExpandedSource, long TotalBytes)>.Fail($"Import cycle detected: {cycle}");
+        }
+
+        if (!included.Add(resolved.Value.Path))
+            return FilesResult<(string ExpandedSource, long TotalBytes)>.Ok(("", 0));
+
+        stack.Push(resolved.Value.Path);
+        try
+        {
+            var text = await ReadTextPreviewAsync(resolved.Value.Path, maxBytes: 512 * 1024, ct);
+            if (!text.Success || text.Value is null)
+                return FilesResult<(string ExpandedSource, long TotalBytes)>.Fail(text.Error ?? $"Could not read \"{resolved.Value.Path}\".");
+
+            if (text.Value.Truncated)
+            {
+                warnings.Add($"Bundling stopped early because \"{resolved.Value.Path}\" exceeded the 512 KiB source limit.");
+                return FilesResult<(string ExpandedSource, long TotalBytes)>.Fail(
+                    $"\"{resolved.Value.Path}\" is too large to bundle safely. Keep library files smaller than 512 KiB.");
+            }
+
+            var lines = text.Value.Content.Replace("\r\n", "\n").Split('\n');
+            var importedSources = new List<string>();
+            var body = new StringBuilder();
+            var totalBytes = text.Value.BytesRead;
+
+            foreach (var line in lines)
+            {
+                if (TryParseImportDirective(line, out var importedPath))
+                {
+                    var resolvedImport = await ResolveImportedPathAsync(resolved.Value.Path, importedPath, ct);
+                    if (!resolvedImport.Success || resolvedImport.Value is null)
+                        return FilesResult<(string ExpandedSource, long TotalBytes)>.Fail(resolvedImport.Error ?? $"Could not resolve import \"{importedPath}\".");
+
+                    var child = await BundleFileAsync(resolvedImport.Value.Path, included, warnings, stack, ct);
+                    if (!child.Success)
+                        return FilesResult<(string ExpandedSource, long TotalBytes)>.Fail(child.Error ?? $"Could not bundle import \"{importedPath}\".");
+
+                    if (!string.IsNullOrWhiteSpace(child.Value.ExpandedSource))
+                        importedSources.Add(child.Value.ExpandedSource.TrimEnd());
+
+                    totalBytes += child.Value.TotalBytes;
+                    continue;
+                }
+
+                body.AppendLine(line);
+            }
+
+            var expandedParts = new List<string>(importedSources.Count + 1);
+            expandedParts.AddRange(importedSources);
+            expandedParts.Add(body.ToString().TrimStart());
+            var expanded = string.Join(Environment.NewLine + Environment.NewLine, expandedParts.Where(part => !string.IsNullOrWhiteSpace(part)));
+
+            return FilesResult<(string ExpandedSource, long TotalBytes)>.Ok((expanded, totalBytes));
+        }
+        finally
+        {
+            stack.Pop();
+        }
+    }
+
+    private async Task<FilesResult<DjeLabFileEntry>> ResolveImportedPathAsync(string currentPath, string importedPath, CancellationToken ct)
+    {
+        var normalized = NormalizePath(importedPath);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return FilesResult<DjeLabFileEntry>.Fail("Import path was empty.");
+
+        if (normalized != "/" && normalized.Contains('*'))
+            return FilesResult<DjeLabFileEntry>.Fail($"Wildcard imports are not supported: \"{importedPath}\".");
+
+        var candidates = BuildImportCandidates(currentPath, normalized);
+        foreach (var candidate in candidates)
+        {
+            var resolved = await ResolvePathAsync(candidate, ct);
+            if (resolved.Success && resolved.Value is not null && !resolved.Value.IsFolder)
+                return resolved;
+        }
+
+        return FilesResult<DjeLabFileEntry>.Fail(
+            $"Could not resolve import \"{importedPath}\" from \"{currentPath}\". Tried: {string.Join(", ", candidates)}");
+    }
+
+    private static IReadOnlyList<string> BuildImportCandidates(string currentPath, string importedPath)
+    {
+        var candidates = new List<string>();
+        var parent = GetParentPath(currentPath);
+        var stem = Path.GetFileNameWithoutExtension(importedPath);
+        var extension = Path.GetExtension(importedPath);
+
+        if (importedPath.StartsWith("/"))
+        {
+            candidates.Add(importedPath);
+        }
+        else
+        {
+            candidates.Add(CombinePaths(parent, importedPath));
+        }
+
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            foreach (var ext in new[] { ".spi", ".spinoza", ".spz", ".djl" })
+            {
+                candidates.Add(CombinePaths(parent, importedPath + ext));
+                if (importedPath.StartsWith("/"))
+                    candidates.Add(importedPath + ext);
+            }
+        }
+
+        candidates.Add(CombinePaths(parent, stem));
+        return candidates
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string GetParentPath(string path)
+    {
+        var normalized = NormalizePath(path);
+        if (normalized == "/") return "/";
+        var lastSlash = normalized.LastIndexOf('/');
+        return lastSlash <= 0 ? "/" : normalized[..lastSlash];
+    }
+
+    private static string CombinePaths(string left, string right)
+    {
+        var normalizedLeft = NormalizePath(left);
+        var normalizedRight = (right ?? "").Replace('\\', '/').Trim();
+
+        if (string.IsNullOrWhiteSpace(normalizedRight))
+            return normalizedLeft;
+
+        if (normalizedRight.StartsWith('/'))
+            return NormalizePath(normalizedRight);
+
+        if (normalizedLeft == "/")
+            return NormalizePath("/" + normalizedRight);
+
+        return NormalizePath($"{normalizedLeft}/{normalizedRight}");
+    }
+
+    private static bool TryParseImportDirective(string line, out string importedPath)
+    {
+        importedPath = "";
+        var trimmed = line.Trim();
+        if (trimmed.Length == 0)
+            return false;
+
+        var keyword =
+            trimmed.StartsWith("import ", StringComparison.OrdinalIgnoreCase) ? "import" :
+            trimmed.StartsWith("include ", StringComparison.OrdinalIgnoreCase) ? "include" :
+            null;
+
+        if (keyword is null)
+            return false;
+
+        var remainder = trimmed[keyword.Length..].TrimStart();
+        if (remainder.Length == 0)
+            return false;
+
+        if (remainder[0] == '"')
+        {
+            var closing = remainder.IndexOf('"', 1);
+            if (closing <= 1)
+                return false;
+
+            importedPath = remainder[1..closing];
+            return !string.IsNullOrWhiteSpace(importedPath);
+        }
+
+        var token = remainder.Split(new[] { ' ', '\t', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(token))
+            return false;
+
+        importedPath = token;
+        return true;
     }
 
     private IReadOnlyList<string> BuildRootManifestCandidates(DjeLabFileEntry rootFile)

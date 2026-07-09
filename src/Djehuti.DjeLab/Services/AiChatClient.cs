@@ -80,7 +80,8 @@ public sealed class AiChatClient
                     xLabel = new { type = "string" },
                     yLabel = new { type = "string" },
                     zLabel = new { type = "string", description = "Only meaningful for scatter3d; for surface, pass an empty string unless you want a label for the height axis." },
-                    spinozaSource = new { type = "string", description = "A complete Spinoza program that calls emit(...) to produce chart data." }
+                    spinozaSource = new { type = "string", description = "A complete Spinoza program that calls emit(...) to produce chart data. For multi-file projects, you may leave this empty and provide projectPath instead." },
+                    projectPath = new { type = "string", description = "Optional entry file or project folder path for a multi-file Spinoza project. The host will bundle import/include directives before running it." }
                 },
                 required = new[] { "chartType", "xLabel", "yLabel", "zLabel", "spinozaSource" },
                 additionalProperties = false
@@ -91,7 +92,7 @@ public sealed class AiChatClient
         {
             type = "function",
             name = "manage_file_data",
-            description = "List, read, inspect tree structure, or write the user's DjeLab S3-backed data files. Use this for CSV, JSON, ROOT-linked, and text files in the personal file area when you need to inspect data, save analysis output, or stage a data file for later math work. Large files are previewed and sampled instead of being sent in full, so for CSV inspect the headers and top rows first, then feed those values into the transform or plot the user asked for. For ROOT files, look for a companion .manifest.json or .root.json file and use that hierarchy if it exists. For non-write actions, send content and contentType as empty strings. Reading returns file content or a compact preview plus a structural summary; writing stores a text file at the requested path.",
+            description = "List, read, inspect tree structure, bundle multi-file Spinoza projects, or write the user's DjeLab S3-backed data files. Use this for CSV, JSON, ROOT-linked, text, and source files in the personal file area when you need to inspect data, save analysis output, or stage a file for later math work. Large files are previewed and sampled instead of being sent in full, so for CSV inspect the headers, top rows, and column profiles first, then feed those values into the transform or plot the user asked for. If a user says a .txt file is really CSV-format data, treat it as CSV if the content looks tabular. For Spinoza projects, use the bundle action to expand import/include directives into a single runnable source file before validate_spinoza or run_simulation. For physics datasets from the LHC, CMS, or ATLAS, assume the file contains real observed experimental data unless the user explicitly says simulated, and only mention sample counts or provenance that appear in the file preview or tool output. For ROOT files, look for a companion .manifest.json or .root.json file and use that hierarchy if it exists. For non-write actions, send content and contentType as empty strings. Reading returns file content or a compact preview plus a structural summary; bundling returns a pre-expanded single-file program with the imported files recorded separately; writing stores a text file at the requested path.",
             parameters = new
             {
                 type = "object",
@@ -100,9 +101,9 @@ public sealed class AiChatClient
                     action = new
                     {
                         type = "string",
-                        @enum = new[] { "list", "read", "tree", "write" }
+                        @enum = new[] { "list", "read", "tree", "bundle", "write" }
                     },
-                    path = new { type = "string", description = "Folder path for list, file path for read/write." },
+                    path = new { type = "string", description = "Folder path for list, tree, or bundle; file path for read/write." },
                     content = new { type = "string", description = "Text to write when action is write." },
                     contentType = new { type = "string", description = "Optional MIME type for write, e.g. application/json or text/csv." }
                 },
