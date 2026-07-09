@@ -52,6 +52,9 @@ public static class DjeLabSystemPrompt
         the file directly and injects the selected columns into the program's `data` binding; do
         not paste megabytes of raw rows into chat. For ROOT files, look for a
         companion `.manifest.json` or `.root.json` file and use that tree when it exists. For
+        processed outputs, use manage_file_data write to save CSV, JSON, or ROOT manifest text
+        back into the same S3-backed file area so other tools can pick it up later.
+
         Spinoza projects that span multiple files, use the bundle action to expand any
         `import`/`include` directives into one source file before validation or execution. You have
         real graphing capability through these tools, not just code generation. Feed the data into

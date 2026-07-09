@@ -377,6 +377,31 @@ public sealed class DjeLabFilesClient
         }));
     }
 
+    public async Task<FilesResult<RootManifestTextResult>> TryReadRootManifestTextAsync(string rootPath, CancellationToken ct = default)
+    {
+        var resolved = await ResolvePathAsync(rootPath, ct);
+        if (!resolved.Success || resolved.Value is null)
+            return FilesResult<RootManifestTextResult>.Fail(resolved.Error ?? "Could not find that file.");
+
+        if (resolved.Value.IsFolder)
+            return FilesResult<RootManifestTextResult>.Fail("Folders cannot be treated as ROOT files.");
+
+        foreach (var candidate in BuildRootManifestCandidates(resolved.Value))
+        {
+            var manifest = await ReadTextFileAsync(candidate, ct: ct);
+            if (!manifest.Success || manifest.Value is null)
+                continue;
+
+            return FilesResult<RootManifestTextResult>.Ok(new RootManifestTextResult
+            {
+                ManifestPath = candidate,
+                Content = manifest.Value
+            });
+        }
+
+        return FilesResult<RootManifestTextResult>.Fail("No companion ROOT manifest (.manifest.json / .root.json) was found.");
+    }
+
     public async Task<FilesResult<DjeLabFileEntry>> CreateFolderAsync(string parentPath, string name, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync($"{Base}/files/folder", new { parentPath, name }, ct);
@@ -571,6 +596,12 @@ public sealed class DjeLabFilesClient
         double? Mean);
 
     public sealed record TextPreviewResult(string Content, bool Truncated, long BytesRead);
+
+    public sealed class RootManifestTextResult
+    {
+        public string ManifestPath { get; set; } = "";
+        public string Content { get; set; } = "";
+    }
 
     public sealed class HierarchicalNodeRecord
     {

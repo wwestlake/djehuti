@@ -363,6 +363,15 @@
         if (contentType.Contains("json") || extension == ".json" || LooksLikeJson(content))
             return BuildJsonRuntimeData(resolved.Value.Path, content, dataColumns);
 
+        if (contentType.Contains("root") || extension == ".root")
+        {
+            var manifestResult = await FilesClient.TryReadRootManifestTextAsync(dataPath);
+            if (!manifestResult.Success || manifestResult.Value is null)
+                return FilesResult<string>.Fail(manifestResult.Error ?? "Could not read the ROOT manifest.");
+
+            return BuildJsonRuntimeData(manifestResult.Value.ManifestPath, manifestResult.Value.Content, dataColumns);
+        }
+
         if (contentType.Contains("csv") || extension == ".csv" || LooksLikeCsv(content))
             return BuildCsvRuntimeData(resolved.Value.Path, content, dataColumns);
 
