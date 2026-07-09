@@ -1,7 +1,9 @@
 module DslTests
 
+open System
 open Xunit
 open Djehuti.DjeLab.Dsl.Evaluator
+open Djehuti.DjeLab.Dsl.Preflight
 
 let private evalOk (source: string) =
     match Djehuti.DjeLab.Dsl.Parser.parse source with
@@ -192,3 +194,13 @@ let ``parse error is reported instead of throwing`` () =
     match Djehuti.DjeLab.Dsl.Parser.parse "1 +" with
     | Error _ -> ()
     | Ok expr -> failwith $"expected a parse error, got {expr}"
+
+[<Fact>]
+let ``preflight accepts clean Spinoza and rejects file I O`` () =
+    let okReport = validate "let x = 1 in x + 2"
+    Assert.True(okReport.CanRun)
+    Assert.True(okReport.Parsed)
+
+    let badReport = validate "let data = readCSV(\"sample.csv\") in data"
+    Assert.False(badReport.CanRun)
+    Assert.Contains(badReport.Issues, fun issue -> issue.Message.Contains("cannot read files", StringComparison.OrdinalIgnoreCase))

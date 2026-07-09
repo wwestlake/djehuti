@@ -91,6 +91,23 @@ public sealed class AiChatClient
         new
         {
             type = "function",
+            name = "validate_spinoza",
+            description = "Validate a Spinoza program before running it. Use this as the preflight step for any generated code that looks non-trivial, especially if the code came from the AI and you want syntax checks and basic language-safety feedback before calling run_simulation. This returns parser errors and a few targeted warnings such as file I/O attempts, semicolons, or comment-like text that Spinoza does not support.",
+            parameters = new
+            {
+                type = "object",
+                properties = new
+                {
+                    spinozaSource = new { type = "string", description = "The Spinoza program to validate." }
+                },
+                required = new[] { "spinozaSource" },
+                additionalProperties = false
+            },
+            strict = true
+        },
+        new
+        {
+            type = "function",
             name = "manage_file_data",
             description = "List, read, inspect tree structure, bundle multi-file Spinoza projects, or write the user's DjeLab S3-backed data files. Use this for CSV, JSON, ROOT-linked, text, and source files in the personal file area when you need to inspect data, save analysis output, or stage a file for later math work. Large files are previewed and sampled instead of being sent in full, so for CSV inspect the headers, top rows, and column profiles first, then feed those values into the transform or plot the user asked for. If a user says a .txt file is really CSV-format data, treat it as CSV if the content looks tabular. For Spinoza projects, use the bundle action to expand import/include directives into a single runnable source file before validate_spinoza or run_simulation. For physics datasets from the LHC, CMS, or ATLAS, assume the file contains real observed experimental data unless the user explicitly says simulated, and only mention sample counts or provenance that appear in the file preview or tool output. For ROOT files, look for a companion .manifest.json or .root.json file and use that hierarchy if it exists. For non-write actions, send content and contentType as empty strings. Reading returns file content or a compact preview plus a structural summary; bundling returns a pre-expanded single-file program with the imported files recorded separately; writing stores a text file at the requested path.",
             parameters = new

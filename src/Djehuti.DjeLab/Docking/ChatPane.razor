@@ -156,6 +156,7 @@
     private IReadOnlyDictionary<string, ToolHandler> ToolHandlers => new Dictionary<string, ToolHandler>
     {
         ["search_math_references"] = SearchMathReferencesAsync,
+        ["validate_spinoza"] = ValidateSpinozaAsync,
         ["run_simulation"] = RunSimulationAsync,
         ["manage_file_data"] = ManageFileDataAsync
     };
@@ -308,6 +309,27 @@
             : $"The program failed to run: {outcome.Error}";
     }
 
+    private async Task<string> ValidateSpinozaAsync(string argumentsJson)
+    {
+        using var args = JsonDocument.Parse(argumentsJson);
+        var source = args.RootElement.TryGetProperty("spinozaSource", out var sourceValue) ? sourceValue.GetString() ?? "" : "";
+        if (string.IsNullOrWhiteSpace(source))
+            return "No spinozaSource provided.";
+
+        var report = Djehuti.DjeLab.Dsl.Preflight.validate(source);
+        return JsonSerializer.Serialize(new
+        {
+            report.CanRun,
+            report.Parsed,
+            report.Summary,
+            issues = report.Issues.Select(issue => new
+            {
+                severity = issue.Severity.ToString().ToLowerInvariant(),
+                message = issue.Message
+            })
+        });
+    }
+
     private static string NormalizeAxisLabel(string? label, string chartType, string axis)
     {
         var trimmed = string.IsNullOrWhiteSpace(label) ? "" : label.Trim();
@@ -418,9 +440,9 @@
 
     private static object SummarizeCsv(DjeLabFileEntry entry, string content, string preview, bool truncated)
     {
-        var lines = content.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
-        var headers = lines.Length > 0 ? lines[0].Split(',').Select(x => x.Trim()).ToArray() : Array.Empty<string>();
-        var sampleRows = lines.Skip(1).Take(5).Select(line => line.Split(',').Select(x => x.Trim()).ToArray()).ToArray();
+        var parsed = CsvText.parse(content);
+        var headers = parsed.Headers.ToArray();
+        var sampleRows = parsed.Rows.Take(5).Select(row => row.ToArray()).ToArray();
 
         return new
         {
@@ -429,7 +451,7 @@
             ContentType = entry.ContentType,
             SizeBytes = entry.SizeBytes,
             headers,
-            rowCount = Math.Max(0, lines.Length - 1),
+            rowCount = parsed.Rows.Count(),
             sampleRows,
             preview = preview.Length == content.Length ? preview : preview + "\n...",
             truncated
@@ -442,7 +464,21 @@
         if (type.Contains("json")) return "json";
         if (type.Contains("csv") || entry.Path.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)) return "csv";
         if (entry.Path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) return "json";
+        if (LooksLikeJson(content)) return "json";
+        if (LooksLikeCsv(content)) return "csv";
         return "text";
+    }
+
+    private static bool LooksLikeJson(string content)
+    {
+        var trimmed = content.TrimStart();
+        return trimmed.StartsWith("{") || trimmed.StartsWith("[");
+    }
+
+    private static bool LooksLikeCsv(string content)
+    {
+        var parsed = CsvText.parse(content);
+        return parsed.Headers.Count() >= 2 && parsed.Rows.Count() >= 1;
     }
 
     private async Task Send()

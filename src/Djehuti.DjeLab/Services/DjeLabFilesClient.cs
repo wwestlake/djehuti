@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Djehuti.Core;
@@ -82,9 +83,9 @@ public sealed class DjeLabFilesClient
         for (var i = 0; i < segments.Length; i++)
         {
             var entries = await ListFolderAsync(currentPath, ct);
-            currentEntry = entries.FirstOrDefault(entry => string.Equals(entry.Name, segments[i], StringComparison.Ordinal));
+            currentEntry = FindEntry(entries, segments[i]);
             if (currentEntry is null)
-                return FilesResult<DjeLabFileEntry>.Fail($"Could not find \"{normalized}\".");
+                return FilesResult<DjeLabFileEntry>.Fail(BuildNotFoundMessage(normalized, segments[i], entries));
 
             if (i < segments.Length - 1)
             {
@@ -98,6 +99,50 @@ public sealed class DjeLabFilesClient
             return FilesResult<DjeLabFileEntry>.Fail($"Could not find \"{normalized}\".");
 
         return FilesResult<DjeLabFileEntry>.Ok(currentEntry);
+    }
+
+    private static DjeLabFileEntry? FindEntry(IReadOnlyList<DjeLabFileEntry> entries, string segment)
+    {
+        var exact = entries.FirstOrDefault(entry => string.Equals(entry.Name, segment, StringComparison.Ordinal));
+        if (exact is not null)
+            return exact;
+
+        var caseInsensitive = entries.FirstOrDefault(entry => string.Equals(entry.Name, segment, StringComparison.OrdinalIgnoreCase));
+        if (caseInsensitive is not null)
+            return caseInsensitive;
+
+        var requestedStem = Path.GetFileNameWithoutExtension(segment);
+        var stemMatch = entries.FirstOrDefault(entry =>
+            string.Equals(Path.GetFileNameWithoutExtension(entry.Name), requestedStem, StringComparison.OrdinalIgnoreCase));
+        if (stemMatch is not null)
+            return stemMatch;
+
+        if (!segment.Contains('.'))
+        {
+            var prefixMatch = entries.FirstOrDefault(entry =>
+                Path.GetFileNameWithoutExtension(entry.Name).StartsWith(segment, StringComparison.OrdinalIgnoreCase));
+            if (prefixMatch is not null)
+                return prefixMatch;
+        }
+
+        return null;
+    }
+
+    private static string BuildNotFoundMessage(string normalized, string segment, IReadOnlyList<DjeLabFileEntry> entries)
+    {
+        var suggestions =
+            entries
+                .Where(entry =>
+                    entry.Name.Contains(segment, StringComparison.OrdinalIgnoreCase) ||
+                    Path.GetFileNameWithoutExtension(entry.Name).Equals(Path.GetFileNameWithoutExtension(segment), StringComparison.OrdinalIgnoreCase))
+                .Select(entry => entry.Path)
+                .Take(5)
+                .ToArray();
+
+        if (suggestions.Length == 0)
+            return $"Could not find \"{normalized}\".";
+
+        return $"Could not find \"{normalized}\". Closest matches: {string.Join(", ", suggestions)}.";
     }
 
     public async Task<FilesResult<string>> ReadTextFileAsync(string path, long maxBytes = DefaultPreviewBytes, CancellationToken ct = default)
@@ -243,6 +288,7 @@ public sealed class DjeLabFilesClient
             using var treeDoc = JsonDocument.Parse(treeJson);
             var headers = parsed.Headers.ToArray();
             var rows = parsed.Rows.Select(row => row.ToArray()).ToArray();
+            var columnProfiles = BuildCsvColumnProfiles(headers, rows);
             var treeStats = HierarchicalData.summarize(csvTree.Root);
             var structured = new
             {
@@ -254,6 +300,7 @@ public sealed class DjeLabFilesClient
                 rows,
                 rowCount = rows.Length,
                 columnCount = headers.Length,
+                columnProfiles,
                 nodeCount = treeStats.NodeCount,
                 leafCount = treeStats.LeafCount,
                 maxDepth = treeStats.MaxDepth,
@@ -828,6 +875,49 @@ public sealed class DjeLabFilesClient
         }
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .ToList();
+    }
+
+    private static IReadOnlyList<CsvColumnProfile> BuildCsvColumnProfiles(IReadOnlyList<string> headers, IReadOnlyList<string[]> rows)
+    {
+        var profiles = new List<CsvColumnProfile>(headers.Count);
+
+        for (var columnIndex = 0; columnIndex < headers.Count; columnIndex++)
+        {
+            var values = rows
+                .Select(row => row.ElementAtOrDefault(columnIndex))
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!.Trim())
+                .ToArray();
+
+            var numericValues = new List<double>();
+            var booleanCount = 0;
+            foreach (var value in values)
+            {
+                if (double.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var numeric))
+                    numericValues.Add(numeric);
+                if (bool.TryParse(value, out _))
+                    booleanCount++;
+            }
+
+            var kind =
+                values.Length == 0 ? "empty" :
+                numericValues.Count == values.Length ? "number" :
+                booleanCount == values.Length ? "boolean" :
+                "text";
+
+            profiles.Add(new CsvColumnProfile(
+                Name: headers[columnIndex],
+                Kind: kind,
+                NonEmptyCount: values.Length,
+                ParsedNumericCount: numericValues.Count,
+                ParsedBooleanCount: booleanCount,
+                SampleValues: values.Distinct(StringComparer.OrdinalIgnoreCase).Take(5).ToArray(),
+                Minimum: numericValues.Count > 0 ? numericValues.Min() : null,
+                Maximum: numericValues.Count > 0 ? numericValues.Max() : null,
+                Mean: numericValues.Count > 0 ? numericValues.Average() : null));
+        }
+
+        return profiles;
     }
 
 }
