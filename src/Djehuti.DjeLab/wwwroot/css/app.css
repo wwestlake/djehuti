@@ -1912,16 +1912,21 @@ a {
     position: absolute;
     width: 280px;
     min-height: 220px;
-    background: var(--djelab-surface);
-    border: 1px solid var(--djelab-border);
-    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(16, 24, 38, 0.98), rgba(10, 16, 28, 0.98));
+    border: 1px solid rgba(104, 137, 182, 0.45);
+    border-radius: 14px;
     overflow: hidden;
-    box-shadow: 0 14px 24px rgba(0, 0, 0, 0.18);
+    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
     .flow-node.selected {
-        border-color: rgba(232, 179, 84, 0.85);
-        box-shadow: 0 0 0 1px rgba(232, 179, 84, 0.8), 0 16px 28px rgba(0, 0, 0, 0.2);
+        border-color: rgba(232, 179, 84, 0.95);
+        box-shadow: 0 0 0 1px rgba(232, 179, 84, 0.78), 0 16px 28px rgba(0, 0, 0, 0.25);
+    }
+
+    .flow-node.flow-node-collapsed {
+        min-height: 56px;
     }
 
 .flow-node-header {
@@ -1930,7 +1935,8 @@ a {
     justify-content: space-between;
     gap: 0.75rem;
     padding: 0.55rem 0.7rem;
-    border-bottom: 1px solid var(--djelab-border);
+    border-bottom: 1px solid rgba(104, 137, 182, 0.22);
+    background: rgba(255, 255, 255, 0.02);
     cursor: grab;
     user-select: none;
 }
@@ -1939,13 +1945,30 @@ a {
     font-weight: 600;
 }
 
+.flow-node-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.flow-node-toggle,
 .flow-node-close {
     border: none;
-    background: transparent;
+    background: rgba(255, 255, 255, 0.03);
     color: var(--djelab-muted);
-    font-size: 1.05rem;
+    font-size: 0.95rem;
+    line-height: 1;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 999px;
     cursor: pointer;
 }
+
+    .flow-node-toggle:hover,
+    .flow-node-close:hover {
+        background: rgba(255, 255, 255, 0.07);
+        color: var(--djelab-text);
+    }
 
     .flow-node-close:hover {
         color: #ff8a8a;
@@ -1982,6 +2005,20 @@ a {
 
 .flow-node-body {
     padding: 0.65rem;
+}
+
+.flow-node-collapsed .flow-node-body {
+    display: none;
+}
+
+.flow-node-collapsed .flow-node-sockets {
+    display: none;
+}
+
+.flow-node-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
 }
 
 .flow-field {
@@ -2072,6 +2109,18 @@ a {
     box-shadow: 0 20px 44px rgba(0, 0, 0, 0.35);
 }
 
+.flow-file-picker-dialog {
+    width: min(960px, 100%);
+    height: min(78vh, 820px);
+    display: flex;
+    flex-direction: column;
+    background: var(--djelab-surface);
+    border: 1px solid var(--djelab-border);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 20px 44px rgba(0, 0, 0, 0.35);
+}
+
 .flow-source-dialog-header {
     display: flex;
     align-items: center;
@@ -2093,6 +2142,67 @@ a {
 .flow-source-dialog .flow-source-view {
     flex: 1 1 auto;
     min-height: 0;
+}
+
+.flow-file-picker-breadcrumbs {
+    display: flex;
+    gap: 0.45rem;
+    padding: 0.7rem 0.9rem 0.2rem;
+    flex-wrap: wrap;
+}
+
+.flow-file-picker-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 0.4rem 0.8rem 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.flow-file-picker-row {
+    display: grid;
+    grid-template-columns: 1.2rem 1fr auto;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    text-align: left;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 10px;
+    color: var(--djelab-text);
+    cursor: pointer;
+}
+
+    .flow-file-picker-row:hover {
+        border-color: rgba(63, 169, 245, 0.45);
+        background: rgba(63, 169, 245, 0.08);
+    }
+
+.flow-file-picker-icon {
+    color: var(--djelab-accent);
+    font-size: 1rem;
+    text-align: center;
+}
+
+.flow-file-picker-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.flow-file-picker-meta,
+.flow-file-picker-empty,
+.flow-file-picker-error {
+    color: var(--djelab-muted);
+    font-size: 0.85rem;
+}
+
+.flow-file-picker-error {
+    padding: 0 0.9rem 0.85rem;
+    color: #ff9b9b;
 }
 
 .flow-summary .flow-preview-subtitle {
