@@ -19,11 +19,6 @@
     {
         if (_isIbisPane)
         {
-            <div class="chat-pane-empty chat-pane-empty-host">
-                <p><strong>Ibis is ready.</strong></p>
-                <p>Ibis is the friendly local host and tour guide. It can welcome new users, explain the workspace, and handle basic questions without any key.</p>
-                <p>If you want stronger reasoning, open <a class="chat-pane-setup-link" href="settings">AI Setup</a> and add an OpenAI key for Seshat, the BYOK math professor pane.</p>
-            </div>
         }
         else if (!_hasKey)
         {
@@ -45,7 +40,7 @@
             {
                 <div class="chat-pane-empty-history">
                     @(_isIbisPane
-                        ? "Ask Ibis for a tour, a quick explanation of the workspace, or help getting started."
+                        ? "Ask Ibis anything about the workspace."
                         : (_hasKey
                             ? "Ask Seshat anything about the math you're working on."
                             : "Seshat is waiting for a key. Ibis can still help you get around the workspace."))
@@ -167,6 +162,10 @@
         _hasKey = !string.IsNullOrWhiteSpace(_apiKey);
         _historyStorageKey = HistoryKey;
         _turns = await HistoryStore.GetTurnsAsync(_historyStorageKey, _isIbisPane ? LegacyHistoryKey : null);
+        if (_isIbisPane && NormalizeIbisHistory())
+        {
+            await HistoryStore.SaveTurnsAsync(_historyStorageKey, _turns);
+        }
         _activeFileContext = Actions.CurrentFileContext;
         Actions.ActiveFileContextChanged += HandleActiveFileContextChanged;
         _loading = false;
@@ -404,45 +403,27 @@
     private string BuildLocalHostReply(string userMessage, IReadOnlyList<ChatTurn> history)
     {
         var message = userMessage.ToLowerInvariant();
-        var opener = history.Count == 0
-            ? $"Welcome to DjeLab. I am {DisplayName}, your local host and tour guide."
-            : $"I am still {DisplayName}, your local DjeLab helper.";
-
         if (message.Contains("key") || message.Contains("byok") || message.Contains("openai"))
         {
-            return $@"{DisplayName} can start without a key. The local host is here to welcome you, explain the workspace, and help with basic questions.
-
-If you want more power, open AI Setup and add your own OpenAI API key. That wakes up Seshat, the BYOK math professor, which can handle the full range of work it is trained for and can compute.";
+            return "Ibis can start without a key. Add an OpenAI API key in AI Setup when you want Seshat, the BYOK math professor.";
         }
 
         if (message.Contains("tour") || message.Contains("start") || message.Contains("what can you do") || message.Contains("help"))
         {
-            return $@"Welcome to DjeLab. I can give you a quick tour of the workspace:
-
-- Workspace opens the graph, editor, and log together.
-- Files lets you open, preview, and save data in your S3-backed file area.
-- AI Setup is where you add a key if you want Seshat, the BYOK math professor.
-
-I handle basic help and orientation. For deeper reasoning or heavy computation, add your own key.";
+            return "Sure — I can give you a quick tour of the workspace, files, plots, and logs.";
         }
 
         if (message.Contains("graph") || message.Contains("plot") || message.Contains("chart"))
         {
-            return @"Use the graph pane to run a Spinoza program and plot the result. For real data, preview the file first, choose the right columns, and then stream the values into the algorithm instead of pasting large files into chat.
-
-If you want, I can help you shape the prompt or point you to the right pane.";
+            return "Use the graph pane for plots and simulations; I can help you shape the prompt and point you to the right pane.";
         }
 
         if (message.Contains("file") || message.Contains("csv") || message.Contains("json") || message.Contains("root"))
         {
-            return @"DjeLab can work with CSV, JSON, and ROOT-style data files from your file area. The normal flow is preview first, understand the structure, then run the calculation against the data in chunks.
-
-If you want to save processed results, use the same file area and write the output back there.";
+            return "I can help you work with CSV, JSON, and ROOT files from the file area, then save results back there.";
         }
 
-        return $@"{opener} I can help with the workspace, files, plots, and getting started. I am not the deep math engine; I am the friendly guide.
-
-If you want advanced reasoning or more compute-heavy help, add an OpenAI key in AI Setup and use Seshat.";
+        return "I can help with the workspace, files, plots, and getting started.";
     }
 
     private string GetPlaceholder() => _isIbisPane
@@ -450,6 +431,26 @@ If you want advanced reasoning or more compute-heavy help, add an OpenAI key in 
         : (_hasKey
             ? $"Ask {DisplayName} about a math problem…"
             : $"Add a key in AI Setup to wake up {DisplayName}…");
+
+    private bool NormalizeIbisHistory()
+    {
+        var changed = false;
+        foreach (var turn in _turns)
+        {
+            if (turn.Role != "assistant") continue;
+
+            if (turn.Content.Contains("friendly local host and tour guide", StringComparison.OrdinalIgnoreCase) ||
+                turn.Content.Contains("Ibis is ready.", StringComparison.OrdinalIgnoreCase) ||
+                turn.Content.Contains("I am still Ibis", StringComparison.OrdinalIgnoreCase) ||
+                turn.Content.Contains("Welcome to DjeLab. I am Ibis", StringComparison.OrdinalIgnoreCase))
+            {
+                turn.Content = "Ibis is DjeLab's friendly local host.";
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
 
     private static string BuildFileContextSection(ActiveFileContextSnapshot snapshot)
     {
