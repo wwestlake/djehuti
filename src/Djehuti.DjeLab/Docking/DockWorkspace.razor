@@ -1,3 +1,4 @@
+@using System.Text.Json
 @using Djehuti.DjeLab.Services
 @implements IAsyncDisposable
 @inject IJSRuntime JS
@@ -42,6 +43,8 @@
     private DockNode _root = default!;
     private Dictionary<string, PaneDescriptor> _panes = default!;
     private string? _draggingPaneId;
+    private bool _layoutLoaded;
+    private const string LayoutStorageKey = "djelab.dock.layout.v1";
 
     private SplitNode? _resizingSplit;
     private int _resizingIndex;
@@ -67,7 +70,11 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender) await RefreshContainerRectAsync();
+        if (firstRender)
+        {
+            await RefreshContainerRectAsync();
+            await LoadLayoutAsync();
+        }
     }
 
     private void ResetLayout()
@@ -76,6 +83,7 @@
         _resizingSplit = null;
         _draggingPaneId = null;
         _closedPanes.Clear();
+        _ = SaveLayoutAsync(clearIfDefault: true);
     }
 
     // Graph panes are populated by the AI's run_simulation tool call -- there
@@ -100,6 +108,7 @@
             existing.PendingZLabel = request.ZLabel;
             existing.PendingSource = request.SpinozaSource;
             existing.PendingRuntimeInputJson = request.RuntimeInputJson;
+            _ = SaveLayoutAsync();
             InvokeAsync(StateHasChanged);
             return;
         }
@@ -118,6 +127,7 @@
             PendingRuntimeInputJson = request.RuntimeInputJson
         };
         InsertPane(pane);
+        _ = SaveLayoutAsync();
         InvokeAsync(StateHasChanged);
     }
 
@@ -154,6 +164,7 @@
 
         _root = DockTree.RemovePane(_root, paneId);
         _panes.Remove(paneId);
+        _ = SaveLayoutAsync();
     }
 
     private void OnReopenSelected(ChangeEventArgs e)
@@ -164,6 +175,7 @@
         _closedPanes.RemoveAt(index);
 
         InsertPane(new PaneDescriptor { Title = closed.Title, Kind = closed.Kind, AccentColor = closed.AccentColor });
+        _ = SaveLayoutAsync();
     }
 
     // Resize-start must be instantaneous -- a container rect fetched via JS
@@ -213,6 +225,7 @@
     private void OnContainerPointerUp(PointerEventArgs e)
     {
         _resizingSplit = null;
+        _ = SaveLayoutAsync();
     }
 
     private void BeginDragPane(string paneId) => _draggingPaneId = paneId;
@@ -221,6 +234,7 @@
     private void ActivatePane(TabActivate activate)
     {
         activate.Group.ActiveIndex = activate.Group.PaneIds.IndexOf(activate.PaneId);
+        _ = SaveLayoutAsync();
     }
 
     private void HandleDropOnTabStrip(TabStripDrop drop)
@@ -241,6 +255,61 @@
     {
         Actions.OpenGraphRequested -= HandleOpenGraphRequested;
         if (_module != null) await _module.DisposeAsync();
+    }
+
+    private async Task LoadLayoutAsync()
+    {
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+            var json = await _module.InvokeAsync<string?>("loadJson", LayoutStorageKey);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                _layoutLoaded = true;
+                return;
+            }
+
+            var snapshot = JsonSerializer.Deserialize<DockLayoutSnapshot>(json);
+            if (snapshot?.Root is not null && snapshot.Panes.Count > 0)
+            {
+                _root = snapshot.Root;
+                _panes = snapshot.Panes;
+            }
+        }
+        catch
+        {
+            // A bad cached layout should never break the app.
+        }
+        finally
+        {
+            _layoutLoaded = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveLayoutAsync(bool clearIfDefault = false)
+    {
+        if (!_layoutLoaded)
+            return;
+
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+
+            if (clearIfDefault)
+            {
+                await _module.InvokeVoidAsync("removeJson", LayoutStorageKey);
+                return;
+            }
+
+            var snapshot = new DockLayoutSnapshot(_root, _panes);
+            var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = false });
+            await _module.InvokeVoidAsync("saveJson", LayoutStorageKey, json);
+        }
+        catch
+        {
+            // Layout persistence is best-effort only.
+        }
     }
 
     private sealed class BoundingRect

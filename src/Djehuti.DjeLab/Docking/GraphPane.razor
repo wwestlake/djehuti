@@ -31,31 +31,17 @@
         <div class="graph-status-row">
             @if (_running)
             {
-                <span class="graph-status graph-status-running">Running… @_pointCount point(s)</span>
+                <span class="graph-status graph-status-running">Running... @_pointCount point(s)</span>
             }
             else if (_error is not null)
             {
-                <span class="graph-status graph-status-error">@_error</span>
+                <span class="graph-status graph-status-error">Run failed - @_pointCount point(s)</span>
             }
             else
             {
-                <span class="graph-status">Done — @_pointCount point(s)</span>
+                <span class="graph-status">Done - @_pointCount point(s)</span>
             }
         </div>
-        @if (_saveStatus is not null)
-        {
-            <div class="graph-save-status">@_saveStatus</div>
-        }
-
-        @* Read-only, not an input -- but "no manual editing" doesn''t mean'
-           "no visibility." Without this there was no way for the user (or
-           me, debugging their report) to see what program actually ran when
-           something failed. Open by default on error since that's exactly
-           when it matters; collapsed otherwise to stay out of the way. *@
-        <details class="graph-source-details" open="@(_error is not null)">
-            <summary>Program</summary>
-            <pre class="graph-source"><code>@_source</code></pre>
-        </details>
     }
 
     @* Deliberately NOT inside the @if/@else above and NOT display:none'd

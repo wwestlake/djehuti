@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Djehuti.DjeLab.Docking;
 
 public enum SplitDirection
@@ -15,6 +17,9 @@ public enum DockZone
     Right
 }
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$kind")]
+[JsonDerivedType(typeof(SplitNode), "split")]
+[JsonDerivedType(typeof(TabGroupNode), "tabs")]
 public abstract class DockNode
 {
     public string Id { get; init; } = Guid.NewGuid().ToString("N");
