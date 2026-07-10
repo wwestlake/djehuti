@@ -478,6 +478,10 @@ public sealed class DjeLabFilesClient
         if (string.IsNullOrWhiteSpace(filename))
             return FilesResult<DjeLabFileEntry>.Fail("Choose a file name.");
 
+        var ensureParentResult = await EnsureFolderPathAsync(parentPath, ct);
+        if (!ensureParentResult.Success)
+            return FilesResult<DjeLabFileEntry>.Fail(ensureParentResult.Error ?? "Could not create the parent folder path.");
+
         var existing = await ResolvePathAsync(normalized, ct);
         if (existing.Success && existing.Value is not null)
         {
@@ -498,6 +502,36 @@ public sealed class DjeLabFilesClient
         }
 
         return await ConfirmUploadAsync(request.Value.FileId, parentPath, filename, contentType, ct);
+    }
+
+    private async Task<FilesResult<bool>> EnsureFolderPathAsync(string folderPath, CancellationToken ct = default)
+    {
+        var normalized = NormalizePath(folderPath);
+        if (normalized == "/")
+            return FilesResult<bool>.Ok(true);
+
+        var current = "/";
+        foreach (var segment in normalized.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var nextPath = current == "/" ? "/" + segment : current + "/" + segment;
+            var existing = await ResolvePathAsync(nextPath, ct);
+            if (existing.Success && existing.Value is not null)
+            {
+                if (!existing.Value.IsFolder)
+                    return FilesResult<bool>.Fail($"\"{nextPath}\" already exists and is not a folder.");
+
+                current = nextPath;
+                continue;
+            }
+
+            var created = await CreateFolderAsync(current, segment, ct);
+            if (!created.Success || created.Value is null)
+                return FilesResult<bool>.Fail(created.Error ?? $"Could not create folder \"{nextPath}\".");
+
+            current = nextPath;
+        }
+
+        return FilesResult<bool>.Ok(true);
     }
 
     private static string NormalizePath(string path)

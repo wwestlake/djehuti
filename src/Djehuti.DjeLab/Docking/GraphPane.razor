@@ -211,6 +211,8 @@
             _saveStatus = saveResult.Success && saveResult.Value is not null
                 ? $"Saved program to {saveResult.Value.Path}."
                 : saveResult.Error ?? "Could not save the program.";
+            if (saveResult.Success && saveResult.Value is not null)
+                Actions.NotifyFilesChanged();
         }
         catch (Exception ex)
         {
