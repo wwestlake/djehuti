@@ -1,0 +1,1177 @@
+@using System.Globalization
+@using System.Text
+@using System.Text.Json
+@implements IAsyncDisposable
+@inject DjeLabFilesClient FilesClient
+@inject WorkspaceActions Actions
+@inject IJSRuntime JS
+@inject HttpClient Http
+
+<div class="flow-pane">
+    <div class="flow-toolbar">
+        <div class="flow-toolbar-left">
+            <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Source)">Add Source</button>
+            <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Transform)">Add Transform</button>
+            <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Filter)">Add Filter</button>
+            <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Plot)">Add Plot</button>
+            <button type="button" class="flow-btn flow-btn-accent" @onclick="CompileAsync" disabled="@_busy">Compile</button>
+            <button type="button" class="flow-btn flow-btn-accent" @onclick="RunAsync" disabled="@(_busy || !_nodes.Any())">Run</button>
+            <button type="button" class="flow-btn" @onclick="SaveSourceAsync" disabled="@string.IsNullOrWhiteSpace(_generatedSource)">Save source</button>
+            <button type="button" class="flow-btn" @onclick="UseActiveFileAsync" disabled="@(!_activeFileContext.HasSelection || _busy)">Use active file</button>
+        </div>
+        <div class="flow-toolbar-right">
+            <span class="flow-status">@_statusMessage</span>
+        </div>
+    </div>
+
+    <div class="flow-body">
+        <div class="flow-canvas-shell">
+            <div class="flow-canvas"
+                 @ref="_canvasRef"
+                 @onpointermove="OnCanvasPointerMove"
+                 @onpointerup="OnCanvasPointerUp"
+                 @onpointerleave="OnCanvasPointerUp">
+                <svg class="flow-wires" viewBox="0 0 4000 2400" preserveAspectRatio="none" aria-hidden="true">
+                    @foreach (var connection in BuildConnections())
+                    {
+                        <path d="@BuildWirePath(connection)" />
+                    }
+                </svg>
+
+                @foreach (var node in _nodes)
+                {
+                    var selected = _pendingConnectionNodeId == node.Id;
+                    <div class="flow-node flow-node-@node.Kind.ToString().ToLowerInvariant() @(selected ? "selected" : "")"
+                         style="@BuildNodeStyle(node)"
+                         @onpointerdown="e => BeginDrag(node, e)">
+                        <div class="flow-node-header">
+                            <span class="flow-node-title">@node.Title</span>
+                            <button type="button" class="flow-node-close" title="Remove node" @onclick="() => RemoveNode(node.Id)" @onclick:stopPropagation="true">×</button>
+                        </div>
+
+                        <div class="flow-node-sockets">
+                            @if (node.Kind != FlowNodeKind.Source)
+                            {
+                                <button type="button"
+                                        class="flow-socket flow-socket-input"
+                                        title="Connect input"
+                                        @onclick="() => ConnectTarget(node.Id)">
+                                </button>
+                            }
+                            @if (node.Kind != FlowNodeKind.Plot)
+                            {
+                                <button type="button"
+                                        class="flow-socket flow-socket-output"
+                                        title="Start connection"
+                                        @onclick="() => StartConnection(node.Id)">
+                                </button>
+                            }
+                        </div>
+
+                        <div class="flow-node-body">
+                            @if (node.Kind == FlowNodeKind.Source)
+                            {
+                                <label class="flow-field">
+                                    <span>File path</span>
+                                    <input value="@node.FilePath"
+                                           @oninput="e => UpdateNode(node.Id, n => n.FilePath = e.Value?.ToString() ?? string.Empty)"
+                                           placeholder="/data/my-file.csv" />
+                                </label>
+                                <label class="flow-field">
+                                    <span>Columns</span>
+                                    <input value="@node.ColumnsCsv"
+                                           @oninput="e => UpdateNode(node.Id, n => n.ColumnsCsv = e.Value?.ToString() ?? string.Empty)"
+                                           placeholder="M or pt,phi" />
+                                </label>
+                                <button type="button" class="flow-mini-btn" @onclick="() => UseSelectedFileForNode(node.Id)">Use current file</button>
+                            }
+                            else if (node.Kind == FlowNodeKind.Transform)
+                            {
+                                <label class="flow-field">
+                                    <span>Map row to</span>
+                                    <textarea rows="4"
+                                              @oninput="e => UpdateNode(node.Id, n => n.TransformExpression = e.Value?.ToString() ?? string.Empty)">@node.TransformExpression</textarea>
+                                </label>
+                            }
+                            else if (node.Kind == FlowNodeKind.Filter)
+                            {
+                                <label class="flow-field">
+                                    <span>Keep when</span>
+                                    <textarea rows="4"
+                                              @oninput="e => UpdateNode(node.Id, n => n.FilterExpression = e.Value?.ToString() ?? string.Empty)">@node.FilterExpression</textarea>
+                                </label>
+                            }
+                            else if (node.Kind == FlowNodeKind.Plot)
+                            {
+                                <label class="flow-field">
+                                    <span>Chart type</span>
+                                    <select value="@node.ChartType"
+                                            @onchange="e => SetChartType(node.Id, e)">
+                                        <option value="histogram">Histogram</option>
+                                        <option value="line">Line</option>
+                                        <option value="scatter">Scatter</option>
+                                    </select>
+                                </label>
+                                <label class="flow-field">
+                                    <span>X label</span>
+                                    <input value="@node.XLabel" @oninput="e => UpdateNode(node.Id, n => n.XLabel = e.Value?.ToString() ?? string.Empty)" />
+                                </label>
+                                <label class="flow-field">
+                                    <span>Y label</span>
+                                    <input value="@node.YLabel" @oninput="e => UpdateNode(node.Id, n => n.YLabel = e.Value?.ToString() ?? string.Empty)" />
+                                </label>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="flow-preview">
+            <div class="flow-preview-header">
+                <span>Compiled source</span>
+                <span class="flow-preview-subtitle">@_compileSummary</span>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_compileWarnings))
+            {
+                <div class="flow-warning">@_compileWarnings</div>
+            }
+
+            <textarea class="flow-source-view" readonly>@_generatedSource</textarea>
+
+            <div class="flow-runtime">
+                <div class="flow-runtime-title">Runtime file binding</div>
+                <div class="flow-runtime-row">
+                    <span class="flow-runtime-label">Path</span>
+                    <span class="flow-runtime-value">@(_runtimeFilePath ?? "none")</span>
+                </div>
+                <div class="flow-runtime-row">
+                    <span class="flow-runtime-label">Columns</span>
+                    <span class="flow-runtime-value">@(_runtimeColumns.Count == 0 ? "auto-detect" : string.Join(", ", _runtimeColumns))</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private const string StorageKey = "djelab.flow.pipeline.v1";
+    private const double NodeWidth = 280;
+    private const double NodeHeight = 220;
+
+    private readonly List<FlowNodeModel> _nodes = new();
+    private ElementReference _canvasRef;
+    private IJSObjectReference? _module;
+    private bool _loaded;
+    private bool _busy;
+    private string _statusMessage = "Build a file → transform → plot flow.";
+    private string _generatedSource = "";
+    private string _compileSummary = "Ready";
+    private string _compileWarnings = "";
+    private string? _runtimeDataJson;
+    private string? _runtimeFilePath;
+    private readonly List<string> _runtimeColumns = new();
+    private FlowNodeModel? _draggingNode;
+    private double _dragOffsetX;
+    private double _dragOffsetY;
+    private string? _pendingConnectionNodeId;
+    private ActiveFileContextSnapshot _activeFileContext = ActiveFileContextSnapshot.Empty;
+
+    protected override void OnInitialized()
+    {
+        _activeFileContext = Actions.CurrentFileContext;
+        Actions.ActiveFileContextChanged += HandleActiveFileContextChanged;
+        if (_nodes.Count == 0)
+        {
+            CreateDefaultFlow();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        await LoadStateAsync();
+        await CompileAsync();
+    }
+
+    private void HandleActiveFileContextChanged(ActiveFileContextSnapshot snapshot)
+    {
+        _activeFileContext = snapshot;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void CreateDefaultFlow()
+    {
+        _nodes.Clear();
+        _nodes.Add(new FlowNodeModel
+        {
+            Kind = FlowNodeKind.Source,
+            Title = "File Source",
+            X = 30,
+            Y = 70,
+            FilePath = _activeFileContext.HasSelection ? _activeFileContext.Path : "",
+            ColumnsCsv = ""
+        });
+        _nodes.Add(new FlowNodeModel
+        {
+            Kind = FlowNodeKind.Transform,
+            Title = "Transform",
+            X = 370,
+            Y = 70,
+            TransformExpression = "row[0]"
+        });
+        _nodes.Add(new FlowNodeModel
+        {
+            Kind = FlowNodeKind.Plot,
+            Title = "Plot",
+            X = 710,
+            Y = 70,
+            ChartType = "histogram",
+            XLabel = "Value",
+            YLabel = "Frequency"
+        });
+        AutoConnectChain();
+    }
+
+    private void AutoConnectChain()
+    {
+        for (var i = 0; i < _nodes.Count - 1; i++)
+        {
+            _nodes[i].OutputToNodeId = _nodes[i + 1].Id;
+            _nodes[i + 1].InputFromNodeId = _nodes[i].Id;
+        }
+    }
+
+    private void AddNode(FlowNodeKind kind)
+    {
+        var count = _nodes.Count;
+        var node = new FlowNodeModel
+        {
+            Kind = kind,
+            Title = kind switch
+            {
+                FlowNodeKind.Source => "File Source",
+                FlowNodeKind.Transform => "Transform",
+                FlowNodeKind.Filter => "Filter",
+                FlowNodeKind.Plot => "Plot",
+                _ => "Node"
+            },
+            X = 40 + count * 280,
+            Y = 80 + (count % 3) * 30,
+            TransformExpression = "row[0]",
+            FilterExpression = "true"
+        };
+
+        if (kind == FlowNodeKind.Plot)
+        {
+            node.ChartType = "histogram";
+            node.XLabel = "Value";
+            node.YLabel = "Frequency";
+        }
+
+        _nodes.Add(node);
+        _ = SaveStateAsync();
+        _ = CompileAsync();
+    }
+
+    private void RemoveNode(string nodeId)
+    {
+        var node = _nodes.FirstOrDefault(item => item.Id == nodeId);
+        if (node is null) return;
+
+        var parent = _nodes.FirstOrDefault(item => string.Equals(item.OutputToNodeId, node.Id, StringComparison.Ordinal));
+        var child = _nodes.FirstOrDefault(item => string.Equals(item.InputFromNodeId, node.Id, StringComparison.Ordinal));
+        if (parent is not null) parent.OutputToNodeId = child?.Id;
+        if (child is not null) child.InputFromNodeId = parent?.Id;
+
+        _nodes.Remove(node);
+        if (string.Equals(_pendingConnectionNodeId, nodeId, StringComparison.Ordinal))
+            _pendingConnectionNodeId = null;
+        _ = SaveStateAsync();
+        _ = CompileAsync();
+    }
+
+    private void UseSelectedFileForNode(string nodeId)
+    {
+        if (!_activeFileContext.HasSelection) return;
+
+        UpdateNode(nodeId, node =>
+        {
+            node.FilePath = _activeFileContext.Path;
+            if (string.IsNullOrWhiteSpace(node.Title))
+                node.Title = "File Source";
+        });
+
+        _statusMessage = $"Using {_activeFileContext.Name}.";
+    }
+
+    private void UseActiveFileAsync()
+    {
+        var source = _nodes.FirstOrDefault(node => node.Kind == FlowNodeKind.Source);
+        if (source is null || !_activeFileContext.HasSelection) return;
+
+        UpdateNode(source.Id, node => node.FilePath = _activeFileContext.Path);
+        _statusMessage = $"Using {_activeFileContext.Name}.";
+    }
+
+    private void StartConnection(string nodeId)
+    {
+        _pendingConnectionNodeId = nodeId;
+        _statusMessage = "Pick a target node.";
+    }
+
+    private void ConnectTarget(string targetNodeId)
+    {
+        if (_pendingConnectionNodeId is null || string.Equals(_pendingConnectionNodeId, targetNodeId, StringComparison.Ordinal))
+            return;
+
+        var source = _nodes.FirstOrDefault(node => node.Id == _pendingConnectionNodeId);
+        var target = _nodes.FirstOrDefault(node => node.Id == targetNodeId);
+        if (source is null || target is null)
+            return;
+
+        if (target.Kind == FlowNodeKind.Source)
+            return;
+
+        var previousSource = _nodes.FirstOrDefault(node => string.Equals(node.OutputToNodeId, target.Id, StringComparison.Ordinal));
+        if (previousSource is not null)
+            previousSource.OutputToNodeId = null;
+
+        var previousTarget = _nodes.FirstOrDefault(node => string.Equals(node.InputFromNodeId, source.Id, StringComparison.Ordinal));
+        if (previousTarget is not null)
+            previousTarget.InputFromNodeId = null;
+
+        source.OutputToNodeId = target.Id;
+        target.InputFromNodeId = source.Id;
+        _pendingConnectionNodeId = null;
+        _statusMessage = "Nodes connected.";
+        _ = SaveStateAsync();
+        _ = CompileAsync();
+    }
+
+    private void UpdateNode(string nodeId, Action<FlowNodeModel> update)
+    {
+        var node = _nodes.FirstOrDefault(item => item.Id == nodeId);
+        if (node is null) return;
+
+        update(node);
+        _ = SaveStateAsync();
+        _ = CompileAsync();
+    }
+
+    private void SetChartType(string nodeId, ChangeEventArgs e)
+    {
+        UpdateNode(nodeId, node => node.ChartType = e.Value?.ToString()?.Trim().ToLowerInvariant() ?? "histogram");
+    }
+
+    private void BeginDrag(FlowNodeModel node, PointerEventArgs e)
+    {
+        _draggingNode = node;
+        _dragOffsetX = e.ClientX - node.X;
+        _dragOffsetY = e.ClientY - node.Y;
+    }
+
+    private void OnCanvasPointerMove(PointerEventArgs e)
+    {
+        if (_draggingNode is null) return;
+
+        _draggingNode.X = Math.Max(8, e.ClientX - _dragOffsetX);
+        _draggingNode.Y = Math.Max(8, e.ClientY - _dragOffsetY);
+        StateHasChanged();
+    }
+
+    private void OnCanvasPointerUp(PointerEventArgs e)
+    {
+        if (_draggingNode is null) return;
+
+        _draggingNode = null;
+        _ = SaveStateAsync();
+    }
+
+    private IReadOnlyList<FlowNodeModel> BuildExecutionOrder(List<string> warnings)
+    {
+        if (_nodes.Count == 0)
+        {
+            warnings.Add("Add a source node to start building a flow.");
+            return Array.Empty<FlowNodeModel>();
+        }
+
+        var source = _nodes.FirstOrDefault(node => node.Kind == FlowNodeKind.Source) ?? _nodes.OrderBy(node => node.X).First();
+        var ordered = new List<FlowNodeModel>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var current = source;
+
+        while (current is not null && visited.Add(current.Id))
+        {
+            ordered.Add(current);
+            current = _nodes.FirstOrDefault(node => string.Equals(node.InputFromNodeId, current.Id, StringComparison.Ordinal));
+        }
+
+        if (_nodes.Any(node => !visited.Contains(node.Id)))
+        {
+            warnings.Add("Some nodes are disconnected; they were ignored for this compile.");
+        }
+
+        if (ordered.Count <= 1 && _nodes.Count > 1)
+        {
+            warnings.Add("No connections found yet, so I compiled the nodes from left to right.");
+            return _nodes.OrderBy(node => node.X).ThenBy(node => node.Y).ToList();
+        }
+
+        return ordered;
+    }
+
+    private async Task CompileAsync()
+    {
+        _busy = true;
+        StateHasChanged();
+
+        try
+        {
+            var compile = await BuildCompileResultAsync();
+            _generatedSource = compile.Source;
+            _runtimeDataJson = compile.RuntimeDataJson;
+            _compileSummary = compile.Summary;
+            _compileWarnings = compile.Warnings.Count == 0 ? "" : string.Join("\n", compile.Warnings);
+            _statusMessage = compile.Success ? "Flow compiled and ready." : "Flow needs a little more setup.";
+            Actions.AppendConsole("Flow", compile.Success ? $"Compiled flow: {compile.Summary}" : $"Compile warning: {compile.Summary}", compile.Success ? "info" : "warning");
+            await SaveStateAsync();
+        }
+        catch (Exception ex)
+        {
+            _generatedSource = "";
+            _runtimeDataJson = null;
+            _compileSummary = "Compile failed";
+            _compileWarnings = ex.Message;
+            _statusMessage = "Compile failed.";
+            Actions.AppendConsole("Flow", ex.Message, "error");
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RunAsync()
+    {
+        var compile = await BuildCompileResultAsync();
+        _generatedSource = compile.Source;
+        _runtimeDataJson = compile.RuntimeDataJson;
+        _compileSummary = compile.Summary;
+        _compileWarnings = compile.Warnings.Count == 0 ? "" : string.Join("\n", compile.Warnings);
+        if (!compile.Success)
+        {
+            _statusMessage = "Fix the flow before running it.";
+            Actions.AppendConsole("Flow", $"Run blocked: {string.Join(" ", compile.Warnings)}", "error");
+            StateHasChanged();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(compile.RuntimeDataJson))
+        {
+            _statusMessage = "Choose a data file and columns first.";
+            Actions.AppendConsole("Flow", "Run blocked: no runtime data binding yet.", "warning");
+            StateHasChanged();
+            return;
+        }
+
+        _busy = true;
+        StateHasChanged();
+
+        try
+        {
+            var outcome = await Actions.RunInNewGraphAsync(compile.ChartType, compile.XLabel, compile.YLabel, compile.ZLabel, compile.Source, compile.RuntimeDataJson);
+            _statusMessage = outcome.Success
+                ? $"Ran {outcome.PointCount} point(s)."
+                : $"Run failed: {outcome.Error}";
+            Actions.AppendConsole("Flow", outcome.Success
+                ? $"Flow ran successfully and emitted {outcome.PointCount} point(s)."
+                : $"Flow run failed: {outcome.Error}", outcome.Success ? "info" : "error");
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task<FlowCompileResult> BuildCompileResultAsync()
+    {
+        var warnings = new List<string>();
+        var ordered = BuildExecutionOrder(warnings);
+        if (ordered.Count == 0)
+        {
+            return new FlowCompileResult(false, "", null, "histogram", "Value", "Frequency", "Height", "Add a source node first.", warnings);
+        }
+
+        var sourceNode = ordered.FirstOrDefault(node => node.Kind == FlowNodeKind.Source);
+        if (sourceNode is null)
+        {
+            return new FlowCompileResult(false, "", null, "histogram", "Value", "Frequency", "Height", "Add a source node first.", warnings);
+        }
+
+        var runtimePath = !string.IsNullOrWhiteSpace(sourceNode.FilePath)
+            ? sourceNode.FilePath.Trim()
+            : _activeFileContext.HasSelection
+                ? _activeFileContext.Path
+                : "";
+
+        var runtimeColumns = ParseColumns(sourceNode.ColumnsCsv).ToArray();
+        var runtimeData = "";
+        if (!string.IsNullOrWhiteSpace(runtimePath))
+        {
+            var runtimeResult = await BuildRuntimeDataJsonAsync(runtimePath, runtimeColumns, CancellationToken.None);
+            if (!runtimeResult.Success || runtimeResult.Value is null)
+            {
+                warnings.Add(runtimeResult.Error ?? "Could not prepare runtime data.");
+            }
+            else
+            {
+                runtimeData = runtimeResult.Value;
+                _runtimeFilePath = runtimePath;
+                _runtimeColumns.Clear();
+                _runtimeColumns.AddRange(runtimeColumns);
+            }
+        }
+        else
+        {
+            warnings.Add("No file path is set yet.");
+            _runtimeFilePath = "";
+            _runtimeColumns.Clear();
+        }
+
+        var transforms = ordered.Where(node => node.Kind == FlowNodeKind.Transform).ToList();
+        var filters = ordered.Where(node => node.Kind == FlowNodeKind.Filter).ToList();
+        var plot = ordered.LastOrDefault(node => node.Kind == FlowNodeKind.Plot);
+        var chartType = plot?.ChartType?.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(chartType))
+            chartType = "histogram";
+
+        var xLabel = NormalizeLabel(plot?.XLabel, "Value");
+        var yLabel = NormalizeLabel(plot?.YLabel, chartType == "histogram" ? "Frequency" : "Value");
+        var zLabel = NormalizeLabel(plot?.ZLabel, "Height");
+        if (transforms.Count > 1)
+            warnings.Add("Multiple transform nodes are present; using the last transform node for now.");
+
+        var mapExpression = transforms.Count == 0
+            ? "row[0]"
+            : NormalizeExpression(transforms.Last().TransformExpression, "row[0]");
+
+        var filterExpressions = filters
+            .Select(node => NormalizeExpression(node.FilterExpression, "row"))
+            .Where(expr => !string.IsNullOrWhiteSpace(expr))
+            .ToList();
+
+        var sourceBuilder = new StringBuilder();
+        sourceBuilder.AppendLine($"// DjeLab flow: {string.Join(" -> ", ordered.Select(node => node.Title))}");
+        if (!string.IsNullOrWhiteSpace(runtimePath))
+            sourceBuilder.AppendLine($"// Source file: {runtimePath}");
+        if (runtimeColumns.Length > 0)
+            sourceBuilder.AppendLine($"// Columns: {string.Join(", ", runtimeColumns)}");
+        sourceBuilder.AppendLine();
+        sourceBuilder.AppendLine("let mapValue row =");
+        sourceBuilder.AppendLine($"    {mapExpression}");
+        sourceBuilder.AppendLine();
+        sourceBuilder.AppendLine("let keepRow row =");
+        sourceBuilder.AppendLine(filterExpressions.Count == 0
+            ? "    true"
+            : "    " + string.Join(" && ", filterExpressions.Select(expr => $"({expr})")));
+        sourceBuilder.AppendLine();
+
+        if (chartType == "line" || chartType == "scatter")
+        {
+            sourceBuilder.AppendLine("let rec loop i =");
+            sourceBuilder.AppendLine("    if i == len(data) then i");
+            sourceBuilder.AppendLine("    else (");
+            sourceBuilder.AppendLine("        let row = data[i] in");
+            sourceBuilder.AppendLine("        if keepRow(row) then (");
+            sourceBuilder.AppendLine("            let value = mapValue(row) in");
+            sourceBuilder.AppendLine("            emit([i, value])");
+            sourceBuilder.AppendLine("        ) else ()");
+            sourceBuilder.AppendLine("        loop(i + 1)");
+            sourceBuilder.AppendLine("    )");
+            sourceBuilder.AppendLine("in");
+            sourceBuilder.AppendLine("loop(0)");
+        }
+        else
+        {
+            sourceBuilder.AppendLine("let rec loop i =");
+            sourceBuilder.AppendLine("    if i == len(data) then i");
+            sourceBuilder.AppendLine("    else (");
+            sourceBuilder.AppendLine("        let row = data[i] in");
+            sourceBuilder.AppendLine("        if keepRow(row) then (");
+            sourceBuilder.AppendLine("            let value = mapValue(row) in");
+            sourceBuilder.AppendLine("            emit(value)");
+            sourceBuilder.AppendLine("        ) else ()");
+            sourceBuilder.AppendLine("        loop(i + 1)");
+            sourceBuilder.AppendLine("    )");
+            sourceBuilder.AppendLine("in");
+            sourceBuilder.AppendLine("loop(0)");
+        }
+
+        var summary = runtimeColumns.Length > 0
+            ? $"Source file: {Path.GetFileName(runtimePath)}; columns: {string.Join(", ", runtimeColumns)}"
+            : string.IsNullOrWhiteSpace(runtimePath)
+                ? "Source file: none"
+                : $"Source file: {Path.GetFileName(runtimePath)}; columns auto-detected";
+
+        return new FlowCompileResult(
+            warnings.Count == 0 || warnings.All(w => !w.Contains("Add a source node first.", StringComparison.OrdinalIgnoreCase)),
+            sourceBuilder.ToString(),
+            string.IsNullOrWhiteSpace(runtimeData) ? null : runtimeData,
+            chartType,
+            xLabel,
+            yLabel,
+            zLabel,
+            summary,
+            warnings);
+    }
+
+    private static string NormalizeLabel(string? value, string fallback)
+    {
+        var trimmed = value?.Trim() ?? "";
+        return string.IsNullOrWhiteSpace(trimmed) ? fallback : trimmed;
+    }
+
+    private static string NormalizeExpression(string? value, string fallback)
+    {
+        var trimmed = value?.Trim() ?? "";
+        return string.IsNullOrWhiteSpace(trimmed) ? fallback : trimmed;
+    }
+
+    private static IEnumerable<string> ParseColumns(string csv)
+    {
+        return (csv ?? "")
+            .Split(new[] { ',', ';', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(column => !string.IsNullOrWhiteSpace(column));
+    }
+
+    private async Task<FilesResult<string>> BuildRuntimeDataJsonAsync(string dataPath, IReadOnlyList<string> dataColumns, CancellationToken ct)
+    {
+        var resolved = await FilesClient.ResolvePathAsync(dataPath, ct);
+        if (!resolved.Success || resolved.Value is null)
+            return FilesResult<string>.Fail(resolved.Error ?? "Could not resolve the data file.");
+
+        if (resolved.Value.IsFolder)
+            return FilesResult<string>.Fail("The runtime data path must point to a file, not a folder.");
+
+        var preview = await FilesClient.ReadTextPreviewAsync(resolved.Value.Path, long.MaxValue, ct);
+        if (!preview.Success || preview.Value is null)
+            return FilesResult<string>.Fail(preview.Error ?? "Could not read that file.");
+
+        var content = preview.Value.Content;
+        var contentType = (resolved.Value.ContentType ?? "").ToLowerInvariant();
+        var extension = Path.GetExtension(resolved.Value.Name).ToLowerInvariant();
+
+        if (contentType.Contains("json") || extension == ".json" || LooksLikeJson(content))
+            return BuildJsonRuntimeData(resolved.Value.Path, content, dataColumns);
+
+        if (contentType.Contains("csv") || extension == ".csv" || LooksLikeCsv(content))
+            return BuildCsvRuntimeData(resolved.Value.Path, content, dataColumns);
+
+        return FilesResult<string>.Fail("Flow builder currently supports CSV and JSON files.");
+    }
+
+    private static FilesResult<string> BuildCsvRuntimeData(string path, string content, IReadOnlyList<string> dataColumns)
+    {
+        var parsed = CsvText.parse(content);
+        var headers = parsed.Headers.Select(header => header.Trim()).ToArray();
+        var rows = parsed.Rows.Select(row => row.ToArray()).ToArray();
+
+        if (headers.Length == 0)
+            return FilesResult<string>.Fail($"\"{path}\" does not have a CSV header row.");
+        if (rows.Length == 0)
+            return FilesResult<string>.Fail($"\"{path}\" does not have any data rows.");
+
+        var selectedColumns = ResolveCsvColumns(headers, rows, dataColumns);
+        if (!selectedColumns.Success || selectedColumns.Value is null)
+            return FilesResult<string>.Fail(selectedColumns.Error ?? "Could not select runtime data columns.");
+
+        if (selectedColumns.Value.Length == 0)
+            return FilesResult<string>.Fail("No numeric CSV columns were found. Pick columns explicitly with dataColumns.");
+
+        var extractedRows = new List<double[]>();
+        foreach (var row in rows)
+        {
+            if (TryBuildNumericRow(row, selectedColumns.Value, out var numericRow))
+                extractedRows.Add(numericRow);
+        }
+
+        if (extractedRows.Count == 0)
+            return FilesResult<string>.Fail("No usable numeric rows were found in that CSV file.");
+
+        object runtimeData = selectedColumns.Value.Length == 1
+            ? extractedRows.Select(row => row[0]).ToArray()
+            : extractedRows.Select(row => row.Cast<double>().ToArray()).ToArray();
+
+        return FilesResult<string>.Ok(JsonSerializer.Serialize(runtimeData));
+    }
+
+    private static FilesResult<string> BuildJsonRuntimeData(string path, string content, IReadOnlyList<string> dataColumns)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(content);
+            var root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Array)
+                return FilesResult<string>.Fail($"\"{path}\" must contain a JSON array for runtime data binding.");
+
+            var items = root.EnumerateArray().ToArray();
+            if (items.Length == 0)
+                return FilesResult<string>.Fail($"\"{path}\" does not contain any array items.");
+
+            if (items[0].ValueKind == JsonValueKind.Object)
+                return BuildJsonObjectRuntimeData(path, items, dataColumns);
+
+            if (items[0].ValueKind == JsonValueKind.Array)
+                return BuildJsonArrayRuntimeData(path, items, dataColumns);
+
+            return BuildJsonScalarRuntimeData(path, items, dataColumns);
+        }
+        catch (JsonException ex)
+        {
+            return FilesResult<string>.Fail($"Could not parse \"{path}\" as JSON: {ex.Message}");
+        }
+    }
+
+    private static FilesResult<string> BuildJsonObjectRuntimeData(string path, JsonElement[] items, IReadOnlyList<string> dataColumns)
+    {
+        var headers = items
+            .SelectMany(item => item.EnumerateObject().Select(prop => prop.Name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var selectedColumns = dataColumns.Count == 0
+            ? FilesResult<int[]>.Ok(InferNumericJsonObjectColumns(items, headers).ToArray())
+            : ResolveJsonObjectColumns(headers, dataColumns);
+
+        if (!selectedColumns.Success || selectedColumns.Value is null)
+            return FilesResult<string>.Fail(selectedColumns.Error ?? "Could not select JSON columns.");
+
+        if (selectedColumns.Value.Length == 0)
+            return FilesResult<string>.Fail("No numeric JSON columns were found. Pick columns explicitly with dataColumns.");
+
+        var rows = new List<double[]>();
+        foreach (var item in items)
+        {
+            if (TryBuildNumericJsonObjectRow(item, headers, selectedColumns.Value, out var row))
+                rows.Add(row);
+        }
+
+        if (rows.Count == 0)
+            return FilesResult<string>.Fail($"No usable numeric rows were found in \"{path}\".");
+
+        object runtimeData = selectedColumns.Value.Length == 1
+            ? rows.Select(row => row[0]).ToArray()
+            : rows.Select(row => row.Cast<double>().ToArray()).ToArray();
+
+        return FilesResult<string>.Ok(JsonSerializer.Serialize(runtimeData));
+    }
+
+    private static FilesResult<string> BuildJsonArrayRuntimeData(string path, JsonElement[] items, IReadOnlyList<string> dataColumns)
+    {
+        var selectedColumns = dataColumns.Count == 0
+            ? FilesResult<int[]>.Ok(InferNumericJsonArrayColumns(items).ToArray())
+            : ResolveJsonArrayColumns(items, dataColumns);
+
+        if (!selectedColumns.Success || selectedColumns.Value is null)
+            return FilesResult<string>.Fail(selectedColumns.Error ?? "Could not select JSON columns.");
+
+        if (selectedColumns.Value.Length == 0)
+            return FilesResult<string>.Fail("No numeric JSON columns were found. Pick columns explicitly with dataColumns.");
+
+        var rows = new List<double[]>();
+        foreach (var item in items)
+        {
+            if (TryBuildNumericJsonArrayRow(item, selectedColumns.Value, out var row))
+                rows.Add(row);
+        }
+
+        if (rows.Count == 0)
+            return FilesResult<string>.Fail($"No usable numeric rows were found in \"{path}\".");
+
+        object runtimeData = selectedColumns.Value.Length == 1
+            ? rows.Select(row => row[0]).ToArray()
+            : rows.Select(row => row.Cast<double>().ToArray()).ToArray();
+
+        return FilesResult<string>.Ok(JsonSerializer.Serialize(runtimeData));
+    }
+
+    private static FilesResult<string> BuildJsonScalarRuntimeData(string path, JsonElement[] items, IReadOnlyList<string> dataColumns)
+    {
+        var rows = new List<double[]>();
+        foreach (var item in items)
+        {
+            if (TryConvertScalarJsonValue(item, out var value))
+                rows.Add(new[] { value });
+        }
+
+        if (rows.Count == 0)
+            return FilesResult<string>.Fail($"No usable numeric values were found in \"{path}\".");
+
+        return FilesResult<string>.Ok(JsonSerializer.Serialize(rows.Select(row => row[0]).ToArray()));
+    }
+
+    private static FilesResult<int[]> ResolveCsvColumns(string[] headers, string[][] rows, IReadOnlyList<string> dataColumns)
+    {
+        if (dataColumns.Count > 0)
+        {
+            var indices = new List<int>();
+            foreach (var column in dataColumns)
+            {
+                var index = Array.FindIndex(headers, header => string.Equals(header, column, StringComparison.OrdinalIgnoreCase));
+                if (index < 0)
+                    return FilesResult<int[]>.Fail($"Could not find CSV column \"{column}\".");
+                indices.Add(index);
+            }
+
+            return FilesResult<int[]>.Ok(indices.ToArray());
+        }
+
+        var inferred = InferNumericCsvColumns(headers, rows).ToArray();
+        return FilesResult<int[]>.Ok(inferred);
+    }
+
+    private static IEnumerable<int> InferNumericCsvColumns(string[] headers, string[][] rows)
+    {
+        for (var column = 0; column < headers.Length; column++)
+        {
+            var sawValue = false;
+            var numeric = true;
+            foreach (var row in rows)
+            {
+                if (column >= row.Length) continue;
+                var cell = row[column].Trim();
+                if (string.IsNullOrWhiteSpace(cell)) continue;
+                sawValue = true;
+                if (!double.TryParse(cell, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                {
+                    numeric = false;
+                    break;
+                }
+            }
+
+            if (sawValue && numeric)
+                yield return column;
+        }
+    }
+
+    private static bool TryBuildNumericRow(string[] row, IReadOnlyList<int> selectedColumns, out double[] numericRow)
+    {
+        numericRow = Array.Empty<double>();
+        var values = new double[selectedColumns.Count];
+        for (var i = 0; i < selectedColumns.Count; i++)
+        {
+            var column = selectedColumns[i];
+            if (column >= row.Length) return false;
+            if (!double.TryParse(row[column].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+                return false;
+            values[i] = parsed;
+        }
+
+        numericRow = values;
+        return true;
+    }
+
+    private static FilesResult<int[]> ResolveJsonObjectColumns(string[] headers, IReadOnlyList<string> dataColumns)
+    {
+        var indices = new List<int>();
+        foreach (var column in dataColumns)
+        {
+            var index = Array.FindIndex(headers, header => string.Equals(header, column, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+                return FilesResult<int[]>.Fail($"Could not find JSON column \"{column}\".");
+            indices.Add(index);
+        }
+
+        return FilesResult<int[]>.Ok(indices.ToArray());
+    }
+
+    private static IEnumerable<int> InferNumericJsonObjectColumns(JsonElement[] items, string[] headers)
+    {
+        for (var column = 0; column < headers.Length; column++)
+        {
+            var sawValue = false;
+            var numeric = true;
+            foreach (var item in items)
+            {
+                var ok = TryGetJsonObjectNumericValue(item, headers[column], out _, out var hasValue);
+                if (!ok)
+                {
+                    numeric = false;
+                    break;
+                }
+
+                if (hasValue)
+                    sawValue = true;
+            }
+
+            if (sawValue && numeric)
+                yield return column;
+        }
+    }
+
+    private static bool TryBuildNumericJsonObjectRow(JsonElement item, string[] headers, IReadOnlyList<int> selectedColumns, out double[] row)
+    {
+        row = Array.Empty<double>();
+        var values = new double[selectedColumns.Count];
+        for (var i = 0; i < selectedColumns.Count; i++)
+        {
+            var header = headers[selectedColumns[i]];
+            if (!TryGetJsonObjectNumericValue(item, header, out var value, out var hasValue) || !hasValue)
+                return false;
+            values[i] = value;
+        }
+
+        row = values;
+        return true;
+    }
+
+    private static bool TryGetJsonObjectNumericValue(JsonElement item, string propertyName, out double value, out bool hasValue)
+    {
+        value = 0;
+        hasValue = false;
+        if (item.ValueKind != JsonValueKind.Object)
+            return false;
+
+        foreach (var prop in item.EnumerateObject())
+        {
+            if (!string.Equals(prop.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            hasValue = true;
+            if (prop.Value.ValueKind == JsonValueKind.Number && prop.Value.TryGetDouble(out value))
+                return true;
+            if (prop.Value.ValueKind == JsonValueKind.String && double.TryParse(prop.Value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+                return true;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private static FilesResult<int[]> ResolveJsonArrayColumns(JsonElement[] items, IReadOnlyList<string> dataColumns)
+    {
+        if (items.Length == 0 || items[0].ValueKind != JsonValueKind.Array)
+            return FilesResult<int[]>.Fail("JSON array columns could not be inferred.");
+
+        var width = items[0].GetArrayLength();
+        if (dataColumns.Count == 0)
+            return FilesResult<int[]>.Ok(InferNumericJsonArrayColumns(items).ToArray());
+
+        var indices = new List<int>();
+        foreach (var column in dataColumns)
+        {
+            if (!int.TryParse(column, out var index) || index < 0 || index >= width)
+                return FilesResult<int[]>.Fail($"Could not find JSON array column \"{column}\".");
+            indices.Add(index);
+        }
+
+        return FilesResult<int[]>.Ok(indices.ToArray());
+    }
+
+    private static IEnumerable<int> InferNumericJsonArrayColumns(JsonElement[] items)
+    {
+        if (items.Length == 0 || items[0].ValueKind != JsonValueKind.Array)
+            yield break;
+
+        var width = items[0].GetArrayLength();
+        for (var column = 0; column < width; column++)
+        {
+            var sawValue = false;
+            var numeric = true;
+            foreach (var item in items)
+            {
+                if (item.ValueKind != JsonValueKind.Array || column >= item.GetArrayLength())
+                    continue;
+
+                var cell = item.EnumerateArray().ElementAt(column);
+                if (cell.ValueKind == JsonValueKind.Null) continue;
+                sawValue = true;
+                if (cell.ValueKind == JsonValueKind.Number && cell.TryGetDouble(out _))
+                    continue;
+                if (cell.ValueKind == JsonValueKind.String && double.TryParse(cell.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                    continue;
+
+                numeric = false;
+                break;
+            }
+
+            if (sawValue && numeric)
+                yield return column;
+        }
+    }
+
+    private static bool TryBuildNumericJsonArrayRow(JsonElement item, IReadOnlyList<int> selectedColumns, out double[] row)
+    {
+        row = Array.Empty<double>();
+        if (item.ValueKind != JsonValueKind.Array)
+            return false;
+
+        var cells = item.EnumerateArray().ToArray();
+        var values = new double[selectedColumns.Count];
+        for (var i = 0; i < selectedColumns.Count; i++)
+        {
+            var column = selectedColumns[i];
+            if (column >= cells.Length)
+                return false;
+
+            var cell = cells[column];
+            if (cell.ValueKind == JsonValueKind.Number && cell.TryGetDouble(out var numeric))
+            {
+                values[i] = numeric;
+                continue;
+            }
+
+            if (cell.ValueKind == JsonValueKind.String && double.TryParse(cell.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out numeric))
+            {
+                values[i] = numeric;
+                continue;
+            }
+
+            return false;
+        }
+
+        row = values;
+        return true;
+    }
+
+    private static bool TryConvertScalarJsonValue(JsonElement item, out double value)
+    {
+        value = 0;
+        if (item.ValueKind == JsonValueKind.Number && item.TryGetDouble(out value))
+            return true;
+        if (item.ValueKind == JsonValueKind.String && double.TryParse(item.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+            return true;
+        return false;
+    }
+
+    private static bool LooksLikeJson(string content)
+    {
+        var trimmed = content.TrimStart();
+        return trimmed.StartsWith("{") || trimmed.StartsWith("[");
+    }
+
+    private static bool LooksLikeCsv(string content)
+    {
+        var parsed = CsvText.parse(content);
+        return parsed.Headers.Count() >= 2 && parsed.Rows.Count() >= 1;
+    }
+
+    private IEnumerable<(FlowNodeModel Source, FlowNodeModel Target)> BuildConnections()
+    {
+        foreach (var node in _nodes)
+        {
+            if (string.IsNullOrWhiteSpace(node.OutputToNodeId))
+                continue;
+
+            var target = _nodes.FirstOrDefault(candidate => string.Equals(candidate.Id, node.OutputToNodeId, StringComparison.Ordinal));
+            if (target is not null)
+                yield return (node, target);
+        }
+    }
+
+    private string BuildWirePath((FlowNodeModel Source, FlowNodeModel Target) connection)
+    {
+        var startX = connection.Source.X + NodeWidth;
+        var startY = connection.Source.Y + 110;
+        var endX = connection.Target.X;
+        var endY = connection.Target.Y + 110;
+        var controlOffset = Math.Max(80, Math.Abs(endX - startX) * 0.35);
+        return $"M {startX.ToString(CultureInfo.InvariantCulture)} {startY.ToString(CultureInfo.InvariantCulture)} C {(startX + controlOffset).ToString(CultureInfo.InvariantCulture)} {startY.ToString(CultureInfo.InvariantCulture)}, {(endX - controlOffset).ToString(CultureInfo.InvariantCulture)} {endY.ToString(CultureInfo.InvariantCulture)}, {endX.ToString(CultureInfo.InvariantCulture)} {endY.ToString(CultureInfo.InvariantCulture)}";
+    }
+
+    private string BuildNodeStyle(FlowNodeModel node)
+    {
+        return string.Create(CultureInfo.InvariantCulture, $"left:{node.X}px; top:{node.Y}px;");
+    }
+
+    private async Task SaveStateAsync()
+    {
+        if (!_loaded)
+            return;
+
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+            if (_nodes.Count == 0)
+            {
+                await _module.InvokeVoidAsync("removeJson", StorageKey);
+                return;
+            }
+
+            var snapshot = new FlowPaneSnapshot(_nodes);
+            await _module.InvokeVoidAsync("saveJson", StorageKey, JsonSerializer.Serialize(snapshot));
+        }
+        catch
+        {
+            // Best-effort only.
+        }
+    }
+
+    private async Task LoadStateAsync()
+    {
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+            var json = await _module.InvokeAsync<string?>("loadJson", StorageKey);
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                var snapshot = JsonSerializer.Deserialize<FlowPaneSnapshot>(json);
+                if (snapshot?.Nodes is { Count: > 0 })
+                {
+                    _nodes.Clear();
+                    _nodes.AddRange(snapshot.Nodes);
+                    _loaded = true;
+                    StateHasChanged();
+                    return;
+                }
+            }
+        }
+        catch
+        {
+            // Fall back to the default flow.
+        }
+
+        if (_nodes.Count == 0)
+            CreateDefaultFlow();
+
+        _loaded = true;
+        await SaveStateAsync();
+    }
+
+    private async Task SaveSourceAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_generatedSource))
+            return;
+
+        var defaultPath = $"/djelab/generated/flow-{DateTime.UtcNow:yyyyMMdd-HHmmss}.spi";
+        var path = await JS.InvokeAsync<string?>("prompt", "Save the compiled flow to which file path?", defaultPath);
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        var saveResult = await FilesClient.WriteTextFileAsync(path, _generatedSource, "text/plain");
+        if (saveResult.Success && saveResult.Value is not null)
+        {
+            Actions.NotifyFilesChanged();
+            Actions.AppendConsole("Flow", $"Saved compiled flow source to {saveResult.Value.Path}.");
+            _statusMessage = $"Saved {saveResult.Value.Path}.";
+        }
+        else
+        {
+            _statusMessage = saveResult.Error ?? "Could not save the compiled source.";
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Actions.ActiveFileContextChanged -= HandleActiveFileContextChanged;
+        if (_module != null)
+            await _module.DisposeAsync();
+    }
+}

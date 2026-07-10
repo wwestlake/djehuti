@@ -1763,6 +1763,287 @@ a {
     flex-wrap: wrap;
 }
 
+/* ── Flow editor pane ─────────────────────────────────────────────────────── */
+.flow-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.flow-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid var(--djelab-border);
+    flex: 0 0 auto;
+}
+
+.flow-toolbar-left {
+    display: flex;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+}
+
+.flow-toolbar-right {
+    display: flex;
+    align-items: center;
+    min-height: 32px;
+}
+
+.flow-status {
+    color: var(--djelab-muted);
+    font-size: 0.85rem;
+}
+
+.flow-btn,
+.flow-mini-btn {
+    background: transparent;
+    border: 1px solid var(--djelab-border);
+    color: var(--djelab-text);
+    border-radius: 8px;
+    cursor: pointer;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.84rem;
+}
+
+    .flow-btn:hover,
+    .flow-mini-btn:hover {
+        border-color: var(--djelab-accent);
+        color: var(--djelab-accent);
+    }
+
+.flow-btn-accent {
+    border-color: rgba(232, 179, 84, 0.55);
+    color: #ffd78a;
+}
+
+.flow-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.9fr);
+    gap: 0.75rem;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 0.75rem;
+}
+
+.flow-canvas-shell {
+    min-height: 0;
+}
+
+.flow-canvas {
+    position: relative;
+    height: 100%;
+    min-height: 0;
+    overflow: auto;
+    border: 1px solid var(--djelab-border);
+    border-radius: 10px;
+    background:
+        linear-gradient(rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.03)),
+        radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.05) 1px, transparent 0) 0 0 / 24px 24px,
+        #0b1220;
+}
+
+.flow-wires {
+    position: absolute;
+    inset: 0;
+    width: 4000px;
+    height: 2400px;
+    pointer-events: none;
+}
+
+    .flow-wires path {
+        fill: none;
+        stroke: rgba(63, 169, 245, 0.82);
+        stroke-width: 4;
+        filter: drop-shadow(0 0 5px rgba(63, 169, 245, 0.2));
+    }
+
+.flow-node {
+    position: absolute;
+    width: 280px;
+    min-height: 220px;
+    background: var(--djelab-surface);
+    border: 1px solid var(--djelab-border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 14px 24px rgba(0, 0, 0, 0.18);
+}
+
+    .flow-node.selected {
+        border-color: rgba(232, 179, 84, 0.85);
+        box-shadow: 0 0 0 1px rgba(232, 179, 84, 0.8), 0 16px 28px rgba(0, 0, 0, 0.2);
+    }
+
+.flow-node-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0.7rem;
+    border-bottom: 1px solid var(--djelab-border);
+    cursor: grab;
+    user-select: none;
+}
+
+.flow-node-title {
+    font-weight: 600;
+}
+
+.flow-node-close {
+    border: none;
+    background: transparent;
+    color: var(--djelab-muted);
+    font-size: 1.05rem;
+    cursor: pointer;
+}
+
+    .flow-node-close:hover {
+        color: #ff8a8a;
+    }
+
+.flow-node-sockets {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.flow-socket {
+    position: absolute;
+    top: 98px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    background: var(--djelab-bg);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.14);
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.flow-socket-input {
+    left: -9px;
+}
+
+.flow-socket-output {
+    right: -9px;
+    border-color: rgba(63, 169, 245, 0.95);
+    background: rgba(63, 169, 245, 0.3);
+}
+
+.flow-node-body {
+    padding: 0.65rem;
+}
+
+.flow-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 0.55rem;
+    font-size: 0.82rem;
+    color: var(--djelab-muted);
+}
+
+    .flow-field input,
+    .flow-field textarea,
+    .flow-field select {
+        width: 100%;
+        padding: 0.45rem 0.5rem;
+        background: var(--djelab-bg);
+        border: 1px solid var(--djelab-border);
+        border-radius: 8px;
+        color: var(--djelab-text);
+        font: inherit;
+    }
+
+        .flow-field textarea {
+            resize: vertical;
+            min-height: 88px;
+        }
+
+.flow-mini-btn {
+    width: 100%;
+}
+
+.flow-preview {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--djelab-surface);
+    border: 1px solid var(--djelab-border);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.flow-preview-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 0.8rem;
+    border-bottom: 1px solid var(--djelab-border);
+    font-weight: 600;
+}
+
+.flow-preview-subtitle {
+    color: var(--djelab-muted);
+    font-size: 0.82rem;
+    font-weight: 400;
+}
+
+.flow-warning {
+    padding: 0.55rem 0.8rem;
+    border-bottom: 1px solid rgba(232, 179, 84, 0.2);
+    color: #ffd78a;
+    white-space: pre-wrap;
+}
+
+.flow-source-view {
+    flex: 1 1 auto;
+    min-height: 220px;
+    width: 100%;
+    border: none;
+    resize: none;
+    background: #09101b;
+    color: #ffd9a1;
+    padding: 0.8rem;
+    font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
+    font-size: 0.85rem;
+    line-height: 1.45;
+}
+
+.flow-runtime {
+    border-top: 1px solid var(--djelab-border);
+    padding: 0.7rem 0.8rem;
+    font-size: 0.84rem;
+}
+
+.flow-runtime-title {
+    font-weight: 600;
+    margin-bottom: 0.35rem;
+}
+
+.flow-runtime-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+
+.flow-runtime-label {
+    color: var(--djelab-muted);
+    min-width: 4rem;
+}
+
+.flow-runtime-value {
+    color: var(--djelab-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 @media (max-width: 860px) {
     .dock-canvas {
         padding: 0;
@@ -1786,6 +2067,10 @@ a {
     .dock-group {
         margin: 2px 0;
         border-radius: 0;
+    }
+
+    .flow-body {
+        grid-template-columns: 1fr;
     }
 }
 
