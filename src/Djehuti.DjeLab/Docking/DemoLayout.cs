@@ -32,15 +32,10 @@ public static class DemoLayout
         var consoleGroup = new TabGroupNode();
         consoleGroup.PaneIds.Add(console.Id);
 
-        var lowerLeft = new SplitNode { Direction = SplitDirection.Column };
-        lowerLeft.Children.Add(consoleGroup);
-        lowerLeft.Children.Add(editorGroup);
-        lowerLeft.Sizes = new List<double> { 0.36, 0.64 };
-
         var leftColumn = new SplitNode { Direction = SplitDirection.Column };
         leftColumn.Children.Add(graphGroup);
-        leftColumn.Children.Add(lowerLeft);
-        leftColumn.Sizes = new List<double> { 0.56, 0.44 };
+        leftColumn.Children.Add(editorGroup);
+        leftColumn.Sizes = new List<double> { 0.62, 0.38 };
 
         var rightGroup = new TabGroupNode();
         rightGroup.PaneIds.Add(chat.Id);
@@ -48,9 +43,14 @@ public static class DemoLayout
         rightGroup.PaneIds.Add(files.Id);
 
         var root = new SplitNode { Direction = SplitDirection.Row };
-        root.Children.Add(leftColumn);
-        root.Children.Add(rightGroup);
-        root.Sizes = new List<double> { 0.65, 0.35 };
+        var topArea = new SplitNode { Direction = SplitDirection.Row };
+        topArea.Children.Add(leftColumn);
+        topArea.Children.Add(rightGroup);
+        topArea.Sizes = new List<double> { 0.65, 0.35 };
+
+        root.Children.Add(topArea);
+        root.Children.Add(consoleGroup);
+        root.Sizes = new List<double> { 0.78, 0.22 };
 
         return (root, panes);
     }
