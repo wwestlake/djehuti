@@ -141,7 +141,7 @@ function FeaturedPost() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    blogApi.getRandomArticle().then(a => setArticle(a))
+    blogApi.getArticles({ page: 1, pageSize: 1 }).then(items => setArticle(items[0] ?? null))
   }, [])
 
   if (!article) return null
