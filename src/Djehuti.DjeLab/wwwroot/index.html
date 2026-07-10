@@ -15,6 +15,27 @@
     <!-- If you add any scoped CSS files, uncomment the following to load them
     <link href="Djehuti.DjeLab.styles.css" rel="stylesheet" /> -->
 
+    <!-- Ace Editor: gives the code pane line numbers, syntax highlighting,
+         search, and the familiar keyboard shortcuts people expect in a real
+         editor. Loaded from CDN alongside a handful of common language
+         modes; Spinoza gets a small custom highlighter in our own JS helper. -->
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.8/ace.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.8/ext-language_tools.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.8/theme-tomorrow_night.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.8/mode-json.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.8/mode-javascript.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.8/mode-typescript.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.8/mode-html.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.8/mode-css.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.8/mode-markdown.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.8/mode-python.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.8/mode-sql.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.8/mode-xml.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.8/mode-sh.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.8/mode-csharp.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.8/mode-fsharp.min.js" crossorigin="anonymous" onerror="this.remove()"></script>
+    <script defer src="js/ace-editor-interop.js"></script>
+
     <!-- KaTeX: renders LaTeX math notation in Chat pane messages. Loaded from
          a CDN rather than vendored -- defer preserves script execution order
          (katex core before auto-render). -->

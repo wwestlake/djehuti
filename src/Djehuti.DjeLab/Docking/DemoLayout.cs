@@ -1,13 +1,13 @@
 namespace Djehuti.DjeLab.Docking;
 
 /// <summary>Fake starting layout used to try out the docking mechanics before
-/// any real pane content (graphs, DSL console, BYOK chat, data tables) exists.</summary>
+/// any real pane content (graphs, code editor, BYOK chat, data tables) exists.</summary>
 public static class DemoLayout
 {
     public static (DockNode root, Dictionary<string, PaneDescriptor> panes) CreateDefault()
     {
         var graph = new PaneDescriptor { Title = "Graph", Kind = "graph", AccentColor = "#3fa9f5" };
-        var console = new PaneDescriptor { Title = "Console", Kind = "console", AccentColor = "#8fa0bd" };
+        var editor = new PaneDescriptor { Title = "Editor", Kind = "editor", AccentColor = "#7dd3fc" };
         var chat = new PaneDescriptor { Title = "Chat", Kind = "chat", AccentColor = "#e8b354" };
         var data = new PaneDescriptor { Title = "Data", Kind = "data", AccentColor = "#58d68d" };
         var files = new PaneDescriptor { Title = "Files", Kind = "files", AccentColor = "#c792ea" };
@@ -15,7 +15,7 @@ public static class DemoLayout
         var panes = new Dictionary<string, PaneDescriptor>
         {
             [graph.Id] = graph,
-            [console.Id] = console,
+            [editor.Id] = editor,
             [chat.Id] = chat,
             [data.Id] = data,
             [files.Id] = files,
@@ -24,12 +24,12 @@ public static class DemoLayout
         var graphGroup = new TabGroupNode();
         graphGroup.PaneIds.Add(graph.Id);
 
-        var consoleGroup = new TabGroupNode();
-        consoleGroup.PaneIds.Add(console.Id);
+        var editorGroup = new TabGroupNode();
+        editorGroup.PaneIds.Add(editor.Id);
 
         var leftColumn = new SplitNode { Direction = SplitDirection.Column };
         leftColumn.Children.Add(graphGroup);
-        leftColumn.Children.Add(consoleGroup);
+        leftColumn.Children.Add(editorGroup);
         leftColumn.Sizes = new List<double> { 0.65, 0.35 };
 
         var rightGroup = new TabGroupNode();

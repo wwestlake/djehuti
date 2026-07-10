@@ -1,0 +1,428 @@
+@implements IAsyncDisposable
+@inject DjeLabFilesClient FilesClient
+@inject WorkspaceActions Actions
+@inject IJSRuntime JS
+
+<div class="code-editor-pane">
+    <div class="code-editor-toolbar">
+        <div class="code-editor-toolbar-left">
+            <input class="code-editor-path"
+                   @bind="_path"
+                   @bind:event="oninput"
+                   placeholder="/djelab/generated/sim.spi" />
+            <button type="button" class="files-action-btn code-editor-btn" @onclick="OpenPathAsync" disabled="@_busy">Open</button>
+            <button type="button" class="files-action-btn code-editor-btn" @onclick="OpenSelectedFileAsync" disabled="@(!_activeSelection.HasSelection || _busy)">Open selected</button>
+            <button type="button" class="files-action-btn code-editor-btn" @onclick="ReloadAsync" disabled="@(!_canReload || _busy)">Reload</button>
+            <button type="button" class="files-action-btn code-editor-btn" @onclick="SaveAsync" disabled="@(!_canSave || _busy)">Save</button>
+            <button type="button" class="files-action-btn code-editor-btn" @onclick="SaveAsAsync" disabled="@_busy">Save as</button>
+            <button type="button" class="files-action-btn code-editor-btn" @onclick="NewFileAsync" disabled="@_busy">New</button>
+        </div>
+        <div class="code-editor-toolbar-right">
+            <span class="code-editor-language">@_languageLabel</span>
+            <span class="code-editor-cursor">Ln @_cursorLine, Col @_cursorColumn</span>
+            @if (_dirty)
+            {
+                <span class="code-editor-dirty">unsaved</span>
+            }
+        </div>
+    </div>
+
+    <div class="code-editor-context">
+        @if (_activeSelection.HasSelection)
+        {
+            <div class="code-editor-context-line">
+                <span class="code-editor-context-label">Files pane selection:</span>
+                <span class="code-editor-context-path">@_activeSelection.Path</span>
+                @if (_activeSelection.Truncated)
+                {
+                    <span class="code-editor-context-warning">preview only</span>
+                }
+            </div>
+        }
+
+        @if (_message is not null)
+        {
+            <div class="code-editor-message">@_message</div>
+        }
+    </div>
+
+    <div class="code-editor-host" @ref="_editorHost"></div>
+
+    <div class="code-editor-footer">
+        <span>@(_path.Length == 0 ? "No file open" : _path)</span>
+        <span>@_footerRight</span>
+    </div>
+</div>
+
+@code {
+    private const long MaxOpenBytes = 4L * 1024 * 1024;
+
+    private ElementReference _editorHost;
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _editor;
+    private DotNetObjectReference<CodeEditorPane>? _dotNetRef;
+
+    private bool _busy;
+    private bool _loadingFile;
+    private bool _editorReady;
+    private bool _dirty;
+    private bool _truncated;
+    private string _path = "/djelab/generated/sim.spi";
+    private string _content = "";
+    private string _savedContent = "";
+    private string _contentType = "text/plain";
+    private string _languageLabel = "Spinoza";
+    private string? _message = "Create a file or open one from Files to start editing.";
+    private string _footerRight = "Ready";
+    private int _cursorLine = 1;
+    private int _cursorColumn = 1;
+    private ActiveFileContextSnapshot _activeSelection = ActiveFileContextSnapshot.Empty;
+
+    private bool _canReload => !_loadingFile && !string.IsNullOrWhiteSpace(_path);
+    private bool _canSave => !_loadingFile && !_busy && !_truncated && (_dirty || !string.IsNullOrWhiteSpace(_path));
+
+    protected override void OnInitialized()
+    {
+        _dotNetRef = DotNetObjectReference.Create(this);
+        _activeSelection = Actions.CurrentFileContext;
+        Actions.ActiveFileContextChanged += HandleActiveFileContextChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/ace-editor-interop.js");
+            _editor = await _module.InvokeAsync<IJSObjectReference>(
+                "createEditor",
+                _editorHost,
+                _dotNetRef,
+                _content,
+                _path,
+                _contentType);
+            _editorReady = true;
+            await SyncEditorStateAsync();
+            if (_activeSelection.HasSelection && string.IsNullOrWhiteSpace(_content))
+            {
+                await LoadFileAsync(_activeSelection.Path, force: true);
+            }
+            return;
+        }
+
+        if (_editorReady && _editor is not null)
+        {
+            await _editor.InvokeVoidAsync("resize");
+        }
+    }
+
+    private async Task OpenPathAsync()
+    {
+        if (_busy) return;
+
+        var path = _path.Trim();
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        await LoadFileAsync(path, force: true);
+    }
+
+    private async Task OpenSelectedFileAsync()
+    {
+        if (_busy || !_activeSelection.HasSelection)
+            return;
+
+        if (_dirty && !string.Equals(_activeSelection.Path, _path, StringComparison.OrdinalIgnoreCase))
+        {
+            var confirmed = await JS.InvokeAsync<bool>("confirm", "Open the selected file and discard the unsaved editor changes?");
+            if (!confirmed) return;
+        }
+
+        await LoadFileAsync(_activeSelection.Path, force: true);
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (!_canReload) return;
+        await LoadFileAsync(_path, force: true);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_loadingFile || _busy || _truncated)
+            return;
+
+        if (string.IsNullOrWhiteSpace(_path))
+        {
+            await SaveAsAsync();
+            return;
+        }
+
+        await SaveToPathAsync(_path);
+    }
+
+    private async Task SaveAsAsync()
+    {
+        if (_busy) return;
+
+        var suggestion = string.IsNullOrWhiteSpace(_path)
+            ? $"/djelab/generated/editor-{DateTime.UtcNow:yyyyMMdd-HHmmss}.spi"
+            : _path;
+
+        var target = await JS.InvokeAsync<string?>("prompt", "Save the current code to which file path?", suggestion);
+        if (string.IsNullOrWhiteSpace(target))
+            return;
+
+        await SaveToPathAsync(target);
+    }
+
+    private async Task NewFileAsync()
+    {
+        if (_busy) return;
+
+        var suggestion = $"/djelab/generated/untitled-{DateTime.UtcNow:yyyyMMdd-HHmmss}.spi";
+        var target = await JS.InvokeAsync<string?>("prompt", "Create a new file at which path?", suggestion);
+        if (string.IsNullOrWhiteSpace(target))
+            return;
+
+        _path = target.Trim();
+        _content = "";
+        _savedContent = "";
+        _dirty = false;
+        _truncated = false;
+        _contentType = "text/plain";
+        _languageLabel = GetLanguageLabel(_path, _contentType);
+        _message = "New file ready.";
+        _footerRight = "ready";
+        await SyncEditorStateAsync();
+        StateHasChanged();
+    }
+
+    private async Task LoadFileAsync(string path, bool force)
+    {
+        if (_busy || _loadingFile)
+            return;
+
+        _loadingFile = true;
+        _busy = true;
+        _message = null;
+        StateHasChanged();
+
+        try
+        {
+            var preview = await FilesClient.ReadTextPreviewAsync(path, maxBytes: MaxOpenBytes);
+            if (!preview.Success || preview.Value is null)
+            {
+                _message = preview.Error ?? "Could not open that file.";
+                return;
+            }
+
+            var resolved = await FilesClient.ResolvePathAsync(path);
+            if (resolved.Success && resolved.Value is not null)
+            {
+                _path = resolved.Value.Path;
+                _contentType = string.IsNullOrWhiteSpace(resolved.Value.ContentType) ? "text/plain" : resolved.Value.ContentType;
+            }
+            else
+            {
+                _path = path.Trim();
+                _contentType = GuessContentTypeFromPath(path);
+            }
+
+            _truncated = preview.Value.Truncated;
+            _content = preview.Value.Content;
+            _savedContent = preview.Value.Content;
+            _dirty = false;
+            _languageLabel = GetLanguageLabel(_path, _contentType);
+            _footerRight = _truncated ? $"preview {FormatBytes(preview.Value.BytesRead)}" : $"loaded {FormatBytes(preview.Value.BytesRead)}";
+            _message = preview.Value.Truncated && force
+                ? "That file is larger than the editor preview limit, so only the first chunk can be shown for now."
+                : $"Loaded {_pathDisplay(_path)}.";
+
+            Actions.SetActiveFileContext(new ActiveFileContextSnapshot(
+                _path,
+                Path.GetFileName(_path),
+                _contentType,
+                resolved.Value?.SizeBytes,
+                !_truncated,
+                _truncated,
+                preview.Value.Content.Length > 2000 ? preview.Value.Content[..2000] + "..." : preview.Value.Content));
+
+            await SyncEditorStateAsync();
+        }
+        catch (Exception ex)
+        {
+            _message = ex.Message;
+        }
+        finally
+        {
+            _loadingFile = false;
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveToPathAsync(string targetPath)
+    {
+        _busy = true;
+        _message = null;
+        StateHasChanged();
+
+        try
+        {
+            var contentType = string.IsNullOrWhiteSpace(_contentType) ? GuessContentTypeFromPath(targetPath) : _contentType;
+            var result = await FilesClient.WriteTextFileAsync(targetPath.Trim(), _content, contentType);
+            if (!result.Success || result.Value is null)
+            {
+                _message = result.Error ?? "Could not save that file.";
+                return;
+            }
+
+            _path = result.Value.Path;
+            _contentType = string.IsNullOrWhiteSpace(result.Value.ContentType) ? contentType : result.Value.ContentType;
+            _savedContent = _content;
+            _dirty = false;
+            _truncated = false;
+            _languageLabel = GetLanguageLabel(_path, _contentType);
+            _footerRight = $"saved {FormatBytes(result.Value.SizeBytes ?? 0)}";
+            _message = $"Saved {_pathDisplay(result.Value.Path)}.";
+            Actions.NotifyFilesChanged();
+            Actions.SetActiveFileContext(new ActiveFileContextSnapshot(
+                result.Value.Path,
+                result.Value.Name,
+                result.Value.ContentType,
+                result.Value.SizeBytes,
+                true,
+                false,
+                _content.Length > 2000 ? _content[..2000] + "..." : _content));
+            await SyncEditorStateAsync();
+        }
+        catch (Exception ex)
+        {
+            _message = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    [JSInvokable]
+    public Task OnEditorContentChanged(string content)
+    {
+        _content = content;
+        _dirty = !string.Equals(_content, _savedContent, StringComparison.Ordinal);
+        _footerRight = _dirty ? "unsaved changes" : "ready";
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task OnEditorCursorChanged(int row, int column)
+    {
+        _cursorLine = Math.Max(1, row);
+        _cursorColumn = Math.Max(1, column);
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void HandleActiveFileContextChanged(ActiveFileContextSnapshot snapshot)
+    {
+        _activeSelection = snapshot;
+        if (!snapshot.HasSelection || _loadingFile || _busy)
+            return;
+
+        var shouldAutoLoad =
+            !_dirty &&
+            _editorReady;
+
+        if (shouldAutoLoad)
+            _ = InvokeAsync(() => LoadFileAsync(snapshot.Path, force: true));
+        else
+            _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SyncEditorStateAsync()
+    {
+        if (_editor is null)
+            return;
+
+        await _editor.InvokeVoidAsync("setMode", _path, _contentType);
+        await _editor.InvokeVoidAsync("setValue", _content, 0, 0);
+        await _editor.InvokeVoidAsync("resize");
+    }
+
+    private static string GuessContentTypeFromPath(string path)
+    {
+        var extension = Path.GetExtension(path).ToLowerInvariant();
+        return extension switch
+        {
+            ".json" or ".jsonl" => "application/json",
+            ".html" or ".htm" => "text/html",
+            ".css" => "text/css",
+            ".md" or ".markdown" => "text/markdown",
+            ".js" or ".mjs" or ".cjs" => "application/javascript",
+            ".ts" => "application/typescript",
+            ".cs" => "text/plain",
+            ".fs" or ".fsx" => "text/plain",
+            ".py" => "text/x-python",
+            ".sql" => "text/x-sql",
+            ".xml" or ".xaml" => "application/xml",
+            ".sh" or ".bash" => "text/x-shellscript",
+            ".spi" or ".spz" or ".djl" or ".spinoza" => "text/spinoza",
+            _ => "text/plain"
+        };
+    }
+
+    private static string GetLanguageLabel(string path, string contentType)
+    {
+        var extension = Path.GetExtension(path).ToLowerInvariant();
+        return extension switch
+        {
+            ".spi" or ".spz" or ".djl" or ".spinoza" => "Spinoza",
+            ".cs" => "C#",
+            ".fs" or ".fsx" => "F#",
+            ".ts" => "TypeScript",
+            ".js" or ".mjs" or ".cjs" => "JavaScript",
+            ".json" or ".jsonl" => "JSON",
+            ".html" or ".htm" => "HTML",
+            ".css" => "CSS",
+            ".md" or ".markdown" => "Markdown",
+            ".py" => "Python",
+            ".sql" => "SQL",
+            ".xml" or ".xaml" => "XML",
+            ".sh" or ".bash" => "Shell",
+            _ when contentType.Contains("json", StringComparison.OrdinalIgnoreCase) => "JSON",
+            _ => "Text"
+        };
+    }
+
+    private static string _pathDisplay(string path) => string.IsNullOrWhiteSpace(path) ? "the file" : path;
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = { "B", "KB", "MB", "GB" };
+        double size = Math.Max(0, bytes);
+        var unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.Length - 1)
+        {
+            size /= 1024;
+            unitIndex++;
+        }
+        return $"{size:F1} {units[unitIndex]}";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Actions.ActiveFileContextChanged -= HandleActiveFileContextChanged;
+        if (_editor is not null)
+        {
+            try { await _editor.InvokeVoidAsync("destroy"); }
+            catch { /* tearing down */ }
+            await _editor.DisposeAsync();
+        }
+        if (_module is not null)
+            await _module.DisposeAsync();
+        _dotNetRef?.Dispose();
+    }
+}
