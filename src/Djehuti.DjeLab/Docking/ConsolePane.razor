@@ -1,0 +1,90 @@
+@implements IAsyncDisposable
+@inject WorkspaceActions Actions
+@inject IJSRuntime JS
+
+<div class="console-pane">
+    <div class="console-toolbar">
+        <div class="console-toolbar-left">
+            <span class="console-title">Execution Console</span>
+            <span class="console-count">@_entries.Count line(s)</span>
+        </div>
+        <div class="console-toolbar-right">
+            <button type="button" class="files-action-btn code-editor-btn" @onclick="CopyAllAsync" disabled="@(_entries.Count == 0)">Copy</button>
+            <button type="button" class="files-action-btn code-editor-btn" @onclick="ClearAsync" disabled="@(_entries.Count == 0)">Clear</button>
+        </div>
+    </div>
+
+    <div class="console-log" @ref="_logHost">
+        @if (_entries.Count == 0)
+        {
+            <div class="console-empty">
+                <div class="console-empty-title">Nothing has been written yet.</div>
+                <div class="console-empty-hint">Graph runs, file actions, and future tools will show up here.</div>
+            </div>
+        }
+        else
+        {
+            @foreach (var entry in _entries)
+            {
+                <div class="console-line console-line-@entry.Level">
+                    <span class="console-time">@entry.Timestamp.LocalDateTime.ToString("HH:mm:ss")</span>
+                    <span class="console-source">@entry.Source</span>
+                    <span class="console-sep">·</span>
+                    <span class="console-message">@entry.Message</span>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private ElementReference _logHost;
+    private IJSObjectReference? _module;
+    private IReadOnlyList<ConsoleLogEntry> _entries = Array.Empty<ConsoleLogEntry>();
+
+    protected override void OnInitialized()
+    {
+        _entries = Actions.CurrentConsoleLog;
+        Actions.ConsoleLogChanged += HandleConsoleChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+        }
+
+        if (_module is not null && _entries.Count > 0)
+        {
+            await _module.InvokeVoidAsync("scrollToBottom", _logHost);
+        }
+    }
+
+    private void HandleConsoleChanged()
+    {
+        _entries = Actions.CurrentConsoleLog;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ClearAsync()
+    {
+        Actions.ClearConsole();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task CopyAllAsync()
+    {
+        var text = string.Join(Environment.NewLine, _entries.Select(entry =>
+            $"[{entry.Timestamp.LocalDateTime:HH:mm:ss}] {entry.Source}: {entry.Message}"));
+        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+        await _module.InvokeVoidAsync("copyText", text);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Actions.ConsoleLogChanged -= HandleConsoleChanged;
+        if (_module is not null)
+            await _module.DisposeAsync();
+    }
+}
