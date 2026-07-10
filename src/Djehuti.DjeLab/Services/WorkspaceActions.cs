@@ -56,6 +56,7 @@ public sealed class WorkspaceActions
     public event Action<GraphDataSnapshot>? GraphDataChanged;
     public event Action? StopCurrentGraphRunRequested;
     public event Action<ActiveFileContextSnapshot>? ActiveFileContextChanged;
+    public event Action? FilesChangedRequested;
 
     public GraphDataSnapshot CurrentGraphData
     {
@@ -169,6 +170,8 @@ public sealed class WorkspaceActions
     }
 
     public void ClearActiveFileContext() => SetActiveFileContext(ActiveFileContextSnapshot.Empty);
+
+    public void NotifyFilesChanged() => FilesChangedRequested?.Invoke();
 
     private static List<string> NormalizePoint(string chartType, int rowIndex, JsonElement point)
     {

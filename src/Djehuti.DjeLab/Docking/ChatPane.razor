@@ -269,6 +269,7 @@
                 if (!writeResult.Success || writeResult.Value is null)
                     return writeResult.Error ?? "Could not write that file.";
 
+                Actions.NotifyFilesChanged();
                 return JsonSerializer.Serialize(new
                 {
                     action,
