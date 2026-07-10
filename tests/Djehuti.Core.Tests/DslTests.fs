@@ -78,6 +78,23 @@ let ``builtin math functions`` () =
     Assert.Equal(5.0, evalNumber "max(3, 5)")
 
 [<Fact>]
+let ``random builtins return unit interval numbers`` () =
+    let randomValue =
+        match evalOk "random()" with
+        | VNumber n -> n
+        | other -> failwith $"expected a number, got {other}"
+
+    let secureRandomValue =
+        match evalOk "secure_random()" with
+        | VNumber n -> n
+        | other -> failwith $"expected a number, got {other}"
+
+    Assert.InRange(randomValue, 0.0, 1.0)
+    Assert.InRange(secureRandomValue, 0.0, 1.0)
+    Assert.True(randomValue < 1.0)
+    Assert.True(secureRandomValue < 1.0)
+
+[<Fact>]
 let ``equality on numbers, bools, and vectors`` () =
     match evalOk "[1, 2] == [1, 2]" with
     | VBool b -> Assert.True(b)

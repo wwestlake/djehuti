@@ -11,6 +11,7 @@ module Djehuti.DjeLab.Dsl.Evaluator
 
 open System
 open System.Text.Json
+open System.Security.Cryptography
 open Djehuti.DjeLab.Dsl.Ast
 
 type Value =
@@ -52,6 +53,14 @@ let private asVector (context: string) (value: Value) : Result<Value[], string> 
     | VVector items -> Ok items
     | other -> Error $"{context}: expected a vector, got {describe other}"
 
+let private randomSoftware = Random.Shared
+
+let private nextCryptoUnit () =
+    let bytes = Array.zeroCreate<byte> 8
+    RandomNumberGenerator.Fill(bytes)
+    let raw = BitConverter.ToUInt64(bytes, 0) >>> 11
+    float raw / float (1UL <<< 53)
+
 /// Built-in math functions available to every DjeLab program. This is the
 /// entire surface of "library calls" a program can make -- adding a new
 /// capability means adding an entry here, not opening up the language.
@@ -88,6 +97,12 @@ let makeBuiltinEnv (onEmit: (Value -> unit) option) : Env =
       numeric1 "ln" log
       numeric1 "floor" floor
       numeric1 "ceil" ceil
+      "random", VBuiltin("random", 0, function
+          | [] -> Ok(VNumber(randomSoftware.NextDouble()))
+          | args -> Error $"random: expected 0 arguments, got {args.Length}")
+      "secure_random", VBuiltin("secure_random", 0, function
+          | [] -> Ok(VNumber(nextCryptoUnit()))
+          | args -> Error $"secure_random: expected 0 arguments, got {args.Length}")
       numeric2 "min" min
       numeric2 "max" max
       numeric2 "atan2" atan2
