@@ -8,7 +8,7 @@ public static class DemoLayout
     {
         var graph = new PaneDescriptor { Title = "Graph", Kind = "graph", AccentColor = "#3fa9f5" };
         var editor = new PaneDescriptor { Title = "Editor", Kind = "editor", AccentColor = "#7dd3fc" };
-        var console = new PaneDescriptor { Title = "Console", Kind = "console", AccentColor = "#8fa0bd" };
+        var console = new PaneDescriptor { Title = "Log", Kind = "console", AccentColor = "#8fa0bd" };
         var chat = new PaneDescriptor { Title = "Chat", Kind = "chat", AccentColor = "#e8b354" };
         var data = new PaneDescriptor { Title = "Data", Kind = "data", AccentColor = "#58d68d" };
         var files = new PaneDescriptor { Title = "Files", Kind = "files", AccentColor = "#c792ea" };

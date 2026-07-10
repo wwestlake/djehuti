@@ -91,6 +91,10 @@ Use plain, precise language. Avoid slang and informal shorthand. The user has a 
 
 When the user states a new rule or preference, add it to this file (`AGENTS.md`) immediately — in the same response, before moving on. Do not rely solely on memory files. This file is the authoritative source of project-level rules for all agents.
 
+## Naming
+
+The visible pane that shows execution messages should be labeled `Log`, not `Console`, so the UI does not imply interactive command entry.
+
 ---
 
 ## Privacy
