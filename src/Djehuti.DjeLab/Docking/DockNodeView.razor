@@ -87,6 +87,10 @@ else if (Node is TabGroupNode group)
                     {
                         <DataPane @key="pane.Id" />
                     }
+                    else if (pane.Kind == "editor")
+                    {
+                        <CodeEditorPane @key="pane.Id" />
+                    }
                     else
                     {
                         <PlaceholderPaneContent @key="pane.Id" Pane="pane" />

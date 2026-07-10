@@ -1482,6 +1482,143 @@ a {
     background: rgba(255, 255, 255, 0.015);
 }
 
+/* â”€â”€ Code editor pane â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.code-editor-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    background: var(--djelab-surface);
+}
+
+.code-editor-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex: 0 0 auto;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--djelab-border);
+    flex-wrap: wrap;
+}
+
+.code-editor-toolbar-left,
+.code-editor-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+}
+
+.code-editor-path {
+    width: min(36rem, 100%);
+    min-width: 16rem;
+    padding: 0.35rem 0.65rem;
+    background: var(--djelab-bg);
+    border: 1px solid var(--djelab-border);
+    border-radius: 6px;
+    color: var(--djelab-text);
+    font-size: 0.85rem;
+    font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+}
+
+    .code-editor-path:focus {
+        outline: none;
+        border-color: var(--djelab-accent);
+    }
+
+.code-editor-btn {
+    white-space: nowrap;
+}
+
+.code-editor-language {
+    padding: 0.2rem 0.45rem;
+    border: 1px solid var(--djelab-border);
+    border-radius: 999px;
+    color: var(--djelab-muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.code-editor-cursor {
+    color: var(--djelab-muted);
+    font-size: 0.78rem;
+}
+
+.code-editor-dirty {
+    color: #f6b26b;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+.code-editor-context {
+    flex: 0 0 auto;
+    padding: 0.4rem 0.75rem 0.55rem;
+    border-bottom: 1px solid var(--djelab-border);
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.code-editor-context-line {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    color: var(--djelab-muted);
+    font-size: 0.78rem;
+}
+
+.code-editor-context-label {
+    color: var(--djelab-text);
+    font-weight: 600;
+}
+
+.code-editor-context-path {
+    font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    color: var(--djelab-text);
+    word-break: break-all;
+}
+
+.code-editor-context-warning {
+    color: #f6b26b;
+}
+
+.code-editor-message {
+    color: var(--djelab-muted);
+    font-size: 0.78rem;
+}
+
+.code-editor-host {
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    width: 100%;
+    position: relative;
+}
+
+    .code-editor-host .ace_editor {
+        width: 100%;
+        height: 100%;
+        font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    }
+
+.code-editor-footer {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.35rem 0.75rem 0.55rem;
+    border-top: 1px solid var(--djelab-border);
+    color: var(--djelab-muted);
+    font-size: 0.75rem;
+    flex-wrap: wrap;
+}
+
 @media (max-width: 860px) {
     .dock-canvas {
         padding: 0;

@@ -130,7 +130,7 @@ function Hero() {
         </a>
       </div>
       <div className="hero-visual">
-        <img src="/dashboard-deformation-phase-space.png" alt="Djehuti 3D phase-space view" />
+        <img src="/djelab-workspace-announcement.png" alt="DjeLab workspace preview" />
       </div>
     </section>
   )
