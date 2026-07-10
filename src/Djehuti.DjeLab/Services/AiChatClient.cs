@@ -144,6 +144,7 @@ public sealed class AiChatClient
         IReadOnlyList<ChatTurn> history,
         string newMessage,
         IReadOnlyDictionary<string, ToolHandler> toolHandlers,
+        string? additionalInstructions = null,
         CancellationToken ct = default)
     {
         var input = new List<object>(history.Count + 1);
@@ -153,7 +154,7 @@ public sealed class AiChatClient
 
         for (var round = 0; round < MaxToolRounds; round++)
         {
-            var responseText = await SendAsync(apiKey, model, input, ct);
+            var responseText = await SendAsync(apiKey, model, input, additionalInstructions, ct);
             using var doc = JsonDocument.Parse(responseText);
 
             var functionCalls = ExtractFunctionCalls(doc.RootElement);
@@ -209,11 +210,16 @@ public sealed class AiChatClient
     }
 
     private async Task<string> SendAsync(string apiKey, string model, List<object> input, CancellationToken ct)
+        => await SendAsync(apiKey, model, input, null, ct);
+
+    private async Task<string> SendAsync(string apiKey, string model, List<object> input, string? additionalInstructions, CancellationToken ct)
     {
         var body = new
         {
             model,
-            instructions = DjeLabSystemPrompt.Text,
+            instructions = string.IsNullOrWhiteSpace(additionalInstructions)
+                ? DjeLabSystemPrompt.Text
+                : $"{DjeLabSystemPrompt.Text}\n\n{additionalInstructions}",
             input,
             tools = Tools,
             store = false
