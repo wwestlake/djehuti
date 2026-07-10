@@ -249,6 +249,7 @@
 
         _showNewFolder = false;
         _newFolderName = "";
+        Actions.AppendConsole("Files", $"Created folder {name} in {_currentPath}.");
         await RefreshAsync();
     }
 
@@ -268,6 +269,7 @@
             }
 
             var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
+            Actions.AppendConsole("Files", $"Uploading {file.Name} into {_currentPath}.");
 
             var urlResult = await FilesClient.RequestUploadUrlAsync(_currentPath, file.Name, contentType, file.Size);
             if (!urlResult.Success)
@@ -290,6 +292,7 @@
 
             await RefreshAsync();
             await OpenFile(confirmResult.Value!);
+            Actions.AppendConsole("Files", $"Uploaded {file.Name} to {_currentPath}.");
         }
         catch (Exception ex)
         {
@@ -327,6 +330,9 @@
             _error = "Could not delete that.";
             return;
         }
+        Actions.AppendConsole("Files", entry.IsFolder
+            ? $"Deleted folder {entry.Path}."
+            : $"Deleted file {entry.Path}.");
         await RefreshAsync();
 
         if (string.Equals(_selectedPath, entry.Path, StringComparison.OrdinalIgnoreCase))
@@ -365,6 +371,7 @@
                 _selectedMessage = _selectedTruncated
                     ? "This file is large enough that only a preview was loaded. Save is disabled until we add a full-file editor path."
                     : "Loaded into the editor.";
+                Actions.AppendConsole("Files", $"Opened {_selectedPath} for editing{(_selectedTruncated ? " (preview)" : "")}.");
             }
             else
             {
@@ -382,6 +389,7 @@
                 _selectedTruncated = previewResult.Value.Truncated;
                 _selectedMessage = "This file is preview-only.";
                 Actions.SetActiveFileContext(BuildSnapshot(entry.Path, entry.Name, entry.ContentType, entry.SizeBytes, _selectedEditable, _selectedTruncated, _selectedContent));
+                Actions.AppendConsole("Files", $"Previewed {_selectedPath}{(_selectedTruncated ? " (truncated)" : "")}.");
             }
         }
         catch (Exception ex)
@@ -433,6 +441,7 @@
             _selectedSizeBytes = result.Value.SizeBytes;
             _selectedMessage = $"Saved to {_selectedPath}.";
             Actions.SetActiveFileContext(BuildSnapshot(result.Value.Path, result.Value.Name, result.Value.ContentType, result.Value.SizeBytes, _selectedEditable, false, _selectedContent));
+            Actions.AppendConsole("Files", $"Saved {_selectedPath}.");
             Actions.NotifyFilesChanged();
             await RefreshAsync();
         }

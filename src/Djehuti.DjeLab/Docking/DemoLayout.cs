@@ -33,9 +33,9 @@ public static class DemoLayout
         consoleGroup.PaneIds.Add(console.Id);
 
         var lowerLeft = new SplitNode { Direction = SplitDirection.Column };
-        lowerLeft.Children.Add(editorGroup);
         lowerLeft.Children.Add(consoleGroup);
-        lowerLeft.Sizes = new List<double> { 0.68, 0.32 };
+        lowerLeft.Children.Add(editorGroup);
+        lowerLeft.Sizes = new List<double> { 0.36, 0.64 };
 
         var leftColumn = new SplitNode { Direction = SplitDirection.Column };
         leftColumn.Children.Add(graphGroup);
