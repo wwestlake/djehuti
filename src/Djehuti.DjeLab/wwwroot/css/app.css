@@ -31,6 +31,27 @@ a {
     min-height: 100vh;
 }
 
+.djelab-mobile-blocker {
+    display: none;
+    min-height: 100vh;
+    padding: 2rem;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    text-align: center;
+    background: var(--djelab-bg);
+    color: var(--djelab-text);
+}
+
+.djelab-mobile-blocker-logo {
+    width: 96px;
+    height: 96px;
+    border-radius: 18px;
+    object-fit: cover;
+    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28);
+}
+
 .djelab-topbar {
     display: flex;
     align-items: center;
@@ -346,6 +367,30 @@ a {
     border: 1px solid var(--djelab-border);
     border-radius: 12px;
 }
+
+.djelab-hero-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 1.25rem;
+}
+
+.djelab-hero-card {
+    background: var(--djelab-surface);
+    border: 1px solid var(--djelab-border);
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+}
+
+    .djelab-hero-card h2 {
+        margin: 0 0 0.45rem;
+        font-size: 1rem;
+    }
+
+    .djelab-hero-card p {
+        margin: 0;
+        color: var(--djelab-muted);
+    }
 
 /* Ã¢â€â‚¬Ã¢â€â‚¬ AI Setup (Settings) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 .djelab-settings-card {
@@ -1988,6 +2033,14 @@ a {
     font-weight: 600;
 }
 
+.flow-preview-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
 .flow-preview-subtitle {
     color: var(--djelab-muted);
     font-size: 0.82rem;
@@ -2013,6 +2066,23 @@ a {
     font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
     font-size: 0.85rem;
     line-height: 1.45;
+}
+
+.flow-source-collapsed {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 220px;
+    padding: 1rem;
+    color: var(--djelab-muted);
+    text-align: center;
+    background: #09101b;
+}
+
+.flow-mini-btn-inline {
+    width: auto;
+    padding-inline: 0.65rem;
 }
 
 .flow-runtime {
@@ -2045,6 +2115,14 @@ a {
 }
 
 @media (max-width: 860px) {
+    .djelab-shell {
+        display: none;
+    }
+
+    .djelab-mobile-blocker {
+        display: flex;
+    }
+
     .dock-canvas {
         padding: 0;
     }
@@ -2067,6 +2145,10 @@ a {
     .dock-group {
         margin: 2px 0;
         border-radius: 0;
+    }
+
+    .djelab-hero-grid {
+        grid-template-columns: 1fr;
     }
 
     .flow-body {

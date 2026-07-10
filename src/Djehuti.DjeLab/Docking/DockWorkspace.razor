@@ -2,6 +2,7 @@
 @using Djehuti.DjeLab.Services
 @implements IAsyncDisposable
 @inject IJSRuntime JS
+@inject DjeLabFilesClient FilesClient
 @inject WorkspaceActions Actions
 
 <div class="dock-workspace" @ref="_containerRef"
@@ -47,7 +48,7 @@
     private string? _highlightedPaneId;
     private CancellationTokenSource? _tourCts;
     private bool _layoutLoaded;
-    private const string LayoutStorageKey = "djelab.dock.layout.v1";
+    private const string LayoutFilePath = "/djelab-workspace-layout.json";
 
     private SplitNode? _resizingSplit;
     private int _resizingIndex;
@@ -258,6 +259,7 @@
         if (_draggingPaneId == null) return;
         _root = DockTree.MoveToTabStrip(_root, drop.TargetGroupId, _draggingPaneId, drop.InsertIndex);
         _draggingPaneId = null;
+        _ = SaveLayoutAsync();
     }
 
     private void HandleDropOnBody(BodyDrop drop)
@@ -265,6 +267,7 @@
         if (_draggingPaneId == null) return;
         _root = DockTree.MoveToZone(_root, drop.TargetGroupId, _draggingPaneId, drop.Zone);
         _draggingPaneId = null;
+        _ = SaveLayoutAsync();
     }
 
     public async ValueTask DisposeAsync()
@@ -274,23 +277,22 @@
         Actions.WorkspaceTourSequenceRequested -= HandleWorkspaceTourSequenceRequested;
         _tourCts?.Cancel();
         _tourCts?.Dispose();
+        await SaveLayoutAsync();
         if (_module != null) await _module.DisposeAsync();
     }
 
     private async Task LoadLayoutAsync()
     {
-        var shouldClearStoredLayout = false;
         try
         {
-            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
-            var json = await _module.InvokeAsync<string?>("loadJson", LayoutStorageKey);
-            if (string.IsNullOrWhiteSpace(json))
+            var result = await FilesClient.ReadTextPreviewAsync(LayoutFilePath, maxBytes: 256 * 1024);
+            if (!result.Success || result.Value is null || string.IsNullOrWhiteSpace(result.Value.Content))
             {
                 _layoutLoaded = true;
                 return;
             }
 
-            var snapshot = JsonSerializer.Deserialize<DockLayoutSnapshot>(json);
+            var snapshot = JsonSerializer.Deserialize<DockLayoutSnapshot>(result.Value.Content);
             if (snapshot?.Root is not null && snapshot.Panes.Count > 0 && HasRenderableLayout(snapshot.Root, snapshot.Panes))
             {
                 _root = snapshot.Root;
@@ -300,23 +302,17 @@
             else
             {
                 (_root, _panes) = DemoLayout.CreateDefault();
-                shouldClearStoredLayout = true;
             }
         }
         catch
         {
             // A bad cached layout should never break the app.
             (_root, _panes) = DemoLayout.CreateDefault();
-            shouldClearStoredLayout = true;
         }
         finally
         {
             _layoutLoaded = true;
             StateHasChanged();
-            if (shouldClearStoredLayout)
-            {
-                _ = SaveLayoutAsync(clearIfDefault: true);
-            }
         }
     }
 
@@ -327,17 +323,17 @@
 
         try
         {
-            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
-
             if (clearIfDefault)
             {
-                await _module.InvokeVoidAsync("removeJson", LayoutStorageKey);
+                var existing = await FilesClient.ResolvePathAsync(LayoutFilePath, CancellationToken.None);
+                if (existing.Success && existing.Value is not null && !existing.Value.IsFolder)
+                    await FilesClient.DeleteAsync(existing.Value.Id, CancellationToken.None);
                 return;
             }
 
             var snapshot = new DockLayoutSnapshot(_root, _panes);
             var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = false });
-            await _module.InvokeVoidAsync("saveJson", LayoutStorageKey, json);
+            await FilesClient.WriteTextFileAsync(LayoutFilePath, json, "application/json", CancellationToken.None);
         }
         catch
         {
