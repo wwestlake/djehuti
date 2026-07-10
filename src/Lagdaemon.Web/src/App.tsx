@@ -240,13 +240,13 @@ function Screenshots() {
           </div>
         </div>
         <div className="screenshot-card">
-          <img src="/dashboard-feature-finder.png" alt="Feature finder" />
+          <img src="/djelab-workspace-announcement.png" alt="DjeLab workspace" />
           <div className="screenshot-caption">
-            <h3>Feature Finder</h3>
+            <h3>DjeLab Workspace</h3>
             <p>
-              Indexed markers for high-velocity transitions, low alignment, structural changes,
-              repeated prompts, and attractor-approach events — each with torsional-resistance basis
-              and severity.
+              A browser-based lab for opening data files, previewing their structure, streaming them
+              into code, plotting the result, and keeping the graph, editor, and log together in one
+              place.
             </p>
           </div>
         </div>
