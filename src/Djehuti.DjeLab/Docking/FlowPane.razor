@@ -13,6 +13,7 @@
             <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Source)">Add Source</button>
             <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Transform)">Add Transform</button>
             <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Filter)">Add Filter</button>
+            <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Integrator)">Add Integrator</button>
             <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Plot)">Add Plot</button>
             <button type="button" class="flow-btn flow-btn-accent" @onclick="CompileAsync" disabled="@_busy">Compile</button>
             <button type="button" class="flow-btn flow-btn-accent" @onclick="RunAsync" disabled="@(_busy || !_nodes.Any())">Run</button>
@@ -99,6 +100,32 @@
                                     <span>Keep when</span>
                                     <textarea rows="4"
                                               @oninput="e => UpdateNode(node.Id, n => n.FilterExpression = e.Value?.ToString() ?? string.Empty)">@node.FilterExpression</textarea>
+                                </label>
+                            }
+                            else if (node.Kind == FlowNodeKind.Integrator)
+                            {
+                                <label class="flow-field">
+                                    <span>Method</span>
+                                    <select value="@node.IntegratorMethod.ToString()"
+                                            @onchange="e => SetIntegratorMethod(node.Id, e)">
+                                        <option value="Euler">Euler</option>
+                                        <option value="RK4">RK4</option>
+                                    </select>
+                                </label>
+                                <label class="flow-field">
+                                    <span>Initial state</span>
+                                    <input value="@node.InitialStateExpression"
+                                           @oninput="e => UpdateNode(node.Id, n => n.InitialStateExpression = e.Value?.ToString() ?? string.Empty)" />
+                                </label>
+                                <label class="flow-field">
+                                    <span>Step size</span>
+                                    <input value="@node.StepSizeExpression"
+                                           @oninput="e => UpdateNode(node.Id, n => n.StepSizeExpression = e.Value?.ToString() ?? string.Empty)" />
+                                </label>
+                                <label class="flow-field">
+                                    <span>Derivative</span>
+                                    <textarea rows="4"
+                                              @oninput="e => UpdateNode(node.Id, n => n.DerivativeExpression = e.Value?.ToString() ?? string.Empty)">@node.DerivativeExpression</textarea>
                                 </label>
                             }
                             else if (node.Kind == FlowNodeKind.Plot)
@@ -224,13 +251,24 @@
         });
         _nodes.Add(new FlowNodeModel
         {
+            Kind = FlowNodeKind.Integrator,
+            Title = "Euler Integrator",
+            X = 370,
+            Y = 330,
+            IntegratorMethod = FlowIntegratorMethod.Euler,
+            InitialStateExpression = "0.0",
+            StepSizeExpression = "1.0",
+            DerivativeExpression = "signal"
+        });
+        _nodes.Add(new FlowNodeModel
+        {
             Kind = FlowNodeKind.Plot,
             Title = "Plot",
             X = 710,
             Y = 70,
-            ChartType = "histogram",
-            XLabel = "Value",
-            YLabel = "Frequency"
+            ChartType = "line",
+            XLabel = "Time",
+            YLabel = "State"
         });
         AutoConnectChain();
     }
@@ -255,20 +293,31 @@
                 FlowNodeKind.Source => "File Source",
                 FlowNodeKind.Transform => "Transform",
                 FlowNodeKind.Filter => "Filter",
+                FlowNodeKind.Integrator => "Integrator",
                 FlowNodeKind.Plot => "Plot",
                 _ => "Node"
             },
             X = 40 + count * 280,
             Y = 80 + (count % 3) * 30,
             TransformExpression = "row[0]",
-            FilterExpression = "true"
+            FilterExpression = "true",
+            InitialStateExpression = "0.0",
+            StepSizeExpression = "1.0",
+            DerivativeExpression = "signal"
         };
 
         if (kind == FlowNodeKind.Plot)
         {
-            node.ChartType = "histogram";
-            node.XLabel = "Value";
-            node.YLabel = "Frequency";
+            node.ChartType = _nodes.Any(existing => existing.Kind == FlowNodeKind.Integrator) ? "line" : "histogram";
+            node.XLabel = node.ChartType == "line" ? "Time" : "Value";
+            node.YLabel = node.ChartType == "line" ? "State" : "Frequency";
+        }
+        else if (kind == FlowNodeKind.Integrator)
+        {
+            node.Title = "Euler Integrator";
+            node.IntegratorMethod = FlowIntegratorMethod.Euler;
+            node.YLabel = "State";
+            node.XLabel = "Time";
         }
 
         _nodes.Add(node);
@@ -364,6 +413,20 @@
     private void SetChartType(string nodeId, ChangeEventArgs e)
     {
         UpdateNode(nodeId, node => node.ChartType = e.Value?.ToString()?.Trim().ToLowerInvariant() ?? "histogram");
+    }
+
+    private void SetIntegratorMethod(string nodeId, ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString()?.Trim();
+        var method = Enum.TryParse<FlowIntegratorMethod>(value, true, out var parsed)
+            ? parsed
+            : FlowIntegratorMethod.Euler;
+
+        UpdateNode(nodeId, node =>
+        {
+            node.IntegratorMethod = method;
+            node.Title = method == FlowIntegratorMethod.RK4 ? "RK4 Integrator" : "Euler Integrator";
+        });
     }
 
     private void BeginDrag(FlowNodeModel node, PointerEventArgs e)
@@ -545,20 +608,29 @@
 
         var transforms = ordered.Where(node => node.Kind == FlowNodeKind.Transform).ToList();
         var filters = ordered.Where(node => node.Kind == FlowNodeKind.Filter).ToList();
+        var integrators = ordered.Where(node => node.Kind == FlowNodeKind.Integrator).ToList();
         var plot = ordered.LastOrDefault(node => node.Kind == FlowNodeKind.Plot);
         var chartType = plot?.ChartType?.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(chartType))
-            chartType = "histogram";
+            chartType = integrators.Count > 0 ? "line" : "histogram";
 
         var xLabel = NormalizeLabel(plot?.XLabel, "Value");
         var yLabel = NormalizeLabel(plot?.YLabel, chartType == "histogram" ? "Frequency" : "Value");
         var zLabel = NormalizeLabel(plot?.ZLabel, "Height");
         if (transforms.Count > 1)
             warnings.Add("Multiple transform nodes are present; using the last transform node for now.");
+        if (integrators.Count > 1)
+            warnings.Add("Multiple integrator nodes are present; using the last integrator node for now.");
 
         var mapExpression = transforms.Count == 0
             ? "row[0]"
             : NormalizeExpression(transforms.Last().TransformExpression, "row[0]");
+        var integrator = integrators.LastOrDefault();
+        var hasIntegrator = integrator is not null;
+        var stepSizeExpression = hasIntegrator ? NormalizeExpression(integrator!.StepSizeExpression, "1.0") : "1.0";
+        var initialStateExpression = hasIntegrator ? NormalizeExpression(integrator!.InitialStateExpression, "0.0") : "0.0";
+        var derivativeExpression = hasIntegrator ? NormalizeExpression(integrator!.DerivativeExpression, "signal") : "signal";
+        var integratorMethod = hasIntegrator ? integrator!.IntegratorMethod : FlowIntegratorMethod.Euler;
 
         var filterExpressions = filters
             .Select(node => NormalizeExpression(node.FilterExpression, "row"))
@@ -581,7 +653,49 @@
             : "    " + string.Join(" && ", filterExpressions.Select(expr => $"({expr})")));
         sourceBuilder.AppendLine();
 
-        if (chartType == "line" || chartType == "scatter")
+        if (hasIntegrator)
+        {
+            sourceBuilder.AppendLine($"let stepSize = {stepSizeExpression}");
+            sourceBuilder.AppendLine();
+            sourceBuilder.AppendLine("let slope t state signal row =");
+            sourceBuilder.AppendLine($"    {derivativeExpression}");
+            sourceBuilder.AppendLine();
+            if (integratorMethod == FlowIntegratorMethod.RK4)
+            {
+                sourceBuilder.AppendLine("let rk4Step t state signal row =");
+                sourceBuilder.AppendLine("    let k1 = slope t state signal row in");
+                sourceBuilder.AppendLine("    let k2 = slope (t + stepSize / 2.0) (state + stepSize * k1 / 2.0) signal row in");
+                sourceBuilder.AppendLine("    let k3 = slope (t + stepSize / 2.0) (state + stepSize * k2 / 2.0) signal row in");
+                sourceBuilder.AppendLine("    let k4 = slope (t + stepSize) (state + stepSize * k3) signal row in");
+                sourceBuilder.AppendLine("    state + (stepSize / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)");
+                sourceBuilder.AppendLine();
+            }
+            else
+            {
+                sourceBuilder.AppendLine("let eulerStep t state signal row =");
+                sourceBuilder.AppendLine("    state + stepSize * slope t state signal row");
+                sourceBuilder.AppendLine();
+            }
+
+            sourceBuilder.AppendLine("let rec loop i t state =");
+            sourceBuilder.AppendLine("    if i == len(data) then i");
+            sourceBuilder.AppendLine("    else (");
+            sourceBuilder.AppendLine("        let row = data[i] in");
+            sourceBuilder.AppendLine("        let signal = mapValue(row) in");
+            sourceBuilder.AppendLine("        if keepRow(row) then (");
+            sourceBuilder.AppendLine(integratorMethod == FlowIntegratorMethod.RK4
+                ? "            let nextState = rk4Step t state signal row in"
+                : "            let nextState = eulerStep t state signal row in");
+            sourceBuilder.AppendLine("            emit([t, nextState])");
+            sourceBuilder.AppendLine("            loop(i + 1, t + stepSize, nextState)");
+            sourceBuilder.AppendLine("        ) else (");
+            sourceBuilder.AppendLine("            loop(i + 1, t + stepSize, state)");
+            sourceBuilder.AppendLine("        )");
+            sourceBuilder.AppendLine("    )");
+            sourceBuilder.AppendLine("in");
+            sourceBuilder.AppendLine($"loop(0, 0.0, {initialStateExpression})");
+        }
+        else if (chartType == "line" || chartType == "scatter")
         {
             sourceBuilder.AppendLine("let rec loop i =");
             sourceBuilder.AppendLine("    if i == len(data) then i");

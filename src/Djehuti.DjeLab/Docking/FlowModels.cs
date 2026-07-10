@@ -5,7 +5,14 @@ public enum FlowNodeKind
     Source,
     Transform,
     Filter,
+    Integrator,
     Plot
+}
+
+public enum FlowIntegratorMethod
+{
+    Euler,
+    RK4
 }
 
 public sealed class FlowNodeModel
@@ -21,6 +28,10 @@ public sealed class FlowNodeModel
     public string ColumnsCsv { get; set; } = "";
     public string TransformExpression { get; set; } = "row[0]";
     public string FilterExpression { get; set; } = "true";
+    public FlowIntegratorMethod IntegratorMethod { get; set; } = FlowIntegratorMethod.Euler;
+    public string InitialStateExpression { get; set; } = "0.0";
+    public string StepSizeExpression { get; set; } = "1.0";
+    public string DerivativeExpression { get; set; } = "signal";
     public string ChartType { get; set; } = "histogram";
     public string XLabel { get; set; } = "Value";
     public string YLabel { get; set; } = "Frequency";
