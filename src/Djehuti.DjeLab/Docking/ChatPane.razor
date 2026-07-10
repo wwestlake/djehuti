@@ -37,7 +37,7 @@
             @if (_sending)
             {
                 <div class="chat-message chat-message-assistant">
-                    <div class="chat-message-bubble chat-message-pending">Thinking…</div>
+                    <div class="chat-message-bubble chat-message-pending">@(_statusMessage ?? "Thinking…")</div>
                 </div>
             }
             @if (_error is not null)
@@ -79,6 +79,7 @@
     private bool _hasKey;
     private bool _sending;
     private string? _error;
+    private string? _statusMessage;
     private string _apiKey = "";
     private string _model = "";
     private string _input = "";
@@ -957,6 +958,7 @@
 
         _input = "";
         _error = null;
+        _statusMessage = "Starting...";
         var history = _turns.ToList();
         _turns.Add(new ChatTurn { Role = "user", Content = text });
         _sending = true;
@@ -967,7 +969,11 @@
         try
         {
             await TryInvokeJsAsync("resetTextareaHeight", _inputRef);
-            var reply = await ChatClient.AskAsync(_apiKey, _model, history, text, ToolHandlers, _sendCts.Token);
+            var reply = await ChatClient.AskAsync(_apiKey, _model, history, text, ToolHandlers, status =>
+            {
+                _statusMessage = status;
+                _ = InvokeAsync(StateHasChanged);
+            }, _sendCts.Token);
             LogMathDelimiterDiagnostics(reply);
             _turns.Add(new ChatTurn { Role = "assistant", Content = reply });
             await HistoryStore.SaveTurnsAsync(_turns);
@@ -983,6 +989,7 @@
         finally
         {
             _sending = false;
+            _statusMessage = null;
             _sendCts?.Dispose();
             _sendCts = null;
         }
@@ -990,7 +997,9 @@
 
     private Task StopSendAsync()
     {
+        _statusMessage = "Stopping...";
         _sendCts?.Cancel();
+        StateHasChanged();
         return Task.CompletedTask;
     }
 

@@ -151,6 +151,7 @@ public sealed class AiChatClient
         IReadOnlyList<ChatTurn> history,
         string newMessage,
         IReadOnlyDictionary<string, ToolHandler> toolHandlers,
+        Action<string>? onStatus = null,
         CancellationToken ct = default)
     {
         var input = new List<object>(history.Count + 1);
@@ -160,12 +161,14 @@ public sealed class AiChatClient
 
         for (var round = 0; round < MaxToolRounds; round++)
         {
+            onStatus?.Invoke(round == 0 ? "Checking..." : "Waiting for the next step...");
             var responseText = await SendAsync(apiKey, model, input, ct);
             using var doc = JsonDocument.Parse(responseText);
 
             var functionCalls = ExtractFunctionCalls(doc.RootElement);
             if (functionCalls.Count == 0)
             {
+                onStatus?.Invoke("Finishing...");
                 return MathDelimiterNormalizer.Normalize(ExtractAssistantText(doc.RootElement));
             }
 
@@ -189,6 +192,7 @@ public sealed class AiChatClient
                 {
                     try
                     {
+                        onStatus?.Invoke($"Running {call.Name}...");
                         output = await handler(call.ArgumentsJson, ct);
                     }
                     catch (Exception ex)
