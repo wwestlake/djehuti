@@ -18,6 +18,7 @@
             <button type="button" class="flow-btn flow-btn-accent" @onclick="CompileAsync" disabled="@_busy">Compile</button>
             <button type="button" class="flow-btn flow-btn-accent" @onclick="RunAsync" disabled="@(_busy || !_nodes.Any())">Run</button>
             <button type="button" class="flow-btn" @onclick="SaveSourceAsync" disabled="@string.IsNullOrWhiteSpace(_generatedSource)">Save source</button>
+            <button type="button" class="flow-btn" @onclick="OpenSourcePane" disabled="@string.IsNullOrWhiteSpace(_generatedSource)">Source code</button>
             <button type="button" class="flow-btn" @onclick="UseActiveFileAsync" disabled="@(!_activeFileContext.HasSelection || _busy)">Use active file</button>
         </div>
         <div class="flow-toolbar-right">
@@ -154,33 +155,7 @@
             </div>
         </div>
 
-        <div class="flow-preview">
-            <div class="flow-preview-header">
-                <span>Compiled source</span>
-                <div class="flow-preview-actions">
-                    <span class="flow-preview-subtitle">@_compileSummary</span>
-                    <button type="button" class="flow-mini-btn flow-mini-btn-inline" @onclick="ToggleSourceView">
-                        @(_showSource ? "Hide source" : "View source")
-                    </button>
-                </div>
-            </div>
-
-            @if (!string.IsNullOrWhiteSpace(_compileWarnings))
-            {
-                <div class="flow-warning">@_compileWarnings</div>
-            }
-
-            @if (_showSource)
-            {
-                <textarea class="flow-source-view" readonly>@_generatedSource</textarea>
-            }
-            else
-            {
-                <div class="flow-source-collapsed">
-                    <span>@(string.IsNullOrWhiteSpace(_generatedSource) ? "No compiled source yet." : "Source hidden. Open it when you want to inspect the generated Spinoza.")</span>
-                </div>
-            }
-
+        <div class="flow-footer">
             <div class="flow-runtime">
                 <div class="flow-runtime-title">Runtime file binding</div>
                 <div class="flow-runtime-row">
@@ -192,8 +167,31 @@
                     <span class="flow-runtime-value">@(_runtimeColumns.Count == 0 ? "auto-detect" : string.Join(", ", _runtimeColumns))</span>
                 </div>
             </div>
+            <div class="flow-summary">
+                <span class="flow-preview-subtitle">@_compileSummary</span>
+                @if (!string.IsNullOrWhiteSpace(_compileWarnings))
+                {
+                    <div class="flow-warning">@_compileWarnings</div>
+                }
+            </div>
         </div>
     </div>
+
+    @if (_sourcePaneOpen)
+    {
+        <div class="flow-source-overlay" @onclick="CloseSourcePane">
+            <div class="flow-source-dialog" @onclick:stopPropagation="true">
+                <div class="flow-source-dialog-header">
+                    <div>
+                        <div class="flow-source-dialog-title">Compiled source</div>
+                        <div class="flow-source-dialog-subtitle">@_compileSummary</div>
+                    </div>
+                    <button type="button" class="flow-mini-btn flow-mini-btn-inline" @onclick="CloseSourcePane">Close</button>
+                </div>
+                <textarea class="flow-source-view" readonly>@_generatedSource</textarea>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
@@ -210,7 +208,7 @@
     private string _generatedSource = "";
     private string _compileSummary = "Ready";
     private string _compileWarnings = "";
-    private bool _showSource;
+    private bool _sourcePaneOpen;
     private string? _runtimeDataJson;
     private string? _runtimeFilePath;
     private readonly List<string> _runtimeColumns = new();
@@ -430,9 +428,14 @@
         UpdateNode(nodeId, node => node.ChartType = e.Value?.ToString()?.Trim().ToLowerInvariant() ?? "histogram");
     }
 
-    private void ToggleSourceView()
+    private void OpenSourcePane()
     {
-        _showSource = !_showSource;
+        _sourcePaneOpen = true;
+    }
+
+    private void CloseSourcePane()
+    {
+        _sourcePaneOpen = false;
     }
 
     private void SetIntegratorMethod(string nodeId, ChangeEventArgs e)
@@ -518,7 +521,6 @@
             _runtimeDataJson = compile.RuntimeDataJson;
             _compileSummary = compile.Summary;
             _compileWarnings = compile.Warnings.Count == 0 ? "" : string.Join("\n", compile.Warnings);
-            _showSource = false;
             _statusMessage = compile.Success ? "Flow compiled and ready." : "Flow needs a little more setup.";
             Actions.AppendConsole("Flow", compile.Success ? $"Compiled flow: {compile.Summary}" : $"Compile warning: {compile.Summary}", compile.Success ? "info" : "warning");
             await SaveStateAsync();
