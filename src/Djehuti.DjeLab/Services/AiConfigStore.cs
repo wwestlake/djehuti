@@ -4,11 +4,9 @@ namespace Djehuti.DjeLab.Services;
 
 /// <summary>
 /// Reads/writes the user's BYOK OpenAI key and model choice to localStorage --
-/// same storage mechanism and philosophy as Cyberscope's Live Lab
-/// (Djehuti.Dashboard): a plain browser-local key, never sent to Djehuti's
-/// own servers, used to call OpenAI directly from the client. No encryption,
-/// no server-side validation call -- matches that existing precedent rather
-/// than inventing a heavier pattern for the same concern.
+/// same storage mechanism and philosophy as Cyberscope's Live Lab. DjeLab
+/// scopes those values to the signed-in account so one login does not leak
+/// settings into another login on the same browser.
 /// </summary>
 public sealed class AiConfigStore
 {
@@ -18,38 +16,77 @@ public sealed class AiConfigStore
     private const string ModelStorageKey = "djelab.aiModel";
 
     private readonly IJSRuntime _js;
+    private readonly DjeLabStorageScopeService _scope;
 
-    public AiConfigStore(IJSRuntime js)
+    public AiConfigStore(IJSRuntime js, DjeLabStorageScopeService scope)
     {
         _js = js;
+        _scope = scope;
     }
 
-    public async Task<string?> GetApiKeyAsync() =>
-        await _js.InvokeAsync<string?>("localStorage.getItem", ApiKeyStorageKey);
+    public async Task<string?> GetApiKeyAsync()
+    {
+        var scopedKey = await _scope.QualifyAsync(ApiKeyStorageKey);
+        var apiKey = await _js.InvokeAsync<string?>("localStorage.getItem", scopedKey);
+        if (!string.IsNullOrWhiteSpace(apiKey))
+            return apiKey;
 
-    public async Task<string> GetModelAsync() =>
-        await _js.InvokeAsync<string?>("localStorage.getItem", ModelStorageKey) is { Length: > 0 } model
-            ? model
-            : DefaultModel;
+        var legacyApiKey = await _js.InvokeAsync<string?>("localStorage.getItem", ApiKeyStorageKey);
+        if (string.IsNullOrWhiteSpace(legacyApiKey))
+            return null;
+
+        await _js.InvokeVoidAsync("localStorage.setItem", scopedKey, legacyApiKey);
+        await _js.InvokeVoidAsync("localStorage.removeItem", ApiKeyStorageKey);
+        return legacyApiKey;
+    }
+
+    public async Task<string> GetModelAsync()
+    {
+        var scopedKey = await _scope.QualifyAsync(ModelStorageKey);
+        var model = await _js.InvokeAsync<string?>("localStorage.getItem", scopedKey);
+        if (!string.IsNullOrWhiteSpace(model))
+            return model;
+
+        var legacyModel = await _js.InvokeAsync<string?>("localStorage.getItem", ModelStorageKey);
+        if (!string.IsNullOrWhiteSpace(legacyModel))
+        {
+            await _js.InvokeVoidAsync("localStorage.setItem", scopedKey, legacyModel);
+            await _js.InvokeVoidAsync("localStorage.removeItem", ModelStorageKey);
+            return legacyModel;
+        }
+
+        return DefaultModel;
+    }
 
     public async Task SetApiKeyAsync(string? apiKey)
     {
+        var scopedKey = await _scope.QualifyAsync(ApiKeyStorageKey);
         if (string.IsNullOrWhiteSpace(apiKey))
-            await _js.InvokeVoidAsync("localStorage.removeItem", ApiKeyStorageKey);
+            await _js.InvokeVoidAsync("localStorage.removeItem", scopedKey);
         else
-            await _js.InvokeVoidAsync("localStorage.setItem", ApiKeyStorageKey, apiKey.Trim());
+            await _js.InvokeVoidAsync("localStorage.setItem", scopedKey, apiKey.Trim());
+
+        await _js.InvokeVoidAsync("localStorage.removeItem", ApiKeyStorageKey);
     }
 
     public async Task SetModelAsync(string? model)
     {
+        var scopedKey = await _scope.QualifyAsync(ModelStorageKey);
         if (string.IsNullOrWhiteSpace(model))
-            await _js.InvokeVoidAsync("localStorage.removeItem", ModelStorageKey);
+            await _js.InvokeVoidAsync("localStorage.removeItem", scopedKey);
         else
-            await _js.InvokeVoidAsync("localStorage.setItem", ModelStorageKey, model.Trim());
+            await _js.InvokeVoidAsync("localStorage.setItem", scopedKey, model.Trim());
+
+        await _js.InvokeVoidAsync("localStorage.removeItem", ModelStorageKey);
     }
 
     public async Task ClearAsync()
     {
+        var scopedApiKey = await _scope.QualifyAsync(ApiKeyStorageKey);
+        var scopedModel = await _scope.QualifyAsync(ModelStorageKey);
+
+        await _js.InvokeVoidAsync("localStorage.removeItem", scopedApiKey);
+        await _js.InvokeVoidAsync("localStorage.removeItem", scopedModel);
         await _js.InvokeVoidAsync("localStorage.removeItem", ApiKeyStorageKey);
         await _js.InvokeVoidAsync("localStorage.removeItem", ModelStorageKey);
     }

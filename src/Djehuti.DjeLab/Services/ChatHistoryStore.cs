@@ -20,10 +20,12 @@ public sealed class ChatHistoryStore
     public const string LegacyStorageKey = "djelab.chatTurns";
 
     private readonly IJSRuntime _js;
+    private readonly DjeLabStorageScopeService _scope;
 
-    public ChatHistoryStore(IJSRuntime js)
+    public ChatHistoryStore(IJSRuntime js, DjeLabStorageScopeService scope)
     {
         _js = js;
+        _scope = scope;
     }
 
     public async Task<List<ChatTurn>> GetTurnsAsync(string storageKey, string? legacyStorageKey = null)
@@ -31,10 +33,17 @@ public sealed class ChatHistoryStore
         if (string.IsNullOrWhiteSpace(storageKey))
             return new List<ChatTurn>();
 
-        var json = await _js.InvokeAsync<string?>("localStorage.getItem", storageKey);
+        var scopedKey = await _scope.QualifyAsync(storageKey);
+        var json = await _js.InvokeAsync<string?>("localStorage.getItem", scopedKey);
         if (string.IsNullOrWhiteSpace(json) && !string.IsNullOrWhiteSpace(legacyStorageKey))
         {
-            json = await _js.InvokeAsync<string?>("localStorage.getItem", legacyStorageKey);
+            var legacyJson = await _js.InvokeAsync<string?>("localStorage.getItem", legacyStorageKey);
+            if (!string.IsNullOrWhiteSpace(legacyJson))
+            {
+                json = legacyJson;
+                await _js.InvokeVoidAsync("localStorage.setItem", scopedKey, legacyJson);
+                await _js.InvokeVoidAsync("localStorage.removeItem", legacyStorageKey);
+            }
         }
 
         if (string.IsNullOrWhiteSpace(json)) return new List<ChatTurn>();
@@ -55,7 +64,8 @@ public sealed class ChatHistoryStore
             return;
 
         var json = JsonSerializer.Serialize(turns);
-        await _js.InvokeVoidAsync("localStorage.setItem", storageKey, json);
+        var scopedKey = await _scope.QualifyAsync(storageKey);
+        await _js.InvokeVoidAsync("localStorage.setItem", scopedKey, json);
     }
 
     public async Task ClearAsync(string storageKey)
@@ -63,6 +73,8 @@ public sealed class ChatHistoryStore
         if (string.IsNullOrWhiteSpace(storageKey))
             return;
 
+        var scopedKey = await _scope.QualifyAsync(storageKey);
+        await _js.InvokeVoidAsync("localStorage.removeItem", scopedKey);
         await _js.InvokeVoidAsync("localStorage.removeItem", storageKey);
     }
 }

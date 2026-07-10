@@ -8,8 +8,9 @@ builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
-builder.Services.AddSingleton<AiConfigStore>();
-builder.Services.AddSingleton<ChatHistoryStore>();
+builder.Services.AddScoped<DjeLabStorageScopeService>();
+builder.Services.AddScoped<AiConfigStore>();
+builder.Services.AddScoped<ChatHistoryStore>();
 builder.Services.AddScoped<AiChatClient>();
 builder.Services.AddScoped<DjeLabFilesClient>();
 builder.Services.AddSingleton<WorkspaceActions>();
