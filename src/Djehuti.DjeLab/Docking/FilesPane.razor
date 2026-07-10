@@ -1,3 +1,4 @@
+@implements IDisposable
 @inject DjeLabFilesClient FilesClient
 @inject HttpClient Http
 @inject IJSRuntime JS
@@ -181,6 +182,7 @@
             _checkingAuth = false;
         }
 
+        Actions.FilesChangedRequested += HandleFilesChangedRequested;
         if (_signedIn) await RefreshAsync();
     }
 
@@ -431,6 +433,7 @@
             _selectedSizeBytes = result.Value.SizeBytes;
             _selectedMessage = $"Saved to {_selectedPath}.";
             Actions.SetActiveFileContext(BuildSnapshot(result.Value.Path, result.Value.Name, result.Value.ContentType, result.Value.SizeBytes, _selectedEditable, false, _selectedContent));
+            Actions.NotifyFilesChanged();
             await RefreshAsync();
         }
         catch (Exception ex)
@@ -456,6 +459,11 @@
         _selectedContent = "";
         _selectedMessage = null;
         Actions.ClearActiveFileContext();
+    }
+
+    private void HandleFilesChangedRequested()
+    {
+        _ = InvokeAsync(RefreshAsync);
     }
 
     private static ActiveFileContextSnapshot BuildSnapshot(
@@ -499,5 +507,10 @@
     {
         public string? DisplayName { get; set; }
         public string? Email { get; set; }
+    }
+
+    public void Dispose()
+    {
+        Actions.FilesChangedRequested -= HandleFilesChangedRequested;
     }
 }
