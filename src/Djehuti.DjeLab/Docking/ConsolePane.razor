@@ -6,16 +6,29 @@
     <div class="console-toolbar">
         <div class="console-toolbar-left">
             <span class="console-title">Execution Log</span>
-            <span class="console-count">@_entries.Count line(s)</span>
+            <span class="console-count">@_visibleEntries.Count line(s)</span>
+            <select class="console-filter" @bind="_sourceFilter" @bind:after="ApplyFilters">
+                <option value="all">All sources</option>
+                @foreach (var source in _sources)
+                {
+                    <option value="@source">@source</option>
+                }
+            </select>
+            <select class="console-filter" @bind="_levelFilter" @bind:after="ApplyFilters">
+                <option value="all">All levels</option>
+                <option value="error">Errors only</option>
+                <option value="warning">Warnings only</option>
+            </select>
         </div>
         <div class="console-toolbar-right">
-            <button type="button" class="files-action-btn code-editor-btn" @onclick="CopyAllAsync" disabled="@(_entries.Count == 0)">Copy</button>
+            <button type="button" class="files-action-btn code-editor-btn" @onclick="CopyErrorsAsync" disabled="@(!_entries.Any(entry => entry.Level == "error"))">Copy errors</button>
+            <button type="button" class="files-action-btn code-editor-btn" @onclick="CopyAllAsync" disabled="@(_visibleEntries.Count == 0)">Copy</button>
             <button type="button" class="files-action-btn code-editor-btn" @onclick="ClearAsync" disabled="@(_entries.Count == 0)">Clear</button>
         </div>
     </div>
 
     <div class="console-log" @ref="_logHost">
-        @if (_entries.Count == 0)
+        @if (_visibleEntries.Count == 0)
         {
             <div class="console-empty">
                 <div class="console-empty-title">Nothing has been written yet.</div>
@@ -24,7 +37,7 @@
         }
         else
         {
-            @foreach (var entry in _entries)
+            @foreach (var entry in _visibleEntries)
             {
                 <div class="console-line console-line-@entry.Level">
                     <span class="console-time">@entry.Timestamp.LocalDateTime.ToString("HH:mm:ss")</span>
@@ -41,10 +54,15 @@
     private ElementReference _logHost;
     private IJSObjectReference? _module;
     private IReadOnlyList<ConsoleLogEntry> _entries = Array.Empty<ConsoleLogEntry>();
+    private IReadOnlyList<ConsoleLogEntry> _visibleEntries = Array.Empty<ConsoleLogEntry>();
+    private IReadOnlyList<string> _sources = Array.Empty<string>();
+    private string _sourceFilter = "all";
+    private string _levelFilter = "all";
 
     protected override void OnInitialized()
     {
         _entries = Actions.CurrentConsoleLog;
+        ApplyFilters();
         Actions.ConsoleLogChanged += HandleConsoleChanged;
     }
 
@@ -64,7 +82,25 @@
     private void HandleConsoleChanged()
     {
         _entries = Actions.CurrentConsoleLog;
+        ApplyFilters();
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void ApplyFilters()
+    {
+        _sources = _entries
+            .Select(entry => entry.Source)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(source => source)
+            .ToArray();
+
+        if (!_sources.Any(source => string.Equals(source, _sourceFilter, StringComparison.OrdinalIgnoreCase)))
+            _sourceFilter = "all";
+
+        _visibleEntries = _entries
+            .Where(entry => _sourceFilter == "all" || string.Equals(entry.Source, _sourceFilter, StringComparison.OrdinalIgnoreCase))
+            .Where(entry => _levelFilter == "all" || string.Equals(entry.Level, _levelFilter, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
     }
 
     private async Task ClearAsync()
@@ -75,8 +111,17 @@
 
     private async Task CopyAllAsync()
     {
-        var text = string.Join(Environment.NewLine, _entries.Select(entry =>
+        var text = string.Join(Environment.NewLine, _visibleEntries.Select(entry =>
             $"[{entry.Timestamp.LocalDateTime:HH:mm:ss}] {entry.Source}: {entry.Message}"));
+        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+        await _module.InvokeVoidAsync("copyText", text);
+    }
+
+    private async Task CopyErrorsAsync()
+    {
+        var text = string.Join(Environment.NewLine, _entries
+            .Where(entry => string.Equals(entry.Level, "error", StringComparison.OrdinalIgnoreCase))
+            .Select(entry => $"[{entry.Timestamp.LocalDateTime:HH:mm:ss}] {entry.Source}: {entry.Message}"));
         _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
         await _module.InvokeVoidAsync("copyText", text);
     }

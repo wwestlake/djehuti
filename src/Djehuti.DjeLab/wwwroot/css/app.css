@@ -1510,6 +1510,10 @@ a {
     flex-wrap: wrap;
 }
 
+.console-toolbar-left {
+    flex: 1 1 auto;
+}
+
 .console-title {
     color: var(--djelab-text);
     font-size: 0.9rem;
@@ -1519,6 +1523,20 @@ a {
 .console-count {
     color: var(--djelab-muted);
     font-size: 0.78rem;
+}
+
+.console-filter {
+    padding: 0.3rem 0.55rem;
+    background: var(--djelab-bg);
+    border: 1px solid var(--djelab-border);
+    border-radius: 6px;
+    color: var(--djelab-text);
+    font-size: 0.78rem;
+}
+
+.console-filter:focus {
+    outline: none;
+    border-color: var(--djelab-accent);
 }
 
 .console-log {
