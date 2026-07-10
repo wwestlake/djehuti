@@ -1,4 +1,4 @@
-@page "/"
+﻿@page "/"
 @inject HttpClient Http
 
 <PageTitle>DjeLab — Djehuti Lab AI+</PageTitle>
@@ -6,7 +6,7 @@
 <div class="djelab-hero">
     <img src="images/djelab-logo-nav.png" alt="DjeLab" class="djelab-hero-logo" />
     <h1>DjeLab</h1>
-    <p class="djelab-tagline">Djehuti Lab AI+ — a browser workspace with a built-in local host / WebLLM mode for tours and basic help, plus BYOK mode when you want more power.</p>
+    <p class="djelab-tagline">Djehuti Lab AI+ is open to everyone at the door. You can try the workspace anonymously, use Ibis for tours and basic help, and add your own key later if you want the stronger Seshat assistant.</p>
 
     <div class="djelab-status-card">
         @if (_loading)
@@ -19,12 +19,27 @@
         }
         else if (_me is not null)
         {
-            <p class="djelab-status-ok">Connected. Signed in as <strong>@_me.DisplayName</strong>.</p>
+            <p class="djelab-status-ok">Connected. Signed in as <strong>@_me.DisplayName</strong>. Your saved layout and file work can follow you across devices.</p>
         }
         else
         {
-            <p class="djelab-status-ok">Connected to Djehuti.Api. DjeLab can still run in local host mode without a key.</p>
+            <p class="djelab-status-ok">Connected to Djehuti.Api. You can explore DjeLab without signing in; sign in later to save your layout and file workspace.</p>
         }
+    </div>
+
+    <div class="djelab-hero-grid">
+        <div class="djelab-hero-card">
+            <h2>Public by default</h2>
+            <p>Anyone can open the home page and try the app without a login. Sign-in is only for saving and syncing.</p>
+        </div>
+        <div class="djelab-hero-card">
+            <h2>Ibis for guidance</h2>
+            <p>Ibis is the friendly host and tour guide. It helps new visitors learn the workspace without needing a key.</p>
+        </div>
+        <div class="djelab-hero-card">
+            <h2>Seshat for heavier work</h2>
+            <p>Add your own OpenAI key when you want a BYOK assistant that can tackle more demanding analysis and coding.</p>
+        </div>
     </div>
 </div>
 
