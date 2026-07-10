@@ -258,6 +258,7 @@
         if (_draggingPaneId == null) return;
         _root = DockTree.MoveToTabStrip(_root, drop.TargetGroupId, _draggingPaneId, drop.InsertIndex);
         _draggingPaneId = null;
+        _ = SaveLayoutAsync();
     }
 
     private void HandleDropOnBody(BodyDrop drop)
@@ -265,6 +266,7 @@
         if (_draggingPaneId == null) return;
         _root = DockTree.MoveToZone(_root, drop.TargetGroupId, _draggingPaneId, drop.Zone);
         _draggingPaneId = null;
+        _ = SaveLayoutAsync();
     }
 
     public async ValueTask DisposeAsync()
@@ -274,6 +276,7 @@
         Actions.WorkspaceTourSequenceRequested -= HandleWorkspaceTourSequenceRequested;
         _tourCts?.Cancel();
         _tourCts?.Dispose();
+        await SaveLayoutAsync();
         if (_module != null) await _module.DisposeAsync();
     }
 

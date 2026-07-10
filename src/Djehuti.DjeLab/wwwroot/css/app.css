@@ -1988,6 +1988,14 @@ a {
     font-weight: 600;
 }
 
+.flow-preview-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
 .flow-preview-subtitle {
     color: var(--djelab-muted);
     font-size: 0.82rem;
@@ -2013,6 +2021,23 @@ a {
     font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
     font-size: 0.85rem;
     line-height: 1.45;
+}
+
+.flow-source-collapsed {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 220px;
+    padding: 1rem;
+    color: var(--djelab-muted);
+    text-align: center;
+    background: #09101b;
+}
+
+.flow-mini-btn-inline {
+    width: auto;
+    padding-inline: 0.65rem;
 }
 
 .flow-runtime {

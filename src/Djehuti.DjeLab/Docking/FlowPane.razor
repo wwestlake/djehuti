@@ -157,7 +157,12 @@
         <div class="flow-preview">
             <div class="flow-preview-header">
                 <span>Compiled source</span>
-                <span class="flow-preview-subtitle">@_compileSummary</span>
+                <div class="flow-preview-actions">
+                    <span class="flow-preview-subtitle">@_compileSummary</span>
+                    <button type="button" class="flow-mini-btn flow-mini-btn-inline" @onclick="ToggleSourceView">
+                        @(_showSource ? "Hide source" : "View source")
+                    </button>
+                </div>
             </div>
 
             @if (!string.IsNullOrWhiteSpace(_compileWarnings))
@@ -165,7 +170,16 @@
                 <div class="flow-warning">@_compileWarnings</div>
             }
 
-            <textarea class="flow-source-view" readonly>@_generatedSource</textarea>
+            @if (_showSource)
+            {
+                <textarea class="flow-source-view" readonly>@_generatedSource</textarea>
+            }
+            else
+            {
+                <div class="flow-source-collapsed">
+                    <span>@(string.IsNullOrWhiteSpace(_generatedSource) ? "No compiled source yet." : "Source hidden. Open it when you want to inspect the generated Spinoza.")</span>
+                </div>
+            }
 
             <div class="flow-runtime">
                 <div class="flow-runtime-title">Runtime file binding</div>
@@ -196,6 +210,7 @@
     private string _generatedSource = "";
     private string _compileSummary = "Ready";
     private string _compileWarnings = "";
+    private bool _showSource;
     private string? _runtimeDataJson;
     private string? _runtimeFilePath;
     private readonly List<string> _runtimeColumns = new();
@@ -415,6 +430,11 @@
         UpdateNode(nodeId, node => node.ChartType = e.Value?.ToString()?.Trim().ToLowerInvariant() ?? "histogram");
     }
 
+    private void ToggleSourceView()
+    {
+        _showSource = !_showSource;
+    }
+
     private void SetIntegratorMethod(string nodeId, ChangeEventArgs e)
     {
         var value = e.Value?.ToString()?.Trim();
@@ -498,6 +518,7 @@
             _runtimeDataJson = compile.RuntimeDataJson;
             _compileSummary = compile.Summary;
             _compileWarnings = compile.Warnings.Count == 0 ? "" : string.Join("\n", compile.Warnings);
+            _showSource = false;
             _statusMessage = compile.Success ? "Flow compiled and ready." : "Flow needs a little more setup.";
             Actions.AppendConsole("Flow", compile.Success ? $"Compiled flow: {compile.Summary}" : $"Compile warning: {compile.Summary}", compile.Success ? "info" : "warning");
             await SaveStateAsync();

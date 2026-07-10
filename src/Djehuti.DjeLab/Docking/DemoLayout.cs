@@ -27,32 +27,26 @@ public static class DemoLayout
             [files.Id] = files,
         };
 
-        var graphGroup = new TabGroupNode();
-        graphGroup.PaneIds.Add(graph.Id);
-
-        var editorGroup = new TabGroupNode();
-        editorGroup.PaneIds.Add(editor.Id);
+        var flowGroup = new TabGroupNode();
+        flowGroup.PaneIds.Add(graph.Id);
+        flowGroup.PaneIds.Add(flow.Id);
+        flowGroup.PaneIds.Add(editor.Id);
+        flowGroup.ActiveIndex = 1;
 
         var consoleGroup = new TabGroupNode();
         consoleGroup.PaneIds.Add(console.Id);
 
-        var leftColumn = new SplitNode { Direction = SplitDirection.Column };
-        leftColumn.Children.Add(graphGroup);
-        leftColumn.Children.Add(editorGroup);
-        leftColumn.Sizes = new List<double> { 0.62, 0.38 };
-
         var rightGroup = new TabGroupNode();
         rightGroup.PaneIds.Add(ibis.Id);
-        rightGroup.PaneIds.Add(flow.Id);
         rightGroup.PaneIds.Add(professor.Id);
         rightGroup.PaneIds.Add(data.Id);
         rightGroup.PaneIds.Add(files.Id);
 
         var root = new SplitNode { Direction = SplitDirection.Row };
         var topArea = new SplitNode { Direction = SplitDirection.Row };
-        topArea.Children.Add(leftColumn);
+        topArea.Children.Add(flowGroup);
         topArea.Children.Add(rightGroup);
-        topArea.Sizes = new List<double> { 0.65, 0.35 };
+        topArea.Sizes = new List<double> { 0.72, 0.28 };
 
         root.Children.Add(topArea);
         root.Children.Add(consoleGroup);
