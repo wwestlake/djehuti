@@ -69,7 +69,7 @@ else if (Node is TabGroupNode group)
                 <div class="dock-pane-content" style="--dock-accent: @pane.AccentColor; @(isActive ? "" : "display: none;")">
                     @if (pane.Kind == "chat")
                     {
-                        <ChatPane @key="pane.Id" />
+                        <ChatPane @key="pane.Id" PaneId="@pane.Id" AssistantName="@pane.Title" ChatPersona="@pane.ChatPersona" />
                     }
                     else if (pane.Kind == "files")
                     {
