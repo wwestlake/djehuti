@@ -403,6 +403,9 @@
     private string BuildLocalHostReply(string userMessage, IReadOnlyList<ChatTurn> history)
     {
         var message = userMessage.ToLowerInvariant();
+        if (TryHandleWorkspaceTour(message, out var tourReply))
+            return tourReply;
+
         if (message.Contains("key") || message.Contains("byok") || message.Contains("openai"))
         {
             return "Ibis can start without a key. Add an OpenAI API key in AI Setup when you want Seshat, the BYOK math professor.";
@@ -420,10 +423,65 @@
 
         if (message.Contains("file") || message.Contains("csv") || message.Contains("json") || message.Contains("root"))
         {
+            if (_activeFileContext.HasSelection)
+            {
+                return $"I can see {_activeFileContext.Name} loaded already. I can open the Editor to inspect it, point you at Files, or help you turn it into a graph.";
+            }
+
             return "I can help you work with CSV, JSON, and ROOT files from the file area, then save results back there.";
         }
 
-        return "I can help with the workspace, files, plots, and getting started.";
+        if (_activeFileContext.HasSelection)
+        {
+            return $"I can see {_activeFileContext.Name} open in the workspace. I can open the Editor, Files, Graph, or Log and point you at the right place.";
+        }
+
+        return "I can help with the workspace, files, plots, and getting started. Ask me to open Files, Graph, Editor, or Log and I’ll highlight the right pane.";
+    }
+
+    private bool TryHandleWorkspaceTour(string message, out string reply)
+    {
+        var wantsGuidedTour = message.Contains("tour") || message.Contains("show me around") || message.Contains("walk me through") || message.Contains("workspace");
+
+        if (wantsGuidedTour && !message.Contains("graph") && !message.Contains("plot") && !message.Contains("chart")
+            && !message.Contains("file") && !message.Contains("folder") && !message.Contains("directory")
+            && !message.Contains("edit") && !message.Contains("code") && !message.Contains("source")
+            && !message.Contains("log") && !message.Contains("console") && !message.Contains("error"))
+        {
+            Actions.RequestWorkspaceTourSequence("files", "editor", "graph", "log");
+            reply = "Absolutely — I’ll walk you through Files, Editor, Graph, and Log in order.";
+            return true;
+        }
+
+        var targetPane = message.Contains("log") || message.Contains("error") || message.Contains("console") || message.Contains("output")
+            ? "log"
+            : message.Contains("graph") || message.Contains("plot") || message.Contains("chart") || message.Contains("simulate") || message.Contains("run")
+                ? "graph"
+                : message.Contains("edit") || message.Contains("code") || message.Contains("source") || message.Contains("save")
+                    ? "editor"
+                    : message.Contains("file") || message.Contains("folder") || message.Contains("directory") || message.Contains("upload")
+                        ? "files"
+                        : message.Contains("tour") || message.Contains("workspace") || message.Contains("show me around") || message.Contains("what can you do")
+                            ? "files"
+                            : "";
+
+        if (string.IsNullOrWhiteSpace(targetPane))
+        {
+            reply = "";
+            return false;
+        }
+
+        Actions.RequestWorkspaceTour(targetPane);
+        reply = targetPane switch
+        {
+            "files" => "I opened and highlighted Files so you can start with the workspace contents.",
+            "graph" => "I opened and highlighted Graph so you can jump straight into plots and simulations.",
+            "editor" => "I opened and highlighted the Editor so you can inspect or write code there.",
+            "log" => "I opened and highlighted Log so you can see execution output and errors.",
+            _ => "I opened the right pane for you."
+        };
+
+        return true;
     }
 
     private string GetPlaceholder() => _isIbisPane
