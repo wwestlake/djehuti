@@ -245,9 +245,8 @@ public static class DjeLabSystemPrompt
           determines the result.
         - `==`/`!=` work structurally on numbers, bools, and vectors (recursively). Comparing two
           functions for equality is a runtime error, not `false`.
-        - Every evaluation has a bounded step budget (default 1,000,000 reductions). A program
-          that recurses without terminating fails with a clear error rather than hanging --
-          always write recursive functions with a genuinely reachable base case.
+        - Long tail-recursive programs are allowed to run until they finish or the host stops
+          them. The runtime does not impose an artificial reduction cap here.
         - Vector indexing out of range is a runtime error. Unbound variables are a runtime error
           at the point of use, not a silent null/undefined.
 

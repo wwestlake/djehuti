@@ -116,13 +116,14 @@ let ``unbound variable is a clear error, not an exception`` () =
         | Ok v -> failwith $"expected an error, got a value: {v}"
 
 [<Fact>]
-let ``runaway recursion hits the step budget instead of hanging`` () =
-    match Djehuti.DjeLab.Dsl.Parser.parse "let rec loop n = loop(n + 1) in loop(0)" with
+let ``long tail recursion can keep running without an artificial budget cap`` () =
+    match Djehuti.DjeLab.Dsl.Parser.parse "let rec loop n = if n == 0 then n else loop(n - 1) in loop(20000)" with
     | Error e -> failwith $"parse error: {e}"
     | Ok expr ->
-        match eval 1000 Djehuti.DjeLab.Dsl.Evaluator.builtinEnv expr with
-        | Error msg -> Assert.Contains("step budget", msg)
-        | Ok v -> failwith $"expected a step-budget error, got a value: {v}"
+        match run expr with
+        | Ok(VNumber 0.0) -> ()
+        | Ok v -> failwith $"expected 0, got {v}"
+        | Error msg -> failwith $"expected a successful long run, got error: {msg}"
 
 [<Fact>]
 let ``emit is a no-op pass-through when nothing is listening`` () =

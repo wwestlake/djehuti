@@ -767,7 +767,7 @@ let rec loop i = if i == 60 then i else (let dummy = emit([cos(i / 4), sin(i / 4
 
 - && and || short-circuit: the right side is not evaluated if the left side already determines the result.
 - ==/!= work structurally on numbers, bools, and vectors (recursively). Comparing two functions for equality is a runtime error, not false.
-- Every evaluation has a bounded step budget (reference implementation: 1,000,000 reduction steps). A non-terminating recursive program fails with a clear "step budget exceeded" error instead of hanging.
+- Long tail-recursive programs are allowed to run until they finish or the host stops them; the runtime does not impose an artificial reduction cap here.
 - Vector indexing out of range is a runtime error.
 - Unbound variables are a runtime error at the point of use, not a silent null/undefined.
 
