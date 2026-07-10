@@ -297,6 +297,8 @@
     private const string StorageKey = "djelab.flow.pipeline.v1";
     private const double NodeWidth = 280;
     private const double NodeHeight = 220;
+    private const double CollapsedNodeWidth = 200;
+    private const double CollapsedNodeHeight = 56;
 
     private readonly List<FlowNodeModel> _nodes = new();
     private ElementReference _canvasRef;
@@ -1555,17 +1557,30 @@
 
     private string BuildWirePath((FlowNodeModel Source, FlowNodeModel Target) connection)
     {
-        var startX = connection.Source.X + NodeWidth;
-        var startY = connection.Source.Y + 110;
+        var startX = connection.Source.X + GetNodeWidth(connection.Source);
+        var startY = connection.Source.Y + (GetNodeHeight(connection.Source) / 2);
         var endX = connection.Target.X;
-        var endY = connection.Target.Y + 110;
+        var endY = connection.Target.Y + (GetNodeHeight(connection.Target) / 2);
         var controlOffset = Math.Max(80, Math.Abs(endX - startX) * 0.35);
         return $"M {startX.ToString(CultureInfo.InvariantCulture)} {startY.ToString(CultureInfo.InvariantCulture)} C {(startX + controlOffset).ToString(CultureInfo.InvariantCulture)} {startY.ToString(CultureInfo.InvariantCulture)}, {(endX - controlOffset).ToString(CultureInfo.InvariantCulture)} {endY.ToString(CultureInfo.InvariantCulture)}, {endX.ToString(CultureInfo.InvariantCulture)} {endY.ToString(CultureInfo.InvariantCulture)}";
     }
 
     private string BuildNodeStyle(FlowNodeModel node)
     {
-        return string.Create(CultureInfo.InvariantCulture, $"left:{node.X}px; top:{node.Y}px;");
+        var width = GetNodeWidth(node);
+        var height = GetNodeHeight(node);
+        var collapsedHeight = node.IsCollapsed ? $" height:{height}px;" : string.Empty;
+        return FormattableString.Invariant($"left:{node.X}px; top:{node.Y}px; width:{width}px; min-height:{height}px;{collapsedHeight}");
+    }
+
+    private static double GetNodeWidth(FlowNodeModel node)
+    {
+        return node.IsCollapsed ? CollapsedNodeWidth : NodeWidth;
+    }
+
+    private static double GetNodeHeight(FlowNodeModel node)
+    {
+        return node.IsCollapsed ? CollapsedNodeHeight : NodeHeight;
     }
 
     private async Task SaveStateAsync()

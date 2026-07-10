@@ -1912,22 +1912,62 @@ a {
     position: absolute;
     width: 280px;
     min-height: 220px;
-    background: linear-gradient(180deg, rgba(16, 24, 38, 0.98), rgba(10, 16, 28, 0.98));
-    border: 1px solid rgba(104, 137, 182, 0.45);
+    --flow-accent: 104, 137, 182;
+    background:
+        linear-gradient(180deg, rgba(36, 49, 72, 0.99), rgba(14, 20, 33, 0.99)),
+        linear-gradient(90deg, rgba(var(--flow-accent), 0.42), rgba(var(--flow-accent), 0.11));
+    border: 1px solid rgba(var(--flow-accent), 0.88);
     border-radius: 14px;
     overflow: hidden;
-    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.03);
-    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+    box-shadow:
+        0 14px 28px rgba(0, 0, 0, 0.22),
+        0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+        0 0 0 1px rgba(var(--flow-accent), 0.24);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, filter 0.15s ease;
+    color: var(--djelab-text);
 }
 
     .flow-node.selected {
-        border-color: rgba(232, 179, 84, 0.95);
-        box-shadow: 0 0 0 1px rgba(232, 179, 84, 0.78), 0 16px 28px rgba(0, 0, 0, 0.25);
+        border-color: rgba(255, 200, 104, 0.98);
+        box-shadow:
+            0 0 0 1px rgba(255, 200, 104, 0.88),
+            0 16px 28px rgba(0, 0, 0, 0.25),
+            0 0 24px rgba(255, 200, 104, 0.2);
+        filter: brightness(1.05);
     }
 
     .flow-node.flow-node-collapsed {
         min-height: 56px;
+        border-color: rgba(var(--flow-accent), 1);
+        box-shadow:
+            0 10px 20px rgba(0, 0, 0, 0.2),
+            0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+            0 0 0 1px rgba(var(--flow-accent), 0.3);
     }
+
+.flow-node-source {
+    --flow-accent: 83, 169, 245;
+}
+
+.flow-node-sequencesource {
+    --flow-accent: 142, 92, 214;
+}
+
+.flow-node-transform {
+    --flow-accent: 91, 194, 143;
+}
+
+.flow-node-filter {
+    --flow-accent: 244, 180, 72;
+}
+
+.flow-node-integrator {
+    --flow-accent: 232, 123, 98;
+}
+
+.flow-node-plot {
+    --flow-accent: 123, 191, 255;
+}
 
 .flow-node-header {
     display: flex;
@@ -1935,14 +1975,17 @@ a {
     justify-content: space-between;
     gap: 0.75rem;
     padding: 0.55rem 0.7rem;
-    border-bottom: 1px solid rgba(104, 137, 182, 0.22);
-    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid rgba(var(--flow-accent), 0.26);
+    background: linear-gradient(90deg, rgba(var(--flow-accent), 0.22), rgba(255, 255, 255, 0.04));
     cursor: grab;
     user-select: none;
 }
 
 .flow-node-title {
     font-weight: 600;
+    color: #ffffff;
+    letter-spacing: 0.01em;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 .flow-node-header-actions {
@@ -1954,8 +1997,8 @@ a {
 .flow-node-toggle,
 .flow-node-close {
     border: none;
-    background: rgba(255, 255, 255, 0.03);
-    color: var(--djelab-muted);
+    background: rgba(255, 255, 255, 0.1);
+    color: #f4f7ff;
     font-size: 0.95rem;
     line-height: 1;
     width: 1.75rem;
@@ -1966,8 +2009,8 @@ a {
 
     .flow-node-toggle:hover,
     .flow-node-close:hover {
-        background: rgba(255, 255, 255, 0.07);
-        color: var(--djelab-text);
+        background: rgba(255, 255, 255, 0.2);
+        color: white;
     }
 
     .flow-node-close:hover {
@@ -2005,6 +2048,7 @@ a {
 
 .flow-node-body {
     padding: 0.65rem;
+    color: var(--djelab-text);
 }
 
 .flow-node-collapsed .flow-node-body {
@@ -2013,6 +2057,11 @@ a {
 
 .flow-node-collapsed .flow-node-sockets {
     display: none;
+}
+
+.flow-node-collapsed .flow-node-header {
+    padding-top: 0.45rem;
+    padding-bottom: 0.45rem;
 }
 
 .flow-node-actions {
@@ -2030,16 +2079,24 @@ a {
     color: var(--djelab-muted);
 }
 
-    .flow-field input,
-    .flow-field textarea,
-    .flow-field select {
-        width: 100%;
-        padding: 0.45rem 0.5rem;
-        background: var(--djelab-bg);
-        border: 1px solid var(--djelab-border);
-        border-radius: 8px;
-        color: var(--djelab-text);
-        font: inherit;
+.flow-field input,
+.flow-field textarea,
+.flow-field select {
+    width: 100%;
+    padding: 0.45rem 0.5rem;
+    background: rgba(7, 12, 22, 0.99);
+    border: 1px solid rgba(var(--flow-accent), 0.48);
+    border-radius: 8px;
+    color: #f4f7fb;
+    font: inherit;
+}
+
+    .flow-field input:focus,
+    .flow-field textarea:focus,
+    .flow-field select:focus {
+        outline: none;
+        border-color: rgba(var(--flow-accent), 0.95);
+        box-shadow: 0 0 0 2px rgba(var(--flow-accent), 0.18);
     }
 
         .flow-field textarea {
@@ -2049,6 +2106,7 @@ a {
 
 .flow-mini-btn {
     width: 100%;
+    border-color: rgba(var(--flow-accent), 0.42);
 }
 
 .flow-footer {
@@ -2169,16 +2227,16 @@ a {
     width: 100%;
     text-align: left;
     padding: 0.65rem 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
     border-radius: 10px;
     color: var(--djelab-text);
     cursor: pointer;
 }
 
     .flow-file-picker-row:hover {
-        border-color: rgba(63, 169, 245, 0.45);
-        background: rgba(63, 169, 245, 0.08);
+        border-color: rgba(83, 169, 245, 0.7);
+        background: rgba(83, 169, 245, 0.14);
     }
 
 .flow-file-picker-icon {
