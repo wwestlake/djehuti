@@ -134,6 +134,7 @@
         _xLabel = PendingXLabel ?? "x";
         _yLabel = PendingYLabel ?? "y";
         _zLabel = string.IsNullOrWhiteSpace(PendingZLabel) ? "z" : PendingZLabel;
+        Actions.AppendConsole("Graph", $"Starting {_chartType} run for {_xLabel}/{_yLabel}{(Is3D ? $"/{_zLabel}" : "")}.");
 
         await RunAsync(PendingRunId, PendingSource, PendingRuntimeInputJson);
     }
@@ -176,6 +177,9 @@
 
         Actions.CompleteGraphDataRun(runId, new GraphRunOutcome(outcome.Success, _pointCount, outcome.Error));
         Actions.ReportOutcome(runId, new GraphRunOutcome(outcome.Success, _pointCount, outcome.Error));
+        Actions.AppendConsole("Graph", outcome.Success
+            ? $"Run completed with {_pointCount} point(s)."
+            : $"Run failed after {_pointCount} point(s): {outcome.Error}", outcome.Success ? "info" : "error");
         _activeRunId = null;
     }
 
@@ -187,6 +191,7 @@
         _stopping = true;
         StateHasChanged();
 
+        Actions.AppendConsole("Graph", "Stop requested.");
         await _worker.StopAsync();
         await FlushPendingEmitsAsync();
     }
@@ -212,7 +217,10 @@
                 ? $"Saved program to {saveResult.Value.Path}."
                 : saveResult.Error ?? "Could not save the program.";
             if (saveResult.Success && saveResult.Value is not null)
+            {
                 Actions.NotifyFilesChanged();
+                Actions.AppendConsole("Graph", $"Saved program source to {saveResult.Value.Path}.");
+            }
         }
         catch (Exception ex)
         {

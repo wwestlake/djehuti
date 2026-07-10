@@ -30,6 +30,12 @@ public sealed record ActiveFileContextSnapshot(
     public bool HasSelection => !string.IsNullOrWhiteSpace(Path);
 }
 
+public sealed record ConsoleLogEntry(
+    DateTimeOffset Timestamp,
+    string Source,
+    string Message,
+    string Level = "info");
+
 /// <summary>
 /// The bridge between Chat's run_simulation tool handler and the docking
 /// workspace. ChatPane and DockWorkspace are siblings in the component tree
@@ -49,14 +55,17 @@ public sealed class WorkspaceActions
     private readonly Dictionary<string, TaskCompletionSource<GraphRunOutcome>> _pending = new();
     private readonly object _graphDataLock = new();
     private readonly object _fileContextLock = new();
+    private readonly object _consoleLock = new();
     private GraphDataState _graphData = GraphDataState.Empty;
     private ActiveFileContextSnapshot _activeFileContext = ActiveFileContextSnapshot.Empty;
+    private readonly List<ConsoleLogEntry> _consoleLog = new();
 
     public event Action<OpenGraphRequest>? OpenGraphRequested;
     public event Action<GraphDataSnapshot>? GraphDataChanged;
     public event Action? StopCurrentGraphRunRequested;
     public event Action<ActiveFileContextSnapshot>? ActiveFileContextChanged;
     public event Action? FilesChangedRequested;
+    public event Action? ConsoleLogChanged;
 
     public GraphDataSnapshot CurrentGraphData
     {
@@ -76,6 +85,17 @@ public sealed class WorkspaceActions
             lock (_fileContextLock)
             {
                 return _activeFileContext;
+            }
+        }
+    }
+
+    public IReadOnlyList<ConsoleLogEntry> CurrentConsoleLog
+    {
+        get
+        {
+            lock (_consoleLock)
+            {
+                return _consoleLog.ToArray();
             }
         }
     }
@@ -172,6 +192,28 @@ public sealed class WorkspaceActions
     public void ClearActiveFileContext() => SetActiveFileContext(ActiveFileContextSnapshot.Empty);
 
     public void NotifyFilesChanged() => FilesChangedRequested?.Invoke();
+
+    public void AppendConsole(string source, string message, string level = "info")
+    {
+        lock (_consoleLock)
+        {
+            _consoleLog.Add(new ConsoleLogEntry(DateTimeOffset.UtcNow, source, message, level));
+            if (_consoleLog.Count > 500)
+                _consoleLog.RemoveRange(0, _consoleLog.Count - 500);
+        }
+
+        ConsoleLogChanged?.Invoke();
+    }
+
+    public void ClearConsole()
+    {
+        lock (_consoleLock)
+        {
+            _consoleLog.Clear();
+        }
+
+        ConsoleLogChanged?.Invoke();
+    }
 
     private static List<string> NormalizePoint(string chartType, int rowIndex, JsonElement point)
     {

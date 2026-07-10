@@ -91,6 +91,10 @@ else if (Node is TabGroupNode group)
                     {
                         <CodeEditorPane @key="pane.Id" />
                     }
+                    else if (pane.Kind == "console")
+                    {
+                        <ConsolePane @key="pane.Id" />
+                    }
                     else
                     {
                         <PlaceholderPaneContent @key="pane.Id" Pane="pane" />
