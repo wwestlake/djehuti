@@ -5,14 +5,14 @@
     <div class="dock-split @(split.Direction == SplitDirection.Row ? "dock-split-row" : "dock-split-col")">
         @for (var i = 0; i < split.Children.Count; i++)
         {
-            var child = split.Children[i];
-            var size = split.Sizes.Count > i ? split.Sizes[i] : 1.0 / split.Children.Count;
-            <div class="dock-split-child" style="flex-basis: @((size * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%;">
-                <DockNodeView Node="child" Panes="Panes" DraggingPaneId="DraggingPaneId"
+                var child = split.Children[i];
+                var size = split.Sizes.Count > i ? split.Sizes[i] : 1.0 / split.Children.Count;
+                <div class="dock-split-child" style="flex-basis: @((size * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%;">
+                <DockNodeView Node="child" Panes="Panes" DraggingPaneId="DraggingPaneId" HighlightedPaneId="HighlightedPaneId"
                               OnBeginResize="OnBeginResize" OnTabDragStart="OnTabDragStart"
                               OnTabActivate="OnTabActivate" OnDropOnTabStrip="OnDropOnTabStrip"
                               OnDropOnBody="OnDropOnBody" OnDragEnd="OnDragEnd" OnClosePane="OnClosePane" />
-            </div>
+                </div>
             if (i < split.Children.Count - 1)
             {
                 var capturedIndex = i;
@@ -33,11 +33,12 @@ else if (Node is TabGroupNode group)
             {
                 if (!Panes.TryGetValue(paneId, out var pane)) continue;
                 var isActive = group.PaneIds.Count > 0 && group.PaneIds[Math.Min(group.ActiveIndex, group.PaneIds.Count - 1)] == paneId;
+                var isHighlighted = string.Equals(HighlightedPaneId, paneId, StringComparison.Ordinal);
                 var capturedPaneId = paneId;
-                <div class="dock-tab @(isActive ? "active" : "") @(DraggingPaneId == paneId ? "dragging" : "")"
-                     draggable="true"
-                     style="--dock-accent: @pane.AccentColor"
-                     @ondragstart="e => HandleTabDragStart(capturedPaneId, e)"
+                <div class="dock-tab @(isActive ? "active" : "") @(isHighlighted ? "tour-highlight" : "") @(DraggingPaneId == paneId ? "dragging" : "")"
+                      draggable="true"
+                      style="--dock-accent: @pane.AccentColor"
+                      @ondragstart="e => HandleTabDragStart(capturedPaneId, e)"
                      @ondragend="() => OnDragEnd.InvokeAsync()"
                      @onclick="() => OnTabActivate.InvokeAsync(new TabActivate(group, capturedPaneId))">
                     <span class="dock-tab-title">@pane.Title</span>
@@ -66,7 +67,8 @@ else if (Node is TabGroupNode group)
             {
                 if (!Panes.TryGetValue(paneId, out var pane)) continue;
                 var isActive = paneId == activePaneId;
-                <div class="dock-pane-content" style="--dock-accent: @pane.AccentColor; @(isActive ? "" : "display: none;")">
+                var isHighlighted = string.Equals(HighlightedPaneId, paneId, StringComparison.Ordinal);
+                <div class="dock-pane-content @(isHighlighted ? "tour-highlight" : "")" style="--dock-accent: @pane.AccentColor; @(isActive ? "" : "display: none;")">
                     @if (pane.Kind == "chat")
                     {
                         <ChatPane @key="pane.Id" PaneId="@pane.Id" AssistantName="@pane.Title" ChatPersona="@pane.ChatPersona" />
@@ -113,6 +115,7 @@ else if (Node is TabGroupNode group)
     [Parameter] public DockNode Node { get; set; } = default!;
     [Parameter] public Dictionary<string, PaneDescriptor> Panes { get; set; } = default!;
     [Parameter] public string? DraggingPaneId { get; set; }
+    [Parameter] public string? HighlightedPaneId { get; set; }
     [Parameter] public EventCallback<ResizeStart> OnBeginResize { get; set; }
     [Parameter] public EventCallback<string> OnTabDragStart { get; set; }
     [Parameter] public EventCallback<TabActivate> OnTabActivate { get; set; }

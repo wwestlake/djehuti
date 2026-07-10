@@ -26,6 +26,7 @@
     <div class="dock-canvas">
         <DockNodeView Node="_root" Panes="_panes"
                       DraggingPaneId="_draggingPaneId"
+                      HighlightedPaneId="_highlightedPaneId"
                       OnBeginResize="BeginResize"
                       OnTabDragStart="BeginDragPane"
                       OnTabActivate="ActivatePane"
@@ -43,6 +44,8 @@
     private DockNode _root = default!;
     private Dictionary<string, PaneDescriptor> _panes = default!;
     private string? _draggingPaneId;
+    private string? _highlightedPaneId;
+    private CancellationTokenSource? _tourCts;
     private bool _layoutLoaded;
     private const string LayoutStorageKey = "djelab.dock.layout.v1";
 
@@ -66,6 +69,8 @@
     {
         (_root, _panes) = DemoLayout.CreateDefault();
         Actions.OpenGraphRequested += HandleOpenGraphRequested;
+        Actions.WorkspaceTourRequested += HandleWorkspaceTourRequested;
+        Actions.WorkspaceTourSequenceRequested += HandleWorkspaceTourSequenceRequested;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -82,6 +87,8 @@
         (_root, _panes) = DemoLayout.CreateDefault();
         _resizingSplit = null;
         _draggingPaneId = null;
+        _highlightedPaneId = null;
+        _tourCts?.Cancel();
         _closedPanes.Clear();
         _ = SaveLayoutAsync(clearIfDefault: true);
     }
@@ -158,6 +165,9 @@
     private void HandleClosePane(string paneId)
     {
         if (!_panes.TryGetValue(paneId, out var pane)) return;
+
+        if (string.Equals(_highlightedPaneId, paneId, StringComparison.Ordinal))
+            _highlightedPaneId = null;
 
         _closedPanes.Insert(0, new ClosedPane(pane.Title, pane.Kind, pane.AccentColor, pane.ChatPersona));
         if (_closedPanes.Count > MaxClosedPanes) _closedPanes.RemoveAt(_closedPanes.Count - 1);
@@ -260,6 +270,10 @@
     public async ValueTask DisposeAsync()
     {
         Actions.OpenGraphRequested -= HandleOpenGraphRequested;
+        Actions.WorkspaceTourRequested -= HandleWorkspaceTourRequested;
+        Actions.WorkspaceTourSequenceRequested -= HandleWorkspaceTourSequenceRequested;
+        _tourCts?.Cancel();
+        _tourCts?.Dispose();
         if (_module != null) await _module.DisposeAsync();
     }
 
@@ -335,6 +349,72 @@
     {
         public double Width { get; set; }
         public double Height { get; set; }
+    }
+
+    private void HandleWorkspaceTourRequested(string targetPaneKind)
+    {
+        StartTourSequence(new[] { targetPaneKind });
+    }
+
+    private void HandleWorkspaceTourSequenceRequested(IReadOnlyList<string> targetPaneKinds)
+    {
+        StartTourSequence(targetPaneKinds);
+    }
+
+    private void StartTourSequence(IReadOnlyList<string> targetPaneKinds)
+    {
+        if (targetPaneKinds.Count == 0)
+            return;
+
+        _tourCts?.Cancel();
+        _tourCts?.Dispose();
+        _tourCts = new CancellationTokenSource();
+        _ = RunTourSequenceAsync(targetPaneKinds, _tourCts.Token);
+    }
+
+    private async Task RunTourSequenceAsync(IReadOnlyList<string> targetPaneKinds, CancellationToken ct)
+    {
+        foreach (var targetPaneKind in targetPaneKinds)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var targetPane = FindPaneForTour(targetPaneKind);
+            if (targetPane is null)
+                continue;
+
+            _highlightedPaneId = targetPane.Id;
+            var targetGroup = DockTree.FindGroupContainingPane(_root, targetPane.Id);
+            if (targetGroup is not null)
+            {
+                targetGroup.ActiveIndex = targetGroup.PaneIds.IndexOf(targetPane.Id);
+            }
+
+            _ = SaveLayoutAsync();
+            await InvokeAsync(StateHasChanged);
+            await Task.Delay(1400, ct);
+        }
+
+        _highlightedPaneId = null;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private PaneDescriptor? FindPaneForTour(string targetPaneKind)
+    {
+        if (string.IsNullOrWhiteSpace(targetPaneKind))
+            return null;
+
+        var kind = targetPaneKind.Trim().ToLowerInvariant();
+        return kind switch
+        {
+            "files" => _panes.Values.FirstOrDefault(p => p.Kind == "files"),
+            "graph" => _panes.Values.FirstOrDefault(p => p.Kind == "graph"),
+            "editor" => _panes.Values.FirstOrDefault(p => p.Kind == "editor"),
+            "log" or "console" => _panes.Values.FirstOrDefault(p => p.Kind == "console"),
+            "data" => _panes.Values.FirstOrDefault(p => p.Kind == "data"),
+            "chat" => _panes.Values.FirstOrDefault(p => p.Kind == "chat" && string.Equals(p.ChatPersona, "ibis", StringComparison.OrdinalIgnoreCase)),
+            "seshat" => _panes.Values.FirstOrDefault(p => p.Kind == "chat" && string.Equals(p.ChatPersona, "seshat", StringComparison.OrdinalIgnoreCase)),
+            _ => null
+        };
     }
 
     private static bool HasRenderableLayout(DockNode root, Dictionary<string, PaneDescriptor> panes)
