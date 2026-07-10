@@ -91,6 +91,11 @@
     private string? _lastRunId;
     private string? _activeRunId;
     private bool _needsResize;
+    private readonly object _emitLock = new();
+    private readonly List<JsonElement> _pendingEmits = new();
+    private bool _emitFlushScheduled;
+    private const int EmitFlushDelayMs = 50;
+    private const int EmitFlushBatchSize = 25;
 
     private bool Is3D => _chartType is "scatter3d" or "surface";
 
@@ -98,6 +103,7 @@
     {
         _plotElementId = $"plot-{PaneId}";
         _worker = new SpinozaWorkerClient(JS, Nav);
+        Actions.StopCurrentGraphRunRequested += HandleStopRequested;
     }
 
     protected override async Task OnParametersSetAsync()
@@ -153,6 +159,7 @@
 
         _running = false;
         _stopping = false;
+        await FlushPendingEmitsAsync();
         _error = outcome.Success ? null : outcome.Error;
         StateHasChanged();
 
@@ -170,17 +177,23 @@
         StateHasChanged();
 
         await _worker.StopAsync();
+        await FlushPendingEmitsAsync();
     }
 
     private void OnEmit(JsonElement point)
     {
-        _pointCount++;
-        if (_activeRunId is not null) Actions.ReportGraphDataEmit(_activeRunId, point);
-        if (_plotly is not null)
+        var shouldFlushNow = false;
+        lock (_emitLock)
         {
-            _ = _plotly.InvokeVoidAsync("addPoint", _plotElementId, _chartType, point);
+            _pendingEmits.Add(point);
+            _pointCount++;
+            if (_emitFlushScheduled) return;
+            _emitFlushScheduled = true;
+            shouldFlushNow = _pendingEmits.Count >= EmitFlushBatchSize;
         }
-        InvokeAsync(StateHasChanged);
+
+        if (shouldFlushNow) _ = FlushPendingEmitsAsync();
+        else _ = FlushPendingEmitsLaterAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -202,6 +215,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        Actions.StopCurrentGraphRunRequested -= HandleStopRequested;
         if (_worker is not null) await _worker.DisposeAsync();
         if (_plotly is not null)
         {
@@ -211,6 +225,62 @@
                 catch (JSDisconnectedException) { /* app is tearing down; nothing to clean up client-side for */ }
             }
             await _plotly.DisposeAsync();
+        }
+    }
+
+    private void HandleStopRequested()
+    {
+        if (_running && !_stopping)
+            _ = StopRunAsync();
+    }
+
+    private async Task FlushPendingEmitsLaterAsync()
+    {
+        await Task.Delay(EmitFlushDelayMs);
+        await FlushPendingEmitsAsync();
+    }
+
+    private async Task FlushPendingEmitsAsync()
+    {
+        List<JsonElement> batch;
+        lock (_emitLock)
+        {
+            if (_pendingEmits.Count == 0)
+            {
+                _emitFlushScheduled = false;
+                return;
+            }
+
+            batch = new List<JsonElement>(_pendingEmits);
+            _pendingEmits.Clear();
+            _emitFlushScheduled = false;
+        }
+
+        if (_activeRunId is not null)
+            Actions.ReportGraphDataEmits(_activeRunId, batch);
+
+        if (_plotly is not null)
+        {
+            try
+            {
+                await _plotly.InvokeVoidAsync("addPoints", _plotElementId, _chartType, batch);
+            }
+            catch (JSDisconnectedException)
+            {
+                // The browser is already gone; the worker result still gets
+                // cleaned up and the next run will recreate the chart.
+            }
+        }
+
+        await InvokeAsync(StateHasChanged);
+
+        lock (_emitLock)
+        {
+            if (_pendingEmits.Count > 0 && !_emitFlushScheduled)
+            {
+                _emitFlushScheduled = true;
+                _ = FlushPendingEmitsLaterAsync();
+            }
         }
     }
 }

@@ -141,6 +141,59 @@ export function addPoint(elementId, chartType, point) {
     }
 }
 
+export function addPoints(elementId, chartType, points) {
+    const el = document.getElementById(elementId);
+    if (!el || !el.data || el.data.length === 0 || !Array.isArray(points) || points.length === 0) return;
+
+    switch (chartType) {
+        case 'line':
+        case 'scatter':
+        case 'bar': {
+            const batches = points.map((point) => Array.isArray(point) ? point : [point]);
+            if (batches.some((point) => point.length > 2)) {
+                for (const point of points) addPoint(elementId, chartType, point);
+                return;
+            }
+
+            const xs = [];
+            const ys = [];
+            for (const point of batches) {
+                const [x, y] = point.length === 2 ? point : [nextIndex(elementId), point[0]];
+                xs.push(x);
+                ys.push(y);
+            }
+
+            Plotly.extendTraces(el, { x: [xs], y: [ys] }, [0]);
+            break;
+        }
+        case 'histogram': {
+            const values = points.map((point) => Array.isArray(point) ? point[0] : point);
+            Plotly.extendTraces(el, { x: [values] }, [0]);
+            break;
+        }
+        case 'scatter3d': {
+            const xs = [];
+            const ys = [];
+            const zs = [];
+            for (const point of points) {
+                const asArray = Array.isArray(point) ? point : [point];
+                const [x, y, z] = asArray.length >= 3 ? asArray : [nextIndex(elementId), asArray[0] ?? 0, asArray[1] ?? 0];
+                xs.push(x);
+                ys.push(y);
+                zs.push(z);
+            }
+
+            Plotly.extendTraces(el, { x: [xs], y: [ys], z: [zs] }, [0]);
+            break;
+        }
+        case 'surface': {
+            const rows = points.map((point) => Array.isArray(point) ? point : [point]);
+            Plotly.extendTraces(el, { z: [rows] }, [0]);
+            break;
+        }
+    }
+}
+
 export function dispose(elementId) {
     counters.delete(elementId);
     seriesCounts.delete(elementId);

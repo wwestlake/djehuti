@@ -999,6 +999,7 @@
     {
         _statusMessage = "Stopping...";
         _sendCts?.Cancel();
+        Actions.StopCurrentGraphRun();
         StateHasChanged();
         return Task.CompletedTask;
     }

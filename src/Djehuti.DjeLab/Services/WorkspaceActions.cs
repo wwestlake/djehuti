@@ -37,6 +37,7 @@ public sealed class WorkspaceActions
 
     public event Action<OpenGraphRequest>? OpenGraphRequested;
     public event Action<GraphDataSnapshot>? GraphDataChanged;
+    public event Action? StopCurrentGraphRunRequested;
 
     public GraphDataSnapshot CurrentGraphData
     {
@@ -85,17 +86,26 @@ public sealed class WorkspaceActions
     }
 
     public void ReportGraphDataEmit(string runId, JsonElement point)
+        => ReportGraphDataEmits(runId, new[] { point });
+
+    public void ReportGraphDataEmits(string runId, IReadOnlyList<JsonElement> points)
     {
+        if (points.Count == 0) return;
+
         GraphDataSnapshot? snapshot = null;
         lock (_graphDataLock)
         {
             if (_graphData.RunId != runId || string.IsNullOrWhiteSpace(_graphData.RunId)) return;
 
-            var row = NormalizePoint(_graphData.ChartType, _graphData.Rows.Count, point);
-            if (_graphData.Headers.Count == 0)
-                _graphData.Headers = BuildHeaders(_graphData.ChartType, row.Count, _graphData.XLabel, _graphData.YLabel, _graphData.ZLabel).ToList();
+            foreach (var point in points)
+            {
+                var row = NormalizePoint(_graphData.ChartType, _graphData.Rows.Count, point);
+                if (_graphData.Headers.Count == 0)
+                    _graphData.Headers = BuildHeaders(_graphData.ChartType, row.Count, _graphData.XLabel, _graphData.YLabel, _graphData.ZLabel).ToList();
 
-            _graphData.Rows.Add(row);
+                _graphData.Rows.Add(row);
+            }
+
             snapshot = _graphData.ToSnapshot();
         }
 
@@ -116,6 +126,8 @@ public sealed class WorkspaceActions
 
         if (snapshot is not null) GraphDataChanged?.Invoke(snapshot);
     }
+
+    public void StopCurrentGraphRun() => StopCurrentGraphRunRequested?.Invoke();
 
     private static List<string> NormalizePoint(string chartType, int rowIndex, JsonElement point)
     {
