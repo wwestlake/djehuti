@@ -28,6 +28,30 @@ export function copyText(text) {
     return Promise.resolve();
 }
 
+export function saveJson(key, value) {
+    try {
+        localStorage.setItem(key, value ?? '');
+    } catch {
+        // Ignore storage failures; the app still works without persistence.
+    }
+}
+
+export function loadJson(key) {
+    try {
+        return localStorage.getItem(key);
+    } catch {
+        return null;
+    }
+}
+
+export function removeJson(key) {
+    try {
+        localStorage.removeItem(key);
+    } catch {
+        // Ignore storage failures.
+    }
+}
+
 export function autoGrowTextarea(el, maxHeightPx) {
     if (!el) return;
     el.style.height = 'auto';
