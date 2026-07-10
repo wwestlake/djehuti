@@ -93,6 +93,10 @@ else if (Node is TabGroupNode group)
                     {
                         <CodeEditorPane @key="pane.Id" />
                     }
+                    else if (pane.Kind == "flow")
+                    {
+                        <FlowPane @key="pane.Id" />
+                    }
                     else if (pane.Kind == "console")
                     {
                         <ConsolePane @key="pane.Id" />
