@@ -17,7 +17,7 @@ public sealed class ChatTurn
 /// </summary>
 public sealed class ChatHistoryStore
 {
-    private const string StorageKey = "djelab.chatTurns";
+    public const string LegacyStorageKey = "djelab.chatTurns";
 
     private readonly IJSRuntime _js;
 
@@ -26,9 +26,17 @@ public sealed class ChatHistoryStore
         _js = js;
     }
 
-    public async Task<List<ChatTurn>> GetTurnsAsync()
+    public async Task<List<ChatTurn>> GetTurnsAsync(string storageKey, string? legacyStorageKey = null)
     {
-        var json = await _js.InvokeAsync<string?>("localStorage.getItem", StorageKey);
+        if (string.IsNullOrWhiteSpace(storageKey))
+            return new List<ChatTurn>();
+
+        var json = await _js.InvokeAsync<string?>("localStorage.getItem", storageKey);
+        if (string.IsNullOrWhiteSpace(json) && !string.IsNullOrWhiteSpace(legacyStorageKey))
+        {
+            json = await _js.InvokeAsync<string?>("localStorage.getItem", legacyStorageKey);
+        }
+
         if (string.IsNullOrWhiteSpace(json)) return new List<ChatTurn>();
 
         try
@@ -41,14 +49,20 @@ public sealed class ChatHistoryStore
         }
     }
 
-    public async Task SaveTurnsAsync(List<ChatTurn> turns)
+    public async Task SaveTurnsAsync(string storageKey, List<ChatTurn> turns)
     {
+        if (string.IsNullOrWhiteSpace(storageKey))
+            return;
+
         var json = JsonSerializer.Serialize(turns);
-        await _js.InvokeVoidAsync("localStorage.setItem", StorageKey, json);
+        await _js.InvokeVoidAsync("localStorage.setItem", storageKey, json);
     }
 
-    public async Task ClearAsync()
+    public async Task ClearAsync(string storageKey)
     {
-        await _js.InvokeVoidAsync("localStorage.removeItem", StorageKey);
+        if (string.IsNullOrWhiteSpace(storageKey))
+            return;
+
+        await _js.InvokeVoidAsync("localStorage.removeItem", storageKey);
     }
 }

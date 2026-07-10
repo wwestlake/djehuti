@@ -66,6 +66,8 @@ public sealed class WorkspaceActions
     public event Action<ActiveFileContextSnapshot>? ActiveFileContextChanged;
     public event Action? FilesChangedRequested;
     public event Action? ConsoleLogChanged;
+    public event Action<string>? WorkspaceTourRequested;
+    public event Action<IReadOnlyList<string>>? WorkspaceTourSequenceRequested;
 
     public GraphDataSnapshot CurrentGraphData
     {
@@ -213,6 +215,27 @@ public sealed class WorkspaceActions
         }
 
         ConsoleLogChanged?.Invoke();
+    }
+
+    public void RequestWorkspaceTour(string targetPaneKind)
+    {
+        if (string.IsNullOrWhiteSpace(targetPaneKind))
+            return;
+
+        WorkspaceTourRequested?.Invoke(targetPaneKind.Trim().ToLowerInvariant());
+    }
+
+    public void RequestWorkspaceTourSequence(params string[] targetPaneKinds)
+    {
+        var sequence = targetPaneKinds
+            .Select(kind => kind?.Trim().ToLowerInvariant())
+            .OfType<string>()
+            .ToArray();
+
+        if (sequence.Length == 0)
+            return;
+
+        WorkspaceTourSequenceRequested?.Invoke(sequence);
     }
 
     private static List<string> NormalizePoint(string chartType, int rowIndex, JsonElement point)

@@ -15,19 +15,36 @@
     {
         <div class="chat-pane-loading">Loading…</div>
     }
-    else if (!_hasKey)
-    {
-        <div class="chat-pane-empty">
-            <p>No AI configured yet.</p>
-            <a class="chat-pane-setup-link" href="settings">Go to AI Setup</a>
-        </div>
-    }
     else
     {
+        if (_isIbisPane)
+        {
+        }
+        else if (!_hasKey)
+        {
+            <div class="chat-pane-empty chat-pane-empty-host">
+                <p><strong>Seshat is waiting for BYOK.</strong></p>
+                <p>This pane is reserved for the math professor. Add an OpenAI key in <a class="chat-pane-setup-link" href="settings">AI Setup</a> to wake it up.</p>
+                <p>Ibis, the free helper, stays separate and does not share chat history with this pane.</p>
+            </div>
+        }
+        else if (_isSeshatPane)
+        {
+            <div class="chat-pane-empty chat-pane-empty-host">
+                <p><strong>Seshat is ready.</strong></p>
+                <p>This is the BYOK math professor pane. It keeps its own memory and handles deeper reasoning, math, and file-backed analysis independently from Ibis.</p>
+            </div>
+        }
         <div class="chat-pane-messages" @ref="_messagesRef">
             @if (_turns.Count == 0)
             {
-                <div class="chat-pane-empty-history">Ask anything about the math you're working on.</div>
+                <div class="chat-pane-empty-history">
+                    @(_isIbisPane
+                        ? "Ask Ibis anything about the workspace."
+                        : (_hasKey
+                            ? "Ask Seshat anything about the math you're working on."
+                            : "Seshat is waiting for a key. Ibis can still help you get around the workspace."))
+                </div>
             }
             @if (_activeFileContext.HasSelection)
             {
@@ -61,7 +78,7 @@
         <form class="chat-pane-input-row" @onsubmit="Send">
             <textarea @ref="_inputRef"
                       class="chat-pane-input"
-                      placeholder="Ask about a math problem…"
+                      placeholder="@GetPlaceholder()"
                       value="@_input"
                       @oninput="OnInputChanged"
                       @onkeydown="OnKeyDown"></textarea>
@@ -87,6 +104,10 @@
 </div>
 
 @code {
+    [Parameter] public string PaneId { get; set; } = "";
+    [Parameter] public string AssistantName { get; set; } = "Ibis";
+    [Parameter] public string ChatPersona { get; set; } = "ibis";
+
     private bool _loading = true;
     private bool _hasKey;
     private bool _sending;
@@ -101,6 +122,7 @@
     private IJSObjectReference? _module;
     private CancellationTokenSource? _sendCts;
     private ActiveFileContextSnapshot _activeFileContext = ActiveFileContextSnapshot.Empty;
+    private string _historyStorageKey = "";
 
     private const int InputMaxHeightPx = 260;
 
@@ -111,6 +133,19 @@
     // instead of interpreting it as HTML, closing that off.
     private static readonly MarkdownPipeline MarkdownPipeline =
         new MarkdownPipelineBuilder().UseAdvancedExtensions().DisableHtml().Build();
+
+    private bool _isIbisPane => string.Equals(ChatPersona, "ibis", StringComparison.OrdinalIgnoreCase);
+    private bool _isSeshatPane => string.Equals(ChatPersona, "seshat", StringComparison.OrdinalIgnoreCase);
+
+    private string DisplayName => string.IsNullOrWhiteSpace(AssistantName)
+        ? (_isSeshatPane ? "Seshat" : "Ibis")
+        : AssistantName;
+
+    private string LegacyHistoryKey => ChatHistoryStore.LegacyStorageKey;
+    private string HistoryKey => string.IsNullOrWhiteSpace(PaneId)
+        ? $"djelab.chatTurns.{ChatPersona}.{AssistantName}"
+        : $"djelab.chatTurns.{ChatPersona}.{PaneId}";
+    private string SystemPrompt => _isSeshatPane ? DjeLabSystemPrompt.SeshatText : DjeLabSystemPrompt.IbisText;
 
     // Normalizing again here (AiChatClient already does it once when a reply
     // first arrives) is deliberate belt-and-suspenders: it also retroactively
@@ -125,9 +160,11 @@
         _apiKey = await ConfigStore.GetApiKeyAsync() ?? "";
         _model = await ConfigStore.GetModelAsync();
         _hasKey = !string.IsNullOrWhiteSpace(_apiKey);
-        if (_hasKey)
+        _historyStorageKey = HistoryKey;
+        _turns = await HistoryStore.GetTurnsAsync(_historyStorageKey, _isIbisPane ? LegacyHistoryKey : null);
+        if (_isIbisPane && NormalizeIbisHistory())
         {
-            _turns = await HistoryStore.GetTurnsAsync();
+            await HistoryStore.SaveTurnsAsync(_historyStorageKey, _turns);
         }
         _activeFileContext = Actions.CurrentFileContext;
         Actions.ActiveFileContextChanged += HandleActiveFileContextChanged;
@@ -136,11 +173,8 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_hasKey)
-        {
-            await TryInvokeJsAsync("renderMath", _messagesRef);
-            await TryInvokeJsAsync("scrollToBottom", _messagesRef);
-        }
+        await TryInvokeJsAsync("renderMath", _messagesRef);
+        await TryInvokeJsAsync("scrollToBottom", _messagesRef);
     }
 
     private async Task OnKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
@@ -364,6 +398,116 @@
             sections.Add(fileContext);
 
         return string.Join("\n\n", sections.Where(section => !string.IsNullOrWhiteSpace(section)));
+    }
+
+    private string BuildLocalHostReply(string userMessage, IReadOnlyList<ChatTurn> history)
+    {
+        var message = userMessage.ToLowerInvariant();
+        if (TryHandleWorkspaceTour(message, out var tourReply))
+            return tourReply;
+
+        if (message.Contains("key") || message.Contains("byok") || message.Contains("openai"))
+        {
+            return "Ibis can start without a key. Add an OpenAI API key in AI Setup when you want Seshat, the BYOK math professor.";
+        }
+
+        if (message.Contains("tour") || message.Contains("start") || message.Contains("what can you do") || message.Contains("help"))
+        {
+            return "Sure — I can give you a quick tour of the workspace, files, plots, and logs.";
+        }
+
+        if (message.Contains("graph") || message.Contains("plot") || message.Contains("chart"))
+        {
+            return "Use the graph pane for plots and simulations; I can help you shape the prompt and point you to the right pane.";
+        }
+
+        if (message.Contains("file") || message.Contains("csv") || message.Contains("json") || message.Contains("root"))
+        {
+            if (_activeFileContext.HasSelection)
+            {
+                return $"I can see {_activeFileContext.Name} loaded already. I can open the Editor to inspect it, point you at Files, or help you turn it into a graph.";
+            }
+
+            return "I can help you work with CSV, JSON, and ROOT files from the file area, then save results back there.";
+        }
+
+        if (_activeFileContext.HasSelection)
+        {
+            return $"I can see {_activeFileContext.Name} open in the workspace. I can open the Editor, Files, Graph, or Log and point you at the right place.";
+        }
+
+        return "I can help with the workspace, files, plots, and getting started. Ask me to open Files, Graph, Editor, or Log and I’ll highlight the right pane.";
+    }
+
+    private bool TryHandleWorkspaceTour(string message, out string reply)
+    {
+        var wantsGuidedTour = message.Contains("tour") || message.Contains("show me around") || message.Contains("walk me through") || message.Contains("workspace");
+
+        if (wantsGuidedTour && !message.Contains("graph") && !message.Contains("plot") && !message.Contains("chart")
+            && !message.Contains("file") && !message.Contains("folder") && !message.Contains("directory")
+            && !message.Contains("edit") && !message.Contains("code") && !message.Contains("source")
+            && !message.Contains("log") && !message.Contains("console") && !message.Contains("error"))
+        {
+            Actions.RequestWorkspaceTourSequence("files", "editor", "graph", "log");
+            reply = "Absolutely — I’ll walk you through Files, Editor, Graph, and Log in order.";
+            return true;
+        }
+
+        var targetPane = message.Contains("log") || message.Contains("error") || message.Contains("console") || message.Contains("output")
+            ? "log"
+            : message.Contains("graph") || message.Contains("plot") || message.Contains("chart") || message.Contains("simulate") || message.Contains("run")
+                ? "graph"
+                : message.Contains("edit") || message.Contains("code") || message.Contains("source") || message.Contains("save")
+                    ? "editor"
+                    : message.Contains("file") || message.Contains("folder") || message.Contains("directory") || message.Contains("upload")
+                        ? "files"
+                        : message.Contains("tour") || message.Contains("workspace") || message.Contains("show me around") || message.Contains("what can you do")
+                            ? "files"
+                            : "";
+
+        if (string.IsNullOrWhiteSpace(targetPane))
+        {
+            reply = "";
+            return false;
+        }
+
+        Actions.RequestWorkspaceTour(targetPane);
+        reply = targetPane switch
+        {
+            "files" => "I opened and highlighted Files so you can start with the workspace contents.",
+            "graph" => "I opened and highlighted Graph so you can jump straight into plots and simulations.",
+            "editor" => "I opened and highlighted the Editor so you can inspect or write code there.",
+            "log" => "I opened and highlighted Log so you can see execution output and errors.",
+            _ => "I opened the right pane for you."
+        };
+
+        return true;
+    }
+
+    private string GetPlaceholder() => _isIbisPane
+        ? $"Ask {DisplayName} for a tour or basic help…"
+        : (_hasKey
+            ? $"Ask {DisplayName} about a math problem…"
+            : $"Add a key in AI Setup to wake up {DisplayName}…");
+
+    private bool NormalizeIbisHistory()
+    {
+        var changed = false;
+        foreach (var turn in _turns)
+        {
+            if (turn.Role != "assistant") continue;
+
+            if (turn.Content.Contains("friendly local host and tour guide", StringComparison.OrdinalIgnoreCase) ||
+                turn.Content.Contains("Ibis is ready.", StringComparison.OrdinalIgnoreCase) ||
+                turn.Content.Contains("I am still Ibis", StringComparison.OrdinalIgnoreCase) ||
+                turn.Content.Contains("Welcome to DjeLab. I am Ibis", StringComparison.OrdinalIgnoreCase))
+            {
+                turn.Content = "Ibis is DjeLab's friendly local host.";
+                changed = true;
+            }
+        }
+
+        return changed;
     }
 
     private static string BuildFileContextSection(ActiveFileContextSnapshot snapshot)
@@ -875,15 +1019,15 @@
         return false;
     }
 
-    private async Task<string> ValidateSpinozaAsync(string argumentsJson, CancellationToken ct)
+    private Task<string> ValidateSpinozaAsync(string argumentsJson, CancellationToken ct)
     {
         using var args = JsonDocument.Parse(argumentsJson);
         var source = args.RootElement.TryGetProperty("spinozaSource", out var sourceValue) ? sourceValue.GetString() ?? "" : "";
         if (string.IsNullOrWhiteSpace(source))
-            return "No spinozaSource provided.";
+            return Task.FromResult("No spinozaSource provided.");
 
         var report = Djehuti.DjeLab.Dsl.Preflight.validate(source);
-        return JsonSerializer.Serialize(new
+        return Task.FromResult(JsonSerializer.Serialize(new
         {
             report.CanRun,
             report.Parsed,
@@ -893,7 +1037,7 @@
                 severity = issue.Severity.ToString().ToLowerInvariant(),
                 message = issue.Message
             })
-        });
+        }));
     }
 
     private static string NormalizeAxisLabel(string? label, string chartType, string axis)
@@ -1065,15 +1209,28 @@
         try
         {
             await TryInvokeJsAsync("resetTextareaHeight", _inputRef);
-            var turnContext = await BuildTurnContextAsync(text, history, _sendCts.Token);
-            var reply = await ChatClient.AskAsync(_apiKey, _model, history, text, ToolHandlers, status =>
+            string reply;
+            if (_isIbisPane)
             {
-                _statusMessage = status;
-                _ = InvokeAsync(StateHasChanged);
-            }, turnContext, _sendCts.Token);
+                reply = BuildLocalHostReply(text, history);
+            }
+            else if (_hasKey)
+            {
+                var turnContext = await BuildTurnContextAsync(text, history, _sendCts.Token);
+                reply = await ChatClient.AskAsync(_apiKey, _model, history, text, SystemPrompt, ToolHandlers, status =>
+                {
+                    _statusMessage = status;
+                    _ = InvokeAsync(StateHasChanged);
+                }, turnContext, _sendCts.Token);
+            }
+            else
+            {
+                reply = $"Seshat needs an OpenAI API key before it can answer. Open AI Setup to enable the BYOK professor pane. Ibis stays available as the free helper.";
+            }
+
             LogMathDelimiterDiagnostics(reply);
             _turns.Add(new ChatTurn { Role = "assistant", Content = reply });
-            await HistoryStore.SaveTurnsAsync(_turns);
+            await HistoryStore.SaveTurnsAsync(_historyStorageKey, _turns);
         }
         catch (OperationCanceledException)
         {
@@ -1117,7 +1274,7 @@
     {
         _turns.Clear();
         _error = null;
-        await HistoryStore.ClearAsync();
+        await HistoryStore.ClearAsync(_historyStorageKey);
     }
 
     // Diagnostic only -- routes to the browser devtools console (Console.

@@ -9,7 +9,8 @@ public static class DemoLayout
         var graph = new PaneDescriptor { Title = "Graph", Kind = "graph", AccentColor = "#3fa9f5" };
         var editor = new PaneDescriptor { Title = "Editor", Kind = "editor", AccentColor = "#7dd3fc" };
         var console = new PaneDescriptor { Title = "Log", Kind = "console", AccentColor = "#8fa0bd" };
-        var chat = new PaneDescriptor { Title = "Chat", Kind = "chat", AccentColor = "#e8b354" };
+        var ibis = new PaneDescriptor { Title = "Ibis", Kind = "chat", AccentColor = "#7dd3fc", ChatPersona = "ibis" };
+        var professor = new PaneDescriptor { Title = "Seshat", Kind = "chat", AccentColor = "#e8b354", ChatPersona = "seshat" };
         var data = new PaneDescriptor { Title = "Data", Kind = "data", AccentColor = "#58d68d" };
         var files = new PaneDescriptor { Title = "Files", Kind = "files", AccentColor = "#c792ea" };
 
@@ -18,7 +19,8 @@ public static class DemoLayout
             [graph.Id] = graph,
             [editor.Id] = editor,
             [console.Id] = console,
-            [chat.Id] = chat,
+            [ibis.Id] = ibis,
+            [professor.Id] = professor,
             [data.Id] = data,
             [files.Id] = files,
         };
@@ -38,7 +40,8 @@ public static class DemoLayout
         leftColumn.Sizes = new List<double> { 0.62, 0.38 };
 
         var rightGroup = new TabGroupNode();
-        rightGroup.PaneIds.Add(chat.Id);
+        rightGroup.PaneIds.Add(ibis.Id);
+        rightGroup.PaneIds.Add(professor.Id);
         rightGroup.PaneIds.Add(data.Id);
         rightGroup.PaneIds.Add(files.Id);
 
