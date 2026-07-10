@@ -46,6 +46,10 @@ public sealed class AiChatClient
     [
         new
         {
+            type = "web_search_preview"
+        },
+        new
+        {
             type = "function",
             name = "search_math_references",
             description = "Search DjeLab's indexed reference material (including the Spinoza language reference) for content relevant to the user's question. Use this to ground Spinoza code generation in the actual language spec instead of guessing from memory.",
@@ -152,6 +156,7 @@ public sealed class AiChatClient
         string newMessage,
         IReadOnlyDictionary<string, ToolHandler> toolHandlers,
         Action<string>? onStatus = null,
+        string? additionalInstructions = null,
         CancellationToken ct = default)
     {
         var input = new List<object>(history.Count + 1);
@@ -162,7 +167,7 @@ public sealed class AiChatClient
         for (var round = 0; round < MaxToolRounds; round++)
         {
             onStatus?.Invoke(round == 0 ? "Figuring out the request..." : "Checking the last result...");
-            var responseText = await SendAsync(apiKey, model, input, ct);
+            var responseText = await SendAsync(apiKey, model, input, additionalInstructions, ct);
             using var doc = JsonDocument.Parse(responseText);
 
             var functionCalls = ExtractFunctionCalls(doc.RootElement);
@@ -284,12 +289,14 @@ public sealed class AiChatClient
         return "Handling the file...";
     }
 
-    private async Task<string> SendAsync(string apiKey, string model, List<object> input, CancellationToken ct)
+    private async Task<string> SendAsync(string apiKey, string model, List<object> input, string? additionalInstructions, CancellationToken ct)
     {
         var body = new
         {
             model,
-            instructions = DjeLabSystemPrompt.Text,
+            instructions = string.IsNullOrWhiteSpace(additionalInstructions)
+                ? DjeLabSystemPrompt.Text
+                : $"{DjeLabSystemPrompt.Text}\n\n{additionalInstructions}",
             input,
             tools = Tools,
             store = false

@@ -1,6 +1,7 @@
 @using Markdig
 @using System.Text
 @using System.Text.Json
+@implements IDisposable
 @inject DjeLabFilesClient FilesClient
 @inject AiConfigStore ConfigStore
 @inject ChatHistoryStore HistoryStore
@@ -27,6 +28,17 @@
             @if (_turns.Count == 0)
             {
                 <div class="chat-pane-empty-history">Ask anything about the math you're working on.</div>
+            }
+            @if (_activeFileContext.HasSelection)
+            {
+                <div class="chat-file-context">
+                    <div class="chat-file-context-title">Active file</div>
+                    <div class="chat-file-context-path">@_activeFileContext.Path</div>
+                    @if (_activeFileContext.Truncated)
+                    {
+                        <div class="chat-file-context-note">Preview only</div>
+                    }
+                </div>
             }
             @foreach (var turn in _turns)
             {
@@ -88,6 +100,7 @@
     private ElementReference _inputRef;
     private IJSObjectReference? _module;
     private CancellationTokenSource? _sendCts;
+    private ActiveFileContextSnapshot _activeFileContext = ActiveFileContextSnapshot.Empty;
 
     private const int InputMaxHeightPx = 260;
 
@@ -116,6 +129,8 @@
         {
             _turns = await HistoryStore.GetTurnsAsync();
         }
+        _activeFileContext = Actions.CurrentFileContext;
+        Actions.ActiveFileContextChanged += HandleActiveFileContextChanged;
         _loading = false;
     }
 
@@ -288,6 +303,81 @@
             return $"## {title}\n{content}";
         });
         return string.Join("\n\n", parts);
+    }
+
+    private async Task<string> BuildTurnContextAsync(string userMessage, IReadOnlyList<ChatTurn> history, CancellationToken ct)
+    {
+        var recentTurns = history
+            .Where(turn => turn.Role is "user" or "assistant")
+            .TakeLast(4)
+            .Select(turn => $"{turn.Role}: {turn.Content}")
+            .ToArray();
+
+        var queryParts = new[] { userMessage }
+            .Concat(recentTurns)
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .ToArray();
+
+        var query = string.Join("\n\n", queryParts);
+        if (string.IsNullOrWhiteSpace(query))
+            return "";
+
+        if (query.Length > 2000)
+            query = query[..2000];
+
+        var response = await Http.GetAsync($"/djehuti/api/djelab/search-references?q={Uri.EscapeDataString(query)}", ct);
+        if (!response.IsSuccessStatusCode)
+            return "";
+
+        using var results = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        if (results.RootElement.ValueKind != JsonValueKind.Array || results.RootElement.GetArrayLength() == 0)
+            return "";
+
+        var hits = results.RootElement.EnumerateArray().Take(3).Select((hit, index) =>
+        {
+            var title = hit.TryGetProperty("title", out var t) ? t.GetString() ?? $"reference {index + 1}" : $"reference {index + 1}";
+            var content = hit.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "";
+            if (content.Length > 700)
+                content = content[..700] + "…";
+            return $"{index + 1}. {title}\n{content}";
+        }).ToArray();
+
+        if (hits.Length == 0)
+        {
+            var fileContextOnly = BuildFileContextSection(_activeFileContext);
+            return fileContextOnly;
+        }
+
+        var sections = new List<string>
+        {
+            "Relevant DjeLab references for this turn:\n" + string.Join("\n\n", hits)
+        };
+
+        var fileContext = BuildFileContextSection(_activeFileContext);
+        if (!string.IsNullOrWhiteSpace(fileContext))
+            sections.Add(fileContext);
+
+        return string.Join("\n\n", sections.Where(section => !string.IsNullOrWhiteSpace(section)));
+    }
+
+    private static string BuildFileContextSection(ActiveFileContextSnapshot snapshot)
+    {
+        if (!snapshot.HasSelection)
+            return "";
+
+        var preview = snapshot.Preview ?? "";
+        if (preview.Length > 1500)
+            preview = preview[..1500] + "…";
+
+        return
+            "Active workspace file:\n" +
+            $"Path: {snapshot.Path}\n" +
+            $"Name: {snapshot.Name}\n" +
+            $"Content type: {snapshot.ContentType ?? "unknown"}\n" +
+            $"Size: {(snapshot.SizeBytes is long sizeBytes ? sizeBytes.ToString() : "unknown")}\n" +
+            $"Editable: {snapshot.IsEditable}\n" +
+            "Preview:\n" +
+            preview;
     }
 
     private async Task<string> RunSimulationAsync(string argumentsJson, CancellationToken ct)
@@ -969,11 +1059,12 @@
         try
         {
             await TryInvokeJsAsync("resetTextareaHeight", _inputRef);
+            var turnContext = await BuildTurnContextAsync(text, history, _sendCts.Token);
             var reply = await ChatClient.AskAsync(_apiKey, _model, history, text, ToolHandlers, status =>
             {
                 _statusMessage = status;
                 _ = InvokeAsync(StateHasChanged);
-            }, _sendCts.Token);
+            }, turnContext, _sendCts.Token);
             LogMathDelimiterDiagnostics(reply);
             _turns.Add(new ChatTurn { Role = "assistant", Content = reply });
             await HistoryStore.SaveTurnsAsync(_turns);
@@ -993,6 +1084,18 @@
             _sendCts?.Dispose();
             _sendCts = null;
         }
+    }
+
+    private void HandleActiveFileContextChanged(ActiveFileContextSnapshot snapshot)
+    {
+        _activeFileContext = snapshot;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Actions.ActiveFileContextChanged -= HandleActiveFileContextChanged;
+        _sendCts?.Dispose();
     }
 
     private Task StopSendAsync()

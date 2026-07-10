@@ -3,6 +3,7 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject DjeLabFilesClient FilesClient
 @inject WorkspaceActions Actions
 
 <div class="graph-pane">
@@ -17,6 +18,10 @@
     {
         <div class="graph-toolbar">
             <span class="graph-summary">@_chartType &middot; x: @_xLabel &middot; y: @_yLabel@(Is3D ? $" · z: {_zLabel}" : "")</span>
+            @if (_hasRun && !string.IsNullOrWhiteSpace(_source))
+            {
+                <button type="button" class="files-action-btn graph-action-btn" @onclick="SaveSourceAsync" disabled="@_savingSource">Save source</button>
+            }
             @if (_running)
             {
                 <button type="button" class="files-action-btn graph-action-btn" @onclick="StopRunAsync" disabled="@_stopping">Stop</button>
@@ -37,8 +42,12 @@
                 <span class="graph-status">Done — @_pointCount point(s)</span>
             }
         </div>
+        @if (_saveStatus is not null)
+        {
+            <div class="graph-save-status">@_saveStatus</div>
+        }
 
-        @* Read-only, not an input -- but "no manual editing" doesn't mean
+        @* Read-only, not an input -- but "no manual editing" doesn''t mean'
            "no visibility." Without this there was no way for the user (or
            me, debugging their report) to see what program actually ran when
            something failed. Open by default on error since that's exactly
@@ -85,8 +94,10 @@
     private bool _hasRun;
     private bool _running;
     private bool _stopping;
+    private bool _savingSource;
     private int _pointCount;
     private string? _error;
+    private string? _saveStatus;
     private bool _chartCreated;
     private string? _lastRunId;
     private string? _activeRunId;
@@ -178,6 +189,38 @@
 
         await _worker.StopAsync();
         await FlushPendingEmitsAsync();
+    }
+
+    private async Task SaveSourceAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_source) || _savingSource)
+            return;
+
+        var defaultPath = $"/djelab/generated/{_chartType}-{DateTime.UtcNow:yyyyMMdd-HHmmss}.fsx";
+        var path = await JS.InvokeAsync<string?>("prompt", "Save the current program to which file path?", defaultPath);
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        _savingSource = true;
+        _saveStatus = null;
+        StateHasChanged();
+
+        try
+        {
+            var saveResult = await FilesClient.WriteTextFileAsync(path, _source, "text/plain");
+            _saveStatus = saveResult.Success && saveResult.Value is not null
+                ? $"Saved program to {saveResult.Value.Path}."
+                : saveResult.Error ?? "Could not save the program.";
+        }
+        catch (Exception ex)
+        {
+            _saveStatus = ex.Message;
+        }
+        finally
+        {
+            _savingSource = false;
+            StateHasChanged();
+        }
     }
 
     private void OnEmit(JsonElement point)
@@ -284,3 +327,4 @@
         }
     }
 }
+
