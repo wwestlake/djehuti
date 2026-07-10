@@ -60,7 +60,7 @@
     // not an undo. Capped so it can't grow unbounded over a long session.
     private const int MaxClosedPanes = 10;
     private readonly List<ClosedPane> _closedPanes = new();
-    private sealed record ClosedPane(string Title, string Kind, string AccentColor);
+    private sealed record ClosedPane(string Title, string Kind, string AccentColor, string ChatPersona);
 
     protected override void OnInitialized()
     {
@@ -159,7 +159,7 @@
     {
         if (!_panes.TryGetValue(paneId, out var pane)) return;
 
-        _closedPanes.Insert(0, new ClosedPane(pane.Title, pane.Kind, pane.AccentColor));
+        _closedPanes.Insert(0, new ClosedPane(pane.Title, pane.Kind, pane.AccentColor, pane.ChatPersona));
         if (_closedPanes.Count > MaxClosedPanes) _closedPanes.RemoveAt(_closedPanes.Count - 1);
 
         _root = DockTree.RemovePane(_root, paneId);
@@ -174,7 +174,13 @@
         var closed = _closedPanes[index];
         _closedPanes.RemoveAt(index);
 
-        InsertPane(new PaneDescriptor { Title = closed.Title, Kind = closed.Kind, AccentColor = closed.AccentColor });
+        InsertPane(new PaneDescriptor
+        {
+            Title = closed.Title,
+            Kind = closed.Kind,
+            AccentColor = closed.AccentColor,
+            ChatPersona = closed.ChatPersona
+        });
         _ = SaveLayoutAsync();
     }
 
@@ -259,6 +265,7 @@
 
     private async Task LoadLayoutAsync()
     {
+        var shouldClearStoredLayout = false;
         try
         {
             _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
@@ -270,20 +277,32 @@
             }
 
             var snapshot = JsonSerializer.Deserialize<DockLayoutSnapshot>(json);
-            if (snapshot?.Root is not null && snapshot.Panes.Count > 0)
+            if (snapshot?.Root is not null && snapshot.Panes.Count > 0 && HasRenderableLayout(snapshot.Root, snapshot.Panes))
             {
                 _root = snapshot.Root;
                 _panes = snapshot.Panes;
+                EnsureAssistantChatPanes();
+            }
+            else
+            {
+                (_root, _panes) = DemoLayout.CreateDefault();
+                shouldClearStoredLayout = true;
             }
         }
         catch
         {
             // A bad cached layout should never break the app.
+            (_root, _panes) = DemoLayout.CreateDefault();
+            shouldClearStoredLayout = true;
         }
         finally
         {
             _layoutLoaded = true;
             StateHasChanged();
+            if (shouldClearStoredLayout)
+            {
+                _ = SaveLayoutAsync(clearIfDefault: true);
+            }
         }
     }
 
@@ -316,5 +335,61 @@
     {
         public double Width { get; set; }
         public double Height { get; set; }
+    }
+
+    private static bool HasRenderableLayout(DockNode root, Dictionary<string, PaneDescriptor> panes)
+    {
+        if (panes.Count == 0) return false;
+        if (root is not SplitNode split || split.Children.Count == 0) return false;
+        return split.Children.Any(child => HasRenderableNode(child, panes));
+    }
+
+    private static bool HasRenderableNode(DockNode node, Dictionary<string, PaneDescriptor> panes)
+    {
+        if (node is TabGroupNode group)
+            return group.PaneIds.Any(panes.ContainsKey);
+
+        if (node is SplitNode split)
+            return split.Children.Any(child => HasRenderableNode(child, panes));
+
+        return false;
+    }
+
+    private void EnsureAssistantChatPanes()
+    {
+        var ibis = _panes.Values.FirstOrDefault(p => p.Kind == "chat" && string.Equals(p.ChatPersona, "ibis", StringComparison.OrdinalIgnoreCase));
+        var seshat = _panes.Values.FirstOrDefault(p => p.Kind == "chat" && string.Equals(p.ChatPersona, "seshat", StringComparison.OrdinalIgnoreCase));
+        var firstChat = _panes.Values.FirstOrDefault(p => p.Kind == "chat");
+
+        if (ibis is null && firstChat is not null)
+        {
+            firstChat.ChatPersona = "ibis";
+            firstChat.Title = "Ibis";
+            ibis = firstChat;
+        }
+
+        if (ibis is null)
+        {
+            ibis = new PaneDescriptor
+            {
+                Title = "Ibis",
+                Kind = "chat",
+                AccentColor = "#7dd3fc",
+                ChatPersona = "ibis"
+            };
+            InsertPane(ibis);
+        }
+
+        if (seshat is null)
+        {
+            seshat = new PaneDescriptor
+            {
+                Title = "Seshat",
+                Kind = "chat",
+                AccentColor = "#e8b354",
+                ChatPersona = "seshat"
+            };
+            InsertPane(seshat);
+        }
     }
 }

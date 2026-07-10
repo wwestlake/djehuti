@@ -44,6 +44,7 @@ public sealed class PaneDescriptor
     public string Title { get; set; } = "";
     public string Kind { get; set; } = "placeholder";
     public string AccentColor { get; set; } = "#3fa9f5";
+    public string ChatPersona { get; set; } = "ibis";
 
     // Set only when a graph pane is created via WorkspaceActions (the AI's
     // run_simulation tool call), not by the "New Graph" button or the
