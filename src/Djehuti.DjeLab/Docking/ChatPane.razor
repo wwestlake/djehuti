@@ -207,6 +207,7 @@
             case "list":
             {
                 var entries = await FilesClient.ListFolderAsync(path, ct);
+                Actions.AppendConsole("FileTool", $"Listed {path} ({entries.Count} item(s)).");
                 return JsonSerializer.Serialize(new
                 {
                     action,
@@ -232,6 +233,7 @@
                 if (!resolved.Success || resolved.Value is null)
                     return resolved.Error ?? "Could not resolve that file.";
 
+                Actions.AppendConsole("FileTool", $"Read {resolved.Value.Path}.");
                 return JsonSerializer.Serialize(SummarizeFile(resolved.Value, readResult.Value));
             }
             case "tree":
@@ -240,6 +242,7 @@
                 if (!treeResult.Success || treeResult.Value is null)
                     return treeResult.Error ?? "Could not read that structure.";
 
+                Actions.AppendConsole("FileTool", $"Loaded structured data from {path}.");
                 return treeResult.Value;
             }
             case "bundle":
@@ -248,6 +251,7 @@
                 if (!bundleResult.Success || bundleResult.Value is null)
                     return bundleResult.Error ?? "Could not bundle that project.";
 
+                Actions.AppendConsole("FileTool", $"Bundled {bundleResult.Value.EntryPath} with {bundleResult.Value.IncludedFiles.Count()} file(s).");
                 return JsonSerializer.Serialize(new
                 {
                     action,
@@ -269,6 +273,7 @@
                 if (!writeResult.Success || writeResult.Value is null)
                     return writeResult.Error ?? "Could not write that file.";
 
+                Actions.AppendConsole("FileTool", $"Wrote {writeResult.Value.Path}.");
                 Actions.NotifyFilesChanged();
                 return JsonSerializer.Serialize(new
                 {
