@@ -11,7 +11,7 @@ namespace Djehuti.DjeLab.Services;
 /// turn. Handlers are supplied by the caller (ChatPane), not this class --
 /// AiChatClient only knows the OpenAI protocol for running the tool loop,
 /// not what any given tool actually does in this app.</summary>
-public delegate Task<string> ToolHandler(string argumentsJson);
+public delegate Task<string> ToolHandler(string argumentsJson, CancellationToken ct);
 
 /// <summary>
 /// Calls OpenAI's Responses API directly from the browser using the user's
@@ -151,6 +151,7 @@ public sealed class AiChatClient
         IReadOnlyList<ChatTurn> history,
         string newMessage,
         IReadOnlyDictionary<string, ToolHandler> toolHandlers,
+        Action<string>? onStatus = null,
         CancellationToken ct = default)
     {
         var input = new List<object>(history.Count + 1);
@@ -160,12 +161,14 @@ public sealed class AiChatClient
 
         for (var round = 0; round < MaxToolRounds; round++)
         {
+            onStatus?.Invoke(round == 0 ? "Checking..." : "Waiting for the next step...");
             var responseText = await SendAsync(apiKey, model, input, ct);
             using var doc = JsonDocument.Parse(responseText);
 
             var functionCalls = ExtractFunctionCalls(doc.RootElement);
             if (functionCalls.Count == 0)
             {
+                onStatus?.Invoke("Finishing...");
                 return MathDelimiterNormalizer.Normalize(ExtractAssistantText(doc.RootElement));
             }
 
@@ -189,7 +192,8 @@ public sealed class AiChatClient
                 {
                     try
                     {
-                        output = await handler(call.ArgumentsJson);
+                        onStatus?.Invoke($"Running {call.Name}...");
+                        output = await handler(call.ArgumentsJson, ct);
                     }
                     catch (Exception ex)
                     {
