@@ -61,6 +61,36 @@ let private nextCryptoUnit () =
     let raw = BitConverter.ToUInt64(bytes, 0) >>> 11
     float raw / float (1UL <<< 53)
 
+let private buildRange (context: string) (startValue: float) (stopValue: float) (stepValue: float) =
+    if stepValue = 0.0 then
+        Error $"{context}: step must not be zero"
+    else
+        let rec loop current acc =
+            if stepValue > 0.0 then
+                if current > stopValue then
+                    Ok(VVector(List.rev acc |> List.map VNumber |> List.toArray))
+                else
+                    loop (current + stepValue) (current :: acc)
+            else
+                if current < stopValue then
+                    Ok(VVector(List.rev acc |> List.map VNumber |> List.toArray))
+                else
+                    loop (current + stepValue) (current :: acc)
+
+        loop startValue []
+
+let private buildLinspace (context: string) (startValue: float) (stopValue: float) (countValue: float) =
+    let count = int (Math.Round countValue)
+    if count <= 0 then
+        Error $"{context}: count must be at least 1"
+    elif count = 1 then
+        Ok(VVector([| VNumber startValue |]))
+    else
+        let step = (stopValue - startValue) / float (count - 1)
+        let values =
+            [| for index in 0 .. count - 1 -> VNumber(startValue + float index * step) |]
+        Ok(VVector(values))
+
 /// Built-in math functions available to every DjeLab program. This is the
 /// entire surface of "library calls" a program can make -- adding a new
 /// capability means adding an entry here, not opening up the language.
@@ -103,6 +133,18 @@ let makeBuiltinEnv (onEmit: (Value -> unit) option) : Env =
       "secure_random", VBuiltin("secure_random", 0, function
           | [] -> Ok(VNumber(nextCryptoUnit()))
           | args -> Error $"secure_random: expected 0 arguments, got {args.Length}")
+      "range", VBuiltin("range", 3, function
+          | [ startValue; stopValue; stepValue ] ->
+              match asNumber "range" startValue, asNumber "range" stopValue, asNumber "range" stepValue with
+              | Ok startValue, Ok stopValue, Ok stepValue -> buildRange "range" startValue stopValue stepValue
+              | Error e, _, _ | _, Error e, _ | _, _, Error e -> Error e
+          | args -> Error $"range: expected 3 arguments, got {args.Length}")
+      "linspace", VBuiltin("linspace", 3, function
+          | [ startValue; stopValue; countValue ] ->
+              match asNumber "linspace" startValue, asNumber "linspace" stopValue, asNumber "linspace" countValue with
+              | Ok startValue, Ok stopValue, Ok countValue -> buildLinspace "linspace" startValue stopValue countValue
+              | Error e, _, _ | _, Error e, _ | _, _, Error e -> Error e
+          | args -> Error $"linspace: expected 3 arguments, got {args.Length}")
       numeric2 "min" min
       numeric2 "max" max
       numeric2 "atan2" atan2

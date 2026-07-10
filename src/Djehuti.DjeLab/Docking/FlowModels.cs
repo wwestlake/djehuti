@@ -3,6 +3,7 @@ namespace Djehuti.DjeLab.Docking;
 public enum FlowNodeKind
 {
     Source,
+    SequenceSource,
     Transform,
     Filter,
     Integrator,
@@ -26,6 +27,11 @@ public sealed class FlowNodeModel
     public string? OutputToNodeId { get; set; }
     public string FilePath { get; set; } = "";
     public string ColumnsCsv { get; set; } = "";
+    public string SequenceKind { get; set; } = "range";
+    public string StartExpression { get; set; } = "0.0";
+    public string StopExpression { get; set; } = "10.0";
+    public string StepExpression { get; set; } = "1.0";
+    public string CountExpression { get; set; } = "100.0";
     public string TransformExpression { get; set; } = "row[0]";
     public string FilterExpression { get; set; } = "true";
     public FlowIntegratorMethod IntegratorMethod { get; set; } = FlowIntegratorMethod.Euler;
@@ -36,6 +42,7 @@ public sealed class FlowNodeModel
     public string XLabel { get; set; } = "Value";
     public string YLabel { get; set; } = "Frequency";
     public string ZLabel { get; set; } = "Height";
+    public bool IsCollapsed { get; set; }
 }
 
 public sealed record FlowCompileResult(

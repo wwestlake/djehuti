@@ -1,6 +1,7 @@
 @using System.Globalization
 @using System.Text
 @using System.Text.Json
+@using Djehuti.DjeLab.Dsl
 @implements IAsyncDisposable
 @inject DjeLabFilesClient FilesClient
 @inject DjeLabStorageScopeService StorageScope
@@ -12,6 +13,7 @@
     <div class="flow-toolbar">
         <div class="flow-toolbar-left">
             <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Source)">Add Source</button>
+            <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.SequenceSource)">Add Sequence Source</button>
             <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Transform)">Add Transform</button>
             <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Filter)">Add Filter</button>
             <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Integrator)">Add Integrator</button>
@@ -44,16 +46,19 @@
                 @foreach (var node in _nodes)
                 {
                     var selected = _pendingConnectionNodeId == node.Id;
-                    <div class="flow-node flow-node-@node.Kind.ToString().ToLowerInvariant() @(selected ? "selected" : "")"
+                    <div class="flow-node flow-node-@node.Kind.ToString().ToLowerInvariant() @(selected ? "selected" : "") @(node.IsCollapsed ? "flow-node-collapsed" : "")"
                          style="@BuildNodeStyle(node)"
                          @onpointerdown="e => BeginDrag(node, e)">
                         <div class="flow-node-header">
                             <span class="flow-node-title">@node.Title</span>
-                            <button type="button" class="flow-node-close" title="Remove node" @onclick="() => RemoveNode(node.Id)" @onclick:stopPropagation="true">×</button>
+                            <span class="flow-node-header-actions">
+                                <button type="button" class="flow-node-toggle" title="Collapse or expand node" @onclick="() => ToggleNodeCollapsed(node.Id)" @onclick:stopPropagation="true">@(node.IsCollapsed ? "▶" : "▾")</button>
+                                <button type="button" class="flow-node-close" title="Remove node" @onclick="() => RemoveNode(node.Id)" @onclick:stopPropagation="true">×</button>
+                            </span>
                         </div>
 
                         <div class="flow-node-sockets">
-                            @if (node.Kind != FlowNodeKind.Source)
+                            @if (node.Kind != FlowNodeKind.Source && node.Kind != FlowNodeKind.SequenceSource)
                             {
                                 <button type="button"
                                         class="flow-socket flow-socket-input"
@@ -71,6 +76,8 @@
                             }
                         </div>
 
+                        @if (!node.IsCollapsed)
+                        {
                         <div class="flow-node-body">
                             @if (node.Kind == FlowNodeKind.Source)
                             {
@@ -86,7 +93,47 @@
                                            @oninput="e => UpdateNode(node.Id, n => n.ColumnsCsv = e.Value?.ToString() ?? string.Empty)"
                                            placeholder="M or pt,phi" />
                                 </label>
-                                <button type="button" class="flow-mini-btn" @onclick="() => UseSelectedFileForNode(node.Id)">Use current file</button>
+                                <div class="flow-node-actions">
+                                    <button type="button" class="flow-mini-btn" @onclick="() => OpenFilePicker(node.Id)">Browse files</button>
+                                    <button type="button" class="flow-mini-btn" @onclick="() => UseSelectedFileForNode(node.Id)">Use current file</button>
+                                </div>
+                            }
+                            else if (node.Kind == FlowNodeKind.SequenceSource)
+                            {
+                                <label class="flow-field">
+                                    <span>Sequence type</span>
+                                    <select value="@node.SequenceKind"
+                                            @onchange="e => UpdateNode(node.Id, n => n.SequenceKind = e.Value?.ToString() ?? string.Empty)">
+                                        <option value="range">Range</option>
+                                        <option value="linspace">Linspace</option>
+                                    </select>
+                                </label>
+                                <label class="flow-field">
+                                    <span>Start</span>
+                                    <input value="@node.StartExpression"
+                                           @oninput="e => UpdateNode(node.Id, n => n.StartExpression = e.Value?.ToString() ?? string.Empty)" />
+                                </label>
+                                <label class="flow-field">
+                                    <span>Stop</span>
+                                    <input value="@node.StopExpression"
+                                           @oninput="e => UpdateNode(node.Id, n => n.StopExpression = e.Value?.ToString() ?? string.Empty)" />
+                                </label>
+                                @if (string.Equals(node.SequenceKind, "linspace", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <label class="flow-field">
+                                        <span>Count</span>
+                                        <input value="@node.CountExpression"
+                                               @oninput="e => UpdateNode(node.Id, n => n.CountExpression = e.Value?.ToString() ?? string.Empty)" />
+                                    </label>
+                                }
+                                else
+                                {
+                                    <label class="flow-field">
+                                        <span>Step</span>
+                                        <input value="@node.StepExpression"
+                                               @oninput="e => UpdateNode(node.Id, n => n.StepExpression = e.Value?.ToString() ?? string.Empty)" />
+                                    </label>
+                                }
                             }
                             else if (node.Kind == FlowNodeKind.Transform)
                             {
@@ -151,6 +198,7 @@
                                 </label>
                             }
                         </div>
+                        }
                     </div>
                 }
             </div>
@@ -193,6 +241,57 @@
             </div>
         </div>
     }
+
+    @if (_filePickerOpen)
+    {
+        <div class="flow-source-overlay" @onclick="CloseFilePicker">
+            <div class="flow-file-picker-dialog" @onclick:stopPropagation="true">
+                <div class="flow-source-dialog-header">
+                    <div>
+                        <div class="flow-source-dialog-title">Choose a file</div>
+                        <div class="flow-source-dialog-subtitle">@_filePickerPath</div>
+                    </div>
+                    <button type="button" class="flow-mini-btn flow-mini-btn-inline" @onclick="CloseFilePicker">Close</button>
+                </div>
+
+                <div class="flow-file-picker-breadcrumbs">
+                    @foreach (var crumb in FilePickerBreadcrumbs())
+                    {
+                        <button type="button" class="flow-mini-btn flow-mini-btn-inline" @onclick="() => NavigateFilePickerTo(crumb.Path)">@crumb.Label</button>
+                    }
+                </div>
+
+                <div class="flow-file-picker-list">
+                    @if (_filePickerLoading)
+                    {
+                        <div class="flow-file-picker-empty">Loading…</div>
+                    }
+                    else if (_filePickerEntries.Count == 0)
+                    {
+                        <div class="flow-file-picker-empty">This folder is empty.</div>
+                    }
+                    else
+                    {
+                        @foreach (var entry in _filePickerEntries)
+                        {
+                            <button type="button"
+                                    class="flow-file-picker-row @(entry.IsFolder ? "flow-file-picker-folder" : "flow-file-picker-file")"
+                                    @onclick="() => SelectFilePickerEntry(entry)">
+                                <span class="flow-file-picker-icon">@(entry.IsFolder ? "▸" : "•")</span>
+                                <span class="flow-file-picker-name">@entry.Name</span>
+                                <span class="flow-file-picker-meta">@(entry.IsFolder ? "folder" : FormatBytes(entry.SizeBytes ?? 0))</span>
+                            </button>
+                        }
+                    }
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_filePickerError))
+                {
+                    <div class="flow-file-picker-error">@_filePickerError</div>
+                }
+            </div>
+        </div>
+    }
 </div>
 
 @code {
@@ -210,6 +309,12 @@
     private string _compileSummary = "Ready";
     private string _compileWarnings = "";
     private bool _sourcePaneOpen;
+    private bool _filePickerOpen;
+    private string? _filePickerNodeId;
+    private string _filePickerPath = "/";
+    private string _filePickerError = "";
+    private bool _filePickerLoading;
+    private readonly List<DjeLabFileEntry> _filePickerEntries = new();
     private string? _runtimeDataJson;
     private string? _runtimeFilePath;
     private readonly List<string> _runtimeColumns = new();
@@ -305,6 +410,7 @@
             Title = kind switch
             {
                 FlowNodeKind.Source => "File Source",
+                FlowNodeKind.SequenceSource => "Sequence Source",
                 FlowNodeKind.Transform => "Transform",
                 FlowNodeKind.Filter => "Filter",
                 FlowNodeKind.Integrator => "Integrator",
@@ -332,6 +438,14 @@
             node.IntegratorMethod = FlowIntegratorMethod.Euler;
             node.YLabel = "State";
             node.XLabel = "Time";
+        }
+        else if (kind == FlowNodeKind.SequenceSource)
+        {
+            node.SequenceKind = "range";
+            node.StartExpression = "0.0";
+            node.StopExpression = "10.0";
+            node.StepExpression = "1.0";
+            node.CountExpression = "100.0";
         }
 
         _nodes.Add(node);
@@ -379,6 +493,128 @@
         _statusMessage = $"Using {_activeFileContext.Name}.";
     }
 
+    private void ToggleNodeCollapsed(string nodeId)
+    {
+        UpdateNode(nodeId, node => node.IsCollapsed = !node.IsCollapsed);
+    }
+
+    private async Task OpenFilePicker(string nodeId)
+    {
+        _filePickerNodeId = nodeId;
+        _filePickerOpen = true;
+        var node = _nodes.FirstOrDefault(item => string.Equals(item.Id, nodeId, StringComparison.Ordinal));
+        _filePickerPath = await ResolvePickerFolderPathAsync(node?.FilePath ?? _activeFileContext.Path);
+        await LoadFilePickerAsync(_filePickerPath);
+    }
+
+    private void CloseFilePicker()
+    {
+        _filePickerOpen = false;
+        _filePickerNodeId = null;
+        _filePickerError = "";
+        _filePickerEntries.Clear();
+    }
+
+    private async Task NavigateFilePickerTo(string path)
+    {
+        _filePickerPath = await ResolvePickerFolderPathAsync(path);
+        await LoadFilePickerAsync(_filePickerPath);
+    }
+
+    private async Task SelectFilePickerEntry(DjeLabFileEntry entry)
+    {
+        if (entry.IsFolder)
+        {
+            await NavigateFilePickerTo(entry.Path);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_filePickerNodeId))
+            return;
+
+        ApplyPickedFileToNode(_filePickerNodeId, entry.Path);
+        CloseFilePicker();
+    }
+
+    private async Task LoadFilePickerAsync(string path)
+    {
+        _filePickerLoading = true;
+        _filePickerError = "";
+        _filePickerEntries.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var entries = await FilesClient.ListFolderAsync(path);
+            _filePickerEntries.AddRange(entries.OrderByDescending(entry => entry.IsFolder).ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase));
+        }
+        catch (Exception ex)
+        {
+            _filePickerError = ex.Message;
+        }
+        finally
+        {
+            _filePickerLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ApplyPickedFileToNode(string nodeId, string filePath)
+    {
+        UpdateNode(nodeId, node =>
+        {
+            node.FilePath = filePath;
+            if (string.IsNullOrWhiteSpace(node.Title) || node.Kind == FlowNodeKind.Source)
+                node.Title = "File Source";
+        });
+
+        _statusMessage = $"Using {Path.GetFileName(filePath)}.";
+    }
+
+    private async Task<string> ResolvePickerFolderPathAsync(string? path)
+    {
+        var fallback = string.IsNullOrWhiteSpace(path) ? "/" : path;
+        var resolved = await FilesClient.ResolvePathAsync(fallback);
+        if (resolved.Success && resolved.Value is not null)
+            return resolved.Value.IsFolder ? resolved.Value.Path : NormalizePickerPath(resolved.Value.ParentPath);
+        return NormalizePickerPath(Path.GetDirectoryName(fallback.Replace('\\', '/')) ?? "/");
+    }
+
+    private IEnumerable<(string Label, string Path)> FilePickerBreadcrumbs()
+    {
+        var path = NormalizePickerPath(_filePickerPath);
+        yield return ("Root", "/");
+        if (path == "/")
+            yield break;
+
+        var current = "";
+        foreach (var segment in path.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            current += "/" + segment;
+            yield return (segment, current);
+        }
+    }
+
+    private static string NormalizePickerPath(string? path)
+    {
+        var value = (path ?? "").Trim().Replace('\\', '/');
+        if (string.IsNullOrWhiteSpace(value))
+            return "/";
+        if (!value.StartsWith('/'))
+            value = "/" + value;
+        while (value.Length > 1 && value.EndsWith('/'))
+            value = value[..^1];
+        return value;
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:0.#} KB";
+        if (bytes < 1024L * 1024L * 1024L) return $"{bytes / 1024.0 / 1024.0:0.#} MB";
+        return $"{bytes / 1024.0 / 1024.0 / 1024.0:0.#} GB";
+    }
+
     private void StartConnection(string nodeId)
     {
         _pendingConnectionNodeId = nodeId;
@@ -395,7 +631,7 @@
         if (source is null || target is null)
             return;
 
-        if (target.Kind == FlowNodeKind.Source)
+        if (target.Kind == FlowNodeKind.Source || target.Kind == FlowNodeKind.SequenceSource)
             return;
 
         var previousSource = _nodes.FirstOrDefault(node => string.Equals(node.OutputToNodeId, target.Id, StringComparison.Ordinal));
@@ -481,11 +717,12 @@
     {
         if (_nodes.Count == 0)
         {
-            warnings.Add("Add a source node to start building a flow.");
+            warnings.Add("Add a source or sequence node to start building a flow.");
             return Array.Empty<FlowNodeModel>();
         }
 
-        var source = _nodes.FirstOrDefault(node => node.Kind == FlowNodeKind.Source) ?? _nodes.OrderBy(node => node.X).First();
+        var source = _nodes.FirstOrDefault(node => node.Kind == FlowNodeKind.Source || node.Kind == FlowNodeKind.SequenceSource)
+            ?? _nodes.OrderBy(node => node.X).First();
         var ordered = new List<FlowNodeModel>();
         var visited = new HashSet<string>(StringComparer.Ordinal);
         var current = source;
@@ -559,7 +796,7 @@
 
         if (string.IsNullOrWhiteSpace(compile.RuntimeDataJson))
         {
-            _statusMessage = "Choose a data file and columns first.";
+            _statusMessage = "Choose a data file or sequence source first.";
             Actions.AppendConsole("Flow", "Run blocked: no runtime data binding yet.", "warning");
             StateHasChanged();
             return;
@@ -594,40 +831,59 @@
             return new FlowCompileResult(false, "", null, "histogram", "Value", "Frequency", "Height", "Add a source node first.", warnings);
         }
 
-        var sourceNode = ordered.FirstOrDefault(node => node.Kind == FlowNodeKind.Source);
+        var sourceNode = ordered.FirstOrDefault(node => node.Kind == FlowNodeKind.Source || node.Kind == FlowNodeKind.SequenceSource);
         if (sourceNode is null)
         {
             return new FlowCompileResult(false, "", null, "histogram", "Value", "Frequency", "Height", "Add a source node first.", warnings);
         }
 
-        var runtimePath = !string.IsNullOrWhiteSpace(sourceNode.FilePath)
-            ? sourceNode.FilePath.Trim()
-            : _activeFileContext.HasSelection
-                ? _activeFileContext.Path
-                : "";
-
-        var runtimeColumns = ParseColumns(sourceNode.ColumnsCsv).ToArray();
+        var runtimePath = "";
+        var runtimeColumns = Array.Empty<string>();
         var runtimeData = "";
-        if (!string.IsNullOrWhiteSpace(runtimePath))
+        if (sourceNode.Kind == FlowNodeKind.SequenceSource)
         {
-            var runtimeResult = await BuildRuntimeDataJsonAsync(runtimePath, runtimeColumns, CancellationToken.None);
-            if (!runtimeResult.Success || runtimeResult.Value is null)
+            var sequenceResult = await BuildSequenceRuntimeDataJsonAsync(sourceNode, CancellationToken.None);
+            if (!sequenceResult.Success || sequenceResult.Value is null)
             {
-                warnings.Add(runtimeResult.Error ?? "Could not prepare runtime data.");
+                warnings.Add(sequenceResult.Error ?? "Could not prepare runtime sequence data.");
             }
             else
             {
-                runtimeData = runtimeResult.Value;
-                _runtimeFilePath = runtimePath;
+                runtimeData = sequenceResult.Value;
+                _runtimeFilePath = "";
                 _runtimeColumns.Clear();
-                _runtimeColumns.AddRange(runtimeColumns);
             }
         }
         else
         {
-            warnings.Add("No file path is set yet.");
-            _runtimeFilePath = "";
-            _runtimeColumns.Clear();
+            runtimePath = !string.IsNullOrWhiteSpace(sourceNode.FilePath)
+                ? sourceNode.FilePath.Trim()
+                : _activeFileContext.HasSelection
+                    ? _activeFileContext.Path
+                    : "";
+
+            runtimeColumns = ParseColumns(sourceNode.ColumnsCsv).ToArray();
+            if (!string.IsNullOrWhiteSpace(runtimePath))
+            {
+                var runtimeResult = await BuildRuntimeDataJsonAsync(runtimePath, runtimeColumns, CancellationToken.None);
+                if (!runtimeResult.Success || runtimeResult.Value is null)
+                {
+                    warnings.Add(runtimeResult.Error ?? "Could not prepare runtime data.");
+                }
+                else
+                {
+                    runtimeData = runtimeResult.Value;
+                    _runtimeFilePath = runtimePath;
+                    _runtimeColumns.Clear();
+                    _runtimeColumns.AddRange(runtimeColumns);
+                }
+            }
+            else
+            {
+                warnings.Add("No file path is set yet.");
+                _runtimeFilePath = "";
+                _runtimeColumns.Clear();
+            }
         }
 
         var transforms = ordered.Where(node => node.Kind == FlowNodeKind.Transform).ToList();
@@ -663,6 +919,8 @@
 
         var sourceBuilder = new StringBuilder();
         sourceBuilder.AppendLine($"// DjeLab flow: {string.Join(" -> ", ordered.Select(node => node.Title))}");
+        if (sourceNode.Kind == FlowNodeKind.SequenceSource)
+            sourceBuilder.AppendLine($"// Sequence source: {sourceNode.SequenceKind} from {sourceNode.StartExpression} to {sourceNode.StopExpression}");
         if (!string.IsNullOrWhiteSpace(runtimePath))
             sourceBuilder.AppendLine($"// Source file: {runtimePath}");
         if (runtimeColumns.Length > 0)
@@ -750,14 +1008,16 @@
             sourceBuilder.AppendLine("loop(0)");
         }
 
-        var summary = runtimeColumns.Length > 0
-            ? $"Source file: {Path.GetFileName(runtimePath)}; columns: {string.Join(", ", runtimeColumns)}"
-            : string.IsNullOrWhiteSpace(runtimePath)
-                ? "Source file: none"
-                : $"Source file: {Path.GetFileName(runtimePath)}; columns auto-detected";
+        var summary = sourceNode.Kind == FlowNodeKind.SequenceSource
+            ? $"Sequence source: {sourceNode.SequenceKind} from {NormalizeExpression(sourceNode.StartExpression, "0")} to {NormalizeExpression(sourceNode.StopExpression, "0")}"
+            : runtimeColumns.Length > 0
+                ? $"Source file: {Path.GetFileName(runtimePath)}; columns: {string.Join(", ", runtimeColumns)}"
+                : string.IsNullOrWhiteSpace(runtimePath)
+                    ? "Source file: none"
+                    : $"Source file: {Path.GetFileName(runtimePath)}; columns auto-detected";
 
         return new FlowCompileResult(
-            warnings.Count == 0 || warnings.All(w => !w.Contains("Add a source node first.", StringComparison.OrdinalIgnoreCase)),
+            !string.IsNullOrWhiteSpace(runtimeData),
             sourceBuilder.ToString(),
             string.IsNullOrWhiteSpace(runtimeData) ? null : runtimeData,
             chartType,
@@ -785,6 +1045,86 @@
         return (csv ?? "")
             .Split(new[] { ',', ';', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(column => !string.IsNullOrWhiteSpace(column));
+    }
+
+    private static FilesResult<double> EvaluateNumericExpression(string source, string context)
+    {
+        var parseResult = Parser.parse(source);
+        if (parseResult.IsError)
+            return FilesResult<double>.Fail($"{context}: {parseResult.ErrorValue}");
+
+        var evalResult = Evaluator.run(parseResult.ResultValue);
+        if (evalResult.IsError)
+            return FilesResult<double>.Fail($"{context}: {evalResult.ErrorValue}");
+
+        var jsonResult = Evaluator.toJson(evalResult.ResultValue);
+        if (jsonResult.IsError)
+            return FilesResult<double>.Fail($"{context}: {jsonResult.ErrorValue}");
+
+        if (!double.TryParse(jsonResult.ResultValue, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+            return FilesResult<double>.Fail($"{context}: expected a number.");
+
+        return FilesResult<double>.Ok(value);
+    }
+
+    private Task<FilesResult<string>> BuildSequenceRuntimeDataJsonAsync(FlowNodeModel sourceNode, CancellationToken ct)
+    {
+        var startResult = EvaluateNumericExpression(sourceNode.StartExpression, "Sequence start");
+        if (!startResult.Success)
+            return Task.FromResult(FilesResult<string>.Fail(startResult.Error ?? "Could not evaluate the sequence start value."));
+
+        var stopResult = EvaluateNumericExpression(sourceNode.StopExpression, "Sequence stop");
+        if (!stopResult.Success)
+            return Task.FromResult(FilesResult<string>.Fail(stopResult.Error ?? "Could not evaluate the sequence stop value."));
+
+        var rows = new List<double[]>();
+
+        if (string.Equals(sourceNode.SequenceKind, "linspace", StringComparison.OrdinalIgnoreCase))
+        {
+            var countResult = EvaluateNumericExpression(sourceNode.CountExpression, "Sequence count");
+            if (!countResult.Success)
+                return Task.FromResult(FilesResult<string>.Fail(countResult.Error ?? "Could not evaluate the sequence count."));
+
+            var count = Math.Max(1, (int)Math.Round(countResult.Value));
+            var start = startResult.Value;
+            var stop = stopResult.Value;
+
+            if (count == 1)
+            {
+                rows.Add(new[] { start });
+            }
+            else
+            {
+                var step = (stop - start) / (count - 1);
+                for (var index = 0; index < count; index++)
+                    rows.Add(new[] { start + index * step });
+            }
+        }
+        else
+        {
+            var stepResult = EvaluateNumericExpression(sourceNode.StepExpression, "Sequence step");
+            if (!stepResult.Success)
+                return Task.FromResult(FilesResult<string>.Fail(stepResult.Error ?? "Could not evaluate the sequence step."));
+
+            var start = startResult.Value;
+            var stop = stopResult.Value;
+            var step = stepResult.Value;
+            if (step == 0.0)
+                return Task.FromResult(FilesResult<string>.Fail("Sequence step must not be zero."));
+
+            if (step > 0.0)
+            {
+                for (var value = start; value <= stop; value += step)
+                    rows.Add(new[] { value });
+            }
+            else
+            {
+                for (var value = start; value >= stop; value += step)
+                    rows.Add(new[] { value });
+            }
+        }
+
+        return Task.FromResult(FilesResult<string>.Ok(JsonSerializer.Serialize(rows)));
     }
 
     private async Task<FilesResult<string>> BuildRuntimeDataJsonAsync(string dataPath, IReadOnlyList<string> dataColumns, CancellationToken ct)
@@ -842,7 +1182,7 @@
             return FilesResult<string>.Fail("No usable numeric rows were found in that CSV file.");
 
         object runtimeData = selectedColumns.Value.Length == 1
-            ? extractedRows.Select(row => row[0]).ToArray()
+            ? extractedRows.Select(row => new[] { row[0] }).ToArray()
             : extractedRows.Select(row => row.Cast<double>().ToArray()).ToArray();
 
         return FilesResult<string>.Ok(JsonSerializer.Serialize(runtimeData));
@@ -904,7 +1244,7 @@
             return FilesResult<string>.Fail($"No usable numeric rows were found in \"{path}\".");
 
         object runtimeData = selectedColumns.Value.Length == 1
-            ? rows.Select(row => row[0]).ToArray()
+            ? rows.Select(row => new[] { row[0] }).ToArray()
             : rows.Select(row => row.Cast<double>().ToArray()).ToArray();
 
         return FilesResult<string>.Ok(JsonSerializer.Serialize(runtimeData));
@@ -951,7 +1291,7 @@
         if (rows.Count == 0)
             return FilesResult<string>.Fail($"No usable numeric values were found in \"{path}\".");
 
-        return FilesResult<string>.Ok(JsonSerializer.Serialize(rows.Select(row => row[0]).ToArray()));
+        return FilesResult<string>.Ok(JsonSerializer.Serialize(rows.Select(row => new[] { row[0] }).ToArray()));
     }
 
     private static FilesResult<int[]> ResolveCsvColumns(string[] headers, string[][] rows, IReadOnlyList<string> dataColumns)
