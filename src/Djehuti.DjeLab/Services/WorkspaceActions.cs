@@ -15,6 +15,21 @@ public sealed record GraphDataSnapshot(
     bool Running,
     string? Error);
 
+public sealed record ActiveFileContextSnapshot(
+    string Path,
+    string Name,
+    string? ContentType,
+    long? SizeBytes,
+    bool IsEditable,
+    bool Truncated,
+    string Preview)
+{
+    public static ActiveFileContextSnapshot Empty { get; } =
+        new("", "", null, null, false, false, "");
+
+    public bool HasSelection => !string.IsNullOrWhiteSpace(Path);
+}
+
 /// <summary>
 /// The bridge between Chat's run_simulation tool handler and the docking
 /// workspace. ChatPane and DockWorkspace are siblings in the component tree
@@ -33,11 +48,14 @@ public sealed class WorkspaceActions
 {
     private readonly Dictionary<string, TaskCompletionSource<GraphRunOutcome>> _pending = new();
     private readonly object _graphDataLock = new();
+    private readonly object _fileContextLock = new();
     private GraphDataState _graphData = GraphDataState.Empty;
+    private ActiveFileContextSnapshot _activeFileContext = ActiveFileContextSnapshot.Empty;
 
     public event Action<OpenGraphRequest>? OpenGraphRequested;
     public event Action<GraphDataSnapshot>? GraphDataChanged;
     public event Action? StopCurrentGraphRunRequested;
+    public event Action<ActiveFileContextSnapshot>? ActiveFileContextChanged;
 
     public GraphDataSnapshot CurrentGraphData
     {
@@ -46,6 +64,17 @@ public sealed class WorkspaceActions
             lock (_graphDataLock)
             {
                 return _graphData.ToSnapshot();
+            }
+        }
+    }
+
+    public ActiveFileContextSnapshot CurrentFileContext
+    {
+        get
+        {
+            lock (_fileContextLock)
+            {
+                return _activeFileContext;
             }
         }
     }
@@ -128,6 +157,18 @@ public sealed class WorkspaceActions
     }
 
     public void StopCurrentGraphRun() => StopCurrentGraphRunRequested?.Invoke();
+
+    public void SetActiveFileContext(ActiveFileContextSnapshot snapshot)
+    {
+        lock (_fileContextLock)
+        {
+            _activeFileContext = snapshot;
+        }
+
+        ActiveFileContextChanged?.Invoke(snapshot);
+    }
+
+    public void ClearActiveFileContext() => SetActiveFileContext(ActiveFileContextSnapshot.Empty);
 
     private static List<string> NormalizePoint(string chartType, int rowIndex, JsonElement point)
     {

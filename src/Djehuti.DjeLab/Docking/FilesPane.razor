@@ -1,6 +1,7 @@
 @inject DjeLabFilesClient FilesClient
 @inject HttpClient Http
 @inject IJSRuntime JS
+@inject WorkspaceActions Actions
 
 <div class="files-pane">
     @if (_checkingAuth)
@@ -53,6 +54,42 @@
             <div class="files-error">@_error</div>
         }
 
+        @if (_selectedPath is not null)
+        {
+            <div class="files-preview-panel">
+                <div class="files-preview-header">
+                    <div class="files-preview-title">
+                        <span>@_selectedName</span>
+                        <span class="files-preview-path">@_selectedPath</span>
+                    </div>
+                    <div class="files-preview-actions">
+                        <button type="button" class="files-action-btn" @onclick="ReloadSelectedAsync" disabled="@_selectedLoading">Reload</button>
+                        <button type="button" class="files-action-btn" @onclick="SaveSelectedAsync" disabled="@(!_selectedEditable || _selectedLoading || _selectedTruncated)">Save</button>
+                        <button type="button" class="files-action-btn" @onclick="ClearSelectedFile">Close</button>
+                    </div>
+                </div>
+                <div class="files-preview-meta">
+                    <span>@(_selectedContentType ?? "text/plain")</span>
+                    @if (_selectedSizeBytes is long sizeBytes)
+                    {
+                        <span>&middot; @FormatBytes(sizeBytes)</span>
+                    }
+                    @if (_selectedTruncated)
+                    {
+                        <span class="files-preview-warning">&middot; preview only</span>
+                    }
+                </div>
+                <textarea class="files-preview-editor"
+                          @bind="_selectedContent"
+                          @bind:event="oninput"
+                          disabled="@(!_selectedEditable || _selectedLoading || _selectedTruncated)"></textarea>
+                @if (_selectedMessage is not null)
+                {
+                    <div class="files-preview-note">@_selectedMessage</div>
+                }
+            </div>
+        }
+
         <div class="files-list">
             @if (_loading)
             {
@@ -75,9 +112,9 @@
                         }
                         else
                         {
-                            <span class="files-row-name">
+                            <button type="button" class="files-row-name files-row-file" @onclick="() => OpenFile(entry)">
                                 <span class="files-row-icon">📄</span> @entry.Name
-                            </span>
+                            </button>
                             <span class="files-row-size">@FormatBytes(entry.SizeBytes ?? 0)</span>
                         }
                         <span class="files-row-actions">
@@ -111,6 +148,16 @@
     private string? _error;
     private List<DjeLabFileEntry> _entries = new();
     private StorageUsage? _usage;
+    private string? _selectedPath;
+    private string? _selectedName;
+    private string? _selectedContentType;
+    private long? _selectedSizeBytes;
+    private bool _selectedEditable;
+    private bool _selectedTruncated;
+    private bool _selectedLoading;
+    private string _selectedContent = "";
+    private string? _selectedMessage;
+    private const long MaxEditableFileBytes = 1024L * 1024;
 
     protected override async Task OnInitializedAsync()
     {
@@ -155,6 +202,7 @@
         _currentPath = path;
         _showNewFolder = false;
         _error = null;
+        ClearSelectedFile();
         await RefreshAsync();
     }
 
@@ -239,6 +287,7 @@
             }
 
             await RefreshAsync();
+            await OpenFile(confirmResult.Value!);
         }
         catch (Exception ex)
         {
@@ -277,6 +326,160 @@
             return;
         }
         await RefreshAsync();
+
+        if (string.Equals(_selectedPath, entry.Path, StringComparison.OrdinalIgnoreCase))
+            ClearSelectedFile();
+    }
+
+    private async Task OpenFile(DjeLabFileEntry entry)
+    {
+        _selectedLoading = true;
+        _selectedMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            _selectedPath = entry.Path;
+            _selectedName = entry.Name;
+            _selectedContentType = entry.ContentType;
+            _selectedSizeBytes = entry.SizeBytes;
+            _selectedEditable = IsLikelyTextFile(entry);
+
+            if (_selectedEditable)
+            {
+                var readResult = await FilesClient.ReadTextFileAsync(entry.Path, maxBytes: MaxEditableFileBytes);
+                if (!readResult.Success || readResult.Value is null)
+                {
+                    _selectedMessage = readResult.Error ?? "Could not read that file.";
+                    _selectedContent = "";
+                    _selectedTruncated = false;
+                    Actions.ClearActiveFileContext();
+                    return;
+                }
+
+                _selectedContent = readResult.Value;
+                _selectedTruncated = entry.SizeBytes is long size && size > MaxEditableFileBytes;
+                Actions.SetActiveFileContext(BuildSnapshot(entry.Path, entry.Name, entry.ContentType, entry.SizeBytes, _selectedEditable, _selectedTruncated, _selectedContent));
+                _selectedMessage = _selectedTruncated
+                    ? "This file is large enough that only a preview was loaded. Save is disabled until we add a full-file editor path."
+                    : "Loaded into the editor.";
+            }
+            else
+            {
+                var previewResult = await FilesClient.ReadTextPreviewAsync(entry.Path, maxBytes: 128 * 1024);
+                if (!previewResult.Success || previewResult.Value is null)
+                {
+                    _selectedMessage = previewResult.Error ?? "Could not read that file.";
+                    _selectedContent = "";
+                    _selectedTruncated = false;
+                    Actions.ClearActiveFileContext();
+                    return;
+                }
+
+                _selectedContent = previewResult.Value.Content;
+                _selectedTruncated = previewResult.Value.Truncated;
+                _selectedMessage = "This file is preview-only.";
+                Actions.SetActiveFileContext(BuildSnapshot(entry.Path, entry.Name, entry.ContentType, entry.SizeBytes, _selectedEditable, _selectedTruncated, _selectedContent));
+            }
+        }
+        catch (Exception ex)
+        {
+            _selectedMessage = ex.Message;
+            Actions.ClearActiveFileContext();
+        }
+        finally
+        {
+            _selectedLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ReloadSelectedAsync()
+    {
+        if (_selectedPath is null)
+            return;
+
+        var entry = _entries.FirstOrDefault(item => string.Equals(item.Path, _selectedPath, StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+            return;
+
+        await OpenFile(entry);
+    }
+
+    private async Task SaveSelectedAsync()
+    {
+        if (!_selectedEditable || _selectedTruncated || string.IsNullOrWhiteSpace(_selectedPath))
+            return;
+
+        _selectedLoading = true;
+        _selectedMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var contentType = string.IsNullOrWhiteSpace(_selectedContentType) ? "text/plain" : _selectedContentType;
+            var result = await FilesClient.WriteTextFileAsync(_selectedPath, _selectedContent, contentType);
+            if (!result.Success || result.Value is null)
+            {
+                _selectedMessage = result.Error ?? "Could not save that file.";
+                return;
+            }
+
+            _selectedPath = result.Value.Path;
+            _selectedName = result.Value.Name;
+            _selectedContentType = result.Value.ContentType;
+            _selectedSizeBytes = result.Value.SizeBytes;
+            _selectedMessage = $"Saved to {_selectedPath}.";
+            Actions.SetActiveFileContext(BuildSnapshot(result.Value.Path, result.Value.Name, result.Value.ContentType, result.Value.SizeBytes, _selectedEditable, false, _selectedContent));
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _selectedMessage = ex.Message;
+        }
+        finally
+        {
+            _selectedLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ClearSelectedFile()
+    {
+        _selectedPath = null;
+        _selectedName = null;
+        _selectedContentType = null;
+        _selectedSizeBytes = null;
+        _selectedEditable = false;
+        _selectedTruncated = false;
+        _selectedLoading = false;
+        _selectedContent = "";
+        _selectedMessage = null;
+        Actions.ClearActiveFileContext();
+    }
+
+    private static ActiveFileContextSnapshot BuildSnapshot(
+        string path,
+        string name,
+        string? contentType,
+        long? sizeBytes,
+        bool editable,
+        bool truncated,
+        string content)
+    {
+        var preview = content.Length > 2000 ? content[..2000] + "…" : content;
+        return new ActiveFileContextSnapshot(path, name, contentType, sizeBytes, editable, truncated, preview);
+    }
+
+    private static bool IsLikelyTextFile(DjeLabFileEntry entry)
+    {
+        var contentType = (entry.ContentType ?? "").ToLowerInvariant();
+        var extension = Path.GetExtension(entry.Name).ToLowerInvariant();
+
+        if (contentType.StartsWith("text/"))
+            return true;
+
+        return extension is ".txt" or ".md" or ".csv" or ".json" or ".xml" or ".yml" or ".yaml" or ".fs" or ".fsx" or ".cs" or ".razor" or ".js" or ".ts" or ".css" or ".html" or ".htm" or ".sql" or ".jsonl";
     }
 
     private static string FormatBytes(long bytes)

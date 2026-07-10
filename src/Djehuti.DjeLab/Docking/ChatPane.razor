@@ -1,6 +1,7 @@
 @using Markdig
 @using System.Text
 @using System.Text.Json
+@implements IDisposable
 @inject DjeLabFilesClient FilesClient
 @inject AiConfigStore ConfigStore
 @inject ChatHistoryStore HistoryStore
@@ -27,6 +28,17 @@
             @if (_turns.Count == 0)
             {
                 <div class="chat-pane-empty-history">Ask anything about the math you're working on.</div>
+            }
+            @if (_activeFileContext.HasSelection)
+            {
+                <div class="chat-file-context">
+                    <div class="chat-file-context-title">Active file</div>
+                    <div class="chat-file-context-path">@_activeFileContext.Path</div>
+                    @if (_activeFileContext.Truncated)
+                    {
+                        <div class="chat-file-context-note">Preview only</div>
+                    }
+                </div>
             }
             @foreach (var turn in _turns)
             {
@@ -88,6 +100,7 @@
     private ElementReference _inputRef;
     private IJSObjectReference? _module;
     private CancellationTokenSource? _sendCts;
+    private ActiveFileContextSnapshot _activeFileContext = ActiveFileContextSnapshot.Empty;
 
     private const int InputMaxHeightPx = 260;
 
@@ -116,6 +129,8 @@
         {
             _turns = await HistoryStore.GetTurnsAsync();
         }
+        _activeFileContext = Actions.CurrentFileContext;
+        Actions.ActiveFileContextChanged += HandleActiveFileContextChanged;
         _loading = false;
     }
 
@@ -328,9 +343,41 @@
         }).ToArray();
 
         if (hits.Length == 0)
+        {
+            var fileContextOnly = BuildFileContextSection(_activeFileContext);
+            return fileContextOnly;
+        }
+
+        var sections = new List<string>
+        {
+            "Relevant DjeLab references for this turn:\n" + string.Join("\n\n", hits)
+        };
+
+        var fileContext = BuildFileContextSection(_activeFileContext);
+        if (!string.IsNullOrWhiteSpace(fileContext))
+            sections.Add(fileContext);
+
+        return string.Join("\n\n", sections.Where(section => !string.IsNullOrWhiteSpace(section)));
+    }
+
+    private static string BuildFileContextSection(ActiveFileContextSnapshot snapshot)
+    {
+        if (!snapshot.HasSelection)
             return "";
 
-        return "Relevant DjeLab references for this turn:\n" + string.Join("\n\n", hits);
+        var preview = snapshot.Preview ?? "";
+        if (preview.Length > 1500)
+            preview = preview[..1500] + "…";
+
+        return
+            "Active workspace file:\n" +
+            $"Path: {snapshot.Path}\n" +
+            $"Name: {snapshot.Name}\n" +
+            $"Content type: {snapshot.ContentType ?? "unknown"}\n" +
+            $"Size: {(snapshot.SizeBytes is long sizeBytes ? sizeBytes.ToString() : "unknown")}\n" +
+            $"Editable: {snapshot.IsEditable}\n" +
+            "Preview:\n" +
+            preview;
     }
 
     private async Task<string> RunSimulationAsync(string argumentsJson, CancellationToken ct)
@@ -1037,6 +1084,18 @@
             _sendCts?.Dispose();
             _sendCts = null;
         }
+    }
+
+    private void HandleActiveFileContextChanged(ActiveFileContextSnapshot snapshot)
+    {
+        _activeFileContext = snapshot;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Actions.ActiveFileContextChanged -= HandleActiveFileContextChanged;
+        _sendCts?.Dispose();
     }
 
     private Task StopSendAsync()

@@ -46,6 +46,10 @@ public sealed class AiChatClient
     [
         new
         {
+            type = "web_search_preview"
+        },
+        new
+        {
             type = "function",
             name = "search_math_references",
             description = "Search DjeLab's indexed reference material (including the Spinoza language reference) for content relevant to the user's question. Use this to ground Spinoza code generation in the actual language spec instead of guessing from memory.",
