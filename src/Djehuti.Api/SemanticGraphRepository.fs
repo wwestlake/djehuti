@@ -744,9 +744,11 @@ v[0], len(v) -- vector indexing (0-based) and length.
 
 ## Built-in functions
 
-sin, cos, tan (1 arg, radians), sqrt (1), abs (1), exp (1), ln (1), floor (1), ceil (1), min (2), max (2), atan2 (2), len (1, vector length), emit (1, see "Live plotting with emit" below), pi (constant), e (constant).
+sin, cos, tan (1 arg, radians), sqrt (1), abs (1), exp (1), ln (1), floor (1), ceil (1), min (2), max (2), atan2 (2), len (1, vector length), random (0, software RNG), secure_random (0, crypto RNG), emit (1, see "Live plotting with emit" below), pi (constant), e (constant).
 
 There is no built-in reduce/map/fold over vectors yet -- write a let rec helper.
+
+`random()` and `secure_random()` return nondeterministic numbers in the half-open interval [0, 1). `random()` uses a standard software RNG; `secure_random()` uses a cryptographically strong RNG.
 
 ## Live plotting with emit
 

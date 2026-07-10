@@ -157,6 +157,7 @@ public static class DjeLabSystemPrompt
 
         `sin`, `cos`, `tan` (radians, arity 1), `sqrt` (1), `abs` (1), `exp` (1), `ln` (1),
         `floor`/`ceil` (1), `min`/`max` (2), `atan2` (2), `len` (vector element count, 1),
+        `random` (0, software RNG), `secure_random` (0, crypto RNG),
         `emit` (1, see "Live plotting with emit" below), `pi` and `e` (constants, not calls).
         There is no built-in `reduce`/`map`/`fold` over vectors yet -- write a `let rec` helper.
 
