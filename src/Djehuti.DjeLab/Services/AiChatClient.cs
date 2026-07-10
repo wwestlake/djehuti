@@ -161,14 +161,14 @@ public sealed class AiChatClient
 
         for (var round = 0; round < MaxToolRounds; round++)
         {
-            onStatus?.Invoke(round == 0 ? "Checking..." : "Waiting for the next step...");
+            onStatus?.Invoke(round == 0 ? "Figuring out the request..." : "Checking the last result...");
             var responseText = await SendAsync(apiKey, model, input, ct);
             using var doc = JsonDocument.Parse(responseText);
 
             var functionCalls = ExtractFunctionCalls(doc.RootElement);
             if (functionCalls.Count == 0)
             {
-                onStatus?.Invoke("Finishing...");
+                onStatus?.Invoke("Wrapping up...");
                 return MathDelimiterNormalizer.Normalize(ExtractAssistantText(doc.RootElement));
             }
 
@@ -192,7 +192,7 @@ public sealed class AiChatClient
                 {
                     try
                     {
-                        onStatus?.Invoke($"Running {call.Name}...");
+                        onStatus?.Invoke(DescribeToolStatus(call.Name, call.ArgumentsJson));
                         output = await handler(call.ArgumentsJson, ct);
                     }
                     catch (Exception ex)
@@ -217,6 +217,71 @@ public sealed class AiChatClient
         }
 
         throw new InvalidOperationException("The assistant made too many tool calls in a row without finishing its reply.");
+    }
+
+    private static string DescribeToolStatus(string toolName, string argumentsJson)
+    {
+        return toolName switch
+        {
+            "search_math_references" => "Checking the reference notes...",
+            "validate_spinoza" => "Checking the code...",
+            "run_simulation" => DescribeRunSimulationStatus(argumentsJson),
+            "manage_file_data" => DescribeManageFileDataStatus(argumentsJson),
+            _ => $"Running {toolName}..."
+        };
+    }
+
+    private static string DescribeRunSimulationStatus(string argumentsJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(argumentsJson);
+            if (document.RootElement.TryGetProperty("chartType", out var chartType) && chartType.ValueKind == JsonValueKind.String)
+            {
+                return chartType.GetString() switch
+                {
+                    "surface" => "Drawing the surface...",
+                    "scatter3d" => "Plotting the 3D points...",
+                    "histogram" => "Building the histogram...",
+                    "line" => "Drawing the line graph...",
+                    "scatter" => "Plotting the scatter points...",
+                    "bar" => "Building the bar chart...",
+                    _ => "Running the graph..."
+                };
+            }
+        }
+        catch (JsonException)
+        {
+            // If the tool arguments are malformed, fall back to a generic status.
+        }
+
+        return "Running the graph...";
+    }
+
+    private static string DescribeManageFileDataStatus(string argumentsJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(argumentsJson);
+            if (document.RootElement.TryGetProperty("action", out var action) && action.ValueKind == JsonValueKind.String)
+            {
+                return action.GetString() switch
+                {
+                    "list" => "Looking through the folder...",
+                    "read" => "Reading the file...",
+                    "tree" => "Tracing the data structure...",
+                    "bundle" => "Combining the project files...",
+                    "write" => "Saving the file...",
+                    _ => "Handling the file..."
+                };
+            }
+        }
+        catch (JsonException)
+        {
+            // Fall back to a generic message if the tool arguments aren't parseable.
+        }
+
+        return "Handling the file...";
     }
 
     private async Task<string> SendAsync(string apiKey, string model, List<object> input, CancellationToken ct)
