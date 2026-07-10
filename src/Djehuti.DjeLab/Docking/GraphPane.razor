@@ -98,6 +98,7 @@
     {
         _plotElementId = $"plot-{PaneId}";
         _worker = new SpinozaWorkerClient(JS, Nav);
+        Actions.StopCurrentGraphRunRequested += HandleStopRequested;
     }
 
     protected override async Task OnParametersSetAsync()
@@ -202,6 +203,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        Actions.StopCurrentGraphRunRequested -= HandleStopRequested;
         if (_worker is not null) await _worker.DisposeAsync();
         if (_plotly is not null)
         {
@@ -212,5 +214,11 @@
             }
             await _plotly.DisposeAsync();
         }
+    }
+
+    private void HandleStopRequested()
+    {
+        if (_running && !_stopping)
+            _ = StopRunAsync();
     }
 }

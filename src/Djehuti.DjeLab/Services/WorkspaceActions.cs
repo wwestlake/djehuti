@@ -37,6 +37,7 @@ public sealed class WorkspaceActions
 
     public event Action<OpenGraphRequest>? OpenGraphRequested;
     public event Action<GraphDataSnapshot>? GraphDataChanged;
+    public event Action? StopCurrentGraphRunRequested;
 
     public GraphDataSnapshot CurrentGraphData
     {
@@ -116,6 +117,8 @@ public sealed class WorkspaceActions
 
         if (snapshot is not null) GraphDataChanged?.Invoke(snapshot);
     }
+
+    public void StopCurrentGraphRun() => StopCurrentGraphRunRequested?.Invoke();
 
     private static List<string> NormalizePoint(string chartType, int rowIndex, JsonElement point)
     {
