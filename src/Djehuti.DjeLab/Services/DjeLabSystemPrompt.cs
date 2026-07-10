@@ -47,8 +47,14 @@ public static class DjeLabSystemPrompt
         asked for using the values available from the preview, and plot the derived variables with
         run_simulation if a chart is requested. Large files are sampled so you do not need to
         ingest the whole file into context. The structured CSV read includes headers, sampled rows,
-        and column profiles; use those before deciding on a transform. For ROOT files, look for a
+        and column profiles; use those before deciding on a transform. When you need the actual
+        runtime dataset, pass dataPath and optional dataColumns to run_simulation so the host reads
+        the file directly and injects the selected columns into the program's `data` binding; do
+        not paste megabytes of raw rows into chat. For ROOT files, look for a
         companion `.manifest.json` or `.root.json` file and use that tree when it exists. For
+        processed outputs, use manage_file_data write to save CSV, JSON, or ROOT manifest text
+        back into the same S3-backed file area so other tools can pick it up later.
+
         Spinoza projects that span multiple files, use the bundle action to expand any
         `import`/`include` directives into one source file before validation or execution. You have
         real graphing capability through these tools, not just code generation. Feed the data into
@@ -239,9 +245,8 @@ public static class DjeLabSystemPrompt
           determines the result.
         - `==`/`!=` work structurally on numbers, bools, and vectors (recursively). Comparing two
           functions for equality is a runtime error, not `false`.
-        - Every evaluation has a bounded step budget (default 1,000,000 reductions). A program
-          that recurses without terminating fails with a clear error rather than hanging --
-          always write recursive functions with a genuinely reachable base case.
+        - Long tail-recursive programs are allowed to run until they finish or the host stops
+          them. The runtime does not impose an artificial reduction cap here.
         - Vector indexing out of range is a runtime error. Unbound variables are a runtime error
           at the point of use, not a silent null/undefined.
 

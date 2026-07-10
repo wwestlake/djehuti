@@ -37,6 +37,7 @@ public sealed class WorkspaceActions
 
     public event Action<OpenGraphRequest>? OpenGraphRequested;
     public event Action<GraphDataSnapshot>? GraphDataChanged;
+    public event Action? StopCurrentGraphRunRequested;
 
     public GraphDataSnapshot CurrentGraphData
     {
@@ -49,13 +50,19 @@ public sealed class WorkspaceActions
         }
     }
 
-    public Task<GraphRunOutcome> RunInNewGraphAsync(string chartType, string xLabel, string yLabel, string zLabel, string spinozaSource)
+    public Task<GraphRunOutcome> RunInNewGraphAsync(
+        string chartType,
+        string xLabel,
+        string yLabel,
+        string zLabel,
+        string spinozaSource,
+        string? runtimeInputJson = null)
     {
         var runId = Guid.NewGuid().ToString("N");
         var tcs = new TaskCompletionSource<GraphRunOutcome>();
         _pending[runId] = tcs;
 
-        OpenGraphRequested?.Invoke(new OpenGraphRequest(runId, chartType, xLabel, yLabel, zLabel, spinozaSource));
+        OpenGraphRequested?.Invoke(new OpenGraphRequest(runId, chartType, xLabel, yLabel, zLabel, spinozaSource, runtimeInputJson));
 
         return tcs.Task;
     }
@@ -79,17 +86,26 @@ public sealed class WorkspaceActions
     }
 
     public void ReportGraphDataEmit(string runId, JsonElement point)
+        => ReportGraphDataEmits(runId, new[] { point });
+
+    public void ReportGraphDataEmits(string runId, IReadOnlyList<JsonElement> points)
     {
+        if (points.Count == 0) return;
+
         GraphDataSnapshot? snapshot = null;
         lock (_graphDataLock)
         {
             if (_graphData.RunId != runId || string.IsNullOrWhiteSpace(_graphData.RunId)) return;
 
-            var row = NormalizePoint(_graphData.ChartType, _graphData.Rows.Count, point);
-            if (_graphData.Headers.Count == 0)
-                _graphData.Headers = BuildHeaders(_graphData.ChartType, row.Count, _graphData.XLabel, _graphData.YLabel, _graphData.ZLabel).ToList();
+            foreach (var point in points)
+            {
+                var row = NormalizePoint(_graphData.ChartType, _graphData.Rows.Count, point);
+                if (_graphData.Headers.Count == 0)
+                    _graphData.Headers = BuildHeaders(_graphData.ChartType, row.Count, _graphData.XLabel, _graphData.YLabel, _graphData.ZLabel).ToList();
 
-            _graphData.Rows.Add(row);
+                _graphData.Rows.Add(row);
+            }
+
             snapshot = _graphData.ToSnapshot();
         }
 
@@ -110,6 +126,8 @@ public sealed class WorkspaceActions
 
         if (snapshot is not null) GraphDataChanged?.Invoke(snapshot);
     }
+
+    public void StopCurrentGraphRun() => StopCurrentGraphRunRequested?.Invoke();
 
     private static List<string> NormalizePoint(string chartType, int rowIndex, JsonElement point)
     {
@@ -212,4 +230,11 @@ public sealed class WorkspaceActions
     }
 }
 
-public sealed record OpenGraphRequest(string RunId, string ChartType, string XLabel, string YLabel, string ZLabel, string SpinozaSource);
+public sealed record OpenGraphRequest(
+    string RunId,
+    string ChartType,
+    string XLabel,
+    string YLabel,
+    string ZLabel,
+    string SpinozaSource,
+    string? RuntimeInputJson);

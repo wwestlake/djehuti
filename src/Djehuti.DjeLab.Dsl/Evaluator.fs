@@ -2,16 +2,15 @@
 ///
 /// This is a plain, pure function over the AST -- no file/network access is
 /// possible because nothing in `Value` or `eval` ever touches them. The one
-/// safety knob a pure interpreter genuinely needs is a bound on how much
-/// work a single evaluation can do, since recursion is unbounded by the
-/// grammar itself: `eval` takes a step budget and errors out rather than
-/// hanging or blowing the stack. This is a courtesy limit for this
-/// in-process evaluator, not a substitute for the process-level sandboxing
-/// (isolated process, wall-clock/CPU/memory ceiling) a real execution
-/// backend still needs -- see DjeLab_Architecture_and_Specification_V2.md.
+/// safety guarantee the host still needs is process-level sandboxing
+/// (isolated process, wall-clock/CPU/memory ceiling) for genuinely
+/// non-terminating programs. The evaluator itself does not impose an
+/// artificial reduction cap here; long tail-recursive programs are allowed
+/// to run until they finish or the host stops them.
 module Djehuti.DjeLab.Dsl.Evaluator
 
 open System
+open System.Text.Json
 open Djehuti.DjeLab.Dsl.Ast
 
 type Value =
@@ -106,81 +105,94 @@ let makeBuiltinEnv (onEmit: (Value -> unit) option) : Env =
 
 let builtinEnv : Env = makeBuiltinEnv None
 
-type private Budget = { mutable Remaining: int }
+type private Step =
+    | Done of Result<Value, string>
+    | More of (unit -> Step)
 
-let private stepOrFail (budget: Budget) : Result<unit, string> =
-    if budget.Remaining <= 0 then
-        Error "Evaluation step budget exceeded (likely runaway recursion)"
-    else
-        budget.Remaining <- budget.Remaining - 1
-        Ok()
+let rec private bindStep (step: Step) (next: Value -> Step) : Step =
+    match step with
+    | Done (Ok value) -> More(fun () -> next value)
+    | Done (Error error) -> Done(Error error)
+    | More thunk -> More(fun () -> bindStep (thunk()) next)
 
-let rec private evalWith (budget: Budget) (env: Env) (expr: Expr) : Result<Value, string> =
-    match stepOrFail budget with
-    | Error e -> Error e
-    | Ok() ->
+let rec private evalList (env: Env) (items: Expr list) (acc: Value list) (next: Value list -> Step) : Step =
+    match items with
+    | [] -> next (List.rev acc)
+    | head :: tail ->
+        bindStep (evalWith env head) (fun value -> evalList env tail (value :: acc) next)
 
+and private evalWith (env: Env) (expr: Expr) : Step =
     match expr with
-    | Number n -> Ok(VNumber n)
-    | Bool b -> Ok(VBool b)
+    | Number n -> Done(Ok(VNumber n))
+    | Bool b -> Done(Ok(VBool b))
     | Var name ->
         match Map.tryFind name env with
-        | Some v -> Ok v
-        | None -> Error $"Unbound variable '{name}'"
+        | Some v -> Done(Ok v)
+        | None -> Done(Error $"Unbound variable '{name}'")
 
     | VectorLit items ->
-        let rec evalAll acc =
-            function
-            | [] -> Ok(List.rev acc)
-            | e :: rest ->
-                match evalWith budget env e with
-                | Ok v -> evalAll (v :: acc) rest
-                | Error err -> Error err
-        evalAll [] items |> Result.map (List.toArray >> VVector)
+        evalList env items [] (fun values -> Done(Ok(VVector(List.toArray values))))
 
     | Index(vecExpr, idxExpr) ->
-        match evalWith budget env vecExpr, evalWith budget env idxExpr with
-        | Ok vecVal, Ok idxVal ->
-            match asVector "index" vecVal, asNumber "index" idxVal with
-            | Ok items, Ok idx ->
-                let i = int idx
-                if i >= 0 && i < items.Length then Ok items.[i]
-                else Error $"Index {i} out of range (vector has {items.Length} elements)"
-            | Error e, _ | _, Error e -> Error e
-        | Error e, _ | _, Error e -> Error e
+        bindStep (evalWith env vecExpr) (fun vecVal ->
+            bindStep (evalWith env idxExpr) (fun idxVal ->
+                match asVector "index" vecVal, asNumber "index" idxVal with
+                | Ok items, Ok idx ->
+                    let i = int idx
+                    if i >= 0 && i < items.Length then Done(Ok items.[i])
+                    else Done(Error $"Index {i} out of range (vector has {items.Length} elements)")
+                | Error e, _ | _, Error e -> Done(Error e)))
 
     | UnaryOp(Neg, e) ->
-        evalWith budget env e |> Result.bind (asNumber "negation") |> Result.map (fun n -> VNumber(-n))
+        bindStep (evalWith env e) (fun value ->
+            match asNumber "negation" value with
+            | Ok n -> Done(Ok(VNumber(-n)))
+            | Error error -> Done(Error error))
+
     | UnaryOp(Not, e) ->
-        evalWith budget env e |> Result.bind (asBool "not") |> Result.map (fun b -> VBool(not b))
+        bindStep (evalWith env e) (fun value ->
+            match asBool "not" value with
+            | Ok b -> Done(Ok(VBool(not b)))
+            | Error error -> Done(Error error))
 
     | BinaryOp(op, left, right) ->
         match op with
         | And ->
-            evalWith budget env left
-            |> Result.bind (asBool "&&")
-            |> Result.bind (fun l ->
-                if not l then Ok(VBool false)
-                else evalWith budget env right |> Result.bind (asBool "&&") |> Result.map VBool)
+            bindStep (evalWith env left) (fun leftValue ->
+                match asBool "&&" leftValue with
+                | Error error -> Done(Error error)
+                | Ok leftBool ->
+                    if not leftBool then Done(Ok(VBool false))
+                    else
+                        bindStep (evalWith env right) (fun rightValue ->
+                            match asBool "&&" rightValue with
+                            | Ok rightBool -> Done(Ok(VBool rightBool))
+                            | Error error -> Done(Error error)))
         | Or ->
-            evalWith budget env left
-            |> Result.bind (asBool "||")
-            |> Result.bind (fun l ->
-                if l then Ok(VBool true)
-                else evalWith budget env right |> Result.bind (asBool "||") |> Result.map VBool)
+            bindStep (evalWith env left) (fun leftValue ->
+                match asBool "||" leftValue with
+                | Error error -> Done(Error error)
+                | Ok leftBool ->
+                    if leftBool then Done(Ok(VBool true))
+                    else
+                        bindStep (evalWith env right) (fun rightValue ->
+                            match asBool "||" rightValue with
+                            | Ok rightBool -> Done(Ok(VBool rightBool))
+                            | Error error -> Done(Error error)))
         | _ ->
-            match evalWith budget env left, evalWith budget env right with
-            | Ok lv, Ok rv -> evalBinaryOp op lv rv
-            | Error e, _ | _, Error e -> Error e
+            bindStep (evalWith env left) (fun leftValue ->
+                bindStep (evalWith env right) (fun rightValue ->
+                    evalBinaryOp op leftValue rightValue |> Done))
 
     | If(cond, thenB, elseB) ->
-        evalWith budget env cond
-        |> Result.bind (asBool "if condition")
-        |> Result.bind (fun c -> evalWith budget env (if c then thenB else elseB))
+        bindStep (evalWith env cond) (fun condValue ->
+            match asBool "if condition" condValue with
+            | Error error -> Done(Error error)
+            | Ok condition -> evalWith env (if condition then thenB else elseB))
 
     | Let(name, value, body) ->
-        evalWith budget env value
-        |> Result.bind (fun v -> evalWith budget (Map.add name v env) body)
+        bindStep (evalWith env value) (fun boundValue ->
+            evalWith (Map.add name boundValue env) body)
 
     | LetRec(name, parameters, funcBody, body) ->
         // Tie the recursive knot via the ref cell: create the closure first
@@ -191,39 +203,28 @@ let rec private evalWith (budget: Budget) (env: Env) (expr: Expr) : Result<Value
         let envCell = ref env
         let closure = VClosure(parameters, funcBody, envCell)
         envCell.Value <- Map.add name closure env
-        evalWith budget (Map.add name closure env) body
+        evalWith (Map.add name closure env) body
 
-    | Lambda(parameters, body) -> Ok(VClosure(parameters, body, ref env))
+    | Lambda(parameters, body) -> Done(Ok(VClosure(parameters, body, ref env)))
 
     | Call(calleeExpr, argExprs) ->
-        match evalWith budget env calleeExpr with
-        | Error e -> Error e
-        | Ok callee ->
-            let rec evalArgs acc =
-                function
-                | [] -> Ok(List.rev acc)
-                | e :: rest ->
-                    match evalWith budget env e with
-                    | Ok v -> evalArgs (v :: acc) rest
-                    | Error err -> Error err
-            match evalArgs [] argExprs with
-            | Error e -> Error e
-            | Ok args -> applyCallable budget callee args
+        bindStep (evalWith env calleeExpr) (fun callee ->
+            evalList env argExprs [] (fun args -> applyCallable callee args))
 
-and private applyCallable (budget: Budget) (callee: Value) (args: Value list) : Result<Value, string> =
+and private applyCallable (callee: Value) (args: Value list) : Step =
     match callee with
     | VBuiltin(name, arity, fn) ->
         if args.Length <> arity then
-            Error $"{name}: expected {arity} argument(s), got {args.Length}"
+            Done(Error $"{name}: expected {arity} argument(s), got {args.Length}")
         else
-            fn args
+            Done(fn args)
     | VClosure(parameters, body, closureEnvCell) ->
         if args.Length <> parameters.Length then
-            Error $"function expected {parameters.Length} argument(s), got {args.Length}"
+            Done(Error $"function expected {parameters.Length} argument(s), got {args.Length}")
         else
             let callEnv = List.zip parameters args |> List.fold (fun e (p, v) -> Map.add p v e) closureEnvCell.Value
-            evalWith budget callEnv body
-    | other -> Error $"{describe other} is not callable"
+            evalWith callEnv body
+    | other -> Done(Error $"{describe other} is not callable")
 
 /// `Value` can't derive structural equality (it embeds functions via
 /// `VClosure`/`VBuiltin`), so `==`/`!=` get their own recursive comparison:
@@ -270,22 +271,56 @@ and private evalBinaryOp (op: BinOp) (left: Value) (right: Value) : Result<Value
     | Neq -> valueEquals left right |> Result.map (fun b -> VBool(not b))
     | And | Or -> Error "unreachable: short-circuit ops handled before evalBinaryOp"
 
-/// Evaluates an expression with a bounded number of reduction steps
-/// (default 1,000,000) so a runaway recursive program fails fast with a
-/// clear error instead of hanging this process or overflowing the stack.
-let eval (maxSteps: int) (env: Env) (expr: Expr) : Result<Value, string> =
-    evalWith { Remaining = maxSteps } env expr
+let rec fromJson (element: JsonElement) : Result<Value, string> =
+    match element.ValueKind with
+    | JsonValueKind.Number -> Ok(VNumber(element.GetDouble()))
+    | JsonValueKind.True -> Ok(VBool true)
+    | JsonValueKind.False -> Ok(VBool false)
+    | JsonValueKind.Array ->
+        let rec collect acc (items: JsonElement list) =
+            match items with
+            | [] -> Ok(List.rev acc |> List.toArray |> VVector)
+            | head :: tail ->
+                match fromJson head with
+                | Ok value -> collect (value :: acc) tail
+                | Error e -> Error e
+
+        element.EnumerateArray() |> Seq.toList |> collect []
+    | JsonValueKind.Null
+    | JsonValueKind.Undefined -> Error "null values cannot be used as Spinoza data bindings"
+    | JsonValueKind.String -> Error "string values cannot be used as Spinoza data bindings"
+    | JsonValueKind.Object -> Error "object values cannot be used as Spinoza data bindings"
+    | _ -> Error $"unsupported JSON value kind: {element.ValueKind}"
+
+/// Evaluates an expression.
+let eval (env: Env) (expr: Expr) : Result<Value, string> =
+    let rec run current =
+        match current with
+        | Done result -> result
+        | More thunk -> run (thunk())
+
+    run (evalWith env expr)
 
 /// Evaluates against the standard builtin environment.
 let run (expr: Expr) : Result<Value, string> =
-    eval 1_000_000 builtinEnv expr
+    eval builtinEnv expr
 
 /// Evaluates with `emit(...)` wired to `onEmit`, called synchronously the
 /// instant each `emit` call is reached during the walk -- not batched or
 /// deferred -- so a host streaming these out (e.g. over a Web Worker's
 /// postMessage) sees them as the program actually computes them.
 let runWithEmit (onEmit: Value -> unit) (expr: Expr) : Result<Value, string> =
-    eval 1_000_000 (makeBuiltinEnv (Some onEmit)) expr
+    eval (makeBuiltinEnv (Some onEmit)) expr
+
+/// Evaluates with `emit(...)` wired to `onEmit` and a host-supplied `data`
+/// binding available to the program.
+let runWithEmitAndData (onEmit: Value -> unit) (dataValue: Value option) (expr: Expr) : Result<Value, string> =
+    let env =
+        match dataValue with
+        | Some value -> Map.add "data" value (makeBuiltinEnv (Some onEmit))
+        | None -> makeBuiltinEnv (Some onEmit)
+
+    eval env expr
 
 /// Renders a Value as JSON, for transport across a worker postMessage
 /// boundary or similar host interop. Numbers that aren't finite (NaN,

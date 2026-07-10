@@ -11,7 +11,7 @@ namespace Djehuti.DjeLab.Services;
 /// turn. Handlers are supplied by the caller (ChatPane), not this class --
 /// AiChatClient only knows the OpenAI protocol for running the tool loop,
 /// not what any given tool actually does in this app.</summary>
-public delegate Task<string> ToolHandler(string argumentsJson);
+public delegate Task<string> ToolHandler(string argumentsJson, CancellationToken ct);
 
 /// <summary>
 /// Calls OpenAI's Responses API directly from the browser using the user's
@@ -65,7 +65,7 @@ public sealed class AiChatClient
         {
             type = "function",
             name = "run_simulation",
-            description = "Runs a Spinoza program in a new graph pane and plots the points it emits. Use this whenever the user wants something graphed, plotted, or visualized -- write a complete Spinoza program yourself (it must call emit(point) to produce chart data; see the language reference) and call this tool with it, rather than only describing the program in your reply. Prefer surface for actual height fields and scatter3d for point clouds or parametric curves. For surface, emit one full row of z values per step; use rows with several samples across the y-axis, do not send [x, y, z] tuples, do not build the surface as a nested point-by-point loop, and choose descriptive axis labels instead of generic x/y/z when the math has a clearer name. You will be told whether it ran successfully and how many points it produced.",
+            description = "Runs a Spinoza program in a new graph pane and plots the points it emits. Use this whenever the user wants something graphed, plotted, or visualized -- write a complete Spinoza program yourself (it must call emit(point) to produce chart data; see the language reference) and call this tool with it, rather than only describing the program in your reply. Prefer surface for actual height fields and scatter3d for point clouds or parametric curves. For surface, emit one full row of z values per step; use rows with several samples across the y-axis, do not send [x, y, z] tuples, do not build the surface as a nested point-by-point loop, and choose descriptive axis labels instead of generic x/y/z when the math has a clearer name. If the user provided a dataPath, the host will read the file directly and inject the selected data columns into the runtime as a `data` binding, so you can write code against the real dataset without copying the whole file into chat context. You will be told whether it ran successfully and how many points it produced.",
             parameters = new
             {
                 type = "object",
@@ -81,9 +81,16 @@ public sealed class AiChatClient
                     yLabel = new { type = "string" },
                     zLabel = new { type = "string", description = "Only meaningful for scatter3d; for surface, pass an empty string unless you want a label for the height axis." },
                     spinozaSource = new { type = "string", description = "A complete Spinoza program that calls emit(...) to produce chart data. For multi-file projects, you may leave this empty and provide projectPath instead." },
-                    projectPath = new { type = "string", description = "Optional entry file or project folder path for a multi-file Spinoza project. The host will bundle import/include directives before running it." }
+                    projectPath = new { type = "string", description = "Optional entry file or project folder path for a multi-file Spinoza project. The host will bundle import/include directives before running it." },
+                    dataPath = new { type = "string", description = "Optional S3 file path for the runtime dataset. The host will read it directly and inject the selected columns as a `data` binding." },
+                    dataColumns = new
+                    {
+                        type = "array",
+                        description = "Optional column names or zero-based indices to extract from the dataset before execution. Leave empty to use all columns.",
+                        items = new { type = "string" }
+                    }
                 },
-                required = new[] { "chartType", "xLabel", "yLabel", "zLabel", "spinozaSource" },
+                required = new[] { "chartType", "xLabel", "yLabel", "zLabel", "spinozaSource", "projectPath", "dataPath", "dataColumns" },
                 additionalProperties = false
             },
             strict = true
@@ -144,6 +151,7 @@ public sealed class AiChatClient
         IReadOnlyList<ChatTurn> history,
         string newMessage,
         IReadOnlyDictionary<string, ToolHandler> toolHandlers,
+        Action<string>? onStatus = null,
         string? additionalInstructions = null,
         CancellationToken ct = default)
     {
@@ -154,12 +162,14 @@ public sealed class AiChatClient
 
         for (var round = 0; round < MaxToolRounds; round++)
         {
+            onStatus?.Invoke(round == 0 ? "Figuring out the request..." : "Checking the last result...");
             var responseText = await SendAsync(apiKey, model, input, additionalInstructions, ct);
             using var doc = JsonDocument.Parse(responseText);
 
             var functionCalls = ExtractFunctionCalls(doc.RootElement);
             if (functionCalls.Count == 0)
             {
+                onStatus?.Invoke("Wrapping up...");
                 return MathDelimiterNormalizer.Normalize(ExtractAssistantText(doc.RootElement));
             }
 
@@ -183,7 +193,8 @@ public sealed class AiChatClient
                 {
                     try
                     {
-                        output = await handler(call.ArgumentsJson);
+                        onStatus?.Invoke(DescribeToolStatus(call.Name, call.ArgumentsJson));
+                        output = await handler(call.ArgumentsJson, ct);
                     }
                     catch (Exception ex)
                     {
@@ -209,8 +220,70 @@ public sealed class AiChatClient
         throw new InvalidOperationException("The assistant made too many tool calls in a row without finishing its reply.");
     }
 
-    private async Task<string> SendAsync(string apiKey, string model, List<object> input, CancellationToken ct)
-        => await SendAsync(apiKey, model, input, null, ct);
+    private static string DescribeToolStatus(string toolName, string argumentsJson)
+    {
+        return toolName switch
+        {
+            "search_math_references" => "Checking the reference notes...",
+            "validate_spinoza" => "Checking the code...",
+            "run_simulation" => DescribeRunSimulationStatus(argumentsJson),
+            "manage_file_data" => DescribeManageFileDataStatus(argumentsJson),
+            _ => $"Running {toolName}..."
+        };
+    }
+
+    private static string DescribeRunSimulationStatus(string argumentsJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(argumentsJson);
+            if (document.RootElement.TryGetProperty("chartType", out var chartType) && chartType.ValueKind == JsonValueKind.String)
+            {
+                return chartType.GetString() switch
+                {
+                    "surface" => "Drawing the surface...",
+                    "scatter3d" => "Plotting the 3D points...",
+                    "histogram" => "Building the histogram...",
+                    "line" => "Drawing the line graph...",
+                    "scatter" => "Plotting the scatter points...",
+                    "bar" => "Building the bar chart...",
+                    _ => "Running the graph..."
+                };
+            }
+        }
+        catch (JsonException)
+        {
+            // If the tool arguments are malformed, fall back to a generic status.
+        }
+
+        return "Running the graph...";
+    }
+
+    private static string DescribeManageFileDataStatus(string argumentsJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(argumentsJson);
+            if (document.RootElement.TryGetProperty("action", out var action) && action.ValueKind == JsonValueKind.String)
+            {
+                return action.GetString() switch
+                {
+                    "list" => "Looking through the folder...",
+                    "read" => "Reading the file...",
+                    "tree" => "Tracing the data structure...",
+                    "bundle" => "Combining the project files...",
+                    "write" => "Saving the file...",
+                    _ => "Handling the file..."
+                };
+            }
+        }
+        catch (JsonException)
+        {
+            // Fall back to a generic message if the tool arguments aren't parseable.
+        }
+
+        return "Handling the file...";
+    }
 
     private async Task<string> SendAsync(string apiKey, string model, List<object> input, string? additionalInstructions, CancellationToken ct)
     {

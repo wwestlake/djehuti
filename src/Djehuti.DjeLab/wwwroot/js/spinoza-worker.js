@@ -21,11 +21,11 @@ try {
 }
 
 self.addEventListener('message', (e) => {
-    const { command, runId, source } = e.data;
+    const { command, runId, source, runtimeDataJson } = e.data;
     try {
         if (!assemblyExports) throw new Error(startupError || 'worker runtime failed to start');
         if (command === 'run') {
-            assemblyExports.Djehuti.DjeLab.Simulation.SpinozaWorker.Run(runId, source);
+            assemblyExports.Djehuti.DjeLab.Simulation.SpinozaWorker.Run(runId, source, runtimeDataJson ?? null);
         } else {
             throw new Error(`Unknown command: ${command}`);
         }

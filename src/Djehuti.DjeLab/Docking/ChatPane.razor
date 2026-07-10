@@ -1,4 +1,5 @@
 @using Markdig
+@using System.Text
 @using System.Text.Json
 @inject DjeLabFilesClient FilesClient
 @inject AiConfigStore ConfigStore
@@ -36,7 +37,7 @@
             @if (_sending)
             {
                 <div class="chat-message chat-message-assistant">
-                    <div class="chat-message-bubble chat-message-pending">Thinking…</div>
+                    <div class="chat-message-bubble chat-message-pending">@(_statusMessage ?? "Thinking…")</div>
                 </div>
             }
             @if (_error is not null)
@@ -53,9 +54,18 @@
                       @oninput="OnInputChanged"
                       @onkeydown="OnKeyDown"></textarea>
             <div class="chat-pane-input-actions">
-                <button type="submit" class="chat-pane-send" disabled="@(_sending || string.IsNullOrWhiteSpace(_input))">
-                    Send
-                </button>
+                @if (_sending)
+                {
+                    <button type="button" class="chat-pane-stop" @onclick="StopSendAsync">
+                        Stop
+                    </button>
+                }
+                else
+                {
+                    <button type="submit" class="chat-pane-send" disabled="@string.IsNullOrWhiteSpace(_input)">
+                        Send
+                    </button>
+                }
                 <button type="button" class="chat-pane-clear" @onclick="ClearChat" disabled="@_sending">
                     Clear
                 </button>
@@ -69,6 +79,7 @@
     private bool _hasKey;
     private bool _sending;
     private string? _error;
+    private string? _statusMessage;
     private string _apiKey = "";
     private string _model = "";
     private string _input = "";
@@ -76,6 +87,7 @@
     private ElementReference _messagesRef;
     private ElementReference _inputRef;
     private IJSObjectReference? _module;
+    private CancellationTokenSource? _sendCts;
 
     private const int InputMaxHeightPx = 260;
 
@@ -161,7 +173,7 @@
         ["manage_file_data"] = ManageFileDataAsync
     };
 
-    private async Task<string> ManageFileDataAsync(string argumentsJson)
+    private async Task<string> ManageFileDataAsync(string argumentsJson, CancellationToken ct)
     {
         using var args = JsonDocument.Parse(argumentsJson);
         string Get(string name, string fallback = "") =>
@@ -179,7 +191,7 @@
         {
             case "list":
             {
-                var entries = await FilesClient.ListFolderAsync(path);
+                var entries = await FilesClient.ListFolderAsync(path, ct);
                 return JsonSerializer.Serialize(new
                 {
                     action,
@@ -197,11 +209,11 @@
             }
             case "read":
             {
-                var readResult = await FilesClient.ReadTextFileAsync(path);
+                var readResult = await FilesClient.ReadTextFileAsync(path, ct: ct);
                 if (!readResult.Success || readResult.Value is null)
                     return readResult.Error ?? "Could not read that file.";
 
-                var resolved = await FilesClient.ResolvePathAsync(path);
+                var resolved = await FilesClient.ResolvePathAsync(path, ct);
                 if (!resolved.Success || resolved.Value is null)
                     return resolved.Error ?? "Could not resolve that file.";
 
@@ -209,7 +221,7 @@
             }
             case "tree":
             {
-                var treeResult = await FilesClient.ReadStructuredDataAsync(path);
+                var treeResult = await FilesClient.ReadStructuredDataAsync(path, ct);
                 if (!treeResult.Success || treeResult.Value is null)
                     return treeResult.Error ?? "Could not read that structure.";
 
@@ -217,7 +229,7 @@
             }
             case "bundle":
             {
-                var bundleResult = await FilesClient.BundleProjectAsync(path);
+                var bundleResult = await FilesClient.BundleProjectAsync(path, ct);
                 if (!bundleResult.Success || bundleResult.Value is null)
                     return bundleResult.Error ?? "Could not bundle that project.";
 
@@ -238,7 +250,7 @@
                     return "No content provided.";
 
                 var normalizedContentType = string.IsNullOrWhiteSpace(contentType) ? "text/plain" : contentType;
-                var writeResult = await FilesClient.WriteTextFileAsync(path, content, normalizedContentType);
+                var writeResult = await FilesClient.WriteTextFileAsync(path, content, normalizedContentType, ct);
                 if (!writeResult.Success || writeResult.Value is null)
                     return writeResult.Error ?? "Could not write that file.";
 
@@ -256,13 +268,13 @@
         }
     }
 
-    private async Task<string> SearchMathReferencesAsync(string argumentsJson)
+    private async Task<string> SearchMathReferencesAsync(string argumentsJson, CancellationToken ct)
     {
         using var args = JsonDocument.Parse(argumentsJson);
         var query = args.RootElement.TryGetProperty("query", out var q) ? q.GetString() ?? "" : "";
         if (string.IsNullOrWhiteSpace(query)) return "No query provided.";
 
-        var response = await Http.GetAsync($"/djehuti/api/djelab/search-references?q={Uri.EscapeDataString(query)}");
+        var response = await Http.GetAsync($"/djehuti/api/djelab/search-references?q={Uri.EscapeDataString(query)}", ct);
         if (!response.IsSuccessStatusCode) return $"Search failed with HTTP {(int)response.StatusCode}.";
 
         using var results = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -278,7 +290,7 @@
         return string.Join("\n\n", parts);
     }
 
-    private async Task<string> BuildTurnContextAsync(string userMessage, IReadOnlyList<ChatTurn> history)
+    private async Task<string> BuildTurnContextAsync(string userMessage, IReadOnlyList<ChatTurn> history, CancellationToken ct)
     {
         var recentTurns = history
             .Where(turn => turn.Role is "user" or "assistant")
@@ -298,7 +310,7 @@
         if (query.Length > 2000)
             query = query[..2000];
 
-        var response = await Http.GetAsync($"/djehuti/api/djelab/search-references?q={Uri.EscapeDataString(query)}");
+        var response = await Http.GetAsync($"/djehuti/api/djelab/search-references?q={Uri.EscapeDataString(query)}", ct);
         if (!response.IsSuccessStatusCode)
             return "";
 
@@ -321,7 +333,7 @@
         return "Relevant DjeLab references for this turn:\n" + string.Join("\n\n", hits);
     }
 
-    private async Task<string> RunSimulationAsync(string argumentsJson)
+    private async Task<string> RunSimulationAsync(string argumentsJson, CancellationToken ct)
     {
         using var args = JsonDocument.Parse(argumentsJson);
         string Get(string name, string fallback = "") =>
@@ -333,26 +345,484 @@
         var zLabel = NormalizeAxisLabel(Get("zLabel", ""), chartType, axis: "z");
         var source = Get("spinozaSource");
         var projectPath = Get("projectPath");
+        var dataPath = Get("dataPath");
+        var dataColumns = ReadRequestedColumns(args.RootElement);
 
         if (string.IsNullOrWhiteSpace(source) && string.IsNullOrWhiteSpace(projectPath))
             return "No spinozaSource or projectPath provided.";
 
         if (string.IsNullOrWhiteSpace(source) && !string.IsNullOrWhiteSpace(projectPath))
         {
-            var bundle = await FilesClient.BundleProjectAsync(projectPath);
+            var bundle = await FilesClient.BundleProjectAsync(projectPath, ct);
             if (!bundle.Success || bundle.Value is null)
                 return bundle.Error ?? "Could not bundle that project.";
 
             source = bundle.Value.ExpandedSource;
         }
 
-        var outcome = await Actions.RunInNewGraphAsync(chartType, xLabel, yLabel, zLabel, source);
+        string? runtimeDataJson = null;
+        if (!string.IsNullOrWhiteSpace(dataPath))
+        {
+            var runtimeDataResult = await BuildRuntimeDataJsonAsync(dataPath, dataColumns, ct);
+            if (!runtimeDataResult.Success || runtimeDataResult.Value is null)
+                return runtimeDataResult.Error ?? "Could not prepare runtime data.";
+
+            runtimeDataJson = runtimeDataResult.Value;
+        }
+
+        var outcome = await Actions.RunInNewGraphAsync(chartType, xLabel, yLabel, zLabel, source, runtimeDataJson);
         return outcome.Success
             ? $"Ran successfully in a new {chartType} graph pane; emitted {outcome.PointCount} point(s)."
             : $"The program failed to run: {outcome.Error}";
     }
 
-    private async Task<string> ValidateSpinozaAsync(string argumentsJson)
+    private static IReadOnlyList<string> ReadRequestedColumns(JsonElement root)
+    {
+        if (!root.TryGetProperty("dataColumns", out var value) || value.ValueKind != JsonValueKind.Array)
+            return Array.Empty<string>();
+
+        return value
+            .EnumerateArray()
+            .Select(item => item.GetString()?.Trim())
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item!)
+            .ToArray();
+    }
+
+    private async Task<FilesResult<string>> BuildRuntimeDataJsonAsync(string dataPath, IReadOnlyList<string> dataColumns, CancellationToken ct)
+    {
+        var resolved = await FilesClient.ResolvePathAsync(dataPath, ct);
+        if (!resolved.Success || resolved.Value is null)
+            return FilesResult<string>.Fail(resolved.Error ?? "Could not resolve the data file.");
+
+        if (resolved.Value.IsFolder)
+            return FilesResult<string>.Fail("The runtime data path must point to a file, not a folder.");
+
+        var url = await FilesClient.GetDownloadUrlAsync(resolved.Value.Id);
+        if (string.IsNullOrWhiteSpace(url))
+            return FilesResult<string>.Fail("Could not get a download link for the runtime data file.");
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+            return FilesResult<string>.Fail($"Could not read the runtime data file (HTTP {(int)response.StatusCode}).");
+
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        var content = await reader.ReadToEndAsync();
+
+        var contentType = (resolved.Value.ContentType ?? "").ToLowerInvariant();
+        var extension = Path.GetExtension(resolved.Value.Name).ToLowerInvariant();
+
+        if (contentType.Contains("json") || extension == ".json" || LooksLikeJson(content))
+            return BuildJsonRuntimeData(resolved.Value.Path, content, dataColumns);
+
+        if (contentType.Contains("root") || extension == ".root")
+        {
+            var manifestResult = await FilesClient.TryReadRootManifestTextAsync(dataPath, ct);
+            if (!manifestResult.Success || manifestResult.Value is null)
+                return FilesResult<string>.Fail(manifestResult.Error ?? "Could not read the ROOT manifest.");
+
+            return BuildJsonRuntimeData(manifestResult.Value.ManifestPath, manifestResult.Value.Content, dataColumns);
+        }
+
+        if (contentType.Contains("csv") || extension == ".csv" || LooksLikeCsv(content))
+            return BuildCsvRuntimeData(resolved.Value.Path, content, dataColumns);
+
+        return FilesResult<string>.Fail("Runtime data binding currently supports CSV and JSON files.");
+    }
+
+    private static FilesResult<string> BuildCsvRuntimeData(string path, string content, IReadOnlyList<string> dataColumns)
+    {
+        var parsed = CsvText.parse(content);
+        var headers = parsed.Headers.Select(header => header.Trim()).ToArray();
+        var rows = parsed.Rows.Select(row => row.ToArray()).ToArray();
+
+        if (headers.Length == 0)
+            return FilesResult<string>.Fail($"\"{path}\" does not have a CSV header row.");
+        if (rows.Length == 0)
+            return FilesResult<string>.Fail($"\"{path}\" does not have any data rows.");
+
+        var selectedColumns = ResolveCsvColumns(headers, rows, dataColumns);
+        if (!selectedColumns.Success || selectedColumns.Value is null)
+            return FilesResult<string>.Fail(selectedColumns.Error ?? "Could not select runtime data columns.");
+
+        if (selectedColumns.Value.Length == 0)
+            return FilesResult<string>.Fail("No numeric CSV columns were found. Pick columns explicitly with dataColumns.");
+
+        var extractedRows = new List<double[]>();
+        var skippedRows = 0;
+
+        foreach (var row in rows)
+        {
+            if (TryBuildNumericRow(row, selectedColumns.Value, out var numericRow))
+                extractedRows.Add(numericRow);
+            else
+                skippedRows++;
+        }
+
+        if (extractedRows.Count == 0)
+            return FilesResult<string>.Fail("No usable numeric rows were found in that CSV file.");
+
+        object runtimeData = selectedColumns.Value.Length == 1
+            ? extractedRows.Select(row => row[0]).ToArray()
+            : extractedRows.Select(row => row.Cast<double>().ToArray()).ToArray();
+
+        return FilesResult<string>.Ok(JsonSerializer.Serialize(runtimeData));
+    }
+
+    private static FilesResult<string> BuildJsonRuntimeData(string path, string content, IReadOnlyList<string> dataColumns)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(content);
+            var root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Array)
+                return FilesResult<string>.Fail($"\"{path}\" must contain a JSON array for runtime data binding.");
+
+            var items = root.EnumerateArray().ToArray();
+            if (items.Length == 0)
+                return FilesResult<string>.Fail($"\"{path}\" does not contain any array items.");
+
+            if (items[0].ValueKind == JsonValueKind.Object)
+                return BuildJsonObjectRuntimeData(path, items, dataColumns);
+
+            if (items[0].ValueKind == JsonValueKind.Array)
+                return BuildJsonArrayRuntimeData(path, items, dataColumns);
+
+            return BuildJsonScalarRuntimeData(path, items, dataColumns);
+        }
+        catch (JsonException ex)
+        {
+            return FilesResult<string>.Fail($"Could not parse \"{path}\" as JSON: {ex.Message}");
+        }
+    }
+
+    private static FilesResult<string> BuildJsonObjectRuntimeData(string path, JsonElement[] items, IReadOnlyList<string> dataColumns)
+    {
+        var headers = items
+            .SelectMany(item => item.EnumerateObject().Select(prop => prop.Name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var selectedColumns = dataColumns.Count == 0
+            ? FilesResult<int[]>.Ok(InferNumericJsonObjectColumns(items, headers).ToArray())
+            : ResolveJsonObjectColumns(headers, dataColumns);
+
+        if (!selectedColumns.Success || selectedColumns.Value is null)
+            return FilesResult<string>.Fail(selectedColumns.Error ?? "Could not select JSON columns.");
+
+        if (selectedColumns.Value.Length == 0)
+            return FilesResult<string>.Fail("No numeric JSON columns were found. Pick columns explicitly with dataColumns.");
+
+        var rows = new List<double[]>();
+        foreach (var item in items)
+        {
+            if (TryBuildNumericJsonObjectRow(item, headers, selectedColumns.Value, out var row))
+                rows.Add(row);
+        }
+
+        if (rows.Count == 0)
+            return FilesResult<string>.Fail($"No usable numeric rows were found in \"{path}\".");
+
+        object runtimeData = selectedColumns.Value.Length == 1
+            ? rows.Select(row => row[0]).ToArray()
+            : rows.Select(row => row.Cast<double>().ToArray()).ToArray();
+
+        return FilesResult<string>.Ok(JsonSerializer.Serialize(runtimeData));
+    }
+
+    private static FilesResult<string> BuildJsonArrayRuntimeData(string path, JsonElement[] items, IReadOnlyList<string> dataColumns)
+    {
+        var selectedColumns = dataColumns.Count == 0
+            ? FilesResult<int[]>.Ok(InferNumericJsonArrayColumns(items).ToArray())
+            : ResolveJsonArrayColumns(items, dataColumns);
+
+        if (!selectedColumns.Success || selectedColumns.Value is null)
+            return FilesResult<string>.Fail(selectedColumns.Error ?? "Could not select JSON columns.");
+
+        if (selectedColumns.Value.Length == 0)
+            return FilesResult<string>.Fail("No numeric JSON columns were found. Pick columns explicitly with dataColumns.");
+
+        var rows = new List<double[]>();
+        foreach (var item in items)
+        {
+            if (TryBuildNumericJsonArrayRow(item, selectedColumns.Value, out var row))
+                rows.Add(row);
+        }
+
+        if (rows.Count == 0)
+            return FilesResult<string>.Fail($"No usable numeric rows were found in \"{path}\".");
+
+        object runtimeData = selectedColumns.Value.Length == 1
+            ? rows.Select(row => row[0]).ToArray()
+            : rows.Select(row => row.Cast<double>().ToArray()).ToArray();
+
+        return FilesResult<string>.Ok(JsonSerializer.Serialize(runtimeData));
+    }
+
+    private static FilesResult<string> BuildJsonScalarRuntimeData(string path, JsonElement[] items, IReadOnlyList<string> dataColumns)
+    {
+        var values = new List<double>();
+        foreach (var item in items)
+        {
+            if (TryReadNumericJsonValue(item, out var value))
+                values.Add(value);
+        }
+
+        if (values.Count == 0)
+            return FilesResult<string>.Fail($"No numeric values were found in \"{path}\".");
+
+        return FilesResult<string>.Ok(JsonSerializer.Serialize(values));
+    }
+
+    private static FilesResult<int[]> ResolveCsvColumns(string[] headers, string[][] rows, IReadOnlyList<string> dataColumns)
+    {
+        if (dataColumns.Count == 0)
+            return FilesResult<int[]>.Ok(InferNumericCsvColumns(headers, rows).ToArray());
+
+        var resolved = new List<int>();
+        foreach (var column in dataColumns)
+        {
+            if (int.TryParse(column, out var index))
+            {
+                if (index < 0 || index >= headers.Length)
+                    return FilesResult<int[]>.Fail($"CSV column index {index} is out of range for {headers.Length} header(s).");
+                if (!resolved.Contains(index))
+                    resolved.Add(index);
+                continue;
+            }
+
+            var match = Array.FindIndex(headers, header => string.Equals(header, column, StringComparison.OrdinalIgnoreCase));
+            if (match < 0)
+                return FilesResult<int[]>.Fail($"Could not find CSV column \"{column}\".");
+
+            if (!resolved.Contains(match))
+                resolved.Add(match);
+        }
+
+        return FilesResult<int[]>.Ok(resolved.ToArray());
+    }
+
+    private static FilesResult<int[]> ResolveJsonObjectColumns(string[] headers, IReadOnlyList<string> dataColumns)
+    {
+        var resolved = new List<int>();
+        foreach (var column in dataColumns)
+        {
+            var match = Array.FindIndex(headers, header => string.Equals(header, column, StringComparison.OrdinalIgnoreCase));
+            if (match < 0)
+                return FilesResult<int[]>.Fail($"Could not find JSON field \"{column}\".");
+
+            if (!resolved.Contains(match))
+                resolved.Add(match);
+        }
+
+        return FilesResult<int[]>.Ok(resolved.ToArray());
+    }
+
+    private static FilesResult<int[]> ResolveJsonArrayColumns(JsonElement[] items, IReadOnlyList<string> dataColumns)
+    {
+        if (!items.All(item => item.ValueKind == JsonValueKind.Array))
+            return FilesResult<int[]>.Fail("JSON data must be a consistent array-of-arrays shape.");
+
+        var width = items.Max(item => item.GetArrayLength());
+        var resolved = new List<int>();
+        foreach (var column in dataColumns)
+        {
+            if (!int.TryParse(column, out var index))
+                return FilesResult<int[]>.Fail("JSON arrays can only be selected by zero-based index.");
+            if (index < 0 || index >= width)
+                return FilesResult<int[]>.Fail($"JSON column index {index} is out of range for arrays with width {width}.");
+            if (!resolved.Contains(index))
+                resolved.Add(index);
+        }
+
+        return FilesResult<int[]>.Ok(resolved.ToArray());
+    }
+
+    private static List<int> InferNumericCsvColumns(string[] headers, string[][] rows)
+    {
+        var result = new List<int>();
+        for (var columnIndex = 0; columnIndex < headers.Length; columnIndex++)
+        {
+            var sawValue = false;
+            var numeric = true;
+            foreach (var row in rows)
+            {
+                if (columnIndex >= row.Length)
+                {
+                    numeric = false;
+                    break;
+                }
+
+                var cell = row[columnIndex].Trim();
+                if (string.IsNullOrWhiteSpace(cell) || !TryParseNumericCell(cell, out _))
+                {
+                    numeric = false;
+                    break;
+                }
+
+                sawValue = true;
+            }
+
+            if (numeric && sawValue)
+                result.Add(columnIndex);
+        }
+
+        return result;
+    }
+
+    private static List<int> InferNumericJsonObjectColumns(JsonElement[] items, string[] headers)
+    {
+        var result = new List<int>();
+        for (var columnIndex = 0; columnIndex < headers.Length; columnIndex++)
+        {
+            var sawValue = false;
+            var numeric = true;
+
+            foreach (var item in items)
+            {
+                if (!item.TryGetProperty(headers[columnIndex], out var property) || !TryReadNumericJsonValue(property, out _))
+                {
+                    numeric = false;
+                    break;
+                }
+
+                sawValue = true;
+            }
+
+            if (numeric && sawValue)
+                result.Add(columnIndex);
+        }
+
+        return result;
+    }
+
+    private static List<int> InferNumericJsonArrayColumns(JsonElement[] items)
+    {
+        if (!items.All(item => item.ValueKind == JsonValueKind.Array))
+            return new List<int>();
+
+        var width = items.Max(item => item.GetArrayLength());
+        var result = new List<int>();
+        for (var columnIndex = 0; columnIndex < width; columnIndex++)
+        {
+            var sawValue = false;
+            var numeric = true;
+
+            foreach (var item in items)
+            {
+                var row = item.EnumerateArray().ToArray();
+                if (columnIndex >= row.Length || !TryReadNumericJsonValue(row[columnIndex], out _))
+                {
+                    numeric = false;
+                    break;
+                }
+
+                sawValue = true;
+            }
+
+            if (numeric && sawValue)
+                result.Add(columnIndex);
+        }
+
+        return result;
+    }
+
+    private static bool TryBuildNumericRow(string[] row, IReadOnlyList<int> selectedColumns, out double[] numericRow)
+    {
+        var values = new double[selectedColumns.Count];
+        for (var i = 0; i < selectedColumns.Count; i++)
+        {
+            var index = selectedColumns[i];
+            if (index >= row.Length || !TryParseNumericCell(row[index].Trim(), out var value))
+            {
+                numericRow = Array.Empty<double>();
+                return false;
+            }
+
+            values[i] = value;
+        }
+
+        numericRow = values;
+        return true;
+    }
+
+    private static bool TryBuildNumericJsonObjectRow(JsonElement item, string[] headers, IReadOnlyList<int> selectedColumns, out double[] numericRow)
+    {
+        var values = new double[selectedColumns.Count];
+        for (var i = 0; i < selectedColumns.Count; i++)
+        {
+            var index = selectedColumns[i];
+            if (index >= headers.Length || !item.TryGetProperty(headers[index], out var property) || !TryReadNumericJsonValue(property, out var value))
+            {
+                numericRow = Array.Empty<double>();
+                return false;
+            }
+
+            values[i] = value;
+        }
+
+        numericRow = values;
+        return true;
+    }
+
+    private static bool TryBuildNumericJsonArrayRow(JsonElement item, IReadOnlyList<int> selectedColumns, out double[] numericRow)
+    {
+        var row = item.EnumerateArray().ToArray();
+        var values = new double[selectedColumns.Count];
+        for (var i = 0; i < selectedColumns.Count; i++)
+        {
+            var index = selectedColumns[i];
+            if (index >= row.Length || !TryReadNumericJsonValue(row[index], out var value))
+            {
+                numericRow = Array.Empty<double>();
+                return false;
+            }
+
+            values[i] = value;
+        }
+
+        numericRow = values;
+        return true;
+    }
+
+    private static bool TryReadNumericJsonValue(JsonElement element, out double value)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Number:
+                value = element.GetDouble();
+                return true;
+            case JsonValueKind.True:
+                value = 1;
+                return true;
+            case JsonValueKind.False:
+                value = 0;
+                return true;
+            default:
+                value = 0;
+                return false;
+        }
+    }
+
+    private static bool TryParseNumericCell(string cell, out double value)
+    {
+        if (double.TryParse(cell, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value))
+            return true;
+
+        if (bool.TryParse(cell, out var boolValue))
+        {
+            value = boolValue ? 1 : 0;
+            return true;
+        }
+
+        value = 0;
+        return false;
+    }
+
+    private async Task<string> ValidateSpinozaAsync(string argumentsJson, CancellationToken ct)
     {
         using var args = JsonDocument.Parse(argumentsJson);
         var source = args.RootElement.TryGetProperty("spinozaSource", out var sourceValue) ? sourceValue.GetString() ?? "" : "";
@@ -531,19 +1001,30 @@
 
         _input = "";
         _error = null;
+        _statusMessage = "Starting...";
         var history = _turns.ToList();
         _turns.Add(new ChatTurn { Role = "user", Content = text });
         _sending = true;
+        _sendCts?.Dispose();
+        _sendCts = new CancellationTokenSource();
         StateHasChanged();
 
         try
         {
             await TryInvokeJsAsync("resetTextareaHeight", _inputRef);
-            var turnContext = await BuildTurnContextAsync(text, history);
-            var reply = await ChatClient.AskAsync(_apiKey, _model, history, text, ToolHandlers, turnContext);
+            var turnContext = await BuildTurnContextAsync(text, history, _sendCts.Token);
+            var reply = await ChatClient.AskAsync(_apiKey, _model, history, text, ToolHandlers, status =>
+            {
+                _statusMessage = status;
+                _ = InvokeAsync(StateHasChanged);
+            }, turnContext, _sendCts.Token);
             LogMathDelimiterDiagnostics(reply);
             _turns.Add(new ChatTurn { Role = "assistant", Content = reply });
             await HistoryStore.SaveTurnsAsync(_turns);
+        }
+        catch (OperationCanceledException)
+        {
+            _error = "Stopped.";
         }
         catch (Exception ex)
         {
@@ -552,7 +1033,19 @@
         finally
         {
             _sending = false;
+            _statusMessage = null;
+            _sendCts?.Dispose();
+            _sendCts = null;
         }
+    }
+
+    private Task StopSendAsync()
+    {
+        _statusMessage = "Stopping...";
+        _sendCts?.Cancel();
+        Actions.StopCurrentGraphRun();
+        StateHasChanged();
+        return Task.CompletedTask;
     }
 
     private async Task ClearChat()

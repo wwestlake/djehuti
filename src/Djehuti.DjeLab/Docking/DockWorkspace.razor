@@ -99,6 +99,7 @@
             existing.PendingYLabel = request.YLabel;
             existing.PendingZLabel = request.ZLabel;
             existing.PendingSource = request.SpinozaSource;
+            existing.PendingRuntimeInputJson = request.RuntimeInputJson;
             InvokeAsync(StateHasChanged);
             return;
         }
@@ -113,7 +114,8 @@
             PendingXLabel = request.XLabel,
             PendingYLabel = request.YLabel,
             PendingZLabel = request.ZLabel,
-            PendingSource = request.SpinozaSource
+            PendingSource = request.SpinozaSource,
+            PendingRuntimeInputJson = request.RuntimeInputJson
         };
         InsertPane(pane);
         InvokeAsync(StateHasChanged);

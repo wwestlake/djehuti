@@ -51,6 +51,7 @@ public sealed class PaneDescriptor
     public string? PendingYLabel { get; set; }
     public string? PendingZLabel { get; set; }
     public string? PendingSource { get; set; }
+    public string? PendingRuntimeInputJson { get; set; }
 }
 
 public sealed record ResizeStart(SplitNode Split, int Index, double ClientX, double ClientY);
