@@ -1194,6 +1194,87 @@ a {
         border-color: #ff8080;
     }
 
+.files-preview-panel {
+    margin: 0 0.75rem 0.5rem;
+    border: 1px solid var(--djelab-border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.02);
+    overflow: hidden;
+}
+
+.files-preview-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.6rem 0.75rem 0.4rem;
+    border-bottom: 1px solid var(--djelab-border);
+}
+
+.files-preview-title {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 0.15rem;
+}
+
+.files-preview-path {
+    color: var(--djelab-muted);
+    font-size: 0.75rem;
+    word-break: break-all;
+}
+
+.files-preview-actions {
+    display: flex;
+    gap: 0.4rem;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+}
+
+.files-preview-meta {
+    padding: 0.45rem 0.75rem 0.2rem;
+    color: var(--djelab-muted);
+    font-size: 0.75rem;
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.files-preview-warning {
+    color: #f6b26b;
+}
+
+.files-preview-editor {
+    width: 100%;
+    min-height: 220px;
+    border: none;
+    border-top: 1px solid var(--djelab-border);
+    background: var(--djelab-bg);
+    color: var(--djelab-text);
+    font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    padding: 0.75rem;
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+    .files-preview-editor:focus {
+        outline: none;
+        box-shadow: inset 0 0 0 1px var(--djelab-accent);
+    }
+
+.files-preview-editor:disabled {
+    color: var(--djelab-muted);
+    opacity: 0.9;
+}
+
+.files-preview-note {
+    padding: 0.45rem 0.75rem 0.65rem;
+    color: var(--djelab-muted);
+    font-size: 0.78rem;
+}
+
 .dock-toolbar-actions {
     display: flex;
     gap: 0.5rem;
@@ -1264,6 +1345,12 @@ a {
 
 .graph-action-btn {
     flex: 0 0 auto;
+}
+
+.graph-save-status {
+    padding: 0 0.75rem 0.35rem;
+    color: var(--djelab-muted);
+    font-size: 0.78rem;
 }
 
 .graph-source-details {
