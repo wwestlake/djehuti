@@ -1808,7 +1808,7 @@ a {
     flex-wrap: wrap;
 }
 
-/* ── Flow editor pane ─────────────────────────────────────────────────────── */
+/* ── Visual Spinoza node editor pane ──────────────────────────────────────── */
 .flow-pane {
     display: flex;
     flex-direction: column;
@@ -1914,18 +1914,32 @@ a {
     min-height: 220px;
     --flow-accent: 104, 137, 182;
     background:
-        linear-gradient(180deg, rgba(36, 49, 72, 0.99), rgba(14, 20, 33, 0.99)),
-        linear-gradient(90deg, rgba(var(--flow-accent), 0.42), rgba(var(--flow-accent), 0.11));
+        linear-gradient(180deg, rgba(40, 54, 79, 0.99), rgba(13, 19, 31, 0.99)),
+        linear-gradient(90deg, rgba(var(--flow-accent), 0.32), rgba(var(--flow-accent), 0.08));
     border: 1px solid rgba(var(--flow-accent), 0.88);
-    border-radius: 14px;
-    overflow: hidden;
+    border-radius: 12px;
     box-shadow:
-        0 14px 28px rgba(0, 0, 0, 0.22),
-        0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+        0 14px 28px rgba(0, 0, 0, 0.28),
+        0 1px 0 rgba(255, 255, 255, 0.08) inset,
         0 0 0 1px rgba(var(--flow-accent), 0.24);
     transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, filter 0.15s ease;
     color: var(--djelab-text);
 }
+
+    /* A solid accent stripe on the left edge identifies a node's kind at a
+       glance, including while collapsed (the body/sockets hide, this doesn't) --
+       the wash-gradient behind the header alone was too subtle to read quickly
+       across several node kinds sitting side by side on the canvas. */
+    .flow-node::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+        border-radius: 12px 0 0 12px;
+        background: rgb(var(--flow-accent));
+    }
 
     .flow-node.selected {
         border-color: rgba(255, 200, 104, 0.98);
@@ -1977,6 +1991,7 @@ a {
     padding: 0.55rem 0.7rem;
     border-bottom: 1px solid rgba(var(--flow-accent), 0.26);
     background: linear-gradient(90deg, rgba(var(--flow-accent), 0.22), rgba(255, 255, 255, 0.04));
+    border-radius: 11px 11px 0 0;
     cursor: grab;
     user-select: none;
 }
@@ -2026,24 +2041,29 @@ a {
 .flow-socket {
     position: absolute;
     top: 98px;
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.4);
+    border: 2px solid rgba(var(--flow-accent), 0.85);
     background: var(--djelab-bg);
-    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.14);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.18);
     pointer-events: auto;
     cursor: pointer;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
+    .flow-socket:hover {
+        transform: scale(1.25);
+        box-shadow: 0 0 0 4px rgba(var(--flow-accent), 0.28);
+    }
+
 .flow-socket-input {
-    left: -9px;
+    left: -8px;
 }
 
 .flow-socket-output {
-    right: -9px;
-    border-color: rgba(63, 169, 245, 0.95);
-    background: rgba(63, 169, 245, 0.3);
+    right: -8px;
+    background: rgb(var(--flow-accent));
 }
 
 .flow-node-body {

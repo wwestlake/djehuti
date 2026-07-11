@@ -298,6 +298,7 @@
                 _root = snapshot.Root;
                 _panes = snapshot.Panes;
                 EnsureAssistantChatPanes();
+                RenameLegacyFlowPanes();
             }
             else
             {
@@ -429,6 +430,21 @@
             return split.Children.Any(child => HasRenderableNode(child, panes));
 
         return false;
+    }
+
+    // One-time relabel for layouts saved before the node editor was renamed
+    // from "Flow" to "Visual Spinoza" -- the Kind string ("flow") is left
+    // alone since it's load-bearing (DockNodeView's component switch, the
+    // persisted layout JSON), only the user-visible Title changes, and only
+    // for panes still carrying the old default title (a user who renamed
+    // their own pane keeps whatever they chose).
+    private void RenameLegacyFlowPanes()
+    {
+        foreach (var pane in _panes.Values)
+        {
+            if (pane.Kind == "flow" && pane.Title == "Flow")
+                pane.Title = "Visual Spinoza";
+        }
     }
 
     private void EnsureAssistantChatPanes()
