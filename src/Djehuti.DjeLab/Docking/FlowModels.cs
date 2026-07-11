@@ -61,6 +61,13 @@ public sealed class FlowNodeModel
     public string ConstantName { get; set; } = "k";
     public FlowConstantValueKind ConstantValueKind { get; set; } = FlowConstantValueKind.Number;
     public string ConstantValueExpression { get; set; } = "1.0";
+
+    // The independent variable this source represents (Source or
+    // SequenceSource only) -- e.g. "t" for a time sweep, "x" for a spatial
+    // one. Bound as `let <name> = row[0] in` at the top of every downstream
+    // expression body, so Transform/Filter/Integrator fields can write `t`
+    // instead of the positional, unnamed `row[0]`.
+    public string IndependentVariableName { get; set; } = "t";
 }
 
 public sealed record FlowCompileResult(
