@@ -42,6 +42,7 @@
     <Compile Include="GameWorldWorker.fs" />
     <Compile Include="HeartbeatWorker.fs" />
     <Compile Include="PatreonService.fs" />
+    <Compile Include="LicenseKeyRepository.fs" />
     <Compile Include="DjeLabFilesRepository.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
