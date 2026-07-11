@@ -17,23 +17,23 @@
     }
     else
     {
-        if (_isIbisPane)
+        if (_turns.Count == 0)
         {
-        }
-        else if (!_hasKey)
-        {
-            <div class="chat-pane-empty chat-pane-empty-host">
-                <p><strong>Seshat is waiting for BYOK.</strong></p>
-                <p>This pane is reserved for the math professor. Add an OpenAI key in <a class="chat-pane-setup-link" href="settings">AI Setup</a> to wake it up.</p>
-                <p>Ibis, the free helper, stays separate and does not share chat history with this pane.</p>
-            </div>
-        }
-        else if (_isSeshatPane)
-        {
-            <div class="chat-pane-empty chat-pane-empty-host">
-                <p><strong>Seshat is ready.</strong></p>
-                <p>This is the BYOK math professor pane. It keeps its own memory and handles deeper reasoning, math, and file-backed analysis independently from Ibis.</p>
-            </div>
+            if (!_hasKey && !_isIbisPane)
+            {
+                <div class="chat-pane-empty chat-pane-empty-host">
+                    <p><strong>Seshat is waiting for BYOK.</strong></p>
+                    <p>This pane is reserved for the math professor. Add an OpenAI key in <a class="chat-pane-setup-link" href="settings">AI Setup</a> to wake it up.</p>
+                    <p>Ibis, the free helper, stays separate and does not share chat history with this pane.</p>
+                </div>
+            }
+            else if (_isSeshatPane)
+            {
+                <div class="chat-pane-empty chat-pane-empty-host">
+                    <p><strong>Seshat is ready.</strong></p>
+                    <p>This is the BYOK math professor pane. It keeps its own memory and handles deeper reasoning, math, and file-backed analysis independently from Ibis.</p>
+                </div>
+            }
         }
         <div class="chat-pane-messages" @ref="_messagesRef">
             @if (_turns.Count == 0)
