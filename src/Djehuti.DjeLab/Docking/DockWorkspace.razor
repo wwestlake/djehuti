@@ -26,8 +26,9 @@
     </div>
     <div class="dock-canvas">
         <DockNodeView Node="_root" Panes="_panes"
-                      DraggingPaneId="_draggingPaneId"
-                      HighlightedPaneId="_highlightedPaneId"
+                      DraggingPaneId="@_draggingPaneId"
+                      HighlightedPaneId="@_highlightedPaneId"
+                      HighlightedCaption="@_tourCaption"
                       OnBeginResize="BeginResize"
                       OnTabDragStart="BeginDragPane"
                       OnTabActivate="ActivatePane"
@@ -46,6 +47,7 @@
     private Dictionary<string, PaneDescriptor> _panes = default!;
     private string? _draggingPaneId;
     private string? _highlightedPaneId;
+    private string? _tourCaption;
     private CancellationTokenSource? _tourCts;
     private bool _layoutLoaded;
     private const string LayoutFilePath = "/djelab-workspace-layout.json";
@@ -380,6 +382,7 @@
                 continue;
 
             _highlightedPaneId = targetPane.Id;
+            _tourCaption = TourCaptionFor(targetPaneKind);
             var targetGroup = DockTree.FindGroupContainingPane(_root, targetPane.Id);
             if (targetGroup is not null)
             {
@@ -388,10 +391,11 @@
 
             _ = SaveLayoutAsync();
             await InvokeAsync(StateHasChanged);
-            await Task.Delay(1400, ct);
+            await Task.Delay(2200, ct);
         }
 
         _highlightedPaneId = null;
+        _tourCaption = null;
         await InvokeAsync(StateHasChanged);
     }
 
@@ -408,8 +412,31 @@
             "editor" => _panes.Values.FirstOrDefault(p => p.Kind == "editor"),
             "log" or "console" => _panes.Values.FirstOrDefault(p => p.Kind == "console"),
             "data" => _panes.Values.FirstOrDefault(p => p.Kind == "data"),
+            "flow" or "spinoza" or "node" or "nodes" or "visual spinoza" => _panes.Values.FirstOrDefault(p => p.Kind == "flow"),
             "chat" => _panes.Values.FirstOrDefault(p => p.Kind == "chat" && string.Equals(p.ChatPersona, "ibis", StringComparison.OrdinalIgnoreCase)),
             "seshat" => _panes.Values.FirstOrDefault(p => p.Kind == "chat" && string.Equals(p.ChatPersona, "seshat", StringComparison.OrdinalIgnoreCase)),
+            _ => null
+        };
+    }
+
+    // Short, in-place explanation shown alongside the gold highlight ring --
+    // a chat message announcing "I'll show you Files, Editor..." isn't
+    // enough on its own, since the user is reading it in the chat pane while
+    // the highlight silently flashes somewhere else on screen. This puts the
+    // "what is this" answer directly on the thing being highlighted.
+    private static string? TourCaptionFor(string targetPaneKind)
+    {
+        var kind = targetPaneKind.Trim().ToLowerInvariant();
+        return kind switch
+        {
+            "files" => "Files — cloud storage for your scripts and data.",
+            "editor" => "Editor — open and edit any file directly.",
+            "flow" or "spinoza" or "node" or "nodes" or "visual spinoza" => "Visual Spinoza — build math programs by wiring nodes together.",
+            "graph" => "Graph — live plots and simulation output.",
+            "data" => "Data — inspect tabular results.",
+            "log" or "console" => "Log — execution output and errors.",
+            "chat" => "Ibis — your free workspace guide.",
+            "seshat" => "Seshat — the BYOK math professor.",
             _ => null
         };
     }

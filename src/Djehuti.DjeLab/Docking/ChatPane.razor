@@ -446,10 +446,11 @@
         if (wantsGuidedTour && !message.Contains("graph") && !message.Contains("plot") && !message.Contains("chart")
             && !message.Contains("file") && !message.Contains("folder") && !message.Contains("directory")
             && !message.Contains("edit") && !message.Contains("code") && !message.Contains("source")
-            && !message.Contains("log") && !message.Contains("console") && !message.Contains("error"))
+            && !message.Contains("log") && !message.Contains("console") && !message.Contains("error")
+            && !message.Contains("spinoza") && !message.Contains("node") && !message.Contains("data"))
         {
-            Actions.RequestWorkspaceTourSequence("files", "editor", "graph", "log");
-            reply = "Absolutely — I’ll walk you through Files, Editor, Graph, and Log in order.";
+            Actions.RequestWorkspaceTourSequence("files", "editor", "flow", "graph", "data", "log");
+            reply = "Absolutely — I’ll walk you through Files, Editor, Visual Spinoza, Graph, Data, and Log in order, with a quick note on each as we go.";
             return true;
         }
 
@@ -457,13 +458,17 @@
             ? "log"
             : message.Contains("graph") || message.Contains("plot") || message.Contains("chart") || message.Contains("simulate") || message.Contains("run")
                 ? "graph"
-                : message.Contains("edit") || message.Contains("code") || message.Contains("source") || message.Contains("save")
-                    ? "editor"
-                    : message.Contains("file") || message.Contains("folder") || message.Contains("directory") || message.Contains("upload")
-                        ? "files"
-                        : message.Contains("tour") || message.Contains("workspace") || message.Contains("show me around") || message.Contains("what can you do")
-                            ? "files"
-                            : "";
+                : message.Contains("spinoza") || message.Contains("node") || message.Contains("flow")
+                    ? "flow"
+                    : message.Contains("edit") || message.Contains("code") || message.Contains("source") || message.Contains("save")
+                        ? "editor"
+                        : message.Contains("data") || message.Contains("table")
+                            ? "data"
+                            : message.Contains("file") || message.Contains("folder") || message.Contains("directory") || message.Contains("upload")
+                                ? "files"
+                                : message.Contains("tour") || message.Contains("workspace") || message.Contains("show me around") || message.Contains("what can you do")
+                                    ? "files"
+                                    : "";
 
         if (string.IsNullOrWhiteSpace(targetPane))
         {
@@ -477,6 +482,8 @@
             "files" => "I opened and highlighted Files so you can start with the workspace contents.",
             "graph" => "I opened and highlighted Graph so you can jump straight into plots and simulations.",
             "editor" => "I opened and highlighted the Editor so you can inspect or write code there.",
+            "flow" => "I opened and highlighted Visual Spinoza, the node editor for building math programs by wiring nodes together.",
+            "data" => "I opened and highlighted Data so you can inspect tabular results.",
             "log" => "I opened and highlighted Log so you can see execution output and errors.",
             _ => "I opened the right pane for you."
         };
