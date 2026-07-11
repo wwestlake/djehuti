@@ -94,6 +94,12 @@
                                            @oninput="e => UpdateNode(node.Id, n => n.ColumnsCsv = e.Value?.ToString() ?? string.Empty)"
                                            placeholder="M or pt,phi" />
                                 </label>
+                                <label class="flow-field">
+                                    <span>Independent variable</span>
+                                    <input value="@node.IndependentVariableName"
+                                           @oninput="e => UpdateNode(node.Id, n => n.IndependentVariableName = e.Value?.ToString() ?? string.Empty)"
+                                           placeholder="t" />
+                                </label>
                                 <div class="flow-node-actions">
                                     <button type="button" class="flow-mini-btn" @onclick="() => OpenFilePicker(node.Id)">Browse files</button>
                                     <button type="button" class="flow-mini-btn" @onclick="() => UseSelectedFileForNode(node.Id)">Use current file</button>
@@ -135,6 +141,12 @@
                                                @oninput="e => UpdateNode(node.Id, n => n.StepExpression = e.Value?.ToString() ?? string.Empty)" />
                                     </label>
                                 }
+                                <label class="flow-field">
+                                    <span>Independent variable</span>
+                                    <input value="@node.IndependentVariableName"
+                                           @oninput="e => UpdateNode(node.Id, n => n.IndependentVariableName = e.Value?.ToString() ?? string.Empty)"
+                                           placeholder="t" />
+                                </label>
                             }
                             else if (node.Kind == FlowNodeKind.Constant)
                             {
@@ -1005,6 +1017,20 @@
         foreach (var duplicate in constantNodes.GroupBy(node => node.ConstantName.Trim()).Where(g => g.Count() > 1))
             warnings.Add($"Multiple constants are named \"{duplicate.Key}\"; only the last one will be usable by that name.");
 
+        // The independent-variable binding only goes inside mapValue/keepRow
+        // (both take just `row`, nothing to collide with). Deliberately NOT
+        // injected into slope -- its own parameter list already has real,
+        // different meaning for `t`/`state`/`signal`/`row` (elapsed
+        // integration time, integrator state, mapped signal value, raw data
+        // row), and the default independent-variable name is also "t", so
+        // rebinding it there would silently shadow the integrator's own
+        // elapsed-time parameter with the raw row value instead.
+        var independentVariableName = NormalizeExpression(sourceNode.IndependentVariableName, "t").Trim();
+        var reservedNames = new HashSet<string>(StringComparer.Ordinal) { "row", "data", "i", "state", "signal" };
+        var bindIndependentVariable = !reservedNames.Contains(independentVariableName);
+        if (!bindIndependentVariable)
+            warnings.Add($"\"{independentVariableName}\" is reserved by the generated code; the independent variable name was not bound. Use row[0] directly, or pick a different name.");
+
         var sourceBuilder = new StringBuilder();
         sourceBuilder.AppendLine($"// DjeLab flow: {string.Join(" -> ", ordered.Select(node => node.Title))}");
         if (sourceNode.Kind == FlowNodeKind.SequenceSource)
@@ -1015,6 +1041,8 @@
             sourceBuilder.AppendLine($"// Columns: {string.Join(", ", runtimeColumns)}");
         if (constantNodes.Count > 0)
             sourceBuilder.AppendLine($"// Constants: {string.Join(", ", constantNodes.Select(n => n.ConstantName))}");
+        if (bindIndependentVariable)
+            sourceBuilder.AppendLine($"// Independent variable: {independentVariableName}");
         sourceBuilder.AppendLine();
 
         foreach (var constant in constantNodes)
@@ -1031,10 +1059,14 @@
         }
 
         sourceBuilder.AppendLine("let mapValue row =");
+        if (bindIndependentVariable)
+            sourceBuilder.AppendLine($"    let {independentVariableName} = row[0] in");
         sourceBuilder.AppendLine($"    {mapExpression}");
         sourceBuilder.AppendLine("in");
         sourceBuilder.AppendLine();
         sourceBuilder.AppendLine("let keepRow row =");
+        if (bindIndependentVariable)
+            sourceBuilder.AppendLine($"    let {independentVariableName} = row[0] in");
         sourceBuilder.AppendLine(filterExpressions.Count == 0
             ? "    true"
             : "    " + string.Join(" && ", filterExpressions.Select(expr => $"({expr})")));
