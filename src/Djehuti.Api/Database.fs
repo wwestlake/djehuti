@@ -4056,6 +4056,76 @@ let private migrations : (int * string) list =
 
         GRANT ALL ON TABLE djelab_hierarchical_nodes TO djehuti;
         """
+
+        66, """
+        -- PatreonService.fs's getAllTiers/getSupporters/getUserTiers, and the
+        -- Patreon webhook handler's tier-translation lookup, have queried
+        -- amount_cents/display_order/badge_color/badge_label/description/
+        -- patreon_id on patreon_tiers since they were written -- none of
+        -- those columns actually existed on the table migration 30 created.
+        -- Every call to those three endpoints throws (column does not
+        -- exist), and the webhook handler's tier lookup is UNGUARDED (no
+        -- try/with around that specific query), so every real
+        -- members:pledge:create/update webhook from Patreon has been
+        -- crashing with an unhandled exception rather than updating the
+        -- member's tier. Confirmed by reading the queries directly against
+        -- the actual table definition, not assumed.
+        --
+        -- Backfilled values below are PLACEHOLDERS, not real Patreon data --
+        -- amount_cents is 0 and patreon_id is NULL for all five tiers until
+        -- someone fills in the real pledge amounts and Patreon's own
+        -- numeric tier IDs (Patreon campaign settings -> each tier's ID in
+        -- its API/webhook payload). Until patreon_id is set correctly per
+        -- tier, the webhook can still receive events but cannot translate
+        -- Patreon's tier ID to our internal tier_id, so it will treat every
+        -- pledge as tier-less (matching today's behavior, not a regression).
+        ALTER TABLE patreon_tiers
+            ADD COLUMN IF NOT EXISTS patreon_id    TEXT UNIQUE,
+            ADD COLUMN IF NOT EXISTS amount_cents   INT NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS display_order  INT NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS badge_color    TEXT NOT NULL DEFAULT '#8fa0bd',
+            ADD COLUMN IF NOT EXISTS badge_label    TEXT NOT NULL DEFAULT '',
+            ADD COLUMN IF NOT EXISTS description    TEXT;
+
+        UPDATE patreon_tiers SET display_order = 1, badge_color = '#7dd3fc', badge_label = 'Curious Mind'   WHERE tier_id = 'curious-mind';
+        UPDATE patreon_tiers SET display_order = 2, badge_color = '#5bc28f', badge_label = 'Lab Assistant'  WHERE tier_id = 'lab-assistant';
+        UPDATE patreon_tiers SET display_order = 3, badge_color = '#3fa9f5', badge_label = 'Research Fellow' WHERE tier_id = 'research-fellow';
+        UPDATE patreon_tiers SET display_order = 4, badge_color = '#e8b354', badge_label = 'Professor'      WHERE tier_id = 'professor';
+        UPDATE patreon_tiers SET display_order = 5, badge_color = '#f4b448', badge_label = 'Dean'           WHERE tier_id = 'dean';
+        """
+
+        67, """
+        -- License keys for desktop apps: a signed-in user with an active
+        -- Patreon-linked tier can self-issue one of these (see
+        -- LicenseKeyRepository.fs), and the desktop app validates it against
+        -- the public GET /api/license/validate endpoint. Deliberately no
+        -- separate "tier" or "expiry" column here -- validity is checked
+        -- LIVE against users.patreon_tier_id at validation time (see
+        -- LicenseKeyRepository.validate), so a lapsed pledge (the existing
+        -- webhook already nulls patreon_tier_id on members:pledge:delete)
+        -- automatically invalidates every license key for that account on
+        -- its next check, with no separate revocation step needed. Same
+        -- shape as api_keys (hashed at rest, prefix shown for identification,
+        -- plaintext shown once) but a distinct table/prefix (dlic_ vs djk_)
+        -- since these represent a different thing (a paid desktop-app
+        -- license, not a data-API credential) with a different owner-facing
+        -- surface (self-serve from account settings, not admin-issued).
+        CREATE TABLE IF NOT EXISTS license_keys (
+            id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name               TEXT NOT NULL,
+            key_hash           TEXT NOT NULL UNIQUE,
+            key_prefix         TEXT NOT NULL,
+            owner_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_validated_at  TIMESTAMPTZ,
+            revoked_at         TIMESTAMPTZ,
+            active             BOOLEAN NOT NULL DEFAULT TRUE
+        );
+        CREATE INDEX IF NOT EXISTS idx_license_keys_hash  ON license_keys (key_hash);
+        CREATE INDEX IF NOT EXISTS idx_license_keys_owner ON license_keys (owner_id);
+
+        GRANT ALL ON TABLE license_keys TO djehuti;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

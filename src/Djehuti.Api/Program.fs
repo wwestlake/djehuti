@@ -5579,17 +5579,24 @@ let main args =
                                                                 None
                                             with _ -> None
 
-                                        // Translate Patreon's numeric tier ID to our internal slug
+                                        // Translate Patreon's numeric tier ID to our internal slug.
+                                        // Guarded (unlike before): a lookup failure here (e.g. a
+                                        // future schema hiccup, same class of bug fixed in
+                                        // migration 66) must degrade to "no tier" rather than
+                                        // crash the whole webhook and leave Patreon retrying a
+                                        // pledge event indefinitely.
                                         let internalTierId : string option =
                                             match tierId with
                                             | None -> None
                                             | Some patreonTierId ->
-                                                use lookupConn = Database.openConnection()
-                                                use lookupCmd = new Npgsql.NpgsqlCommand(
-                                                    "SELECT tier_id FROM patreon_tiers WHERE patreon_id = @pid", lookupConn)
-                                                lookupCmd.Parameters.AddWithValue("pid", patreonTierId) |> ignore
-                                                let result = lookupCmd.ExecuteScalar()
-                                                if result <> null then Some (result :?> string) else None
+                                                try
+                                                    use lookupConn = Database.openConnection()
+                                                    use lookupCmd = new Npgsql.NpgsqlCommand(
+                                                        "SELECT tier_id FROM patreon_tiers WHERE patreon_id = @pid", lookupConn)
+                                                    lookupCmd.Parameters.AddWithValue("pid", patreonTierId) |> ignore
+                                                    let result = lookupCmd.ExecuteScalar()
+                                                    if result <> null then Some (result :?> string) else None
+                                                with _ -> None
 
                                         match eventType with
                                         | "members:pledge:create" | "members:pledge:update" ->
@@ -5618,6 +5625,112 @@ let main args =
                                 return Results.Problem(detail = $"Exception: {ex.Message}", statusCode = 400, title = "Invalid payload")
             }
         )
+    ) |> ignore
+
+    // ── License Keys: self-serve (desktop app licensing) ─────────────────────
+    // A signed-in user with an active Patreon-linked tier can self-issue a
+    // license key here from their account settings; the desktop app calls
+    // the public /api/license/validate endpoint below with it. Validity is
+    // re-derived live from Patreon tier status on every check (see
+    // LicenseKeyRepository.validate), not cached on the key itself.
+
+    app.MapGet(
+        "/api/license-keys",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, userId -> Results.Ok(LicenseKeyRepository.listKeys userId))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/license-keys",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, userId ->
+                    // Self-issue is gated on currently having an active
+                    // Patreon tier -- the same rule validate() re-checks on
+                    // every call, enforced here too so a free-tier user
+                    // can't generate a key that will just always read as
+                    // invalid.
+                    match PatreonService.getTierLimits userId with
+                    | Some tier when tier.tierId.IsSome ->
+                        let name =
+                            match ctx.Request.Query.TryGetValue("name") with
+                            | true, v when v.Count > 0 && not (String.IsNullOrWhiteSpace v.[0]) -> v.[0]
+                            | _ -> "License Key"
+                        try
+                            let (plaintext, record) = LicenseKeyRepository.generateKey name userId
+                            Results.Ok({| key = plaintext; record = record |})
+                        with ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Key generation failed")
+                    | _ -> Results.Problem(detail = "An active Patreon pledge is required to generate a license key.", statusCode = 402, title = "No active tier"))
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/license-keys/{id}",
+        Func<HttpContext, string, IResult>(fun ctx id ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId), Guid.TryParse(id) with
+                | (true, userId), (true, keyId) ->
+                    if LicenseKeyRepository.revokeKey keyId userId then Results.NoContent()
+                    else Results.NotFound("Key not found")
+                | _ -> Results.BadRequest("Invalid key id"))
+    ) |> ignore
+
+    // ── License Keys: admin oversight ─────────────────────────────────────────
+
+    app.MapGet(
+        "/api/admin/license-keys",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role -> Results.Ok(LicenseKeyRepository.listAll ())
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/admin/license-keys/{id}",
+        Func<HttpContext, string, IResult>(fun ctx id ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(id) with
+                | true, keyId ->
+                    if LicenseKeyRepository.adminRevokeKey keyId then Results.NoContent()
+                    else Results.NotFound("Key not found")
+                | false, _ -> Results.BadRequest("Invalid key id")
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    // ── License Keys: public validation (called by desktop apps) ─────────────
+    // No auth required -- the license key itself IS the credential. Simple
+    // by design (matches the open-source, non-hostile threat model: a
+    // determined user can already read the desktop app's own source and
+    // patch around this check, and that's an accepted tradeoff, not a bug
+    // to defend against here).
+
+    app.MapGet(
+        "/api/license/validate",
+        Func<HttpContext, IResult>(fun ctx ->
+            let key =
+                match ctx.Request.Query.TryGetValue("key") with
+                | true, v when v.Count > 0 -> v.[0]
+                | _ -> ""
+            let result = LicenseKeyRepository.validate key
+            Results.Ok({|
+                valid     = result.Valid
+                tierId    = result.TierId
+                tierName  = result.TierName
+                checkedAt = result.CheckedAt
+            |}))
     ) |> ignore
 
     // ── Admin: Site Metrics ──────────────────────────────────────────────────
