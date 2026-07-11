@@ -13,6 +13,7 @@
         <div class="flow-toolbar-left">
             <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Source)">Add Source</button>
             <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.SequenceSource)">Add Sequence Source</button>
+            <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Constant)">Add Constant</button>
             <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Transform)">Add Transform</button>
             <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Filter)">Add Filter</button>
             <button type="button" class="flow-btn" @onclick="() => AddNode(FlowNodeKind.Integrator)">Add Integrator</button>
@@ -45,7 +46,7 @@
                 @foreach (var node in _nodes)
                 {
                     var selected = _pendingConnectionNodeId == node.Id;
-                    <div class="flow-node flow-node-@node.Kind.ToString().ToLowerInvariant() @(selected ? "selected" : "") @(node.IsCollapsed ? "flow-node-collapsed" : "")"
+                    <div @key="node.Id" class="flow-node flow-node-@node.Kind.ToString().ToLowerInvariant() @(selected ? "selected" : "") @(node.IsCollapsed ? "flow-node-collapsed" : "")"
                          style="@BuildNodeStyle(node)"
                          @onpointerdown="e => BeginDrag(node, e)">
                         <div class="flow-node-header">
@@ -57,7 +58,7 @@
                         </div>
 
                         <div class="flow-node-sockets">
-                            @if (node.Kind != FlowNodeKind.Source && node.Kind != FlowNodeKind.SequenceSource)
+                            @if (node.Kind != FlowNodeKind.Source && node.Kind != FlowNodeKind.SequenceSource && node.Kind != FlowNodeKind.Constant)
                             {
                                 <button type="button"
                                         class="flow-socket flow-socket-input"
@@ -65,7 +66,7 @@
                                         @onclick="() => ConnectTarget(node.Id)">
                                 </button>
                             }
-                            @if (node.Kind != FlowNodeKind.Plot)
+                            @if (node.Kind != FlowNodeKind.Plot && node.Kind != FlowNodeKind.Constant)
                             {
                                 <button type="button"
                                         class="flow-socket flow-socket-output"
@@ -133,6 +134,33 @@
                                                @oninput="e => UpdateNode(node.Id, n => n.StepExpression = e.Value?.ToString() ?? string.Empty)" />
                                     </label>
                                 }
+                            }
+                            else if (node.Kind == FlowNodeKind.Constant)
+                            {
+                                <label class="flow-field">
+                                    <span>Name</span>
+                                    <input value="@node.ConstantName"
+                                           @oninput="e => UpdateNode(node.Id, n => n.ConstantName = e.Value?.ToString() ?? string.Empty)"
+                                           placeholder="k" />
+                                </label>
+                                <label class="flow-field">
+                                    <span>Type</span>
+                                    <select value="@node.ConstantValueKind.ToString()"
+                                            @onchange="e => SetConstantValueKind(node.Id, e)">
+                                        <option value="Number">Number</option>
+                                        <option value="Bool">Bool</option>
+                                        <option value="Vector">Vector</option>
+                                    </select>
+                                </label>
+                                <label class="flow-field">
+                                    <span>Value</span>
+                                    <input value="@node.ConstantValueExpression"
+                                           @oninput="e => UpdateNode(node.Id, n => n.ConstantValueExpression = e.Value?.ToString() ?? string.Empty)"
+                                           placeholder="@ConstantPlaceholderFor(node.ConstantValueKind)" />
+                                </label>
+                                <div class="flow-node-actions">
+                                    <span class="flow-constant-hint">Available in every expression field as <code>@node.ConstantName</code>.</span>
+                                </div>
                             }
                             else if (node.Kind == FlowNodeKind.Transform)
                             {
@@ -412,6 +440,7 @@
             {
                 FlowNodeKind.Source => "File Source",
                 FlowNodeKind.SequenceSource => "Sequence Source",
+                FlowNodeKind.Constant => "Constant",
                 FlowNodeKind.Transform => "Transform",
                 FlowNodeKind.Filter => "Filter",
                 FlowNodeKind.Integrator => "Integrator",
@@ -447,6 +476,13 @@
             node.StopExpression = "10.0";
             node.StepExpression = "1.0";
             node.CountExpression = "100.0";
+        }
+        else if (kind == FlowNodeKind.Constant)
+        {
+            var existingConstants = _nodes.Count(existing => existing.Kind == FlowNodeKind.Constant);
+            node.ConstantName = existingConstants == 0 ? "k" : $"k{existingConstants + 1}";
+            node.ConstantValueKind = FlowConstantValueKind.Number;
+            node.ConstantValueExpression = "1.0";
         }
 
         _nodes.Add(node);
@@ -666,6 +702,32 @@
         UpdateNode(nodeId, node => node.ChartType = e.Value?.ToString()?.Trim().ToLowerInvariant() ?? "histogram");
     }
 
+    private void SetConstantValueKind(string nodeId, ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString()?.Trim();
+        var kind = Enum.TryParse<FlowConstantValueKind>(value, true, out var parsed)
+            ? parsed
+            : FlowConstantValueKind.Number;
+
+        UpdateNode(nodeId, node =>
+        {
+            node.ConstantValueKind = kind;
+            node.ConstantValueExpression = kind switch
+            {
+                FlowConstantValueKind.Bool => "true",
+                FlowConstantValueKind.Vector => "[1, 2, 3]",
+                _ => "1.0"
+            };
+        });
+    }
+
+    private static string ConstantPlaceholderFor(FlowConstantValueKind kind) => kind switch
+    {
+        FlowConstantValueKind.Bool => "true",
+        FlowConstantValueKind.Vector => "[1, 2, 3]",
+        _ => "9.8"
+    };
+
     private void OpenSourcePane()
     {
         _sourcePaneOpen = true;
@@ -723,7 +785,12 @@
         }
 
         var source = _nodes.FirstOrDefault(node => node.Kind == FlowNodeKind.Source || node.Kind == FlowNodeKind.SequenceSource)
-            ?? _nodes.OrderBy(node => node.X).First();
+            ?? _nodes.Where(node => node.Kind != FlowNodeKind.Constant).OrderBy(node => node.X).FirstOrDefault();
+        if (source is null)
+        {
+            warnings.Add("Add a source or sequence node to start building a flow.");
+            return Array.Empty<FlowNodeModel>();
+        }
         var ordered = new List<FlowNodeModel>();
         var visited = new HashSet<string>(StringComparer.Ordinal);
         var current = source;
@@ -734,15 +801,21 @@
             current = _nodes.FirstOrDefault(node => string.Equals(node.InputFromNodeId, current.Id, StringComparison.Ordinal));
         }
 
-        if (_nodes.Any(node => !visited.Contains(node.Id)))
+        // Constant nodes are pure declarations, not chain links -- they never
+        // have sockets to connect (see the socket-visibility checks above),
+        // so they'd never appear in `visited` and would always trigger this
+        // warning by construction. Their values reach the rest of the graph
+        // by name reference in expression text (see BuildCompileResultAsync),
+        // not by wiring, so being outside the chain is correct, not an error.
+        if (_nodes.Any(node => node.Kind != FlowNodeKind.Constant && !visited.Contains(node.Id)))
         {
             warnings.Add("Some nodes are disconnected; they were ignored for this compile.");
         }
 
-        if (ordered.Count <= 1 && _nodes.Count > 1)
+        if (ordered.Count <= 1 && _nodes.Count(node => node.Kind != FlowNodeKind.Constant) > 1)
         {
             warnings.Add("No connections found yet, so I compiled the nodes from left to right.");
-            return _nodes.OrderBy(node => node.X).ThenBy(node => node.Y).ToList();
+            return _nodes.Where(node => node.Kind != FlowNodeKind.Constant).OrderBy(node => node.X).ThenBy(node => node.Y).ToList();
         }
 
         return ordered;
@@ -808,7 +881,7 @@
 
         try
         {
-            var outcome = await Actions.RunInNewGraphAsync(compile.ChartType, compile.XLabel, compile.YLabel, compile.ZLabel, compile.Source, compile.RuntimeDataJson);
+            var outcome = await Actions.RunInNewGraphAsync(compile.ChartType, compile.XLabel, compile.YLabel, compile.ZLabel, compile.ExecutableSource, compile.RuntimeDataJson);
             _statusMessage = outcome.Success
                 ? $"Ran {outcome.PointCount} point(s)."
                 : $"Run failed: {outcome.Error}";
@@ -918,6 +991,19 @@
             .Where(expr => !string.IsNullOrWhiteSpace(expr))
             .ToList();
 
+        // Every top-level `let` needs an explicit trailing `in` -- Spinoza has
+        // no implicit statement termination (see the DSL reference). Verified
+        // directly against the real parser: a chain of top-level lets with a
+        // blank line but no `in` between them fails to parse. This was a
+        // latent bug (the runtime-data guard always blocked execution before
+        // a real flow ever reached the parser with more than one top-level
+        // let, so it was never actually hit), fixed here alongside adding
+        // Constant node support, which needs the exact same correct chaining.
+        var constantNodes = _nodes.Where(node => node.Kind == FlowNodeKind.Constant).ToList();
+        var constantNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var duplicate in constantNodes.GroupBy(node => node.ConstantName.Trim()).Where(g => g.Count() > 1))
+            warnings.Add($"Multiple constants are named \"{duplicate.Key}\"; only the last one will be usable by that name.");
+
         var sourceBuilder = new StringBuilder();
         sourceBuilder.AppendLine($"// DjeLab flow: {string.Join(" -> ", ordered.Select(node => node.Title))}");
         if (sourceNode.Kind == FlowNodeKind.SequenceSource)
@@ -926,37 +1012,63 @@
             sourceBuilder.AppendLine($"// Source file: {runtimePath}");
         if (runtimeColumns.Length > 0)
             sourceBuilder.AppendLine($"// Columns: {string.Join(", ", runtimeColumns)}");
+        if (constantNodes.Count > 0)
+            sourceBuilder.AppendLine($"// Constants: {string.Join(", ", constantNodes.Select(n => n.ConstantName))}");
         sourceBuilder.AppendLine();
+
+        foreach (var constant in constantNodes)
+        {
+            var name = constant.ConstantName.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                warnings.Add("A constant node has no name and was skipped.");
+                continue;
+            }
+
+            var valueExpression = NormalizeExpression(constant.ConstantValueExpression, ConstantPlaceholderFor(constant.ConstantValueKind));
+            sourceBuilder.AppendLine($"let {name} = {valueExpression} in");
+        }
+
         sourceBuilder.AppendLine("let mapValue row =");
         sourceBuilder.AppendLine($"    {mapExpression}");
+        sourceBuilder.AppendLine("in");
         sourceBuilder.AppendLine();
         sourceBuilder.AppendLine("let keepRow row =");
         sourceBuilder.AppendLine(filterExpressions.Count == 0
             ? "    true"
             : "    " + string.Join(" && ", filterExpressions.Select(expr => $"({expr})")));
+        sourceBuilder.AppendLine("in");
         sourceBuilder.AppendLine();
 
         if (hasIntegrator)
         {
-            sourceBuilder.AppendLine($"let stepSize = {stepSizeExpression}");
+            sourceBuilder.AppendLine($"let stepSize = {stepSizeExpression} in");
+            // Spinoza has no curried space-application (`f a b c`) -- every
+            // call is `f(a, b, c)`, confirmed directly against the real
+            // parser. The RK4/Euler step helpers below previously called
+            // `slope t state signal row` etc., which fails to parse; fixed
+            // to parenthesized calls throughout.
             sourceBuilder.AppendLine();
             sourceBuilder.AppendLine("let slope t state signal row =");
             sourceBuilder.AppendLine($"    {derivativeExpression}");
+            sourceBuilder.AppendLine("in");
             sourceBuilder.AppendLine();
             if (integratorMethod == FlowIntegratorMethod.RK4)
             {
                 sourceBuilder.AppendLine("let rk4Step t state signal row =");
-                sourceBuilder.AppendLine("    let k1 = slope t state signal row in");
-                sourceBuilder.AppendLine("    let k2 = slope (t + stepSize / 2.0) (state + stepSize * k1 / 2.0) signal row in");
-                sourceBuilder.AppendLine("    let k3 = slope (t + stepSize / 2.0) (state + stepSize * k2 / 2.0) signal row in");
-                sourceBuilder.AppendLine("    let k4 = slope (t + stepSize) (state + stepSize * k3) signal row in");
+                sourceBuilder.AppendLine("    let k1 = slope(t, state, signal, row) in");
+                sourceBuilder.AppendLine("    let k2 = slope(t + stepSize / 2.0, state + stepSize * k1 / 2.0, signal, row) in");
+                sourceBuilder.AppendLine("    let k3 = slope(t + stepSize / 2.0, state + stepSize * k2 / 2.0, signal, row) in");
+                sourceBuilder.AppendLine("    let k4 = slope(t + stepSize, state + stepSize * k3, signal, row) in");
                 sourceBuilder.AppendLine("    state + (stepSize / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)");
+                sourceBuilder.AppendLine("in");
                 sourceBuilder.AppendLine();
             }
             else
             {
                 sourceBuilder.AppendLine("let eulerStep t state signal row =");
-                sourceBuilder.AppendLine("    state + stepSize * slope t state signal row");
+                sourceBuilder.AppendLine("    state + stepSize * slope(t, state, signal, row)");
+                sourceBuilder.AppendLine("in");
                 sourceBuilder.AppendLine();
             }
 
@@ -967,9 +1079,9 @@
             sourceBuilder.AppendLine("        let signal = mapValue(row) in");
             sourceBuilder.AppendLine("        if keepRow(row) then (");
             sourceBuilder.AppendLine(integratorMethod == FlowIntegratorMethod.RK4
-                ? "            let nextState = rk4Step t state signal row in"
-                : "            let nextState = eulerStep t state signal row in");
-            sourceBuilder.AppendLine("            emit([t, nextState])");
+                ? "            let nextState = rk4Step(t, state, signal, row) in"
+                : "            let nextState = eulerStep(t, state, signal, row) in");
+            sourceBuilder.AppendLine("            let dummy = emit([t, nextState]) in");
             sourceBuilder.AppendLine("            loop(i + 1, t + stepSize, nextState)");
             sourceBuilder.AppendLine("        ) else (");
             sourceBuilder.AppendLine("            loop(i + 1, t + stepSize, state)");
@@ -980,15 +1092,26 @@
         }
         else if (chartType == "line" || chartType == "scatter")
         {
+            // `if...then...else` is one expression, not a statement -- both
+            // branches must return the same kind of value (loop's own return
+            // type), and there is no unit/void value to stand in for "did
+            // nothing" (see the DSL reference). The old `else ()` here, with
+            // `loop(i + 1)` dangling on the next line as if it would run
+            // regardless, does not parse at all -- confirmed directly against
+            // the real parser. Fixed by making both branches actually return
+            // loop(i + 1), sequencing the emit via `let dummy = ... in`, the
+            // documented idiom for calling emit purely for its side effect.
             sourceBuilder.AppendLine("let rec loop i =");
             sourceBuilder.AppendLine("    if i == len(data) then i");
             sourceBuilder.AppendLine("    else (");
             sourceBuilder.AppendLine("        let row = data[i] in");
             sourceBuilder.AppendLine("        if keepRow(row) then (");
             sourceBuilder.AppendLine("            let value = mapValue(row) in");
-            sourceBuilder.AppendLine("            emit([i, value])");
-            sourceBuilder.AppendLine("        ) else ()");
-            sourceBuilder.AppendLine("        loop(i + 1)");
+            sourceBuilder.AppendLine("            let dummy = emit([i, value]) in");
+            sourceBuilder.AppendLine("            loop(i + 1)");
+            sourceBuilder.AppendLine("        ) else (");
+            sourceBuilder.AppendLine("            loop(i + 1)");
+            sourceBuilder.AppendLine("        )");
             sourceBuilder.AppendLine("    )");
             sourceBuilder.AppendLine("in");
             sourceBuilder.AppendLine("loop(0)");
@@ -1001,9 +1124,11 @@
             sourceBuilder.AppendLine("        let row = data[i] in");
             sourceBuilder.AppendLine("        if keepRow(row) then (");
             sourceBuilder.AppendLine("            let value = mapValue(row) in");
-            sourceBuilder.AppendLine("            emit(value)");
-            sourceBuilder.AppendLine("        ) else ()");
-            sourceBuilder.AppendLine("        loop(i + 1)");
+            sourceBuilder.AppendLine("            let dummy = emit(value) in");
+            sourceBuilder.AppendLine("            loop(i + 1)");
+            sourceBuilder.AppendLine("        ) else (");
+            sourceBuilder.AppendLine("            loop(i + 1)");
+            sourceBuilder.AppendLine("        )");
             sourceBuilder.AppendLine("    )");
             sourceBuilder.AppendLine("in");
             sourceBuilder.AppendLine("loop(0)");

@@ -1,5 +1,12 @@
 namespace Djehuti.DjeLab.Docking;
 
+// New members must be appended at the end, never inserted -- FlowNodeModel
+// instances persist to localStorage with this enum serialized as an integer
+// (System.Text.Json's default), so inserting a value in the middle silently
+// reinterprets every stale saved node whose Kind integer now points at a
+// different member. Confirmed this exact failure mode live: inserting
+// Constant before Transform made every previously-saved Transform node
+// render (and compile) as a Constant instead.
 public enum FlowNodeKind
 {
     Source,
@@ -7,7 +14,15 @@ public enum FlowNodeKind
     Transform,
     Filter,
     Integrator,
-    Plot
+    Plot,
+    Constant
+}
+
+public enum FlowConstantValueKind
+{
+    Number,
+    Bool,
+    Vector
 }
 
 public enum FlowIntegratorMethod
@@ -43,6 +58,9 @@ public sealed class FlowNodeModel
     public string YLabel { get; set; } = "Frequency";
     public string ZLabel { get; set; } = "Height";
     public bool IsCollapsed { get; set; }
+    public string ConstantName { get; set; } = "k";
+    public FlowConstantValueKind ConstantValueKind { get; set; } = FlowConstantValueKind.Number;
+    public string ConstantValueExpression { get; set; } = "1.0";
 }
 
 public sealed record FlowCompileResult(
@@ -54,6 +72,16 @@ public sealed record FlowCompileResult(
     string YLabel,
     string ZLabel,
     string Summary,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings)
+{
+    // Spinoza's grammar has no comment syntax at all -- confirmed directly
+    // against the real parser, a `//` line fails to parse, full stop. Source
+    // (with `//` annotations) is for the human-facing "Source code" viewer
+    // only; ExecutableSource is what actually gets sent to the sandbox/worker
+    // to run. Kept as a computed property (not a stored field the caller must
+    // remember to set) so there's exactly one place this stripping happens.
+    public string ExecutableSource =>
+        string.Join('\n', Source.Split('\n').Where(line => !line.TrimStart().StartsWith("//", StringComparison.Ordinal)));
+}
 
 public sealed record FlowPaneSnapshot(List<FlowNodeModel> Nodes);
