@@ -4126,6 +4126,51 @@ let private migrations : (int * string) list =
 
         GRANT ALL ON TABLE license_keys TO djehuti;
         """
+
+        68, """
+        -- Replaces the license_keys idea (migration 67, never used in
+        -- production -- confirmed empty before dropping) with a proper
+        -- desktop loopback + PKCE auth flow: the desktop app signs the user
+        -- in against this same site instead of pasting in a separate key,
+        -- and the JWT it gets back already carries which products the
+        -- account is entitled to. See Auth.fs (JwtClaims.Entitlements),
+        -- ProductRepository.fs, and DesktopAuthRepository.fs.
+        DROP TABLE IF EXISTS license_keys;
+
+        -- Admin-managed product catalog. A product with a NULL
+        -- required_tier_id is open to everyone; otherwise a user's own
+        -- current Patreon tier must rank at or above required_tier_id
+        -- (compared via patreon_tiers.display_order) to be entitled to it.
+        CREATE TABLE IF NOT EXISTS products (
+            id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            slug               TEXT NOT NULL UNIQUE,
+            name               TEXT NOT NULL,
+            description        TEXT,
+            required_tier_id   TEXT REFERENCES patreon_tiers(tier_id),
+            active             BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        -- One-time, short-lived authorization codes for the desktop
+        -- loopback flow (see DesktopAuthRepository.fs). A code is the
+        -- bridge between "user confirmed in the browser" and "desktop app
+        -- has a real JWT" -- it is never itself a usable credential, and
+        -- consumeCode's atomic UPDATE ... WHERE used = FALSE means it can
+        -- only ever be redeemed once even under concurrent attempts.
+        CREATE TABLE IF NOT EXISTS desktop_auth_codes (
+            code               TEXT PRIMARY KEY,
+            user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            redirect_uri       TEXT NOT NULL,
+            code_challenge     TEXT NOT NULL,
+            created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            expires_at         TIMESTAMPTZ NOT NULL,
+            used               BOOLEAN NOT NULL DEFAULT FALSE
+        );
+        CREATE INDEX IF NOT EXISTS idx_desktop_auth_codes_expires ON desktop_auth_codes (expires_at);
+
+        GRANT ALL ON TABLE products TO djehuti;
+        GRANT ALL ON TABLE desktop_auth_codes TO djehuti;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

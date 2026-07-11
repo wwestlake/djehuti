@@ -27,7 +27,7 @@ interface Announcement {
   createdAt: string; updatedAt: string
 }
 
-type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'mud' | 'personas' | 'heartbeat' | 'metrics' | 'api-keys'
+type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'mud' | 'personas' | 'heartbeat' | 'metrics' | 'api-keys' | 'products'
 
 interface MetricsCounts { users: number; posts: number; threads: number; articles: number; votesGiven: number; reactions: number; achievements: number }
 interface ForumActivityRow { forumId: string; forumName: string; postsAll: number; postsHuman: number; postsAi: number; threadsAll: number; threadsHuman: number; threadsAi: number }
@@ -54,6 +54,21 @@ interface ApiKey {
   createdAt: string
   lastUsedAt: string | null
   active: boolean
+}
+
+interface Product {
+  id: string
+  slug: string
+  name: string
+  description: string | null
+  requiredTierId: string | null
+  active: boolean
+  createdAt: string
+}
+
+interface PatreonTier {
+  tierId: string
+  tierName: string
 }
 
 interface AiPersona {
@@ -117,7 +132,7 @@ async function apiFetch(url: string, opts?: RequestInit) {
 export default function AdminPage() {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'mud', 'personas', 'heartbeat', 'metrics', 'api-keys']
+  const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'mud', 'personas', 'heartbeat', 'metrics', 'api-keys', 'products']
   const tabFromUrl = searchParams.get('tab') as Tab | null
   const [tab, setTab] = useState<Tab>(tabFromUrl && validTabs.includes(tabFromUrl) ? tabFromUrl : 'users')
 
@@ -314,6 +329,13 @@ export default function AdminPage() {
   const [newKeyName, setNewKeyName] = useState('')
   const [newKeyPlaintext, setNewKeyPlaintext] = useState<string | null>(null)
   const [keyCreating, setKeyCreating] = useState(false)
+  const [products, setProducts] = useState<Product[]>([])
+  const [patreonTiers, setPatreonTiers] = useState<PatreonTier[]>([])
+  const [newProductSlug, setNewProductSlug] = useState('')
+  const [newProductName, setNewProductName] = useState('')
+  const [newProductDescription, setNewProductDescription] = useState('')
+  const [newProductTierId, setNewProductTierId] = useState('')
+  const [productCreating, setProductCreating] = useState(false)
 
   const loadUsers = async (p = usersPage, s = userSearch, r = userFilterRole, st = userFilterStatus) => {
     setLoading(true); setError(null)
@@ -415,6 +437,10 @@ export default function AdminPage() {
         apiFetch(`${BASE}/api/admin/metrics/live`).then(setLiveMetrics).catch(() => {}),
       ]).then(() => {}),
       'api-keys': () => apiFetch(`${BASE}/api/admin/api-keys`).then(setApiKeys),
+      products: () => Promise.all([
+        apiFetch(`${BASE}/api/admin/products`).then(setProducts),
+        apiFetch(`${BASE}/api/patreon/tiers`).then(setPatreonTiers).catch(() => {}),
+      ]).then(() => {}),
     }
     loaders[tab]().catch(() => setError('Failed to load data')).finally(() => setLoading(false))
   }, [tab, user])
@@ -685,8 +711,56 @@ export default function AdminPage() {
     } catch { setError('Failed to revoke key') }
   }
 
+  const createProduct = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newProductSlug.trim() || !newProductName.trim()) return
+    setProductCreating(true)
+    try {
+      const record = await apiFetch(`${BASE}/api/admin/products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slug: newProductSlug.trim(),
+          name: newProductName.trim(),
+          description: newProductDescription.trim() || null,
+          requiredTierId: newProductTierId || null,
+        }),
+      })
+      setProducts(prev => [record, ...prev])
+      setNewProductSlug('')
+      setNewProductName('')
+      setNewProductDescription('')
+      setNewProductTierId('')
+    } catch { setError('Failed to create product') }
+    finally { setProductCreating(false) }
+  }
+
+  const toggleProductActive = async (product: Product) => {
+    try {
+      await apiFetch(`${BASE}/api/admin/products/${product.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: product.name,
+          description: product.description,
+          requiredTierId: product.requiredTierId,
+          active: !product.active,
+        }),
+      })
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, active: !p.active } : p))
+    } catch { setError('Failed to update product') }
+  }
+
+  const deleteProduct = async (id: string) => {
+    if (!confirm('Delete this product? This cannot be undone.')) return
+    try {
+      await apiFetch(`${BASE}/api/admin/products/${id}`, { method: 'DELETE' })
+      setProducts(prev => prev.filter(p => p.id !== id))
+    } catch { setError('Failed to delete product') }
+  }
+
   const TAB_LABELS: Record<Tab, string> = {
-      users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', mud: 'MUD World', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics', 'api-keys': 'API Keys',
+      users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', mud: 'MUD World', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics', 'api-keys': 'API Keys', products: 'Products',
   }
 
   const toggleSection = (key: string) =>
@@ -3837,6 +3911,72 @@ export default function AdminPage() {
               { key: 'lastUsedAt', label: 'Last Used', render: k => k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : '—', sortVal: k => k.lastUsedAt ?? '' },
               { key: 'active', label: 'Status', render: k => <span style={{ color: k.active ? 'var(--accent)' : 'var(--text-muted)' }}>{k.active ? 'Active' : 'Revoked'}</span> },
               { key: 'id', label: '', sortable: false, render: k => k.active ? <button className="post-action post-action-delete" onClick={() => revokeApiKey(k.id)}>Revoke</button> : null },
+            ]}
+          />
+        </div>
+      )}
+
+      {tab === 'products' && !loading && (
+        <div style={{ maxWidth: 700 }}>
+          <h3 style={{ marginBottom: 4 }}>Products</h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: 20 }}>
+            Desktop apps that authenticate against this site. A product with no required tier is available to any signed-in user; otherwise the user's current Patreon tier must meet or exceed it.
+          </p>
+
+          <form onSubmit={createProduct} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+            <input
+              className="admin-search-input"
+              placeholder="Slug (e.g. my-app)"
+              value={newProductSlug}
+              onChange={e => setNewProductSlug(e.target.value)}
+              style={{ flex: '1 1 160px' }}
+            />
+            <input
+              className="admin-search-input"
+              placeholder="Name"
+              value={newProductName}
+              onChange={e => setNewProductName(e.target.value)}
+              style={{ flex: '1 1 160px' }}
+            />
+            <input
+              className="admin-search-input"
+              placeholder="Description (optional)"
+              value={newProductDescription}
+              onChange={e => setNewProductDescription(e.target.value)}
+              style={{ flex: '2 1 220px' }}
+            />
+            <select
+              className="admin-role-select"
+              value={newProductTierId}
+              onChange={e => setNewProductTierId(e.target.value)}
+              style={{ flex: '1 1 160px' }}
+            >
+              <option value="">No tier required</option>
+              {patreonTiers.map(t => (
+                <option key={t.tierId} value={t.tierId}>{t.tierName}</option>
+              ))}
+            </select>
+            <button type="submit" className="blog-tab active" disabled={productCreating || !newProductSlug.trim() || !newProductName.trim()}>
+              {productCreating ? 'Creating…' : 'Create Product'}
+            </button>
+          </form>
+
+          <AdminTable<Product>
+            data={products}
+            rowKey={p => p.id}
+            searchKeys={['slug', 'name']}
+            emptyText="No products yet."
+            columns={[
+              { key: 'slug', label: 'Slug', render: p => <code style={{ fontSize: '0.8rem' }}>{p.slug}</code> },
+              { key: 'name', label: 'Name' },
+              { key: 'requiredTierId', label: 'Required Tier', render: p => patreonTiers.find(t => t.tierId === p.requiredTierId)?.tierName ?? (p.requiredTierId ?? '—') },
+              { key: 'active', label: 'Status', render: p => <span style={{ color: p.active ? 'var(--accent)' : 'var(--text-muted)' }}>{p.active ? 'Active' : 'Inactive'}</span> },
+              { key: 'id', label: '', sortable: false, render: p => (
+                <>
+                  <button className="post-action" onClick={() => toggleProductActive(p)}>{p.active ? 'Deactivate' : 'Activate'}</button>
+                  <button className="post-action post-action-delete" onClick={() => deleteProduct(p.id)}>Delete</button>
+                </>
+              ) },
             ]}
           />
         </div>

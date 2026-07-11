@@ -30,6 +30,7 @@ import AnnouncementBanner from './pages/community/AnnouncementBanner'
 import AchievementsPage from './pages/profile/AchievementsPage'
 import SupportersPage from './pages/community/SupportersPage'
 import SponsorsPage from './pages/community/SponsorsPage'
+import DesktopAuthPage from './pages/auth/DesktopAuthPage'
 
 import { blogApi } from './api/blogApi'
 import type { BlogArticle } from './api/blogApi'
@@ -563,6 +564,7 @@ function AppInner() {
             <Route path="/achievements" element={<ProtectedRoute><AchievementsPage /></ProtectedRoute>} />
             <Route path="/supporters" element={<SupportersPage />} />
             <Route path="/sponsors" element={<SponsorsPage />} />
+            <Route path="/auth/desktop" element={<DesktopAuthPage />} />
             <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPage /></ProtectedRoute>} />
           </Routes>
         </main>

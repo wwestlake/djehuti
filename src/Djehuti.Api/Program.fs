@@ -325,7 +325,13 @@ type UserDto =
       Role: string
       Status: string
       CreatedAt: DateTime
-      Roles: string list }
+      Roles: string list
+      // Only populated on login/OAuth-callback responses -- the raw JWT
+      // for non-browser clients (the website itself just uses the cookie
+      // this same response also sets). None everywhere else this type is
+      // returned (e.g. GET /api/auth/me), since re-sending the token on
+      // every profile fetch would be pointless.
+      Token: string option }
 
 [<CLIMutable>]
 type GrantRoleRequest =
@@ -1078,6 +1084,7 @@ let main args =
                                 Email = u.Email
                                 DisplayName = u.DisplayName
                                 Role = u.Role
+                                Entitlements = ProductRepository.getEntitlements u.Id
                                 IssuedAt = DateTime.UtcNow
                                 ExpiresAt = DateTime.UtcNow.AddHours(24.0)
                             }
@@ -1091,7 +1098,15 @@ let main args =
                                     Expires = DateTimeOffset.UtcNow.AddHours(24.0)
                                 )
                             )
-                            return Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt; Roles = getUserRoleStrings u.Id })
+                            // The token is now also returned in the body (in
+                            // addition to the cookie the website itself
+                            // uses) so a non-browser client -- like the
+                            // desktop app's own direct email/password login,
+                            // if it ever uses this endpoint instead of the
+                            // loopback flow -- has something to actually
+                            // store. Harmless for the website: it already
+                            // ignores response body fields it doesn't use.
+                            return Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt; Roles = getUserRoleStrings u.Id; Token = Some token })
                     | _ ->
                         return Results.BadRequest("invalid email or password")
             } |> Async.StartAsTask)
@@ -1202,7 +1217,7 @@ let main args =
                         | true, userId ->
                             let! user = UserRepository.tryGetById userId
                             return match user with
-                                   | Some u -> Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt; Roles = getUserRoleStrings u.Id })
+                                   | Some u -> Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt; Roles = getUserRoleStrings u.Id; Token = None })
                                    | None -> Results.NotFound()
                         | _ -> return Results.Unauthorized()
                     | None -> return Results.Unauthorized()
@@ -1223,7 +1238,7 @@ let main args =
                         | true, userId ->
                             let! updated = UserRepository.updateProfile userId request.DisplayName request.Bio request.Pronouns request.Location request.NotifyByEmail
                             return match updated with
-                                   | Some u -> Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt; Roles = getUserRoleStrings u.Id })
+                                   | Some u -> Results.Ok({ Id = u.Id.ToString(); Email = u.Email; DisplayName = u.DisplayName; AvatarUrl = u.AvatarUrl; Bio = u.Bio; Pronouns = u.Pronouns; Location = u.Location; Role = u.Role; Status = u.Status; CreatedAt = u.CreatedAt; Roles = getUserRoleStrings u.Id; Token = None })
                                    | None -> Results.Problem(detail = "Failed to update profile", statusCode = 500, title = "Update failed")
                         | _ -> return Results.Unauthorized()
                     | None -> return Results.Unauthorized()
@@ -1282,6 +1297,7 @@ let main args =
                                         Email = user.Email
                                         DisplayName = user.DisplayName
                                         Role = user.Role
+                                        Entitlements = ProductRepository.getEntitlements user.Id
                                         IssuedAt = DateTime.UtcNow
                                         ExpiresAt = DateTime.UtcNow.AddHours(24.0)
                                     }
@@ -1314,6 +1330,7 @@ let main args =
                                             Email = u.Email
                                             DisplayName = u.DisplayName
                                             Role = u.Role
+                                            Entitlements = ProductRepository.getEntitlements u.Id
                                             IssuedAt = DateTime.UtcNow
                                             ExpiresAt = DateTime.UtcNow.AddHours(24.0)
                                         }
@@ -1366,6 +1383,7 @@ let main args =
                                         Email = user.Email
                                         DisplayName = user.DisplayName
                                         Role = user.Role
+                                        Entitlements = ProductRepository.getEntitlements user.Id
                                         IssuedAt = DateTime.UtcNow
                                         ExpiresAt = DateTime.UtcNow.AddHours(24.0)
                                     }
@@ -1391,6 +1409,7 @@ let main args =
                                             Email = user.Email
                                             DisplayName = user.DisplayName
                                             Role = user.Role
+                                            Entitlements = ProductRepository.getEntitlements user.Id
                                             IssuedAt = DateTime.UtcNow
                                             ExpiresAt = DateTime.UtcNow.AddHours(24.0)
                                         }
@@ -1417,10 +1436,21 @@ let main args =
 
     // ── Auth helper (used by media, forum, and all subsequent endpoints) ─────
 
+    // The website authenticates via the HttpOnly djehuti_auth cookie (as
+    // before); a desktop app has no browser cookie jar to participate in,
+    // so it sends the token it got from /api/auth/desktop/token as a
+    // standard Authorization: Bearer header instead. Cookie is checked
+    // first only because it's the far more common request in practice, not
+    // because one is more trusted than the other -- both go through the
+    // exact same Auth.verifyToken signature check.
     let tryGetAuthClaims (ctx: HttpContext) =
         match ctx.Request.Cookies.TryGetValue("djehuti_auth") with
         | true, token -> Auth.verifyToken token
-        | _ -> None
+        | _ ->
+            match ctx.Request.Headers.TryGetValue("Authorization") with
+            | true, v when v.Count > 0 && v.[0].StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ->
+                Auth.verifyToken (v.[0].Substring(7).Trim())
+            | _ -> None
 
     // ── Media ─────────────────────────────────────────────────────────────────
     // Returns a presigned S3 PUT URL so the client can upload directly to S3.
@@ -5627,110 +5657,136 @@ let main args =
         )
     ) |> ignore
 
-    // ── License Keys: self-serve (desktop app licensing) ─────────────────────
-    // A signed-in user with an active Patreon-linked tier can self-issue a
-    // license key here from their account settings; the desktop app calls
-    // the public /api/license/validate endpoint below with it. Validity is
-    // re-derived live from Patreon tier status on every check (see
-    // LicenseKeyRepository.validate), not cached on the key itself.
-
-    app.MapGet(
-        "/api/license-keys",
-        Func<HttpContext, IResult>(fun ctx ->
-            match tryGetAuthClaims ctx with
-            | None -> Results.Unauthorized()
-            | Some claims ->
-                match Guid.TryParse(claims.UserId) with
-                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
-                | true, userId -> Results.Ok(LicenseKeyRepository.listKeys userId))
-    ) |> ignore
+    // ── Desktop auth: loopback + PKCE (replaces the earlier license-key idea) ──
+    // A desktop app opens the user's browser to /auth/desktop (a frontend
+    // page, not this API) with a PKCE code_challenge and a loopback
+    // redirect_uri. Once the user confirms there, the page calls
+    // authorize below (using the SAME cookie session the website already
+    // has) to mint a short-lived one-time code, then redirects the browser
+    // to the app's local listener with that code. The app itself then
+    // calls token below -- no cookie, no browser involved at that point --
+    // to exchange the code for a real JWT whose entitlements claim is
+    // computed fresh from the user's CURRENT Patreon tier. This replaces
+    // the license-key self-issue/validate endpoints entirely: the JWT
+    // itself is the license, there is nothing separate to generate, copy,
+    // or revoke.
 
     app.MapPost(
-        "/api/license-keys",
-        Func<HttpContext, IResult>(fun ctx ->
+        "/api/auth/desktop/authorize",
+        Func<HttpContext, {| redirectUri: string; codeChallenge: string |}, IResult>(fun ctx body ->
             match tryGetAuthClaims ctx with
             | None -> Results.Unauthorized()
             | Some claims ->
                 match Guid.TryParse(claims.UserId) with
                 | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
                 | true, userId ->
-                    // Self-issue is gated on currently having an active
-                    // Patreon tier -- the same rule validate() re-checks on
-                    // every call, enforced here too so a free-tier user
-                    // can't generate a key that will just always read as
-                    // invalid.
-                    match PatreonService.getTierLimits userId with
-                    | Some tier when tier.tierId.IsSome ->
-                        let name =
-                            match ctx.Request.Query.TryGetValue("name") with
-                            | true, v when v.Count > 0 && not (String.IsNullOrWhiteSpace v.[0]) -> v.[0]
-                            | _ -> "License Key"
-                        try
-                            let (plaintext, record) = LicenseKeyRepository.generateKey name userId
-                            Results.Ok({| key = plaintext; record = record |})
-                        with ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Key generation failed")
-                    | _ -> Results.Problem(detail = "An active Patreon pledge is required to generate a license key.", statusCode = 402, title = "No active tier"))
+                    if not (DesktopAuthRepository.isLoopbackRedirect body.redirectUri) then
+                        Results.BadRequest("redirect_uri must be a loopback address (127.0.0.1/localhost)")
+                    elif String.IsNullOrWhiteSpace body.codeChallenge then
+                        Results.BadRequest("code_challenge is required")
+                    else
+                        let code = DesktopAuthRepository.createCode userId body.redirectUri body.codeChallenge
+                        Results.Ok({| code = code |}))
     ) |> ignore
 
-    app.MapDelete(
-        "/api/license-keys/{id}",
-        Func<HttpContext, string, IResult>(fun ctx id ->
+    app.MapPost(
+        "/api/auth/desktop/token",
+        Func<{| code: string; codeVerifier: string |}, System.Threading.Tasks.Task<IResult>>(fun body ->
+            async {
+                match DesktopAuthRepository.consumeCode body.code body.codeVerifier with
+                | None -> return Results.BadRequest("Invalid, expired, already-used, or PKCE-mismatched code")
+                | Some userId ->
+                    let! user = UserRepository.tryGetById userId
+                    match user with
+                    | None -> return Results.Problem(detail = "User not found", statusCode = 500, title = "Auth error")
+                    | Some u ->
+                        let entitlements = ProductRepository.getEntitlements userId
+                        let expiresAt = DateTime.UtcNow.AddDays(30.0)
+                        let token = Auth.generateToken {
+                            UserId = u.Id.ToString()
+                            Email = u.Email
+                            DisplayName = u.DisplayName
+                            Role = u.Role
+                            Entitlements = entitlements
+                            IssuedAt = DateTime.UtcNow
+                            ExpiresAt = expiresAt
+                        }
+                        return Results.Ok({|
+                            token = token
+                            expiresAt = expiresAt
+                            user = {| id = u.Id.ToString(); email = u.Email; displayName = u.DisplayName |}
+                        |})
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // ── Products: admin catalog + self-view entitlements ──────────────────────
+
+    app.MapGet(
+        "/api/products",
+        Func<IResult>(fun () -> Results.Ok(ProductRepository.listActive ()))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/users/entitlements",
+        Func<HttpContext, IResult>(fun ctx ->
             match tryGetAuthClaims ctx with
             | None -> Results.Unauthorized()
             | Some claims ->
-                match Guid.TryParse(claims.UserId), Guid.TryParse(id) with
-                | (true, userId), (true, keyId) ->
-                    if LicenseKeyRepository.revokeKey keyId userId then Results.NoContent()
-                    else Results.NotFound("Key not found")
-                | _ -> Results.BadRequest("Invalid key id"))
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, userId -> Results.Ok({| entitlements = ProductRepository.getEntitlements userId |}))
     ) |> ignore
 
-    // ── License Keys: admin oversight ─────────────────────────────────────────
-
     app.MapGet(
-        "/api/admin/license-keys",
+        "/api/admin/products",
         Func<HttpContext, IResult>(fun ctx ->
             match tryGetAuthClaims ctx with
-            | Some claims when Permissions.isAdmin claims.Role -> Results.Ok(LicenseKeyRepository.listAll ())
+            | Some claims when Permissions.isAdmin claims.Role -> Results.Ok(ProductRepository.listAll ())
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/products",
+        Func<HttpContext, {| slug: string; name: string; description: string option; requiredTierId: string option |}, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                if String.IsNullOrWhiteSpace body.slug || String.IsNullOrWhiteSpace body.name then
+                    Results.BadRequest("slug and name are required")
+                else
+                    try Results.Ok(ProductRepository.create body.slug body.name body.description body.requiredTierId)
+                    with ex -> Results.Problem(detail = ex.Message, statusCode = 500, title = "Create failed")
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPut(
+        "/api/admin/products/{id}",
+        Func<HttpContext, string, {| name: string; description: string option; requiredTierId: string option; active: bool |}, IResult>(fun ctx id body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(id) with
+                | false, _ -> Results.BadRequest("Invalid product id")
+                | true, productId ->
+                    if ProductRepository.update productId body.name body.description body.requiredTierId body.active
+                    then Results.NoContent()
+                    else Results.NotFound("Product not found")
             | Some _ -> Results.Forbid()
             | None   -> Results.Unauthorized())
     ) |> ignore
 
     app.MapDelete(
-        "/api/admin/license-keys/{id}",
+        "/api/admin/products/{id}",
         Func<HttpContext, string, IResult>(fun ctx id ->
             match tryGetAuthClaims ctx with
             | Some claims when Permissions.isAdmin claims.Role ->
                 match Guid.TryParse(id) with
-                | true, keyId ->
-                    if LicenseKeyRepository.adminRevokeKey keyId then Results.NoContent()
-                    else Results.NotFound("Key not found")
-                | false, _ -> Results.BadRequest("Invalid key id")
+                | false, _ -> Results.BadRequest("Invalid product id")
+                | true, productId ->
+                    if ProductRepository.delete productId then Results.NoContent()
+                    else Results.NotFound("Product not found")
             | Some _ -> Results.Forbid()
             | None   -> Results.Unauthorized())
-    ) |> ignore
-
-    // ── License Keys: public validation (called by desktop apps) ─────────────
-    // No auth required -- the license key itself IS the credential. Simple
-    // by design (matches the open-source, non-hostile threat model: a
-    // determined user can already read the desktop app's own source and
-    // patch around this check, and that's an accepted tradeoff, not a bug
-    // to defend against here).
-
-    app.MapGet(
-        "/api/license/validate",
-        Func<HttpContext, IResult>(fun ctx ->
-            let key =
-                match ctx.Request.Query.TryGetValue("key") with
-                | true, v when v.Count > 0 -> v.[0]
-                | _ -> ""
-            let result = LicenseKeyRepository.validate key
-            Results.Ok({|
-                valid     = result.Valid
-                tierId    = result.TierId
-                tierName  = result.TierName
-                checkedAt = result.CheckedAt
-            |}))
     ) |> ignore
 
     // ── Admin: Site Metrics ──────────────────────────────────────────────────
