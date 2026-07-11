@@ -68,6 +68,17 @@ public sealed class FlowNodeModel
     // expression body, so Transform/Filter/Integrator fields can write `t`
     // instead of the positional, unnamed `row[0]`.
     public string IndependentVariableName { get; set; } = "t";
+
+    // Named-reference fan-in (Transform/Filter only, Phase A of the
+    // typed-value-graph work). OutputName, if set, exposes this node's
+    // computed per-row value under that name so OTHER Transform/Filter nodes
+    // can reference it -- not via a drawn wire yet (that's Phase B), via
+    // listing the name in ReferencedOutputsCsv, which the compiler resolves
+    // by dependency order (topological sort, cycle-checked) rather than
+    // chain position. Purely additive: a node with no OutputName/references
+    // set behaves exactly as it did before this existed.
+    public string OutputName { get; set; } = "";
+    public string ReferencedOutputsCsv { get; set; } = "";
 }
 
 public sealed record FlowCompileResult(

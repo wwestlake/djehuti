@@ -181,6 +181,24 @@
                                     <textarea rows="4"
                                               @oninput="e => UpdateNode(node.Id, n => n.TransformExpression = e.Value?.ToString() ?? string.Empty)">@node.TransformExpression</textarea>
                                 </label>
+                                <label class="flow-field">
+                                    <span>Output name (optional)</span>
+                                    <input value="@node.OutputName"
+                                           @oninput="e => UpdateNode(node.Id, n => n.OutputName = e.Value?.ToString() ?? string.Empty)"
+                                           placeholder="e.g. signal2" />
+                                </label>
+                                <label class="flow-field">
+                                    <span>References (optional)</span>
+                                    <input value="@node.ReferencedOutputsCsv"
+                                           @oninput="e => UpdateNode(node.Id, n => n.ReferencedOutputsCsv = e.Value?.ToString() ?? string.Empty)"
+                                           placeholder="other output names, comma-separated" />
+                                </label>
+                                @if (!string.IsNullOrWhiteSpace(node.OutputName) || !string.IsNullOrWhiteSpace(node.ReferencedOutputsCsv))
+                                {
+                                    <div class="flow-node-actions">
+                                        <span class="flow-constant-hint">Call a referenced output as <code>name(row)</code>, e.g. <code>a(row) + 1</code> -- not the bare name.</span>
+                                    </div>
+                                }
                             }
                             else if (node.Kind == FlowNodeKind.Filter)
                             {
@@ -189,6 +207,24 @@
                                     <textarea rows="4"
                                               @oninput="e => UpdateNode(node.Id, n => n.FilterExpression = e.Value?.ToString() ?? string.Empty)">@node.FilterExpression</textarea>
                                 </label>
+                                <label class="flow-field">
+                                    <span>Output name (optional)</span>
+                                    <input value="@node.OutputName"
+                                           @oninput="e => UpdateNode(node.Id, n => n.OutputName = e.Value?.ToString() ?? string.Empty)"
+                                           placeholder="e.g. isValid" />
+                                </label>
+                                <label class="flow-field">
+                                    <span>References (optional)</span>
+                                    <input value="@node.ReferencedOutputsCsv"
+                                           @oninput="e => UpdateNode(node.Id, n => n.ReferencedOutputsCsv = e.Value?.ToString() ?? string.Empty)"
+                                           placeholder="other output names, comma-separated" />
+                                </label>
+                                @if (!string.IsNullOrWhiteSpace(node.OutputName) || !string.IsNullOrWhiteSpace(node.ReferencedOutputsCsv))
+                                {
+                                    <div class="flow-node-actions">
+                                        <span class="flow-constant-hint">Call a referenced output as <code>name(row)</code>, e.g. <code>a(row) &gt; 0</code> -- not the bare name.</span>
+                                    </div>
+                                }
                             }
                             else if (node.Kind == FlowNodeKind.Integrator)
                             {
@@ -788,6 +824,117 @@
         _ = SaveStateAsync();
     }
 
+    // Named-reference fan-in for Transform/Filter nodes: any node with a
+    // non-empty OutputName can be referenced by name from any OTHER named
+    // node's ReferencedOutputsCsv, regardless of chain position -- and from
+    // mapValue/keepRow themselves, since these are defined before them in
+    // the let-chain. Resolved by Kahn's algorithm (topological sort) so
+    // bindings are always emitted before anything that reads them, not by
+    // declaration order, which would be wrong the moment a later-added node
+    // is referenced by an earlier one. A cycle is a real authoring mistake
+    // (A references B references A) -- surfaced as a warning, and every
+    // node in the cyclic set is skipped entirely rather than emitted in a
+    // broken order.
+    //
+    // Each named node compiles to a top-level FUNCTION of `row` (like
+    // mapValue itself), not a plain value binding: `let name = ... in`
+    // would be invisible to mapValue/keepRow, since those are separately-
+    // scoped closures over nothing but their own `row` parameter -- a name
+    // bound after they're defined can't reach into them. Confirmed this
+    // failure mode directly ("Unbound variable") before landing on functions
+    // of `row`, called explicitly as `name(row)` in a referencing
+    // expression, which correctly threads a whole chain of dependent named
+    // functions through to mapValue when verified against the real
+    // parser/evaluator.
+    private List<string> BuildNamedNodeBindingLines(List<string> warnings, bool bindIndependentVariable, string independentVariableName)
+    {
+        var namedNodes = _nodes
+            .Where(node => (node.Kind == FlowNodeKind.Transform || node.Kind == FlowNodeKind.Filter) && !string.IsNullOrWhiteSpace(node.OutputName))
+            .ToList();
+
+        if (namedNodes.Count == 0)
+            return new List<string>();
+
+        var byName = new Dictionary<string, FlowNodeModel>(StringComparer.Ordinal);
+        foreach (var node in namedNodes)
+        {
+            var name = node.OutputName.Trim();
+            if (byName.ContainsKey(name))
+            {
+                warnings.Add($"Multiple nodes output the name \"{name}\"; only the last one will be usable by that name.");
+                byName[name] = node;
+            }
+            else
+            {
+                byName[name] = node;
+            }
+        }
+
+        var dependsOn = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var (name, node) in byName)
+        {
+            var refs = ParseColumns(node.ReferencedOutputsCsv)
+                .Where(refName => byName.ContainsKey(refName) && !string.Equals(refName, name, StringComparison.Ordinal))
+                .Distinct()
+                .ToList();
+            dependsOn[name] = refs;
+        }
+
+        var sorted = new List<string>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var visiting = new HashSet<string>(StringComparer.Ordinal);
+        var cyclic = new HashSet<string>(StringComparer.Ordinal);
+
+        bool Visit(string name)
+        {
+            if (visited.Contains(name)) return true;
+            if (visiting.Contains(name)) { cyclic.Add(name); return false; }
+
+            visiting.Add(name);
+            var ok = true;
+            foreach (var dep in dependsOn[name])
+            {
+                if (!Visit(dep))
+                {
+                    cyclic.Add(name);
+                    ok = false;
+                }
+            }
+            visiting.Remove(name);
+
+            if (ok)
+            {
+                visited.Add(name);
+                sorted.Add(name);
+            }
+            return ok;
+        }
+
+        foreach (var name in byName.Keys)
+            Visit(name);
+
+        if (cyclic.Count > 0)
+            warnings.Add($"These node outputs reference each other in a cycle and were skipped: {string.Join(", ", cyclic)}.");
+
+        var lines = new List<string>();
+        foreach (var name in sorted)
+        {
+            var node = byName[name];
+            var expr = NormalizeExpression(
+                node.Kind == FlowNodeKind.Transform ? node.TransformExpression : node.FilterExpression,
+                node.Kind == FlowNodeKind.Transform ? "row[0]" : "true");
+
+            lines.Add($"let {name} row =");
+            if (bindIndependentVariable)
+                lines.Add($"    let {independentVariableName} = row[0] in");
+            lines.Add($"    {expr}");
+            lines.Add("in");
+            lines.Add("");
+        }
+
+        return lines;
+    }
+
     private IReadOnlyList<FlowNodeModel> BuildExecutionOrder(List<string> warnings)
     {
         if (_nodes.Count == 0)
@@ -796,8 +943,17 @@
             return Array.Empty<FlowNodeModel>();
         }
 
+        // Constant nodes, and Transform/Filter nodes with an OutputName set,
+        // are reachable by name reference rather than chain position (see
+        // BuildNamedNodeBindingLines) -- they never need to sit in the wired
+        // chain, so being outside `visited` (or picked as the fallback
+        // "source") is correct for them, not an error to warn about.
+        bool IsChainExempt(FlowNodeModel node) =>
+            node.Kind == FlowNodeKind.Constant ||
+            ((node.Kind == FlowNodeKind.Transform || node.Kind == FlowNodeKind.Filter) && !string.IsNullOrWhiteSpace(node.OutputName));
+
         var source = _nodes.FirstOrDefault(node => node.Kind == FlowNodeKind.Source || node.Kind == FlowNodeKind.SequenceSource)
-            ?? _nodes.Where(node => node.Kind != FlowNodeKind.Constant).OrderBy(node => node.X).FirstOrDefault();
+            ?? _nodes.Where(node => !IsChainExempt(node)).OrderBy(node => node.X).FirstOrDefault();
         if (source is null)
         {
             warnings.Add("Add a source or sequence node to start building a flow.");
@@ -813,21 +969,15 @@
             current = _nodes.FirstOrDefault(node => string.Equals(node.InputFromNodeId, current.Id, StringComparison.Ordinal));
         }
 
-        // Constant nodes are pure declarations, not chain links -- they never
-        // have sockets to connect (see the socket-visibility checks above),
-        // so they'd never appear in `visited` and would always trigger this
-        // warning by construction. Their values reach the rest of the graph
-        // by name reference in expression text (see BuildCompileResultAsync),
-        // not by wiring, so being outside the chain is correct, not an error.
-        if (_nodes.Any(node => node.Kind != FlowNodeKind.Constant && !visited.Contains(node.Id)))
+        if (_nodes.Any(node => !IsChainExempt(node) && !visited.Contains(node.Id)))
         {
             warnings.Add("Some nodes are disconnected; they were ignored for this compile.");
         }
 
-        if (ordered.Count <= 1 && _nodes.Count(node => node.Kind != FlowNodeKind.Constant) > 1)
+        if (ordered.Count <= 1 && _nodes.Count(node => !IsChainExempt(node)) > 1)
         {
             warnings.Add("No connections found yet, so I compiled the nodes from left to right.");
-            return _nodes.Where(node => node.Kind != FlowNodeKind.Constant).OrderBy(node => node.X).ThenBy(node => node.Y).ToList();
+            return _nodes.Where(node => !IsChainExempt(node)).OrderBy(node => node.X).ThenBy(node => node.Y).ToList();
         }
 
         return ordered;
@@ -1030,6 +1180,25 @@
         if (!bindIndependentVariable)
             warnings.Add($"\"{independentVariableName}\" is reserved by the generated code; the independent variable name was not bound. Use row[0] directly, or pick a different name.");
 
+        // Phase A of the value-graph work: Transform/Filter nodes with a
+        // non-empty OutputName can reference EACH OTHER by name (via
+        // ReferencedOutputsCsv), independent of their position in the main
+        // chain -- resolved by dependency order (topological sort), not
+        // declaration order, and cycle-checked. Purely additive: a node with
+        // no OutputName set is invisible to this and behaves exactly as
+        // before. These are per-row values, so unlike Constants they can't
+        // be plain top-level lets (verified directly against the real
+        // evaluator: mapValue/keepRow are separately-scoped top-level
+        // functions closed over nothing but their own `row` parameter --
+        // a name bound later, inside the loop body, is invisible to them,
+        // confirmed as "Unbound variable" before landing on this design).
+        // Instead each named node becomes its own top-level FUNCTION of
+        // `row`, defined in dependency order before mapValue/keepRow, and
+        // referenced as a call (`b(row)`), not a bare name -- confirmed
+        // that shape correctly threads a chain of dependent named functions
+        // through to mapValue against the real parser and evaluator.
+        var namedNodeBindingLines = BuildNamedNodeBindingLines(warnings, bindIndependentVariable, independentVariableName);
+
         var sourceBuilder = new StringBuilder();
         sourceBuilder.AppendLine($"// DjeLab flow: {string.Join(" -> ", ordered.Select(node => node.Title))}");
         if (sourceNode.Kind == FlowNodeKind.SequenceSource)
@@ -1040,6 +1209,13 @@
             sourceBuilder.AppendLine($"// Columns: {string.Join(", ", runtimeColumns)}");
         if (constantNodes.Count > 0)
             sourceBuilder.AppendLine($"// Constants: {string.Join(", ", constantNodes.Select(n => n.ConstantName))}");
+        var namedOutputNames = _nodes
+            .Where(node => (node.Kind == FlowNodeKind.Transform || node.Kind == FlowNodeKind.Filter) && !string.IsNullOrWhiteSpace(node.OutputName))
+            .Select(node => node.OutputName.Trim())
+            .Distinct()
+            .ToList();
+        if (namedOutputNames.Count > 0)
+            sourceBuilder.AppendLine($"// Named outputs (call as name(row)): {string.Join(", ", namedOutputNames)}");
         if (bindIndependentVariable)
             sourceBuilder.AppendLine($"// Independent variable: {independentVariableName}");
         sourceBuilder.AppendLine();
@@ -1056,6 +1232,9 @@
             var valueExpression = NormalizeExpression(constant.ConstantValueExpression, ConstantPlaceholderFor(constant.ConstantValueKind));
             sourceBuilder.AppendLine($"let {name} = {valueExpression} in");
         }
+
+        foreach (var line in namedNodeBindingLines)
+            sourceBuilder.AppendLine(line);
 
         sourceBuilder.AppendLine("let mapValue row =");
         if (bindIndependentVariable)
