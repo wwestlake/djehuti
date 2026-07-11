@@ -90,7 +90,7 @@
                                         @onclick="() => StartReferenceConnection(node.Id)">
                                 </button>
                             }
-                            @if (node.Kind == FlowNodeKind.Transform || node.Kind == FlowNodeKind.Filter)
+                            @if (node.Kind == FlowNodeKind.Transform || node.Kind == FlowNodeKind.Filter || node.Kind == FlowNodeKind.Integrator)
                             {
                                 <button type="button"
                                         class="flow-socket flow-socket-ref-input"
@@ -275,6 +275,18 @@
                                     <textarea rows="4"
                                               @oninput="e => UpdateNode(node.Id, n => n.DerivativeExpression = e.Value?.ToString() ?? string.Empty)">@node.DerivativeExpression</textarea>
                                 </label>
+                                <label class="flow-field">
+                                    <span>References (optional)</span>
+                                    <input value="@node.ReferencedOutputsCsv"
+                                           @oninput="e => UpdateNode(node.Id, n => n.ReferencedOutputsCsv = e.Value?.ToString() ?? string.Empty)"
+                                           placeholder="other output names, comma-separated" />
+                                </label>
+                                @if (!string.IsNullOrWhiteSpace(node.ReferencedOutputsCsv))
+                                {
+                                    <div class="flow-node-actions">
+                                        <span class="flow-constant-hint">Call a named Transform/Filter as <code>name(row)</code>; a Constant as its bare name.</span>
+                                    </div>
+                                }
                             }
                             else if (node.Kind == FlowNodeKind.Plot)
                             {
@@ -1984,7 +1996,7 @@
         // that are the actual source of truth (and the only thing the
         // compiler reads).
         var nameable = _nodes.Where(HasReferenceableName).ToList();
-        foreach (var target in _nodes.Where(node => node.Kind == FlowNodeKind.Transform || node.Kind == FlowNodeKind.Filter))
+        foreach (var target in _nodes.Where(node => node.Kind == FlowNodeKind.Transform || node.Kind == FlowNodeKind.Filter || node.Kind == FlowNodeKind.Integrator))
         {
             var refs = ParseColumns(target.ReferencedOutputsCsv).ToList();
             foreach (var refName in refs)
