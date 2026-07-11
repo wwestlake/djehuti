@@ -2178,6 +2178,42 @@ a {
     background: rgb(var(--flow-accent));
 }
 
+/* Reference sockets are a visually distinct SECOND connection kind (see
+   BuildConnections/StartReferenceConnection) -- dashed border and a fixed
+   violet color (not the node's own --flow-accent) so they never read as
+   "just another chain socket" at a glance, and a lower vertical position so
+   a node offering both kinds doesn't overlap them. */
+.flow-socket-ref-output,
+.flow-socket-ref-input {
+    top: 128px;
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    border: 2px dashed rgba(167, 139, 250, 0.9);
+    background: var(--djelab-bg);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.18);
+}
+
+    .flow-socket-ref-output:hover,
+    .flow-socket-ref-input:hover {
+        transform: scale(1.25) rotate(45deg);
+        box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.3);
+    }
+
+.flow-socket-ref-output {
+    right: -7px;
+    background: rgba(167, 139, 250, 0.9);
+}
+
+.flow-socket-ref-input {
+    left: -7px;
+}
+
+.flow-wire-reference {
+    stroke: rgba(167, 139, 250, 0.85) !important;
+    stroke-dasharray: 6 5;
+}
+
 .flow-node-body {
     padding: 0.65rem;
     color: var(--djelab-text);

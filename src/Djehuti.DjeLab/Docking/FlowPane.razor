@@ -40,13 +40,13 @@
                 <svg class="flow-wires" viewBox="0 0 4000 2400" preserveAspectRatio="none" aria-hidden="true">
                     @foreach (var connection in BuildConnections())
                     {
-                        <path d="@BuildWirePath(connection)" />
+                        <path class="@(connection.IsReference ? "flow-wire-reference" : "")" d="@BuildWirePath(connection)" />
                     }
                 </svg>
 
                 @foreach (var node in _nodes)
                 {
-                    var selected = _pendingConnectionNodeId == node.Id;
+                    var selected = _pendingConnectionNodeId == node.Id || _pendingReferenceSourceId == node.Id;
                     <div @key="node.Id" class="flow-node flow-node-@node.Kind.ToString().ToLowerInvariant() @(selected ? "selected" : "") @(node.IsCollapsed ? "flow-node-collapsed" : "")"
                          style="@BuildNodeStyle(node)"
                          @onpointerdown="e => BeginDrag(node, e)">
@@ -73,6 +73,29 @@
                                         class="flow-socket flow-socket-output"
                                         title="Start connection"
                                         @onclick="() => StartConnection(node.Id)">
+                                </button>
+                            }
+                            @* Reference sockets are a second, independent connection kind --
+                               separate from the chain sockets above, styled distinctly (dashed,
+                               violet). A node offers a reference OUTPUT once it has a name
+                               (Constants always do; Transform/Filter only once Output name is
+                               set) and can be dragged to any Transform/Filter's reference INPUT,
+                               which appends that name to References -- regardless of the two
+                               nodes' position in the main chain. *@
+                            @if (HasReferenceableName(node))
+                            {
+                                <button type="button"
+                                        class="flow-socket flow-socket-ref-output"
+                                        title="Drag to another node's reference input to make @ReferenceableName(node) available there"
+                                        @onclick="() => StartReferenceConnection(node.Id)">
+                                </button>
+                            }
+                            @if (node.Kind == FlowNodeKind.Transform || node.Kind == FlowNodeKind.Filter)
+                            {
+                                <button type="button"
+                                        class="flow-socket flow-socket-ref-input"
+                                        title="Drop a reference output here to add it to References"
+                                        @onclick="() => CompleteReferenceConnection(node.Id)">
                                 </button>
                             }
                         </div>
@@ -400,6 +423,7 @@
     private double _dragOffsetX;
     private double _dragOffsetY;
     private string? _pendingConnectionNodeId;
+    private string? _pendingReferenceSourceId;
     private ActiveFileContextSnapshot _activeFileContext = ActiveFileContextSnapshot.Empty;
 
     protected override void OnInitialized()
@@ -732,6 +756,66 @@
         target.InputFromNodeId = source.Id;
         _pendingConnectionNodeId = null;
         _statusMessage = "Nodes connected.";
+        _ = SaveStateAsync();
+        _ = CompileAsync();
+    }
+
+    // A node "has a referenceable name" once it carries a name another node
+    // could call by -- Constants always do (that's their whole purpose);
+    // Transform/Filter only once Output name is explicitly set (matches the
+    // Phase A rule: an unnamed Transform/Filter is just a normal chain step,
+    // invisible to BuildNamedNodeBindingLines).
+    private static bool HasReferenceableName(FlowNodeModel node) => node.Kind switch
+    {
+        FlowNodeKind.Constant => !string.IsNullOrWhiteSpace(node.ConstantName),
+        FlowNodeKind.Transform or FlowNodeKind.Filter => !string.IsNullOrWhiteSpace(node.OutputName),
+        _ => false
+    };
+
+    private static string ReferenceableName(FlowNodeModel node) =>
+        (node.Kind == FlowNodeKind.Constant ? node.ConstantName : node.OutputName).Trim();
+
+    private void StartReferenceConnection(string nodeId)
+    {
+        _pendingReferenceSourceId = nodeId;
+        _statusMessage = "Pick a node to add this reference to.";
+    }
+
+    // Reference sockets are a second, independent connection kind from the
+    // main chain sockets (StartConnection/ConnectTarget) -- dragging a
+    // reference doesn't touch InputFromNodeId/OutputToNodeId at all, it just
+    // appends a name to the target's ReferencedOutputsCsv, reusing the exact
+    // text field Phase A already compiles correctly. Idempotent (re-dropping
+    // the same reference is a no-op, not a duplicate).
+    private void CompleteReferenceConnection(string targetNodeId)
+    {
+        if (_pendingReferenceSourceId is null)
+            return;
+
+        var source = _nodes.FirstOrDefault(node => node.Id == _pendingReferenceSourceId);
+        var target = _nodes.FirstOrDefault(node => node.Id == targetNodeId);
+        _pendingReferenceSourceId = null;
+
+        if (source is null || target is null || !HasReferenceableName(source))
+            return;
+
+        if (string.Equals(source.Id, target.Id, StringComparison.Ordinal))
+        {
+            _statusMessage = "A node can't reference itself.";
+            return;
+        }
+
+        var name = ReferenceableName(source);
+        var existing = ParseColumns(target.ReferencedOutputsCsv).ToList();
+        if (existing.Any(existingName => string.Equals(existingName, name, StringComparison.Ordinal)))
+        {
+            _statusMessage = $"{target.Title} already references {name}.";
+            return;
+        }
+
+        existing.Add(name);
+        target.ReferencedOutputsCsv = string.Join(", ", existing);
+        _statusMessage = $"{target.Title} now references {name}.";
         _ = SaveStateAsync();
         _ = CompileAsync();
     }
@@ -1879,7 +1963,7 @@
         return parsed.Headers.Count() >= 2 && parsed.Rows.Count() >= 1;
     }
 
-    private IEnumerable<(FlowNodeModel Source, FlowNodeModel Target)> BuildConnections()
+    private IEnumerable<(FlowNodeModel Source, FlowNodeModel Target, bool IsReference)> BuildConnections()
     {
         foreach (var node in _nodes)
         {
@@ -1888,16 +1972,40 @@
 
             var target = _nodes.FirstOrDefault(candidate => string.Equals(candidate.Id, node.OutputToNodeId, StringComparison.Ordinal));
             if (target is not null)
-                yield return (node, target);
+                yield return (node, target, false);
+        }
+
+        // Reference wires are derived, not stored -- a wire exists whenever a
+        // Transform/Filter's References field contains a name that some
+        // OTHER node currently provides (Constant name or Transform/Filter
+        // Output name), recomputed from ReferencedOutputsCsv/OutputName/
+        // ConstantName on every render rather than kept as a separate
+        // connection list that could drift out of sync with the text fields
+        // that are the actual source of truth (and the only thing the
+        // compiler reads).
+        var nameable = _nodes.Where(HasReferenceableName).ToList();
+        foreach (var target in _nodes.Where(node => node.Kind == FlowNodeKind.Transform || node.Kind == FlowNodeKind.Filter))
+        {
+            var refs = ParseColumns(target.ReferencedOutputsCsv).ToList();
+            foreach (var refName in refs)
+            {
+                var source = nameable.FirstOrDefault(node => string.Equals(ReferenceableName(node), refName, StringComparison.Ordinal) && node.Id != target.Id);
+                if (source is not null)
+                    yield return (source, target, true);
+            }
         }
     }
 
-    private string BuildWirePath((FlowNodeModel Source, FlowNodeModel Target) connection)
+    private string BuildWirePath((FlowNodeModel Source, FlowNodeModel Target, bool IsReference) connection)
     {
+        // Reference wires anchor lower than chain wires (matching the
+        // reference sockets' own lower position in CSS) so the two kinds of
+        // connection don't visually overlap when a node has both.
+        var socketOffset = connection.IsReference ? 128.0 : (GetNodeHeight(connection.Source) / 2);
         var startX = connection.Source.X + GetNodeWidth(connection.Source);
-        var startY = connection.Source.Y + (GetNodeHeight(connection.Source) / 2);
+        var startY = connection.Source.Y + socketOffset;
         var endX = connection.Target.X;
-        var endY = connection.Target.Y + (GetNodeHeight(connection.Target) / 2);
+        var endY = connection.Target.Y + socketOffset;
         var controlOffset = Math.Max(80, Math.Abs(endX - startX) * 0.35);
         return $"M {startX.ToString(CultureInfo.InvariantCulture)} {startY.ToString(CultureInfo.InvariantCulture)} C {(startX + controlOffset).ToString(CultureInfo.InvariantCulture)} {startY.ToString(CultureInfo.InvariantCulture)}, {(endX - controlOffset).ToString(CultureInfo.InvariantCulture)} {endY.ToString(CultureInfo.InvariantCulture)}, {endX.ToString(CultureInfo.InvariantCulture)} {endY.ToString(CultureInfo.InvariantCulture)}";
     }
