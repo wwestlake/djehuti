@@ -25,6 +25,12 @@
             <button type="button" class="flow-btn" @onclick="UseActiveFileAsync" disabled="@(!_activeFileContext.HasSelection || _busy)">Use active file</button>
         </div>
         <div class="flow-toolbar-right">
+            <div class="flow-zoom-controls">
+                <button type="button" class="flow-btn flow-zoom-btn" title="Zoom out" @onclick="ZoomOut">−</button>
+                <span class="flow-zoom-level">@((_zoom * 100).ToString("F0"))%</span>
+                <button type="button" class="flow-btn flow-zoom-btn" title="Zoom in" @onclick="ZoomIn">+</button>
+                <button type="button" class="flow-btn flow-zoom-btn" title="Reset zoom" @onclick="ZoomReset">Reset</button>
+            </div>
             <span class="flow-status">@_statusMessage</span>
         </div>
     </div>
@@ -36,6 +42,7 @@
                  @onpointermove="OnCanvasPointerMove"
                  @onpointerup="OnCanvasPointerUp"
                  @onpointerleave="OnCanvasPointerUp">
+                <div class="flow-canvas-content" style="@FormattableString.Invariant($"transform: scale({_zoom}); transform-origin: 0 0;")">
                 <svg class="flow-wires" viewBox="0 0 4000 2400" preserveAspectRatio="none" aria-hidden="true">
                     @foreach (var connection in BuildConnections())
                     {
@@ -324,6 +331,7 @@
                         }
                     </div>
                 }
+                </div>
             </div>
         </div>
 
@@ -912,18 +920,32 @@
     private void BeginDrag(FlowNodeModel node, PointerEventArgs e)
     {
         _draggingNode = node;
-        _dragOffsetX = e.ClientX - node.X;
-        _dragOffsetY = e.ClientY - node.Y;
+        _dragOffsetX = (e.ClientX / _zoom) - node.X;
+        _dragOffsetY = (e.ClientY / _zoom) - node.Y;
     }
 
     private void OnCanvasPointerMove(PointerEventArgs e)
     {
         if (_draggingNode is null) return;
 
-        _draggingNode.X = Math.Max(8, e.ClientX - _dragOffsetX);
-        _draggingNode.Y = Math.Max(8, e.ClientY - _dragOffsetY);
+        _draggingNode.X = Math.Max(8, (e.ClientX / _zoom) - _dragOffsetX);
+        _draggingNode.Y = Math.Max(8, (e.ClientY / _zoom) - _dragOffsetY);
         StateHasChanged();
     }
+
+    // Node.X/Y and the wire SVG's viewBox stay in the same 4000x2400
+    // content space regardless of zoom -- only .flow-canvas-content gets a
+    // CSS transform: scale(). Screen-space pointer deltas from Blazor's
+    // ClientX/ClientY have to be divided by the zoom factor to land back in
+    // that content space, or dragging drifts relative to the cursor at any
+    // zoom level other than 100%.
+    private const double MinZoom = 0.4;
+    private const double MaxZoom = 1.75;
+    private double _zoom = 1.0;
+
+    private void ZoomIn() => _zoom = Math.Round(Math.Min(MaxZoom, _zoom + 0.15), 2);
+    private void ZoomOut() => _zoom = Math.Round(Math.Max(MinZoom, _zoom - 0.15), 2);
+    private void ZoomReset() => _zoom = 1.0;
 
     private void OnCanvasPointerUp(PointerEventArgs e)
     {
