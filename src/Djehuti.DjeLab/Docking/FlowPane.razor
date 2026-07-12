@@ -26,6 +26,12 @@
             <button type="button" class="flow-btn" @onclick="UseActiveFileAsync" disabled="@(!_activeFileContext.HasSelection || _busy)">Use active file</button>
         </div>
         <div class="flow-toolbar-right">
+            <div class="flow-zoom-controls">
+                <button type="button" class="flow-btn flow-zoom-btn" title="Zoom out" @onclick="ZoomOut">−</button>
+                <span class="flow-zoom-level">@((_zoom * 100).ToString("F0"))%</span>
+                <button type="button" class="flow-btn flow-zoom-btn" title="Zoom in" @onclick="ZoomIn">+</button>
+                <button type="button" class="flow-btn flow-zoom-btn" title="Reset zoom" @onclick="ZoomReset">Reset</button>
+            </div>
             <span class="flow-status">@_statusMessage</span>
         </div>
     </div>
@@ -37,6 +43,7 @@
                  @onpointermove="OnCanvasPointerMove"
                  @onpointerup="OnCanvasPointerUp"
                  @onpointerleave="OnCanvasPointerUp">
+                <div class="flow-canvas-content" style="@FormattableString.Invariant($"transform: scale({_zoom}); transform-origin: 0 0;")">
                 <svg class="flow-wires" viewBox="0 0 4000 2400" preserveAspectRatio="none" aria-hidden="true">
                     @foreach (var connection in BuildConnections())
                     {
@@ -307,11 +314,25 @@
                                     <span>Y label</span>
                                     <input value="@node.YLabel" @oninput="e => UpdateNode(node.Id, n => n.YLabel = e.Value?.ToString() ?? string.Empty)" />
                                 </label>
+                                <label style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.55rem;font-size:0.82rem;color:var(--djelab-muted);">
+                                    <input type="checkbox" checked="@node.ExportOnRun" style="width:auto;"
+                                           @onchange="e => UpdateNode(node.Id, n => n.ExportOnRun = (bool)(e.Value ?? false))" />
+                                    <span>Also write CSV to file storage on run</span>
+                                </label>
+                                @if (node.ExportOnRun)
+                                {
+                                    <label class="flow-field">
+                                        <span>Export path</span>
+                                        <input value="@node.ExportPath" placeholder="/data/results.csv"
+                                               @oninput="e => UpdateNode(node.Id, n => n.ExportPath = e.Value?.ToString() ?? string.Empty)" />
+                                    </label>
+                                }
                             }
                         </div>
                         }
                     </div>
                 }
+                </div>
             </div>
         </div>
 
@@ -900,18 +921,32 @@
     private void BeginDrag(FlowNodeModel node, PointerEventArgs e)
     {
         _draggingNode = node;
-        _dragOffsetX = e.ClientX - node.X;
-        _dragOffsetY = e.ClientY - node.Y;
+        _dragOffsetX = (e.ClientX / _zoom) - node.X;
+        _dragOffsetY = (e.ClientY / _zoom) - node.Y;
     }
 
     private void OnCanvasPointerMove(PointerEventArgs e)
     {
         if (_draggingNode is null) return;
 
-        _draggingNode.X = Math.Max(8, e.ClientX - _dragOffsetX);
-        _draggingNode.Y = Math.Max(8, e.ClientY - _dragOffsetY);
+        _draggingNode.X = Math.Max(8, (e.ClientX / _zoom) - _dragOffsetX);
+        _draggingNode.Y = Math.Max(8, (e.ClientY / _zoom) - _dragOffsetY);
         StateHasChanged();
     }
+
+    // Node.X/Y and the wire SVG's viewBox stay in the same 4000x2400
+    // content space regardless of zoom -- only .flow-canvas-content gets a
+    // CSS transform: scale(). Screen-space pointer deltas from Blazor's
+    // ClientX/ClientY have to be divided by the zoom factor to land back in
+    // that content space, or dragging drifts relative to the cursor at any
+    // zoom level other than 100%.
+    private const double MinZoom = 0.4;
+    private const double MaxZoom = 1.75;
+    private double _zoom = 1.0;
+
+    private void ZoomIn() => _zoom = Math.Round(Math.Min(MaxZoom, _zoom + 0.15), 2);
+    private void ZoomOut() => _zoom = Math.Round(Math.Max(MinZoom, _zoom - 0.15), 2);
+    private void ZoomReset() => _zoom = 1.0;
 
     private void OnCanvasPointerUp(PointerEventArgs e)
     {
@@ -1147,12 +1182,63 @@
             Actions.AppendConsole("Flow", outcome.Success
                 ? $"Flow ran successfully and emitted {outcome.PointCount} point(s)."
                 : $"Flow run failed: {outcome.Error}", outcome.Success ? "info" : "error");
+
+            if (outcome.Success)
+                await ExportCsvIfConfiguredAsync();
         }
         finally
         {
             _busy = false;
             StateHasChanged();
         }
+    }
+
+    // Writes the just-completed run's chart data (the same Headers/Rows the
+    // GraphPane is showing) out as a CSV file via the ordinary S3-backed
+    // file API, if the Plot node has "Export on run" checked. This never
+    // touches the Spinoza sandbox -- it reads WorkspaceActions'
+    // already-accumulated GraphDataSnapshot, which exists purely for the
+    // chart pane, and just also serializes it to CSV.
+    private async Task ExportCsvIfConfiguredAsync()
+    {
+        var plot = _nodes.LastOrDefault(n => n.Kind == FlowNodeKind.Plot);
+        if (plot is null || !plot.ExportOnRun) return;
+
+        if (string.IsNullOrWhiteSpace(plot.ExportPath))
+        {
+            Actions.AppendConsole("Flow", "Export skipped: no export path set on the Plot node.", "warning");
+            return;
+        }
+
+        var snapshot = Actions.CurrentGraphData;
+        if (snapshot.Rows.Count == 0)
+        {
+            Actions.AppendConsole("Flow", "Export skipped: the run produced no rows.", "warning");
+            return;
+        }
+
+        var csv = new System.Text.StringBuilder();
+        csv.AppendLine(string.Join(",", snapshot.Headers.Select(CsvEscape)));
+        foreach (var row in snapshot.Rows)
+            csv.AppendLine(string.Join(",", row.Select(CsvEscape)));
+
+        var result = await FilesClient.WriteTextFileAsync(plot.ExportPath.Trim(), csv.ToString(), "text/csv");
+        if (result.Success)
+        {
+            Actions.AppendConsole("Flow", $"Exported {snapshot.Rows.Count} row(s) to \"{plot.ExportPath.Trim()}\".", "info");
+            Actions.NotifyFilesChanged();
+        }
+        else
+        {
+            Actions.AppendConsole("Flow", $"Export failed: {result.Error}", "error");
+        }
+    }
+
+    private static string CsvEscape(string value)
+    {
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
+        return value;
     }
 
     private async Task<FlowCompileResult> BuildCompileResultAsync()
