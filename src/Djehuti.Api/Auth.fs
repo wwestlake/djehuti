@@ -14,6 +14,16 @@ type JwtClaims =
       Email: string
       DisplayName: string option
       Role: string
+      // Product slugs this account currently qualifies for, computed fresh
+      // at token-issuance time from the user's Patreon tier (see
+      // ProductRepository.getEntitlements). Baked into the token rather
+      // than re-checked live on every request -- desktop tokens live for
+      // up to 30 days, so this is trusted for the token's whole life, not
+      // re-verified per call. Defaults to [] for tokens issued before this
+      // field existed or where entitlements don't apply (e.g. the
+      // website's own cookie-issued tokens can carry an empty list; the
+      // desktop exchange endpoint is the one that actually populates it).
+      Entitlements: string list
       IssuedAt: DateTime
       ExpiresAt: DateTime }
 
@@ -34,6 +44,13 @@ let generateToken (claims: JwtClaims) : string =
     if claims.DisplayName.IsSome then
         claimsIdentity.AddClaim(new Claim("display_name", claims.DisplayName.Value))
     claimsIdentity.AddClaim(new Claim("role", claims.Role))
+    // A real JSON array in the token payload (["a","b"]), not repeated
+    // same-named claims -- JSON objects can't reliably repeat keys, and a
+    // desktop client reading this token may not be a .NET/JWT-library-aware
+    // parser that would collapse repeats into a list on its own.
+    if not claims.Entitlements.IsEmpty then
+        let entitlementsJson = System.Text.Json.JsonSerializer.Serialize(claims.Entitlements)
+        claimsIdentity.AddClaim(new Claim("entitlements", entitlementsJson, JsonClaimValueTypes.JsonArray))
 
     let tokenDescriptor = SecurityTokenDescriptor(
         Subject = claimsIdentity,
@@ -74,6 +91,13 @@ let verifyToken (token: string) : JwtClaims option =
             let claim = principal.FindFirst(name)
             if claim <> null then Some claim.Value else None
 
+        let entitlements =
+            match getClaim "entitlements" with
+            | None -> []
+            | Some json ->
+                try System.Text.Json.JsonSerializer.Deserialize<string list>(json)
+                with _ -> []
+
         match getClaim "sub", getClaim "email", getClaim "role" with
         | Some userId, Some email, Some role ->
             Some {
@@ -81,6 +105,7 @@ let verifyToken (token: string) : JwtClaims option =
                 Email = email
                 DisplayName = getClaim "display_name"
                 Role = role
+                Entitlements = entitlements
                 IssuedAt = DateTime.UtcNow
                 ExpiresAt = DateTime.UtcNow.AddHours(1.0)
             }
