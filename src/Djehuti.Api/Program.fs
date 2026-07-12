@@ -5726,9 +5726,23 @@ let main args =
 
     // ── Products: admin catalog + self-view entitlements ──────────────────────
 
+    // Public projection -- deliberately excludes GithubOwner/GithubRepo/
+    // GithubWebhookSecret. The webhook secret in particular must never
+    // leave the admin-only /api/admin/products response.
+    let toPublicProduct (p: ProductRepository.ProductRecord) =
+        {|
+            id = p.Id
+            slug = p.Slug
+            name = p.Name
+            description = p.Description
+            requiredTierId = p.RequiredTierId
+            active = p.Active
+            createdAt = p.CreatedAt
+        |}
+
     app.MapGet(
         "/api/products",
-        Func<IResult>(fun () -> Results.Ok(ProductRepository.listActive ()))
+        Func<IResult>(fun () -> Results.Ok(ProductRepository.listActive () |> List.map toPublicProduct))
     ) |> ignore
 
     app.MapGet(
@@ -5844,7 +5858,7 @@ let main args =
             | None -> Results.NotFound("Product not found")
             | Some product ->
                 Results.Ok({|
-                    product = product
+                    product = toPublicProduct product
                     releases = ProductReleaseRepository.listForProduct product.Id
                 |}))
     ) |> ignore
