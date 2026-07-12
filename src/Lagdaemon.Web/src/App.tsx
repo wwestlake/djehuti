@@ -502,6 +502,7 @@ function AppInner() {
   const location = useLocation()
   const navigate = useNavigate()
   const isHome = location.pathname === '/'
+  const isDesktopAuth = location.pathname === '/auth/desktop'
 
   // Anonymous page-view beacon — fires on every route change for non-logged-in visitors
   const { user } = useAuth()
@@ -522,6 +523,15 @@ function AppInner() {
   const openSettings = (sec: SettingsSection = 'general') => {
     setSettingsSection(sec)
     setSettingsOpen(true)
+  }
+
+  if (isDesktopAuth) {
+    return (
+      <>
+        <ScrollToTop />
+        <DesktopAuthPage />
+      </>
+    )
   }
 
   return (
@@ -564,7 +574,6 @@ function AppInner() {
             <Route path="/achievements" element={<ProtectedRoute><AchievementsPage /></ProtectedRoute>} />
             <Route path="/supporters" element={<SupportersPage />} />
             <Route path="/sponsors" element={<SponsorsPage />} />
-            <Route path="/auth/desktop" element={<DesktopAuthPage />} />
             <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPage /></ProtectedRoute>} />
           </Routes>
         </main>
