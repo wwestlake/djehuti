@@ -64,6 +64,9 @@ interface Product {
   requiredTierId: string | null
   active: boolean
   createdAt: string
+  githubOwner: string | null
+  githubRepo: string | null
+  githubWebhookSecret: string | null
 }
 
 interface PatreonTier {
@@ -757,6 +760,30 @@ export default function AdminPage() {
       await apiFetch(`${BASE}/api/admin/products/${id}`, { method: 'DELETE' })
       setProducts(prev => prev.filter(p => p.id !== id))
     } catch { setError('Failed to delete product') }
+  }
+
+  const linkGithubRepo = async (product: Product) => {
+    const owner = prompt('GitHub owner (e.g. wwestlake):', product.githubOwner ?? '')
+    if (!owner) return
+    const repo = prompt('GitHub repo name:', product.githubRepo ?? '')
+    if (!repo) return
+    try {
+      const res = await apiFetch(`${BASE}/api/admin/products/${product.id}/github`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner, repo }),
+      })
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, githubOwner: owner, githubRepo: repo, githubWebhookSecret: res.webhookSecret } : p))
+      alert(`Repo linked. Register this webhook on ${owner}/${repo}:\n\nURL: ${res.webhookUrl}\nSecret: ${res.webhookSecret}\nContent type: application/json\nEvents: Releases`)
+    } catch { setError('Failed to link GitHub repo') }
+  }
+
+  const unlinkGithubRepo = async (product: Product) => {
+    if (!confirm(`Unlink ${product.githubOwner}/${product.githubRepo} from ${product.name}? Remember to also delete the webhook on GitHub.`)) return
+    try {
+      await apiFetch(`${BASE}/api/admin/products/${product.id}/github`, { method: 'DELETE' })
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, githubOwner: null, githubRepo: null, githubWebhookSecret: null } : p))
+    } catch { setError('Failed to unlink GitHub repo') }
   }
 
   const TAB_LABELS: Record<Tab, string> = {
@@ -3970,10 +3997,15 @@ export default function AdminPage() {
               { key: 'slug', label: 'Slug', render: p => <code style={{ fontSize: '0.8rem' }}>{p.slug}</code> },
               { key: 'name', label: 'Name' },
               { key: 'requiredTierId', label: 'Required Tier', render: p => patreonTiers.find(t => t.tierId === p.requiredTierId)?.tierName ?? (p.requiredTierId ?? '—') },
+              { key: 'githubRepo', label: 'GitHub Repo', render: p => p.githubOwner && p.githubRepo
+                ? <code style={{ fontSize: '0.8rem' }}>{p.githubOwner}/{p.githubRepo}</code>
+                : <span style={{ color: 'var(--text-muted)' }}>Not linked</span> },
               { key: 'active', label: 'Status', render: p => <span style={{ color: p.active ? 'var(--accent)' : 'var(--text-muted)' }}>{p.active ? 'Active' : 'Inactive'}</span> },
               { key: 'id', label: '', sortable: false, render: p => (
                 <>
                   <button className="post-action" onClick={() => toggleProductActive(p)}>{p.active ? 'Deactivate' : 'Activate'}</button>
+                  <button className="post-action" onClick={() => linkGithubRepo(p)}>{p.githubOwner ? 'Re-link' : 'Link'} GitHub</button>
+                  {p.githubOwner && <button className="post-action" onClick={() => unlinkGithubRepo(p)}>Unlink</button>}
                   <button className="post-action post-action-delete" onClick={() => deleteProduct(p.id)}>Delete</button>
                 </>
               ) },

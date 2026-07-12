@@ -4,27 +4,33 @@ open System
 open Npgsql
 
 type ProductRecord = {
-    Id:             Guid
-    Slug:           string
-    Name:           string
-    Description:    string option
-    RequiredTierId: string option
-    Active:         bool
-    CreatedAt:      DateTimeOffset
+    Id:                 Guid
+    Slug:               string
+    Name:               string
+    Description:        string option
+    RequiredTierId:     string option
+    Active:             bool
+    CreatedAt:          DateTimeOffset
+    GithubOwner:        string option
+    GithubRepo:         string option
+    GithubWebhookSecret: string option
 }
 
 let private readProduct (r: System.Data.Common.DbDataReader) : ProductRecord =
     {
-        Id             = r.GetGuid(0)
-        Slug           = r.GetString(1)
-        Name           = r.GetString(2)
-        Description    = if r.IsDBNull(3) then None else Some (r.GetString(3))
-        RequiredTierId = if r.IsDBNull(4) then None else Some (r.GetString(4))
-        Active         = r.GetBoolean(5)
-        CreatedAt      = r.GetFieldValue<DateTimeOffset>(6)
+        Id                  = r.GetGuid(0)
+        Slug                = r.GetString(1)
+        Name                = r.GetString(2)
+        Description         = if r.IsDBNull(3) then None else Some (r.GetString(3))
+        RequiredTierId      = if r.IsDBNull(4) then None else Some (r.GetString(4))
+        Active              = r.GetBoolean(5)
+        CreatedAt           = r.GetFieldValue<DateTimeOffset>(6)
+        GithubOwner         = if r.IsDBNull(7) then None else Some (r.GetString(7))
+        GithubRepo          = if r.IsDBNull(8) then None else Some (r.GetString(8))
+        GithubWebhookSecret = if r.IsDBNull(9) then None else Some (r.GetString(9))
     }
 
-let private selectColumns = "id, slug, name, description, required_tier_id, active, created_at"
+let private selectColumns = "id, slug, name, description, required_tier_id, active, created_at, github_owner, github_repo, github_webhook_secret"
 
 let listAll () : ProductRecord list =
     use conn = Database.openConnection()
@@ -102,3 +108,45 @@ let getEntitlements (userId: Guid) : string list =
             else reader.GetInt32(3) >= reader.GetInt32(2)
         if qualifies then results <- slug :: results
     List.rev results
+
+// Points a product at a GitHub repo and (re)generates its webhook secret --
+// called once when the admin sets/changes the repo, and again if they want
+// to rotate the secret (e.g. after accidentally pasting it somewhere). The
+// secret is what GitHub signs release-webhook payloads with (X-Hub-Signature-256),
+// verified in the webhook handler; one per product so rotating one repo's
+// hook never invalidates another product's.
+let setGithubRepo (id: Guid) (owner: string) (repo: string) : string =
+    let secret = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLowerInvariant()
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand("""
+        UPDATE products
+        SET github_owner = @owner, github_repo = @repo, github_webhook_secret = @secret
+        WHERE id = @id
+    """, conn)
+    cmd.Parameters.AddWithValue("id", id) |> ignore
+    cmd.Parameters.AddWithValue("owner", owner) |> ignore
+    cmd.Parameters.AddWithValue("repo", repo) |> ignore
+    cmd.Parameters.AddWithValue("secret", secret) |> ignore
+    cmd.ExecuteNonQuery() |> ignore
+    secret
+
+let clearGithubRepo (id: Guid) : bool =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand("""
+        UPDATE products
+        SET github_owner = NULL, github_repo = NULL, github_webhook_secret = NULL
+        WHERE id = @id
+    """, conn)
+    cmd.Parameters.AddWithValue("id", id) |> ignore
+    cmd.ExecuteNonQuery() > 0
+
+let tryFindByRepo (owner: string) (repo: string) : ProductRecord option =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand($"""
+        SELECT {selectColumns} FROM products
+        WHERE lower(github_owner) = lower(@owner) AND lower(github_repo) = lower(@repo)
+    """, conn)
+    cmd.Parameters.AddWithValue("owner", owner) |> ignore
+    cmd.Parameters.AddWithValue("repo", repo) |> ignore
+    use reader = cmd.ExecuteReader()
+    if reader.Read() then Some (readProduct reader) else None
