@@ -3543,17 +3543,18 @@ let main args =
                 | None -> Results.NotFound()
                 | Some u ->
                     Results.Ok({|
-                        displayName = u.DisplayName
-                        avatarUrl   = u.AvatarUrl
-                        bio         = u.Bio
-                        pronouns    = u.Pronouns
-                        location    = u.Location
+                        displayName   = u.DisplayName
+                        avatarUrl     = u.AvatarUrl
+                        bio           = u.Bio
+                        pronouns      = u.Pronouns
+                        location      = u.Location
+                        externalLinks = UserRepository.getExternalLinks uid
                     |}))
     ) |> ignore
 
     app.MapPatch(
         "/api/users/me/profile",
-        Func<HttpContext, {| displayName: string; bio: string; avatarUrl: string; pronouns: string; location: string |}, IResult>(fun ctx body ->
+        Func<HttpContext, {| displayName: string; bio: string; avatarUrl: string; pronouns: string; location: string; externalLinks: {| platform: string; url: string |}[] |}, IResult>(fun ctx body ->
             match tryGetAuthClaims ctx with
             | None -> Results.Unauthorized()
             | Some claims ->
@@ -3565,8 +3566,15 @@ let main args =
                 let av  = if String.IsNullOrWhiteSpace body.avatarUrl   then None else Some (body.avatarUrl.Trim())
                 let pr  = if String.IsNullOrWhiteSpace body.pronouns    then None else Some (body.pronouns.Trim())
                 let loc = if String.IsNullOrWhiteSpace body.location    then None else Some (body.location.Trim())
+                let links =
+                    (if isNull (box body.externalLinks) then [||] else body.externalLinks)
+                    |> Array.filter (fun l -> not (String.IsNullOrWhiteSpace l.platform) && not (String.IsNullOrWhiteSpace l.url))
+                    |> Array.map (fun l -> ({ Platform = l.platform.Trim(); Url = l.url.Trim() } : UserRepository.ExternalLink))
+                    |> Array.toList
                 match UserRepository.updateProfileFull uid dn bio av pr loc with
-                | Some u -> Results.Ok({| displayName = u.DisplayName; avatarUrl = u.AvatarUrl; bio = u.Bio; pronouns = u.Pronouns; location = u.Location |})
+                | Some u ->
+                    UserRepository.setExternalLinks uid links
+                    Results.Ok({| displayName = u.DisplayName; avatarUrl = u.AvatarUrl; bio = u.Bio; pronouns = u.Pronouns; location = u.Location; externalLinks = links |})
                 | None   -> Results.Problem(detail = "Update failed", statusCode = 500, title = "Error"))
     ) |> ignore
 
@@ -3671,7 +3679,12 @@ let main args =
             | None -> Results.NotFound()
             | Some u ->
                 let dn = match u.DisplayName with | Some d -> d | None -> u.Email
-                Results.Ok({| id = u.Id.ToString(); displayName = dn; email = u.Email; bio = u.Bio; avatarUrl = u.AvatarUrl; pronouns = u.Pronouns; location = u.Location; createdAt = u.CreatedAt |})
+                Results.Ok({|
+                    id = u.Id.ToString(); displayName = dn; email = u.Email; bio = u.Bio
+                    avatarUrl = u.AvatarUrl; pronouns = u.Pronouns; location = u.Location; createdAt = u.CreatedAt
+                    externalLinks = UserRepository.getExternalLinks userId
+                    patreonTierId = UserRepository.getPatreonTierId userId
+                |})
         )
     ) |> ignore
 

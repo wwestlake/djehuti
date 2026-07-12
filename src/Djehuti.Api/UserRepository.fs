@@ -297,6 +297,37 @@ let updateProfileFull (id: Guid) (displayName: string option) (bio: string optio
         printfn "[UserRepository] updateProfileFull failed: %s" ex.Message
         None
 
+// ── Social links (users.external_links, unused until now) ─────────────────────
+// Kept separate from the User record and its many hand-written SELECT column
+// lists (login, signup, every OAuth branch, etc.) so adding this doesn't
+// require touching each of those ordinal-indexed readers.
+
+type ExternalLink = { Platform: string; Url: string }
+
+let getExternalLinks (id: Guid) : ExternalLink list =
+    use conn = openConn ()
+    use cmd = new NpgsqlCommand("SELECT external_links FROM users WHERE id = @id", conn)
+    cmd.Parameters.AddWithValue("id", id) |> ignore
+    use r = cmd.ExecuteReader()
+    if r.Read() && not (r.IsDBNull(0)) then
+        try System.Text.Json.JsonSerializer.Deserialize<ExternalLink list>(r.GetString(0))
+        with _ -> []
+    else []
+
+let setExternalLinks (id: Guid) (links: ExternalLink list) : unit =
+    use conn = openConn ()
+    use cmd = new NpgsqlCommand("UPDATE users SET external_links = @links::jsonb, updated_at = now() WHERE id = @id", conn)
+    cmd.Parameters.AddWithValue("id", id) |> ignore
+    cmd.Parameters.AddWithValue("links", System.Text.Json.JsonSerializer.Serialize(links)) |> ignore
+    cmd.ExecuteNonQuery() |> ignore
+
+let getPatreonTierId (id: Guid) : string option =
+    use conn = openConn ()
+    use cmd = new NpgsqlCommand("SELECT patreon_tier_id FROM users WHERE id = @id", conn)
+    cmd.Parameters.AddWithValue("id", id) |> ignore
+    use r = cmd.ExecuteReader()
+    if r.Read() && not (r.IsDBNull(0)) then Some (r.GetString(0)) else None
+
 // ── Email Verification Tokens ───────────────────────────────────────────────
 
 let createEmailVerificationToken (userId: Guid) (token: string) : Async<bool> =
