@@ -29,6 +29,8 @@ import AnnouncementsPage from './pages/community/AnnouncementsPage'
 import AnnouncementBanner from './pages/community/AnnouncementBanner'
 import AchievementsPage from './pages/profile/AchievementsPage'
 import SupportersPage from './pages/community/SupportersPage'
+import DownloadsPage from './pages/community/DownloadsPage'
+import DownloadProductPage from './pages/community/DownloadProductPage'
 import SponsorsPage from './pages/community/SponsorsPage'
 import DesktopAuthPage from './pages/auth/DesktopAuthPage'
 
@@ -573,6 +575,8 @@ function AppInner() {
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             <Route path="/achievements" element={<ProtectedRoute><AchievementsPage /></ProtectedRoute>} />
             <Route path="/supporters" element={<SupportersPage />} />
+            <Route path="/downloads" element={<DownloadsPage />} />
+            <Route path="/downloads/:slug" element={<DownloadProductPage />} />
             <Route path="/sponsors" element={<SponsorsPage />} />
             <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPage /></ProtectedRoute>} />
           </Routes>

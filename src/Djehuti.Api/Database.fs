@@ -4171,6 +4171,34 @@ let private migrations : (int * string) list =
         GRANT ALL ON TABLE products TO djehuti;
         GRANT ALL ON TABLE desktop_auth_codes TO djehuti;
         """
+
+        69, """
+        -- GitHub-backed downloads: a product can optionally point at a repo.
+        -- github_webhook_secret is generated when repo fields are set (see
+        -- ProductRepository.setGithubRepo) and used to verify the inbound
+        -- release webhook's HMAC-SHA256 signature -- one secret per product
+        -- rather than one shared secret, so rotating/removing one repo's
+        -- hook never affects another product's.
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS github_owner TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS github_repo TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS github_webhook_secret TEXT;
+
+        CREATE TABLE IF NOT EXISTS product_releases (
+            id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            product_id     UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            tag_name       TEXT NOT NULL,
+            name           TEXT,
+            body           TEXT,
+            prerelease     BOOLEAN NOT NULL DEFAULT FALSE,
+            assets_json    TEXT NOT NULL DEFAULT '[]',
+            published_at   TIMESTAMPTZ,
+            created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (product_id, tag_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_product_releases_product ON product_releases (product_id, published_at DESC);
+
+        GRANT ALL ON TABLE product_releases TO djehuti;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

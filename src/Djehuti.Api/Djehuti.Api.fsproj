@@ -43,6 +43,7 @@
     <Compile Include="HeartbeatWorker.fs" />
     <Compile Include="PatreonService.fs" />
     <Compile Include="ProductRepository.fs" />
+    <Compile Include="ProductReleaseRepository.fs" />
     <Compile Include="DesktopAuthRepository.fs" />
     <Compile Include="DjeLabFilesRepository.fs" />
     <Compile Include="Program.fs" />

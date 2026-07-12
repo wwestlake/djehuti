@@ -5794,6 +5794,173 @@ let main args =
             | None   -> Results.Unauthorized())
     ) |> ignore
 
+    // ── Products: GitHub-backed downloads ──────────────────────────────────────
+
+    app.MapPost(
+        "/api/admin/products/{id}/github",
+        Func<HttpContext, string, {| owner: string; repo: string |}, IResult>(fun ctx id body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(id) with
+                | false, _ -> Results.BadRequest("Invalid product id")
+                | true, productId ->
+                    if String.IsNullOrWhiteSpace body.owner || String.IsNullOrWhiteSpace body.repo then
+                        Results.BadRequest("owner and repo are required")
+                    else
+                        let secret = ProductRepository.setGithubRepo productId body.owner body.repo
+                        Results.Ok({|
+                            webhookSecret = secret
+                            webhookUrl = "https://lagdaemon.com/djehuti/api/webhooks/github/releases"
+                        |})
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/admin/products/{id}/github",
+        Func<HttpContext, string, IResult>(fun ctx id ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(id) with
+                | false, _ -> Results.BadRequest("Invalid product id")
+                | true, productId ->
+                    ProductRepository.clearGithubRepo productId |> ignore
+                    Results.NoContent()
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    // Public download page data: product info + full release history
+    // (newest first, per ProductReleaseRepository.listForProduct's ORDER BY).
+    // Deliberately not entitlement-gated at the data level -- these assets
+    // are public GitHub release asset URLs regardless of what we show, so
+    // gating here is a courtesy UX gate (hide the promoted download until a
+    // user's tier qualifies), not real access control. Real access control
+    // is what the desktop JWT entitlements claim is for.
+    app.MapGet(
+        "/api/products/{slug}/releases",
+        Func<string, IResult>(fun slug ->
+            match ProductRepository.listActive () |> List.tryFind (fun p -> p.Slug = slug) with
+            | None -> Results.NotFound("Product not found")
+            | Some product ->
+                Results.Ok({|
+                    product = product
+                    releases = ProductReleaseRepository.listForProduct product.Id
+                |}))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/webhooks/github/releases",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            task {
+                use memStream = new System.IO.MemoryStream()
+                do! ctx.Request.Body.CopyToAsync(memStream)
+                let body : byte array = memStream.ToArray()
+                let bodyStr = System.Text.Encoding.UTF8.GetString(body)
+
+                match ctx.Request.Headers.TryGetValue("X-Hub-Signature-256") with
+                | false, _ -> return Results.Unauthorized()
+                | true, headerSigs ->
+                    let headerSig = (headerSigs |> Seq.tryHead |> Option.defaultValue "").Replace("sha256=", "")
+                    try
+                        let json = System.Text.Json.JsonDocument.Parse(bodyStr)
+                        let root = json.RootElement
+
+                        let repoOwner =
+                            match root.TryGetProperty("repository") with
+                            | true, repoEl ->
+                                match repoEl.TryGetProperty("owner") with
+                                | true, ownerEl ->
+                                    match ownerEl.TryGetProperty("login") with
+                                    | true, loginEl -> loginEl.GetString()
+                                    | false, _ -> ""
+                                | false, _ -> ""
+                            | false, _ -> ""
+                        let repoName =
+                            match root.TryGetProperty("repository") with
+                            | true, repoEl ->
+                                match repoEl.TryGetProperty("name") with
+                                | true, nameEl -> nameEl.GetString()
+                                | false, _ -> ""
+                            | false, _ -> ""
+
+                        if String.IsNullOrWhiteSpace repoOwner || String.IsNullOrWhiteSpace repoName then
+                            return Results.BadRequest("Missing repository field in webhook payload")
+                        else
+                            match ProductRepository.tryFindByRepo repoOwner repoName with
+                            | None ->
+                                printfn "[GithubReleases] Webhook for unknown repo %s/%s" repoOwner repoName
+                                return Results.NotFound("No product is linked to this repo")
+                            | Some product ->
+                                let secret = product.GithubWebhookSecret |> Option.defaultValue ""
+                                if String.IsNullOrWhiteSpace secret then
+                                    return Results.Problem(detail = "Webhook secret not configured", statusCode = 500, title = "Error")
+                                else
+                                    use hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret))
+                                    let computedSig = Convert.ToHexString(hmac.ComputeHash(body)).ToLowerInvariant()
+                                    if not (compareStringsConstantTime computedSig headerSig) then
+                                        return Results.Unauthorized()
+                                    else
+                                        let action =
+                                            match root.TryGetProperty("action") with
+                                            | true, prop -> prop.GetString()
+                                            | false, _ -> ""
+
+                                        match root.TryGetProperty("release") with
+                                        | false, _ -> return Results.BadRequest("Missing release field in webhook payload")
+                                        | true, release ->
+                                            let tagName =
+                                                match release.TryGetProperty("tag_name") with
+                                                | true, p -> p.GetString()
+                                                | false, _ -> ""
+
+                                            if String.IsNullOrWhiteSpace tagName then
+                                                return Results.BadRequest("Missing tag_name in release payload")
+                                            elif action = "deleted" || action = "unpublished" then
+                                                ProductReleaseRepository.deleteByTag product.Id tagName
+                                                printfn "[GithubReleases] Removed %s %s (%s)" product.Slug tagName action
+                                                return Results.Ok()
+                                            else
+                                                let getStr (name: string) =
+                                                    match release.TryGetProperty(name) with
+                                                    | true, p when p.ValueKind <> System.Text.Json.JsonValueKind.Null -> Some (p.GetString())
+                                                    | _ -> None
+                                                let prerelease =
+                                                    match release.TryGetProperty("prerelease") with
+                                                    | true, p -> p.GetBoolean()
+                                                    | false, _ -> false
+                                                let publishedAt =
+                                                    match release.TryGetProperty("published_at") with
+                                                    | true, p when p.ValueKind <> System.Text.Json.JsonValueKind.Null ->
+                                                        match DateTimeOffset.TryParse(p.GetString()) with
+                                                        | true, dt -> Some dt
+                                                        | false, _ -> None
+                                                    | _ -> None
+                                                let assets =
+                                                    match release.TryGetProperty("assets") with
+                                                    | true, assetsEl when assetsEl.ValueKind = System.Text.Json.JsonValueKind.Array ->
+                                                        assetsEl.EnumerateArray()
+                                                        |> Seq.map (fun a ->
+                                                            ({
+                                                                Name =
+                                                                    match a.TryGetProperty("name") with true, p -> p.GetString() | false, _ -> ""
+                                                                Url =
+                                                                    match a.TryGetProperty("browser_download_url") with true, p -> p.GetString() | false, _ -> ""
+                                                                SizeBytes =
+                                                                    match a.TryGetProperty("size") with true, p -> p.GetInt64() | false, _ -> 0L
+                                                            } : ProductReleaseRepository.ReleaseAsset))
+                                                        |> List.ofSeq
+                                                    | _ -> []
+
+                                                ProductReleaseRepository.upsert product.Id tagName (getStr "name") (getStr "body") prerelease assets publishedAt
+                                                printfn "[GithubReleases] Upserted %s %s (%s), %d assets" product.Slug tagName action (List.length assets)
+                                                return Results.Ok()
+                    with ex ->
+                        printfn "[GithubReleases] EXCEPTION: %s" ex.Message
+                        return Results.BadRequest("Malformed webhook payload")
+            })
+    ) |> ignore
+
     // ── Admin: Site Metrics ──────────────────────────────────────────────────
 
     // ── Anonymous page-view beacon (called by React app on every page load) ────
