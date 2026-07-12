@@ -5681,11 +5681,13 @@ let main args =
                 | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
                 | true, userId ->
                     if not (DesktopAuthRepository.isLoopbackRedirect body.redirectUri) then
+                        printfn "[DesktopAuth] REJECTED authorize for %s: bad redirect_uri %s" claims.Email body.redirectUri
                         Results.BadRequest("redirect_uri must be a loopback address (127.0.0.1/localhost)")
                     elif String.IsNullOrWhiteSpace body.codeChallenge then
                         Results.BadRequest("code_challenge is required")
                     else
                         let code = DesktopAuthRepository.createCode userId body.redirectUri body.codeChallenge
+                        printfn "[DesktopAuth] Issued code for %s -> %s" claims.Email body.redirectUri
                         Results.Ok({| code = code |}))
     ) |> ignore
 
@@ -5694,7 +5696,9 @@ let main args =
         Func<{| code: string; codeVerifier: string |}, System.Threading.Tasks.Task<IResult>>(fun body ->
             async {
                 match DesktopAuthRepository.consumeCode body.code body.codeVerifier with
-                | None -> return Results.BadRequest("Invalid, expired, already-used, or PKCE-mismatched code")
+                | None ->
+                    printfn "[DesktopAuth] REJECTED token exchange: invalid/expired/used/PKCE-mismatched code"
+                    return Results.BadRequest("Invalid, expired, already-used, or PKCE-mismatched code")
                 | Some userId ->
                     let! user = UserRepository.tryGetById userId
                     match user with
@@ -5711,6 +5715,7 @@ let main args =
                             IssuedAt = DateTime.UtcNow
                             ExpiresAt = expiresAt
                         }
+                        printfn "[DesktopAuth] Signed in %s via desktop app, token expires %s, entitlements [%s]" u.Email (expiresAt.ToString("u")) (String.concat ", " entitlements)
                         return Results.Ok({|
                             token = token
                             expiresAt = expiresAt
