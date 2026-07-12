@@ -306,6 +306,19 @@
                                     <span>Y label</span>
                                     <input value="@node.YLabel" @oninput="e => UpdateNode(node.Id, n => n.YLabel = e.Value?.ToString() ?? string.Empty)" />
                                 </label>
+                                <label style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.55rem;font-size:0.82rem;color:var(--djelab-muted);">
+                                    <input type="checkbox" checked="@node.ExportOnRun" style="width:auto;"
+                                           @onchange="e => UpdateNode(node.Id, n => n.ExportOnRun = (bool)(e.Value ?? false))" />
+                                    <span>Also write CSV to file storage on run</span>
+                                </label>
+                                @if (node.ExportOnRun)
+                                {
+                                    <label class="flow-field">
+                                        <span>Export path</span>
+                                        <input value="@node.ExportPath" placeholder="/data/results.csv"
+                                               @oninput="e => UpdateNode(node.Id, n => n.ExportPath = e.Value?.ToString() ?? string.Empty)" />
+                                    </label>
+                                }
                             }
                         </div>
                         }
@@ -1146,12 +1159,63 @@
             Actions.AppendConsole("Flow", outcome.Success
                 ? $"Flow ran successfully and emitted {outcome.PointCount} point(s)."
                 : $"Flow run failed: {outcome.Error}", outcome.Success ? "info" : "error");
+
+            if (outcome.Success)
+                await ExportCsvIfConfiguredAsync();
         }
         finally
         {
             _busy = false;
             StateHasChanged();
         }
+    }
+
+    // Writes the just-completed run's chart data (the same Headers/Rows the
+    // GraphPane is showing) out as a CSV file via the ordinary S3-backed
+    // file API, if the Plot node has "Export on run" checked. This never
+    // touches the Spinoza sandbox -- it reads WorkspaceActions'
+    // already-accumulated GraphDataSnapshot, which exists purely for the
+    // chart pane, and just also serializes it to CSV.
+    private async Task ExportCsvIfConfiguredAsync()
+    {
+        var plot = _nodes.LastOrDefault(n => n.Kind == FlowNodeKind.Plot);
+        if (plot is null || !plot.ExportOnRun) return;
+
+        if (string.IsNullOrWhiteSpace(plot.ExportPath))
+        {
+            Actions.AppendConsole("Flow", "Export skipped: no export path set on the Plot node.", "warning");
+            return;
+        }
+
+        var snapshot = Actions.CurrentGraphData;
+        if (snapshot.Rows.Count == 0)
+        {
+            Actions.AppendConsole("Flow", "Export skipped: the run produced no rows.", "warning");
+            return;
+        }
+
+        var csv = new System.Text.StringBuilder();
+        csv.AppendLine(string.Join(",", snapshot.Headers.Select(CsvEscape)));
+        foreach (var row in snapshot.Rows)
+            csv.AppendLine(string.Join(",", row.Select(CsvEscape)));
+
+        var result = await FilesClient.WriteTextFileAsync(plot.ExportPath.Trim(), csv.ToString(), "text/csv");
+        if (result.Success)
+        {
+            Actions.AppendConsole("Flow", $"Exported {snapshot.Rows.Count} row(s) to \"{plot.ExportPath.Trim()}\".", "info");
+            Actions.NotifyFilesChanged();
+        }
+        else
+        {
+            Actions.AppendConsole("Flow", $"Export failed: {result.Error}", "error");
+        }
+    }
+
+    private static string CsvEscape(string value)
+    {
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
+        return value;
     }
 
     private async Task<FlowCompileResult> BuildCompileResultAsync()

@@ -79,6 +79,15 @@ public sealed class FlowNodeModel
     // set behaves exactly as it did before this existed.
     public string OutputName { get; set; } = "";
     public string ReferencedOutputsCsv { get; set; } = "";
+
+    // CSV export to the user's DjeLab file storage (Plot node only). Spinoza
+    // itself has no file I/O -- by design, see the DSL language reference --
+    // so this never touches the sandboxed program. It writes the same
+    // Headers/Rows the chart pane already accumulated from the run's emitted
+    // points (WorkspaceActions.CurrentGraphData), after the run completes,
+    // via the ordinary S3-backed file API (FilesClient.WriteTextFileAsync).
+    public bool ExportOnRun { get; set; }
+    public string ExportPath { get; set; } = "";
 }
 
 public sealed record FlowCompileResult(
