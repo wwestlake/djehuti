@@ -134,7 +134,7 @@ function Hero() {
         </a>
       </div>
       <div className="hero-visual">
-        <img src="/djelab-workspace-announcement.png" alt="DjeLab workspace preview" />
+        <img src="/cyberscope-analyze-hero.png" alt="Djehuti Cyberscope 3D phase space analysis" />
       </div>
     </section>
   )
