@@ -19,6 +19,7 @@
                 <div class="djelab-auth-menu-backdrop" @onclick="() => _menuOpen = false"></div>
                 <div class="djelab-auth-menu">
                     <div class="djelab-auth-menu-header">@(_me.DisplayName ?? _me.Email)</div>
+                    <a class="djelab-auth-menu-item" href="https://lagdaemon.com/profile">View site profile</a>
                     <button type="button" class="djelab-auth-menu-item djelab-auth-menu-danger" @onclick="SignOut">Sign out</button>
                 </div>
             }

@@ -1456,33 +1456,35 @@ function App() {
               <p className="eyebrow">Djehuti Cyberscope AI+</p>
               <h1>{pageTitle}</h1>
             </div>
-            <a
-              className="icon-button topbar-home-link"
-              href="https://lagdaemon.com"
-              title="Back to lagdaemon.com"
-              aria-label="Back to lagdaemon.com"
-            >
-              <ExternalLink size={18} />
-            </a>
-            <UserMenu onOpenLogin={() => { window.location.href = '/?signin=1' }} />
-            <button
-              className="icon-button theme-toggle"
-              type="button"
-              onClick={() => setTheme((t) => t === 'light' ? 'dark' : t === 'dark' ? 'midnight' : 'light')}
-              title={`Theme: ${theme} - click to cycle`}
-              aria-label="Cycle theme"
-            >
-              {theme === 'light' ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-            <button
-              className={`icon-button tour-trigger${showTourPrompt ? ' active' : ''}`}
-              type="button"
-              title="Ask the AI to walk you through something"
-              aria-label="Start a guided tour"
-              onClick={() => setShowTourPrompt((v) => !v)}
-            >
-              <GraduationCap size={18} />
-            </button>
+            <div className="topbar-right-group">
+              <a
+                className="topbar-home-link"
+                href="https://lagdaemon.com"
+                title="Back to lagdaemon.com"
+              >
+                <ExternalLink size={16} />
+                <span>Lagdaemon.com</span>
+              </a>
+              <UserMenu onOpenLogin={() => { window.location.href = '/?signin=1' }} />
+              <button
+                className="icon-button theme-toggle"
+                type="button"
+                onClick={() => setTheme((t) => t === 'light' ? 'dark' : t === 'dark' ? 'midnight' : 'light')}
+                title={`Theme: ${theme} - click to cycle`}
+                aria-label="Cycle theme"
+              >
+                {theme === 'light' ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
+              <button
+                className={`icon-button tour-trigger${showTourPrompt ? ' active' : ''}`}
+                type="button"
+                title="Ask the AI to walk you through something"
+                aria-label="Start a guided tour"
+                onClick={() => setShowTourPrompt((v) => !v)}
+              >
+                <GraduationCap size={18} />
+              </button>
+            </div>
           </div>
           {(showTourPrompt || isAskingAnalyst) && (
             <form
