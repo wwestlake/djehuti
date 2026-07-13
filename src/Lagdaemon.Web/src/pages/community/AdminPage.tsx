@@ -67,6 +67,7 @@ interface Product {
   githubOwner: string | null
   githubRepo: string | null
   githubWebhookSecret: string | null
+  githubTagPrefix: string | null
 }
 
 interface PatreonTier {
@@ -767,14 +768,22 @@ export default function AdminPage() {
     if (!owner) return
     const repo = prompt('GitHub repo name:', product.githubRepo ?? '')
     if (!repo) return
+    const otherProductsOnRepo = products.some(p => p.id !== product.id && p.githubOwner?.toLowerCase() === owner.toLowerCase() && p.githubRepo?.toLowerCase() === repo.toLowerCase())
+    const tagPrefix = prompt(
+      otherProductsOnRepo
+        ? 'Another product already uses this repo -- tag prefix is required (e.g. "djehuti-router-" so djehuti-router-v1.0.0 routes here):'
+        : 'Tag prefix (optional -- only needed if this repo will host more than one product\'s releases):',
+      product.githubTagPrefix ?? ''
+    )
+    if (otherProductsOnRepo && !tagPrefix) return
     try {
       const res = await apiFetch(`${BASE}/api/admin/products/${product.id}/github`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ owner, repo }),
+        body: JSON.stringify({ owner, repo, tagPrefix: tagPrefix || null }),
       })
-      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, githubOwner: owner, githubRepo: repo, githubWebhookSecret: res.webhookSecret } : p))
-      alert(`Repo linked. Register this webhook on ${owner}/${repo}:\n\nURL: ${res.webhookUrl}\nSecret: ${res.webhookSecret}\nContent type: application/json\nEvents: Releases`)
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, githubOwner: owner, githubRepo: repo, githubWebhookSecret: res.webhookSecret, githubTagPrefix: tagPrefix || null } : p))
+      alert(`Repo linked${res.sharedWithOtherProducts ? ' (shared with another product -- reused its webhook secret, no need to re-register the webhook on GitHub)' : ''}.${res.sharedWithOtherProducts ? '' : `\n\nRegister this webhook on ${owner}/${repo}:\n\nURL: ${res.webhookUrl}\nSecret: ${res.webhookSecret}\nContent type: application/json\nEvents: Releases`}`)
     } catch { setError('Failed to link GitHub repo') }
   }
 
@@ -3998,7 +4007,7 @@ export default function AdminPage() {
               { key: 'name', label: 'Name' },
               { key: 'requiredTierId', label: 'Required Tier', render: p => patreonTiers.find(t => t.tierId === p.requiredTierId)?.tierName ?? (p.requiredTierId ?? '—') },
               { key: 'githubRepo', label: 'GitHub Repo', render: p => p.githubOwner && p.githubRepo
-                ? <code style={{ fontSize: '0.8rem' }}>{p.githubOwner}/{p.githubRepo}</code>
+                ? <code style={{ fontSize: '0.8rem' }}>{p.githubOwner}/{p.githubRepo}{p.githubTagPrefix && ` (${p.githubTagPrefix}*)`}</code>
                 : <span style={{ color: 'var(--text-muted)' }}>Not linked</span> },
               { key: 'active', label: 'Status', render: p => <span style={{ color: p.active ? 'var(--accent)' : 'var(--text-muted)' }}>{p.active ? 'Active' : 'Inactive'}</span> },
               { key: 'id', label: '', sortable: false, render: p => (

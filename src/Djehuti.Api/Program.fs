@@ -5825,7 +5825,7 @@ let main args =
 
     app.MapPost(
         "/api/admin/products/{id}/github",
-        Func<HttpContext, string, {| owner: string; repo: string |}, IResult>(fun ctx id body ->
+        Func<HttpContext, string, {| owner: string; repo: string; tagPrefix: string option |}, IResult>(fun ctx id body ->
             match tryGetAuthClaims ctx with
             | Some claims when Permissions.isAdmin claims.Role ->
                 match Guid.TryParse(id) with
@@ -5834,11 +5834,17 @@ let main args =
                     if String.IsNullOrWhiteSpace body.owner || String.IsNullOrWhiteSpace body.repo then
                         Results.BadRequest("owner and repo are required")
                     else
-                        let secret = ProductRepository.setGithubRepo productId body.owner body.repo
-                        Results.Ok({|
-                            webhookSecret = secret
-                            webhookUrl = "https://lagdaemon.com/djehuti/api/webhooks/github/releases"
-                        |})
+                        let tagPrefix = body.tagPrefix |> Option.filter (String.IsNullOrWhiteSpace >> not) |> Option.map (fun s -> s.Trim())
+                        let siblingCount = ProductRepository.findByRepo body.owner body.repo |> List.filter (fun p -> p.Id <> productId) |> List.length
+                        if siblingCount > 0 && tagPrefix.IsNone then
+                            Results.BadRequest("Another product already uses this repo -- a tag prefix is required to tell releases apart")
+                        else
+                            let secret = ProductRepository.setGithubRepo productId body.owner body.repo tagPrefix
+                            Results.Ok({|
+                                webhookSecret = secret
+                                webhookUrl = "https://lagdaemon.com/djehuti/api/webhooks/github/releases"
+                                sharedWithOtherProducts = siblingCount > 0
+                            |})
             | Some _ -> Results.Forbid()
             | None   -> Results.Unauthorized())
     ) |> ignore
@@ -5914,15 +5920,12 @@ let main args =
                         if String.IsNullOrWhiteSpace repoOwner || String.IsNullOrWhiteSpace repoName then
                             return Results.BadRequest("Missing repository field in webhook payload")
                         else
-                            match ProductRepository.tryFindByRepo repoOwner repoName with
+                            let candidates = ProductRepository.findByRepo repoOwner repoName
+                            match candidates |> List.tryPick (fun p -> p.GithubWebhookSecret) with
                             | None ->
-                                printfn "[GithubReleases] Webhook for unknown repo %s/%s" repoOwner repoName
+                                printfn "[GithubReleases] Webhook for unknown/unconfigured repo %s/%s" repoOwner repoName
                                 return Results.NotFound("No product is linked to this repo")
-                            | Some product ->
-                                let secret = product.GithubWebhookSecret |> Option.defaultValue ""
-                                if String.IsNullOrWhiteSpace secret then
-                                    return Results.Problem(detail = "Webhook secret not configured", statusCode = 500, title = "Error")
-                                else
+                            | Some secret ->
                                     use hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret))
                                     let computedSig = Convert.ToHexString(hmac.ComputeHash(body)).ToLowerInvariant()
                                     if not (compareStringsConstantTime computedSig headerSig) then
@@ -5943,7 +5946,15 @@ let main args =
 
                                             if String.IsNullOrWhiteSpace tagName then
                                                 return Results.BadRequest("Missing tag_name in release payload")
-                                            elif action = "deleted" || action = "unpublished" then
+                                            else
+
+                                            match ProductRepository.resolveProductForTag repoOwner repoName tagName with
+                                            | None ->
+                                                printfn "[GithubReleases] Tag %s on %s/%s matched no product's tag prefix" tagName repoOwner repoName
+                                                return Results.BadRequest($"No product's tag prefix matches \"{tagName}\"")
+                                            | Some product ->
+
+                                            if action = "deleted" || action = "unpublished" then
                                                 ProductReleaseRepository.deleteByTag product.Id tagName
                                                 printfn "[GithubReleases] Removed %s %s (%s)" product.Slug tagName action
                                                 return Results.Ok()
