@@ -50,16 +50,10 @@ export function UserMenu({ onOpenLogin }: UserMenuProps) {
 
           <div className="user-menu-divider" />
 
-          <button
-            className="user-menu-item"
-            onClick={() => {
-              setIsOpen(false)
-              // TODO: Navigate to profile page
-            }}
-          >
+          <a className="user-menu-item" href="/profile" onClick={() => setIsOpen(false)}>
             <User size={14} />
-            <span>Profile</span>
-          </button>
+            <span>View site profile</span>
+          </a>
 
           <div className="user-menu-divider" />
 

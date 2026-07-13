@@ -24,6 +24,7 @@ import PapersListPage from './pages/community/PapersListPage'
 import PaperWorkspacePage from './pages/community/PaperWorkspacePage'
 import PublicPapersPage, { PublicPaperReadPage } from './pages/community/PublicPapersPage'
 import ProfilePage from './pages/community/ProfilePage'
+import PublicProfilePage from './pages/community/PublicProfilePage'
 import AdminPage from './pages/community/AdminPage'
 import AnnouncementsPage from './pages/community/AnnouncementsPage'
 import AnnouncementBanner from './pages/community/AnnouncementBanner'
@@ -134,7 +135,7 @@ function Hero() {
         </a>
       </div>
       <div className="hero-visual">
-        <img src="/djelab-workspace-announcement.png" alt="DjeLab workspace preview" />
+        <img src="/cyberscope-analyze-hero.png" alt="Djehuti Cyberscope 3D phase space analysis" />
       </div>
     </section>
   )
@@ -574,6 +575,7 @@ function AppInner() {
             <Route path="/papers/workspace" element={<ProtectedRoute><PapersListPage /></ProtectedRoute>} />
             <Route path="/papers/:paperId" element={<ProtectedRoute><PaperWorkspacePage /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+            <Route path="/profile/:userId" element={<PublicProfilePage />} />
             <Route path="/achievements" element={<ProtectedRoute><AchievementsPage /></ProtectedRoute>} />
             <Route path="/supporters" element={<SupportersPage />} />
             <Route path="/downloads" element={<DownloadsPage />} />

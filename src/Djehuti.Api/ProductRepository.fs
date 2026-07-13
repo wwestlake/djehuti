@@ -14,6 +14,7 @@ type ProductRecord = {
     GithubOwner:        string option
     GithubRepo:         string option
     GithubWebhookSecret: string option
+    GithubTagPrefix:    string option
 }
 
 let private readProduct (r: System.Data.Common.DbDataReader) : ProductRecord =
@@ -28,9 +29,10 @@ let private readProduct (r: System.Data.Common.DbDataReader) : ProductRecord =
         GithubOwner         = if r.IsDBNull(7) then None else Some (r.GetString(7))
         GithubRepo          = if r.IsDBNull(8) then None else Some (r.GetString(8))
         GithubWebhookSecret = if r.IsDBNull(9) then None else Some (r.GetString(9))
+        GithubTagPrefix     = if r.IsDBNull(10) then None else Some (r.GetString(10))
     }
 
-let private selectColumns = "id, slug, name, description, required_tier_id, active, created_at, github_owner, github_repo, github_webhook_secret"
+let private selectColumns = "id, slug, name, description, required_tier_id, active, created_at, github_owner, github_repo, github_webhook_secret, github_tag_prefix"
 
 let listAll () : ProductRecord list =
     use conn = Database.openConnection()
@@ -109,38 +111,11 @@ let getEntitlements (userId: Guid) : string list =
         if qualifies then results <- slug :: results
     List.rev results
 
-// Points a product at a GitHub repo and (re)generates its webhook secret --
-// called once when the admin sets/changes the repo, and again if they want
-// to rotate the secret (e.g. after accidentally pasting it somewhere). The
-// secret is what GitHub signs release-webhook payloads with (X-Hub-Signature-256),
-// verified in the webhook handler; one per product so rotating one repo's
-// hook never invalidates another product's.
-let setGithubRepo (id: Guid) (owner: string) (repo: string) : string =
-    let secret = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLowerInvariant()
-    use conn = Database.openConnection()
-    use cmd = new NpgsqlCommand("""
-        UPDATE products
-        SET github_owner = @owner, github_repo = @repo, github_webhook_secret = @secret
-        WHERE id = @id
-    """, conn)
-    cmd.Parameters.AddWithValue("id", id) |> ignore
-    cmd.Parameters.AddWithValue("owner", owner) |> ignore
-    cmd.Parameters.AddWithValue("repo", repo) |> ignore
-    cmd.Parameters.AddWithValue("secret", secret) |> ignore
-    cmd.ExecuteNonQuery() |> ignore
-    secret
-
-let clearGithubRepo (id: Guid) : bool =
-    use conn = Database.openConnection()
-    use cmd = new NpgsqlCommand("""
-        UPDATE products
-        SET github_owner = NULL, github_repo = NULL, github_webhook_secret = NULL
-        WHERE id = @id
-    """, conn)
-    cmd.Parameters.AddWithValue("id", id) |> ignore
-    cmd.ExecuteNonQuery() > 0
-
-let tryFindByRepo (owner: string) (repo: string) : ProductRecord option =
+// Multiple products can point at the same repo (one repo, several
+// installers released under distinct tag prefixes) -- all of them so far
+// only used for the shared-secret lookup below, and for admin-side listing
+// of "who else is on this repo."
+let findByRepo (owner: string) (repo: string) : ProductRecord list =
     use conn = Database.openConnection()
     use cmd = new NpgsqlCommand($"""
         SELECT {selectColumns} FROM products
@@ -149,4 +124,62 @@ let tryFindByRepo (owner: string) (repo: string) : ProductRecord option =
     cmd.Parameters.AddWithValue("owner", owner) |> ignore
     cmd.Parameters.AddWithValue("repo", repo) |> ignore
     use reader = cmd.ExecuteReader()
-    if reader.Read() then Some (readProduct reader) else None
+    let mutable results = []
+    while reader.Read() do results <- readProduct reader :: results
+    List.rev results
+
+// Which product a given release's tag belongs to, when a repo is shared.
+// Matches the longest tag-prefix that's an actual prefix of tagName, so
+// prefixes that happen to be prefixes of each other (unlikely, but not
+// impossible) resolve to the more specific one rather than whichever the DB
+// returned first. A product with no tag prefix set only matches if it's the
+// sole product on that repo (single-product-per-repo, the original/common
+// case, keeps working with zero configuration).
+let resolveProductForTag (owner: string) (repo: string) (tagName: string) : ProductRecord option =
+    let candidates = findByRepo owner repo
+    match candidates with
+    | [ only ] when only.GithubTagPrefix.IsNone -> Some only
+    | _ ->
+        candidates
+        |> List.choose (fun p -> p.GithubTagPrefix |> Option.filter tagName.StartsWith |> Option.map (fun prefix -> prefix, p))
+        |> List.sortByDescending (fun (prefix, _) -> prefix.Length)
+        |> List.tryHead
+        |> Option.map snd
+
+// Points a product at a GitHub repo (+ optional tag prefix, required once a
+// repo has more than one product on it) and sets its webhook secret. GitHub
+// only signs a given repo's webhook payloads with ONE secret, so if another
+// product already shares this (owner, repo), reuse its secret instead of
+// generating a new one -- otherwise verification would only ever pass for
+// whichever product happened to be linked first.
+let setGithubRepo (id: Guid) (owner: string) (repo: string) (tagPrefix: string option) : string =
+    let existingSecret =
+        findByRepo owner repo
+        |> List.filter (fun p -> p.Id <> id)
+        |> List.tryPick (fun p -> p.GithubWebhookSecret)
+    let secret =
+        existingSecret
+        |> Option.defaultWith (fun () -> Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLowerInvariant())
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand("""
+        UPDATE products
+        SET github_owner = @owner, github_repo = @repo, github_webhook_secret = @secret, github_tag_prefix = @prefix
+        WHERE id = @id
+    """, conn)
+    cmd.Parameters.AddWithValue("id", id) |> ignore
+    cmd.Parameters.AddWithValue("owner", owner) |> ignore
+    cmd.Parameters.AddWithValue("repo", repo) |> ignore
+    cmd.Parameters.AddWithValue("secret", secret) |> ignore
+    cmd.Parameters.AddWithValue("prefix", (tagPrefix |> Option.map box |> Option.defaultValue (box DBNull.Value))) |> ignore
+    cmd.ExecuteNonQuery() |> ignore
+    secret
+
+let clearGithubRepo (id: Guid) : bool =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand("""
+        UPDATE products
+        SET github_owner = NULL, github_repo = NULL, github_webhook_secret = NULL, github_tag_prefix = NULL
+        WHERE id = @id
+    """, conn)
+    cmd.Parameters.AddWithValue("id", id) |> ignore
+    cmd.ExecuteNonQuery() > 0

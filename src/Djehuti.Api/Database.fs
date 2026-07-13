@@ -4199,6 +4199,20 @@ let private migrations : (int * string) list =
 
         GRANT ALL ON TABLE product_releases TO djehuti;
         """
+
+        70, """
+        -- Multiple products can share one GitHub repo (one repo, several
+        -- installers/artifacts released under distinct tag prefixes, e.g.
+        -- creation-station-v1.0.0 / djehuti-router-v1.0.0). The webhook
+        -- secret becomes a property of the (owner, repo) pair rather than
+        -- of a single product -- GitHub only signs with one secret per
+        -- webhook, so every product sharing a repo must share that secret
+        -- (see ProductRepository.setGithubRepo, which now reuses an
+        -- existing sibling's secret instead of generating a new one).
+        -- github_tag_prefix is how an inbound release gets routed to the
+        -- right product when a repo has more than one.
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS github_tag_prefix TEXT;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
