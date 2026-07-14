@@ -59,6 +59,8 @@
                         @((MarkupString)RenderMarkdown(topic.ContentMarkdown))
                     </div>
 
+                    <TutorChat @key="_activeTopic" LessonTitle="@_plan.Title" TopicTitle="@topic.Title" TopicContent="@topic.ContentMarkdown" />
+
                     <div class="teacher-topic-pager">
                         <button type="button" class="teacher-cta teacher-cta-ghost" disabled="@(_activeTopic == 0)" @onclick="() => _activeTopic--">← Previous</button>
                         <button type="button" class="teacher-cta" disabled="@(_activeTopic == _plan.Topics.Count - 1)" @onclick="() => _activeTopic++">Next →</button>

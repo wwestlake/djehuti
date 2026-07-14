@@ -9,6 +9,7 @@
 @inject IJSRuntime JS
 @inject HttpClient Http
 @inject WorkspaceActions Actions
+@inject WebLlmClient WebLlm
 
 <div class="chat-pane">
     @if (_loading)
@@ -40,7 +41,7 @@
             {
                 <div class="chat-pane-empty-history">
                     @(_isIbisPane
-                        ? "Ask Ibis anything about the workspace."
+                        ? GetIbisEmptyStateText()
                         : (_hasKey
                             ? "Ask Seshat anything about the math you're working on."
                             : "Seshat is waiting for a key. Ibis can still help you get around the workspace."))
@@ -169,7 +170,20 @@
         _activeFileContext = Actions.CurrentFileContext;
         Actions.ActiveFileContextChanged += HandleActiveFileContextChanged;
         _loading = false;
+
+        if (_isIbisPane)
+        {
+            WebLlm.StateChanged += HandleWebLlmStateChanged;
+            // Fire-and-forget: the pane renders immediately either way: while
+            // this is Loading, Ibis still answers via the old keyword
+            // fallback (see GetIbisReplyAsync), so there's no reason to
+            // block the pane on a model download that can take a while on
+            // a first visit.
+            _ = WebLlm.EnsureReadyAsync();
+        }
     }
+
+    private void HandleWebLlmStateChanged() => _ = InvokeAsync(StateHasChanged);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -400,6 +414,39 @@
         return string.Join("\n\n", sections.Where(section => !string.IsNullOrWhiteSpace(section)));
     }
 
+    // Deterministic tour/navigation commands always take priority over the
+    // model (a hallucinated "I opened Files for you" that didn't actually
+    // open anything would be worse than the keyword match it replaces).
+    // Everything else goes to the real WebLLM model when it's ready, and
+    // only falls back to the old keyword-matched replies when WebLLM isn't
+    // available yet (still loading, unsupported browser, or failed) --
+    // never silently pretends to be the model.
+    private async Task<string> GetIbisReplyAsync(string userMessage, IReadOnlyList<ChatTurn> history)
+    {
+        var message = userMessage.ToLowerInvariant();
+        if (TryHandleWorkspaceTour(message, out var tourReply))
+            return tourReply;
+
+        if (WebLlm.State == WebLlmState.Ready)
+        {
+            try
+            {
+                var messages = new List<(string Role, string Content)> { ("system", SystemPrompt) };
+                messages.AddRange(history.Select(t => (t.Role, t.Content)));
+                messages.Add(("user", userMessage));
+                return await WebLlm.ChatAsync(messages);
+            }
+            catch
+            {
+                // Fall through to the scripted fallback rather than surface
+                // a raw error -- Ibis staying helpful matters more here than
+                // reporting the failure.
+            }
+        }
+
+        return BuildLocalHostReply(userMessage, history);
+    }
+
     private string BuildLocalHostReply(string userMessage, IReadOnlyList<ChatTurn> history)
     {
         var message = userMessage.ToLowerInvariant();
@@ -490,6 +537,15 @@
 
         return true;
     }
+
+    private string GetIbisEmptyStateText() => WebLlm.State switch
+    {
+        WebLlmState.Ready => "Ask Ibis anything about the workspace — running a real local model, right in your browser.",
+        WebLlmState.Loading => $"Downloading Ibis's model into your browser ({(int)(WebLlm.ProgressFraction * 100)}%)… tour and navigation commands work right away in the meantime.",
+        WebLlmState.Unsupported => "Your browser doesn't support WebGPU, so Ibis is running in basic keyword mode — tours and navigation still work.",
+        WebLlmState.Failed => "Ibis's local model failed to load, so it's running in basic keyword mode for now — tours and navigation still work.",
+        _ => "Ask Ibis anything about the workspace.",
+    };
 
     private string GetPlaceholder() => _isIbisPane
         ? $"Ask {DisplayName} for a tour or basic help…"
@@ -1219,7 +1275,7 @@
             string reply;
             if (_isIbisPane)
             {
-                reply = BuildLocalHostReply(text, history);
+                reply = await GetIbisReplyAsync(text, history);
             }
             else if (_hasKey)
             {
@@ -1265,6 +1321,10 @@
     public void Dispose()
     {
         Actions.ActiveFileContextChanged -= HandleActiveFileContextChanged;
+        if (_isIbisPane)
+        {
+            WebLlm.StateChanged -= HandleWebLlmStateChanged;
+        }
         _sendCts?.Dispose();
     }
 
