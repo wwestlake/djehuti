@@ -726,6 +726,104 @@ a {
     border-top: 1px solid var(--teacher-border);
 }
 
+/* ── Tutor chat widget ──────────────────────────────────────────────── */
+
+.teacher-tutor {
+    margin-top: 1.75rem;
+}
+
+.teacher-tutor-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    background: var(--teacher-bg);
+    border: 1px solid var(--teacher-border);
+    color: var(--teacher-text);
+    border-radius: 10px;
+    padding: 0.7rem 1rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: left;
+}
+
+.teacher-tutor-toggle:hover {
+    border-color: var(--teacher-accent);
+}
+
+.teacher-tutor-avatar {
+    font-size: 0.7rem;
+}
+
+.teacher-tutor-chevron {
+    margin-left: auto;
+    color: var(--teacher-muted);
+}
+
+.teacher-tutor-panel {
+    border: 1px solid var(--teacher-border);
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    padding: 1rem;
+    background: var(--teacher-bg);
+}
+
+.teacher-tutor-status {
+    font-size: 0.78rem;
+    color: var(--teacher-muted);
+    margin: 0 0 0.9rem;
+}
+
+.teacher-tutor-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 1rem;
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+.teacher-tutor-message {
+    display: flex;
+}
+
+.teacher-tutor-message-user {
+    justify-content: flex-end;
+}
+
+.teacher-tutor-bubble {
+    max-width: 85%;
+    padding: 0.55rem 0.85rem;
+    border-radius: 12px;
+    font-size: 0.86rem;
+    line-height: 1.5;
+}
+
+.teacher-tutor-message-user .teacher-tutor-bubble {
+    background: var(--teacher-accent);
+    color: #1a1208;
+}
+
+.teacher-tutor-message-assistant .teacher-tutor-bubble {
+    background: var(--teacher-surface);
+    border: 1px solid var(--teacher-border);
+}
+
+.teacher-tutor-pending {
+    color: var(--teacher-muted);
+    font-style: italic;
+}
+
+.teacher-tutor-input-row {
+    display: flex;
+    gap: 8px;
+}
+
+.teacher-tutor-input-row .teacher-settings-input {
+    flex: 1;
+}
+
 /* ── Framework chrome ───────────────────────────────────────────────── */
 
 #blazor-error-ui {

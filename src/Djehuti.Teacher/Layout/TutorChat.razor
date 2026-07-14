@@ -1,0 +1,128 @@
+@namespace Djehuti.Teacher.Layout
+@implements IDisposable
+@inject WebLlmClient WebLlm
+
+<div class="teacher-tutor">
+    <button type="button" class="teacher-tutor-toggle" @onclick="() => _open = !_open">
+        <span class="teacher-tutor-avatar">@(WebLlm.State == WebLlmState.Ready ? "🟢" : "💬")</span>
+        Ask about this topic
+        <span class="teacher-tutor-chevron">@(_open ? "▾" : "▸")</span>
+    </button>
+
+    @if (_open)
+    {
+        <div class="teacher-tutor-panel">
+            <p class="teacher-tutor-status">@StatusText()</p>
+
+            <div class="teacher-tutor-messages">
+                @if (_turns.Count == 0)
+                {
+                    <p class="teacher-muted">Ask a question about "@TopicTitle" — the tutor works through it with you rather than just handing over the answer.</p>
+                }
+                @foreach (var turn in _turns)
+                {
+                    <div class="teacher-tutor-message teacher-tutor-message-@turn.Role">
+                        <div class="teacher-tutor-bubble">@turn.Content</div>
+                    </div>
+                }
+                @if (_sending)
+                {
+                    <div class="teacher-tutor-message teacher-tutor-message-assistant">
+                        <div class="teacher-tutor-bubble teacher-tutor-pending">Thinking…</div>
+                    </div>
+                }
+            </div>
+
+            <form class="teacher-tutor-input-row" @onsubmit="SendAsync">
+                <input class="teacher-settings-input"
+                       placeholder="@InputPlaceholder()"
+                       @bind="_input" @bind:event="oninput"
+                       disabled="@(_sending || WebLlm.State != WebLlmState.Ready)" />
+                <button type="submit" class="teacher-cta" disabled="@(_sending || WebLlm.State != WebLlmState.Ready || string.IsNullOrWhiteSpace(_input))">Ask</button>
+            </form>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string LessonTitle { get; set; } = "";
+    [Parameter, EditorRequired] public string TopicTitle { get; set; } = "";
+    [Parameter, EditorRequired] public string TopicContent { get; set; } = "";
+
+    private bool _open;
+    private bool _sending;
+    private string _input = "";
+    private List<(string Role, string Content)> _turns = new();
+
+    protected override void OnInitialized()
+    {
+        WebLlm.StateChanged += HandleStateChanged;
+        _ = WebLlm.EnsureReadyAsync();
+    }
+
+    protected override void OnParametersSet()
+    {
+        // A fresh topic gets a fresh conversation -- context from a
+        // different topic's content would otherwise leak into answers
+        // about this one.
+        _turns.Clear();
+    }
+
+    private void HandleStateChanged() => InvokeAsync(StateHasChanged);
+
+    private string StatusText() => WebLlm.State switch
+    {
+        WebLlmState.Ready => "Running a real local model, right in your browser — no key needed.",
+        WebLlmState.Loading => $"Downloading the tutor's model ({(int)(WebLlm.ProgressFraction * 100)}%)… this only happens once.",
+        WebLlmState.Unsupported => "Your browser doesn't support WebGPU, so the free tutor isn't available here. Add a key in AI Setup for the BYOK tutor instead (coming soon).",
+        WebLlmState.Failed => "The local tutor model failed to load in this browser. Add a key in AI Setup for the BYOK tutor instead (coming soon).",
+        _ => "",
+    };
+
+    private string InputPlaceholder() => WebLlm.State == WebLlmState.Ready
+        ? "Ask a question about this topic…"
+        : "Waiting for the tutor to be ready…";
+
+    private async Task SendAsync()
+    {
+        var text = _input.Trim();
+        if (string.IsNullOrEmpty(text) || _sending || WebLlm.State != WebLlmState.Ready) return;
+
+        _input = "";
+        var history = _turns.ToList();
+        _turns.Add(("user", text));
+        _sending = true;
+        StateHasChanged();
+
+        try
+        {
+            var systemPrompt =
+                $"You are a patient, encouraging tutor helping a student understand the topic \"{TopicTitle}\" " +
+                $"from the lesson \"{LessonTitle}\". Here is the topic's content for reference:\n\n{TopicContent}\n\n" +
+                "Your job is to build genuine understanding, not to just hand over final answers. When the student " +
+                "asks how to solve something, ask a guiding question or point them at the relevant part of the " +
+                "content first, and let them work through it with you. Keep answers short -- a few sentences, not " +
+                "an essay.";
+
+            var messages = new List<(string Role, string Content)> { ("system", systemPrompt) };
+            messages.AddRange(history);
+            messages.Add(("user", text));
+
+            var reply = await WebLlm.ChatAsync(messages);
+            _turns.Add(("assistant", reply));
+        }
+        catch (Exception ex)
+        {
+            _turns.Add(("assistant", $"Sorry, something went wrong: {ex.Message}"));
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        WebLlm.StateChanged -= HandleStateChanged;
+    }
+}

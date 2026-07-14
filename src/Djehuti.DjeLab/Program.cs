@@ -13,5 +13,9 @@ builder.Services.AddSingleton<ChatHistoryStore>();
 builder.Services.AddScoped<AiChatClient>();
 builder.Services.AddScoped<DjeLabFilesClient>();
 builder.Services.AddSingleton<WorkspaceActions>();
+// Singleton: one model download/engine instance for the whole app session,
+// shared across every ChatPane instance (Ibis panes, tab reopens, etc.)
+// rather than re-downloading per component.
+builder.Services.AddSingleton<WebLlmClient>();
 
 await builder.Build().RunAsync();
