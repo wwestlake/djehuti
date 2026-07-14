@@ -4238,6 +4238,40 @@ let private migrations : (int * string) list =
 
         GRANT ALL ON TABLE lesson_plans TO djehuti;
         """
+
+        72, """
+        -- Desktop app content library (Creation Station patches/packs/
+        -- templates, etc.). Stored directly in Postgres (BYTEA), not S3 --
+        -- deliberate choice for this content's scale, keeps everything in
+        -- one datastore rather than adding object storage as a second
+        -- dependency for what are moderate-sized files. Gated by Patreon
+        -- tier per item (required_tier_id NULL = free), independent of
+        -- product-level entitlement -- a user with app access can browse
+        -- the whole library, tier only gates individual premium items.
+        -- file_data is nullable: an admin creates the metadata row first,
+        -- uploads the actual bytes as a separate step.
+        CREATE TABLE IF NOT EXISTS content_items (
+            id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            product_id        UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            name              TEXT NOT NULL,
+            item_type         TEXT NOT NULL,
+            version           TEXT NOT NULL,
+            description       TEXT,
+            tags              TEXT[] NOT NULL DEFAULT '{}',
+            required_tier_id  TEXT REFERENCES patreon_tiers(tier_id),
+            min_app_version   TEXT,
+            file_type         TEXT NOT NULL,
+            file_name         TEXT,
+            file_data         BYTEA,
+            size_bytes        BIGINT NOT NULL DEFAULT 0,
+            active            BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_content_items_product ON content_items (product_id, active);
+
+        GRANT ALL ON TABLE content_items TO djehuti;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

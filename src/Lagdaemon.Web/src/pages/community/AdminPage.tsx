@@ -27,7 +27,7 @@ interface Announcement {
   createdAt: string; updatedAt: string
 }
 
-type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'mud' | 'personas' | 'heartbeat' | 'metrics' | 'api-keys' | 'products'
+type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'mud' | 'personas' | 'heartbeat' | 'metrics' | 'api-keys' | 'products' | 'content'
 
 interface MetricsCounts { users: number; posts: number; threads: number; articles: number; votesGiven: number; reactions: number; achievements: number }
 interface ForumActivityRow { forumId: string; forumName: string; postsAll: number; postsHuman: number; postsAi: number; threadsAll: number; threadsHuman: number; threadsAi: number }
@@ -73,6 +73,25 @@ interface Product {
 interface PatreonTier {
   tierId: string
   tierName: string
+}
+
+interface ContentItem {
+  id: string
+  productId: string
+  name: string
+  itemType: string
+  version: string
+  description: string | null
+  tags: string[]
+  requiredTierId: string | null
+  minAppVersion: string | null
+  fileType: string
+  fileName: string | null
+  sizeBytes: number
+  active: boolean
+  createdAt: string
+  updatedAt: string
+  hasFile: boolean
 }
 
 interface AiPersona {
@@ -136,7 +155,7 @@ async function apiFetch(url: string, opts?: RequestInit) {
 export default function AdminPage() {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'mud', 'personas', 'heartbeat', 'metrics', 'api-keys', 'products']
+  const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'mud', 'personas', 'heartbeat', 'metrics', 'api-keys', 'products', 'content']
   const tabFromUrl = searchParams.get('tab') as Tab | null
   const [tab, setTab] = useState<Tab>(tabFromUrl && validTabs.includes(tabFromUrl) ? tabFromUrl : 'users')
 
@@ -340,6 +359,18 @@ export default function AdminPage() {
   const [newProductDescription, setNewProductDescription] = useState('')
   const [newProductTierId, setNewProductTierId] = useState('')
   const [productCreating, setProductCreating] = useState(false)
+  const [contentProductSlug, setContentProductSlug] = useState('')
+  const [contentItems, setContentItems] = useState<ContentItem[]>([])
+  const [newContentName, setNewContentName] = useState('')
+  const [newContentType, setNewContentType] = useState('')
+  const [newContentVersion, setNewContentVersion] = useState('')
+  const [newContentDescription, setNewContentDescription] = useState('')
+  const [newContentTags, setNewContentTags] = useState('')
+  const [newContentTierId, setNewContentTierId] = useState('')
+  const [newContentMinAppVersion, setNewContentMinAppVersion] = useState('')
+  const [newContentFileType, setNewContentFileType] = useState('')
+  const [contentCreating, setContentCreating] = useState(false)
+  const [contentUploadingId, setContentUploadingId] = useState<string | null>(null)
 
   const loadUsers = async (p = usersPage, s = userSearch, r = userFilterRole, st = userFilterStatus) => {
     setLoading(true); setError(null)
@@ -445,9 +476,31 @@ export default function AdminPage() {
         apiFetch(`${BASE}/api/admin/products`).then(setProducts),
         apiFetch(`${BASE}/api/patreon/tiers`).then(setPatreonTiers).catch(() => {}),
       ]).then(() => {}),
+      content: () => Promise.all([
+        apiFetch(`${BASE}/api/admin/products`).then((ps: Product[]) => {
+          setProducts(ps)
+          if (!contentProductSlug && ps.length > 0) setContentProductSlug(ps[0].slug)
+        }),
+        apiFetch(`${BASE}/api/patreon/tiers`).then(setPatreonTiers).catch(() => {}),
+      ]).then(() => {}),
     }
     loaders[tab]().catch(() => setError('Failed to load data')).finally(() => setLoading(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, user])
+
+  const loadContentItems = async (slug: string) => {
+    if (!slug) { setContentItems([]); return }
+    try {
+      const items = await apiFetch(`${BASE}/api/admin/content?${new URLSearchParams({ productSlug: slug })}`)
+      setContentItems(Array.isArray(items) ? items : [])
+    } catch { setError('Failed to load content items') }
+  }
+
+  useEffect(() => {
+    if (tab !== 'content') return
+    loadContentItems(contentProductSlug)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, contentProductSlug])
 
   // Poll live metrics every 30s while on the metrics tab
   useEffect(() => {
@@ -795,8 +848,81 @@ export default function AdminPage() {
     } catch { setError('Failed to unlink GitHub repo') }
   }
 
+  // ── Content Library ─────────────────────────────────────────────────────────
+
+  const createContentItem = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!contentProductSlug || !newContentName.trim() || !newContentType.trim() || !newContentVersion.trim() || !newContentFileType.trim()) return
+    setContentCreating(true)
+    try {
+      const item = await apiFetch(`${BASE}/api/admin/content`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productSlug: contentProductSlug,
+          name: newContentName.trim(),
+          itemType: newContentType.trim(),
+          version: newContentVersion.trim(),
+          description: newContentDescription.trim() || null,
+          tags: newContentTags.split(',').map(t => t.trim()).filter(Boolean),
+          requiredTierId: newContentTierId || null,
+          minAppVersion: newContentMinAppVersion.trim() || null,
+          fileType: newContentFileType.trim(),
+        }),
+      })
+      setContentItems(prev => [item, ...prev])
+      setNewContentName(''); setNewContentType(''); setNewContentVersion(''); setNewContentDescription('')
+      setNewContentTags(''); setNewContentTierId(''); setNewContentMinAppVersion(''); setNewContentFileType('')
+    } catch { setError('Failed to create content item') }
+    finally { setContentCreating(false) }
+  }
+
+  const toggleContentActive = async (item: ContentItem) => {
+    try {
+      await apiFetch(`${BASE}/api/admin/content/${item.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: item.name,
+          itemType: item.itemType,
+          version: item.version,
+          description: item.description,
+          tags: item.tags,
+          requiredTierId: item.requiredTierId,
+          minAppVersion: item.minAppVersion,
+          fileType: item.fileType,
+          active: !item.active,
+        }),
+      })
+      setContentItems(prev => prev.map(x => x.id === item.id ? { ...x, active: !x.active } : x))
+    } catch { setError('Failed to update content item') }
+  }
+
+  const deleteContentItem = async (id: string) => {
+    if (!confirm('Delete this content item? This cannot be undone.')) return
+    try {
+      await apiFetch(`${BASE}/api/admin/content/${id}`, { method: 'DELETE' })
+      setContentItems(prev => prev.filter(x => x.id !== id))
+    } catch { setError('Failed to delete content item') }
+  }
+
+  const uploadContentFile = async (item: ContentItem, file: File) => {
+    setContentUploadingId(item.id)
+    try {
+      const res = await fetch(`${BASE}/api/admin/content/${item.id}/file?${new URLSearchParams({ fileName: file.name })}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: file,
+      })
+      if (!res.ok) throw new Error(res.statusText)
+      setContentItems(prev => prev.map(x => x.id === item.id ? { ...x, fileName: file.name, sizeBytes: file.size, hasFile: true } : x))
+    } catch { setError('Failed to upload file') }
+    finally { setContentUploadingId(null) }
+  }
+
   const TAB_LABELS: Record<Tab, string> = {
-      users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', mud: 'MUD World', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics', 'api-keys': 'API Keys', products: 'Products',
+      users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', mud: 'MUD World', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics', 'api-keys': 'API Keys', products: 'Products', content: 'Content Library',
   }
 
   const toggleSection = (key: string) =>
@@ -4016,6 +4142,135 @@ export default function AdminPage() {
                   <button className="post-action" onClick={() => linkGithubRepo(p)}>{p.githubOwner ? 'Re-link' : 'Link'} GitHub</button>
                   {p.githubOwner && <button className="post-action" onClick={() => unlinkGithubRepo(p)}>Unlink</button>}
                   <button className="post-action post-action-delete" onClick={() => deleteProduct(p.id)}>Delete</button>
+                </>
+              ) },
+            ]}
+          />
+        </div>
+      )}
+
+      {tab === 'content' && !loading && (
+        <div style={{ maxWidth: 900 }}>
+          <h3 style={{ marginBottom: 4 }}>Content Library</h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: 20 }}>
+            Content packages served to desktop apps via the authenticated content API. Files are stored directly in the database.
+          </p>
+
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 4 }}>Product</label>
+            <select
+              className="admin-role-select"
+              value={contentProductSlug}
+              onChange={e => setContentProductSlug(e.target.value)}
+              style={{ minWidth: 220 }}
+            >
+              {products.map(p => (
+                <option key={p.id} value={p.slug}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <form onSubmit={createContentItem} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+            <input
+              className="admin-search-input"
+              placeholder="Name"
+              value={newContentName}
+              onChange={e => setNewContentName(e.target.value)}
+              style={{ flex: '1 1 160px' }}
+            />
+            <input
+              className="admin-search-input"
+              placeholder="Type (e.g. driver-pack)"
+              value={newContentType}
+              onChange={e => setNewContentType(e.target.value)}
+              style={{ flex: '1 1 140px' }}
+            />
+            <input
+              className="admin-search-input"
+              placeholder="Version (e.g. 1.0.0)"
+              value={newContentVersion}
+              onChange={e => setNewContentVersion(e.target.value)}
+              style={{ flex: '1 1 120px' }}
+            />
+            <input
+              className="admin-search-input"
+              placeholder="File type (e.g. zip)"
+              value={newContentFileType}
+              onChange={e => setNewContentFileType(e.target.value)}
+              style={{ flex: '1 1 120px' }}
+            />
+            <input
+              className="admin-search-input"
+              placeholder="Description (optional)"
+              value={newContentDescription}
+              onChange={e => setNewContentDescription(e.target.value)}
+              style={{ flex: '2 1 220px' }}
+            />
+            <input
+              className="admin-search-input"
+              placeholder="Tags, comma-separated"
+              value={newContentTags}
+              onChange={e => setNewContentTags(e.target.value)}
+              style={{ flex: '1 1 160px' }}
+            />
+            <input
+              className="admin-search-input"
+              placeholder="Min app version (optional)"
+              value={newContentMinAppVersion}
+              onChange={e => setNewContentMinAppVersion(e.target.value)}
+              style={{ flex: '1 1 160px' }}
+            />
+            <select
+              className="admin-role-select"
+              value={newContentTierId}
+              onChange={e => setNewContentTierId(e.target.value)}
+              style={{ flex: '1 1 160px' }}
+            >
+              <option value="">Free (no tier required)</option>
+              {patreonTiers.map(t => (
+                <option key={t.tierId} value={t.tierId}>{t.tierName}</option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              className="blog-tab active"
+              disabled={contentCreating || !contentProductSlug || !newContentName.trim() || !newContentType.trim() || !newContentVersion.trim() || !newContentFileType.trim()}
+            >
+              {contentCreating ? 'Creating…' : 'Create Item'}
+            </button>
+          </form>
+
+          <AdminTable<ContentItem>
+            data={contentItems}
+            rowKey={c => c.id}
+            searchKeys={['name', 'itemType']}
+            emptyText="No content items for this product yet."
+            columns={[
+              { key: 'name', label: 'Name' },
+              { key: 'itemType', label: 'Type' },
+              { key: 'version', label: 'Version' },
+              { key: 'requiredTierId', label: 'Required Tier', render: c => patreonTiers.find(t => t.tierId === c.requiredTierId)?.tierName ?? (c.requiredTierId ? c.requiredTierId : 'Free') },
+              { key: 'hasFile', label: 'File', render: c => c.hasFile
+                ? <span style={{ color: 'var(--accent)' }}>{c.fileName} ({Math.round(c.sizeBytes / 1024)} KB)</span>
+                : <span style={{ color: 'var(--text-muted)' }}>No file uploaded</span> },
+              { key: 'active', label: 'Status', render: c => <span style={{ color: c.active ? 'var(--accent)' : 'var(--text-muted)' }}>{c.active ? 'Active' : 'Inactive'}</span> },
+              { key: 'id', label: '', sortable: false, render: c => (
+                <>
+                  <label className="post-action" style={{ cursor: 'pointer' }}>
+                    {contentUploadingId === c.id ? 'Uploading…' : (c.hasFile ? 'Replace file' : 'Upload file')}
+                    <input
+                      type="file"
+                      style={{ display: 'none' }}
+                      disabled={contentUploadingId === c.id}
+                      onChange={e => {
+                        const file = e.target.files?.[0]
+                        e.target.value = ''
+                        if (file) uploadContentFile(c, file)
+                      }}
+                    />
+                  </label>
+                  <button className="post-action" onClick={() => toggleContentActive(c)}>{c.active ? 'Deactivate' : 'Activate'}</button>
+                  <button className="post-action post-action-delete" onClick={() => deleteContentItem(c.id)}>Delete</button>
                 </>
               ) },
             ]}
