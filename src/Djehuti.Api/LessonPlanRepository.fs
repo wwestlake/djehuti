@@ -3,6 +3,15 @@ module Djehuti.Api.LessonPlanRepository
 open System
 open Npgsql
 
+// Explicit and case-insensitive rather than trusting JsonSerializer's
+// default (case-sensitive, matches declared F# property names verbatim --
+// "Title", not "title"). Confirmed live: a manually-inserted lesson whose
+// topics_json used lowercase/camelCase keys silently deserialized every
+// field to null instead of throwing, because case-sensitive matching just
+// treats an unmatched key as "not present" rather than an error.
+let private topicsJsonOptions =
+    System.Text.Json.JsonSerializerOptions(PropertyNameCaseInsensitive = true)
+
 type LessonTopic = {
     Title:           string
     ContentMarkdown: string
@@ -31,7 +40,7 @@ let private readLessonPlan (r: System.Data.Common.DbDataReader) : LessonPlanReco
         Subject     = if r.IsDBNull(4) then None else Some (r.GetString(4))
         Description = if r.IsDBNull(5) then None else Some (r.GetString(5))
         Topics      =
-            try System.Text.Json.JsonSerializer.Deserialize<LessonTopic list>(r.GetString(6))
+            try System.Text.Json.JsonSerializer.Deserialize<LessonTopic list>(r.GetString(6), topicsJsonOptions)
             with _ -> []
         Published   = r.GetBoolean(7)
         CreatedAt   = r.GetFieldValue<DateTimeOffset>(8)
