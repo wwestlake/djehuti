@@ -1,5 +1,6 @@
 @page "/lesson/{Slug}"
 @inject TeacherApiClient Api
+@inject IJSRuntime JS
 
 <PageTitle>@(_plan?.Title ?? "Lesson") — Djehuti Teacher</PageTitle>
 
@@ -57,7 +58,7 @@
                                 <iframe src="@topic.VideoUrl" allowfullscreen title="@topic.Title"></iframe>
                             </div>
                         }
-                        <div class="teacher-markdown teacher-board-content">
+                        <div class="teacher-markdown teacher-board-content" @ref="_boardContentRef">
                             @((MarkupString)RenderMarkdown(topic.ContentMarkdown))
                         </div>
                     </div>
@@ -82,6 +83,8 @@
     private bool _loading = true;
     private LessonPlan? _plan;
     private int _activeTopic;
+    private ElementReference _boardContentRef;
+    private IJSObjectReference? _module;
 
     protected override async Task OnInitializedAsync()
     {
@@ -89,6 +92,30 @@
         _loading = false;
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_plan is not null && _plan.Topics.Count > 0)
+        {
+            await TryInvokeJsAsync("renderMath", _boardContentRef);
+        }
+    }
+
     private static string RenderMarkdown(string markdown) =>
         string.IsNullOrWhiteSpace(markdown) ? "" : Markdig.Markdown.ToHtml(markdown);
+
+    // Same failure-tolerant pattern as DjeLab's ChatPane -- math rendering
+    // is cosmetic, so a stale cached module or missing CDN script must never
+    // take down the lesson page itself.
+    private async Task TryInvokeJsAsync(string function, params object[] args)
+    {
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/teacher-interop.js");
+            await _module.InvokeVoidAsync(function, args);
+        }
+        catch (JSException)
+        {
+            _module = null;
+        }
+    }
 }
