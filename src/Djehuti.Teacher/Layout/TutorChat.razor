@@ -3,45 +3,38 @@
 @inject WebLlmClient WebLlm
 
 <div class="teacher-tutor">
-    <button type="button" class="teacher-tutor-toggle" @onclick="() => _open = !_open">
+    <div class="teacher-tutor-header">
         <span class="teacher-tutor-avatar">@(WebLlm.State == WebLlmState.Ready ? "🟢" : "💬")</span>
-        Ask about this topic
-        <span class="teacher-tutor-chevron">@(_open ? "▾" : "▸")</span>
-    </button>
+        <span>Tutor</span>
+    </div>
+    <p class="teacher-tutor-status">@StatusText()</p>
 
-    @if (_open)
-    {
-        <div class="teacher-tutor-panel">
-            <p class="teacher-tutor-status">@StatusText()</p>
-
-            <div class="teacher-tutor-messages">
-                @if (_turns.Count == 0)
-                {
-                    <p class="teacher-muted">Ask a question about "@TopicTitle" — the tutor works through it with you rather than just handing over the answer.</p>
-                }
-                @foreach (var turn in _turns)
-                {
-                    <div class="teacher-tutor-message teacher-tutor-message-@turn.Role">
-                        <div class="teacher-tutor-bubble">@turn.Content</div>
-                    </div>
-                }
-                @if (_sending)
-                {
-                    <div class="teacher-tutor-message teacher-tutor-message-assistant">
-                        <div class="teacher-tutor-bubble teacher-tutor-pending">Thinking…</div>
-                    </div>
-                }
+    <div class="teacher-tutor-messages">
+        @if (_turns.Count == 0)
+        {
+            <p class="teacher-muted">Ask a question about "@TopicTitle" — the tutor works through it with you rather than just handing over the answer.</p>
+        }
+        @foreach (var turn in _turns)
+        {
+            <div class="teacher-tutor-message teacher-tutor-message-@turn.Role">
+                <div class="teacher-tutor-bubble">@turn.Content</div>
             </div>
+        }
+        @if (_sending)
+        {
+            <div class="teacher-tutor-message teacher-tutor-message-assistant">
+                <div class="teacher-tutor-bubble teacher-tutor-pending">Thinking…</div>
+            </div>
+        }
+    </div>
 
-            <form class="teacher-tutor-input-row" @onsubmit="SendAsync">
-                <input class="teacher-settings-input"
-                       placeholder="@InputPlaceholder()"
-                       @bind="_input" @bind:event="oninput"
-                       disabled="@(_sending || WebLlm.State != WebLlmState.Ready)" />
-                <button type="submit" class="teacher-cta" disabled="@(_sending || WebLlm.State != WebLlmState.Ready || string.IsNullOrWhiteSpace(_input))">Ask</button>
-            </form>
-        </div>
-    }
+    <form class="teacher-tutor-input-row" @onsubmit="SendAsync">
+        <input class="teacher-settings-input"
+               placeholder="@InputPlaceholder()"
+               @bind="_input" @bind:event="oninput"
+               disabled="@(_sending || WebLlm.State != WebLlmState.Ready)" />
+        <button type="submit" class="teacher-cta" disabled="@(_sending || WebLlm.State != WebLlmState.Ready || string.IsNullOrWhiteSpace(_input))">Ask</button>
+    </form>
 </div>
 
 @code {
@@ -49,7 +42,6 @@
     [Parameter, EditorRequired] public string TopicTitle { get; set; } = "";
     [Parameter, EditorRequired] public string TopicContent { get; set; } = "";
 
-    private bool _open;
     private bool _sending;
     private string _input = "";
     private List<(string Role, string Content)> _turns = new();
@@ -60,28 +52,20 @@
         _ = WebLlm.EnsureReadyAsync();
     }
 
-    protected override void OnParametersSet()
-    {
-        // A fresh topic gets a fresh conversation -- context from a
-        // different topic's content would otherwise leak into answers
-        // about this one.
-        _turns.Clear();
-    }
-
     private void HandleStateChanged() => InvokeAsync(StateHasChanged);
 
     private string StatusText() => WebLlm.State switch
     {
-        WebLlmState.Ready => "Running a real local model, right in your browser — no key needed.",
-        WebLlmState.Loading => $"Downloading the tutor's model ({(int)(WebLlm.ProgressFraction * 100)}%)… this only happens once.",
-        WebLlmState.Unsupported => "Your browser doesn't support WebGPU, so the free tutor isn't available here. Add a key in AI Setup for the BYOK tutor instead (coming soon).",
-        WebLlmState.Failed => "The local tutor model failed to load in this browser. Add a key in AI Setup for the BYOK tutor instead (coming soon).",
+        WebLlmState.Ready => "Free local tutor, running in your browser.",
+        WebLlmState.Loading => $"Downloading tutor model ({(int)(WebLlm.ProgressFraction * 100)}%)…",
+        WebLlmState.Unsupported => "Your browser doesn't support WebGPU. Add a key in AI Setup for a BYOK tutor (coming soon).",
+        WebLlmState.Failed => "Local tutor failed to load. Add a key in AI Setup for a BYOK tutor (coming soon).",
         _ => "",
     };
 
     private string InputPlaceholder() => WebLlm.State == WebLlmState.Ready
-        ? "Ask a question about this topic…"
-        : "Waiting for the tutor to be ready…";
+        ? "Ask a question…"
+        : "Waiting for the tutor…";
 
     private async Task SendAsync()
     {

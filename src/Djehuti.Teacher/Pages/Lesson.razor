@@ -3,7 +3,7 @@
 
 <PageTitle>@(_plan?.Title ?? "Lesson") — Djehuti Teacher</PageTitle>
 
-<div class="teacher-page">
+<div class="teacher-page teacher-page-wide">
     @if (_loading)
     {
         <p class="teacher-muted">Loading…</p>
@@ -33,7 +33,7 @@
         }
         else
         {
-            <div class="teacher-lesson-layout">
+            <div class="teacher-classroom-layout">
                 <nav class="teacher-topic-nav">
                     @for (var i = 0; i < _plan.Topics.Count; i++)
                     {
@@ -46,25 +46,30 @@
                     }
                 </nav>
 
-                <div class="teacher-topic-content">
-                    @{ var topic = _plan.Topics[_activeTopic]; }
-                    <h2>@topic.Title</h2>
-                    @if (!string.IsNullOrWhiteSpace(topic.VideoUrl))
-                    {
-                        <div class="teacher-video-embed">
-                            <iframe src="@topic.VideoUrl" allowfullscreen title="@topic.Title"></iframe>
-                        </div>
-                    }
-                    <div class="teacher-markdown">
-                        @((MarkupString)RenderMarkdown(topic.ContentMarkdown))
-                    </div>
+                @{ var topic = _plan.Topics[_activeTopic]; }
 
-                    <TutorChat @key="_activeTopic" LessonTitle="@_plan.Title" TopicTitle="@topic.Title" TopicContent="@topic.ContentMarkdown" />
+                <div class="teacher-board">
+                    <div class="teacher-board-surface">
+                        <h2>@topic.Title</h2>
+                        @if (!string.IsNullOrWhiteSpace(topic.VideoUrl))
+                        {
+                            <div class="teacher-video-embed">
+                                <iframe src="@topic.VideoUrl" allowfullscreen title="@topic.Title"></iframe>
+                            </div>
+                        }
+                        <div class="teacher-markdown teacher-board-content">
+                            @((MarkupString)RenderMarkdown(topic.ContentMarkdown))
+                        </div>
+                    </div>
 
                     <div class="teacher-topic-pager">
                         <button type="button" class="teacher-cta teacher-cta-ghost" disabled="@(_activeTopic == 0)" @onclick="() => _activeTopic--">← Previous</button>
                         <button type="button" class="teacher-cta" disabled="@(_activeTopic == _plan.Topics.Count - 1)" @onclick="() => _activeTopic++">Next →</button>
                     </div>
+                </div>
+
+                <div class="teacher-classroom-chat">
+                    <TutorChat @key="_activeTopic" LessonTitle="@_plan.Title" TopicTitle="@topic.Title" TopicContent="@topic.ContentMarkdown" />
                 </div>
             </div>
         }
