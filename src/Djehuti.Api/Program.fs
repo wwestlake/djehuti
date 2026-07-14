@@ -6114,6 +6114,172 @@ let main args =
                         else Results.Problem(detail = "Delete failed", statusCode = 500, title = "Error"))
     ) |> ignore
 
+    // ── Desktop app content library (Creation Station, etc.) ────────────────────
+    // See docs/agents context: desktop apps authenticate via the loopback+PKCE
+    // JWT flow (Auth.fs), then send that same JWT as Authorization: Bearer on
+    // these endpoints -- tryGetAuthClaims already accepts both the cookie
+    // (browser) and Bearer header (desktop app), no new auth path needed.
+    // Access is computed server-side (AccessState), never left for the app to
+    // infer from a product/entitlement list -- "the site is the source of
+    // truth for content access."
+
+    let contentItemJson (item: ContentRepository.ContentItem) (accessState: ContentRepository.AccessState) =
+        {|
+            id = item.Id
+            name = item.Name
+            itemType = item.ItemType
+            version = item.Version
+            description = item.Description
+            tags = item.Tags
+            requiredTier = item.RequiredTierId
+            accessState = (match accessState with ContentRepository.Available -> "available" | ContentRepository.Locked -> "locked")
+            minAppVersion = item.MinAppVersion
+            fileType = item.FileType
+            sizeBytes = item.SizeBytes
+            updatedAt = item.UpdatedAt
+        |}
+
+    app.MapGet(
+        "/api/content/library",
+        Func<HttpContext, IResult>(fun ctx ->
+            let productSlug = ctx.Request.Query["product"].ToString()
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    if String.IsNullOrWhiteSpace productSlug then
+                        Results.BadRequest("product query parameter is required")
+                    else
+                        match ProductRepository.listAll () |> List.tryFind (fun p -> p.Slug = productSlug) with
+                        | None -> Results.NotFound("Unknown product")
+                        | Some product ->
+                            let items =
+                                ContentRepository.listLibrary product.Id uid
+                                |> List.map (fun x -> contentItemJson x.Item x.AccessState)
+                            Results.Ok({| items = items |}))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/content/{id}",
+        Func<HttpContext, Guid, IResult>(fun ctx id ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    match ContentRepository.tryGetWithAccess id uid with
+                    | None -> Results.NotFound()
+                    | Some x -> Results.Ok(contentItemJson x.Item x.AccessState))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/content/{id}/download",
+        Func<HttpContext, Guid, IResult>(fun ctx id ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    match ContentRepository.tryGetWithAccess id uid with
+                    | None -> Results.NotFound()
+                    | Some x when x.AccessState = ContentRepository.Locked ->
+                        Results.Problem(detail = "This content requires a higher Patreon tier.", statusCode = 403, title = "Locked")
+                    | Some _ ->
+                        match ContentRepository.tryGetFileData id with
+                        | None -> Results.Problem(detail = "No file has been uploaded for this item yet.", statusCode = 409, title = "No file")
+                        | Some (data, fileName, fileType) ->
+                            Results.File(data, contentType = "application/octet-stream", fileDownloadName = fileName))
+    ) |> ignore
+
+    // ── Admin: content library metadata + file upload ──────────────────────────
+
+    app.MapGet(
+        "/api/admin/content",
+        Func<HttpContext, IResult>(fun ctx ->
+            let productSlug = ctx.Request.Query["productSlug"].ToString()
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match ProductRepository.listAll () |> List.tryFind (fun p -> p.Slug = productSlug) with
+                | None -> Results.NotFound("Unknown product")
+                | Some product -> Results.Ok(ContentRepository.listAllForProduct product.Id)
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/content",
+        Func<HttpContext, {| productSlug: string; name: string; itemType: string; version: string; description: string; tags: string[]; requiredTierId: string; minAppVersion: string; fileType: string |}, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match ProductRepository.listAll () |> List.tryFind (fun p -> p.Slug = body.productSlug) with
+                | None -> Results.BadRequest("Unknown product")
+                | Some product ->
+                    if String.IsNullOrWhiteSpace body.name || String.IsNullOrWhiteSpace body.itemType || String.IsNullOrWhiteSpace body.version || String.IsNullOrWhiteSpace body.fileType then
+                        Results.BadRequest("name, itemType, version, and fileType are required")
+                    else
+                        let tags = (if isNull (box body.tags) then [||] else body.tags) |> Array.toList
+                        let created =
+                            ContentRepository.create product.Id body.name body.itemType body.version
+                                (blankToNone body.description) tags (blankToNone body.requiredTierId) (blankToNone body.minAppVersion) body.fileType
+                        Results.Ok(created)
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPut(
+        "/api/admin/content/{id}",
+        Func<HttpContext, Guid, {| name: string; itemType: string; version: string; description: string; tags: string[]; requiredTierId: string; minAppVersion: string; fileType: string; active: bool |}, IResult>(fun ctx id body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                let tags = (if isNull (box body.tags) then [||] else body.tags) |> Array.toList
+                if ContentRepository.update id body.name body.itemType body.version (blankToNone body.description) tags
+                    (blankToNone body.requiredTierId) (blankToNone body.minAppVersion) body.fileType body.active
+                then Results.NoContent()
+                else Results.NotFound("Content item not found")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/admin/content/{id}",
+        Func<HttpContext, Guid, IResult>(fun ctx id ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                if ContentRepository.delete id then Results.NoContent()
+                else Results.NotFound("Content item not found")
+            | Some _ -> Results.Forbid()
+            | None -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/content/{id}/file",
+        Func<HttpContext, Guid, System.Threading.Tasks.Task<IResult>>(fun ctx id ->
+            task {
+                let fileName = ctx.Request.Query["fileName"].ToString()
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    if String.IsNullOrWhiteSpace fileName then
+                        return Results.BadRequest("fileName query parameter is required")
+                    else
+                        use memStream = new System.IO.MemoryStream()
+                        do! ctx.Request.Body.CopyToAsync(memStream)
+                        let data = memStream.ToArray()
+                        if data.Length = 0 then
+                            return Results.BadRequest("Request body was empty")
+                        else
+                            if ContentRepository.setFile id fileName data then
+                                return Results.NoContent()
+                            else
+                                return Results.NotFound("Content item not found")
+                | Some _ -> return Results.Forbid()
+                | None -> return Results.Unauthorized()
+            })
+    ) |> ignore
+
     // ── Admin: Site Metrics ──────────────────────────────────────────────────
 
     // ── Anonymous page-view beacon (called by React app on every page load) ────
