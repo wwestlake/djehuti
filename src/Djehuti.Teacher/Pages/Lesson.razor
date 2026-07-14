@@ -1,0 +1,87 @@
+@page "/lesson/{Slug}"
+@inject TeacherApiClient Api
+
+<PageTitle>@(_plan?.Title ?? "Lesson") — Djehuti Teacher</PageTitle>
+
+<div class="teacher-page">
+    @if (_loading)
+    {
+        <p class="teacher-muted">Loading…</p>
+    }
+    else if (_plan is null)
+    {
+        <div class="teacher-empty">
+            <p>That lesson doesn't exist, or isn't published yet.</p>
+            <a class="teacher-cta" href="catalog">Back to catalog →</a>
+        </div>
+    }
+    else
+    {
+        @if (!string.IsNullOrWhiteSpace(_plan.Subject))
+        {
+            <span class="teacher-lesson-subject">@_plan.Subject</span>
+        }
+        <h1>@_plan.Title</h1>
+        @if (!string.IsNullOrWhiteSpace(_plan.Description))
+        {
+            <p class="teacher-page-subtitle">@_plan.Description</p>
+        }
+
+        @if (_plan.Topics.Count == 0)
+        {
+            <p class="teacher-muted">This lesson doesn't have any topics yet.</p>
+        }
+        else
+        {
+            <div class="teacher-lesson-layout">
+                <nav class="teacher-topic-nav">
+                    @for (var i = 0; i < _plan.Topics.Count; i++)
+                    {
+                        var index = i;
+                        <button type="button"
+                                class="teacher-topic-nav-item @(index == _activeTopic ? "active" : "")"
+                                @onclick="() => _activeTopic = index">
+                            @(index + 1). @_plan.Topics[index].Title
+                        </button>
+                    }
+                </nav>
+
+                <div class="teacher-topic-content">
+                    @{ var topic = _plan.Topics[_activeTopic]; }
+                    <h2>@topic.Title</h2>
+                    @if (!string.IsNullOrWhiteSpace(topic.VideoUrl))
+                    {
+                        <div class="teacher-video-embed">
+                            <iframe src="@topic.VideoUrl" allowfullscreen title="@topic.Title"></iframe>
+                        </div>
+                    }
+                    <div class="teacher-markdown">
+                        @((MarkupString)RenderMarkdown(topic.ContentMarkdown))
+                    </div>
+
+                    <div class="teacher-topic-pager">
+                        <button type="button" class="teacher-cta teacher-cta-ghost" disabled="@(_activeTopic == 0)" @onclick="() => _activeTopic--">← Previous</button>
+                        <button type="button" class="teacher-cta" disabled="@(_activeTopic == _plan.Topics.Count - 1)" @onclick="() => _activeTopic++">Next →</button>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+
+    private bool _loading = true;
+    private LessonPlan? _plan;
+    private int _activeTopic;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _plan = await Api.GetBySlugAsync(Slug);
+        _loading = false;
+    }
+
+    private static string RenderMarkdown(string markdown) =>
+        string.IsNullOrWhiteSpace(markdown) ? "" : Markdig.Markdown.ToHtml(markdown);
+}

@@ -1,0 +1,50 @@
+@namespace Djehuti.Teacher.Layout
+@inherits LayoutComponentBase
+
+<div class="teacher-shell">
+    <header class="teacher-topbar">
+        <a class="teacher-brand" href="">
+            <span class="teacher-brand-mark">DT</span>
+            <span class="teacher-brand-name">Djehuti Teacher</span>
+        </a>
+
+        <nav class="teacher-nav-desktop">
+            <NavMenu />
+        </nav>
+
+        <AuthCorner />
+
+        <button type="button"
+                class="teacher-hamburger"
+                aria-label="Open menu"
+                aria-expanded="@_drawerOpen.ToString().ToLowerInvariant()"
+                @onclick="ToggleDrawer">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+    </header>
+
+    <div class="teacher-drawer-overlay @(_drawerOpen ? "open" : "")" @onclick="CloseDrawer"></div>
+
+    <aside class="teacher-drawer @(_drawerOpen ? "open" : "")">
+        <div class="teacher-drawer-header">
+            <span class="teacher-brand-name">Djehuti Teacher</span>
+            <button type="button" class="teacher-drawer-close" aria-label="Close menu" @onclick="CloseDrawer">&times;</button>
+        </div>
+        <nav class="teacher-nav-drawer" @onclick="CloseDrawer">
+            <NavMenu />
+        </nav>
+    </aside>
+
+    <main class="teacher-main">
+        @Body
+    </main>
+</div>
+
+@code {
+    private bool _drawerOpen;
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+    private void CloseDrawer() => _drawerOpen = false;
+}

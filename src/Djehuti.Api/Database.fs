@@ -4213,6 +4213,31 @@ let private migrations : (int * string) list =
         -- right product when a repo has more than one.
         ALTER TABLE products ADD COLUMN IF NOT EXISTS github_tag_prefix TEXT;
         """
+
+        71, """
+        -- Djehuti Teacher v1 (see wiki: Djehuti-Teacher, Djehuti-Teacher-Tech-Spec).
+        -- Topics are stored as an embedded JSON array (topics_json) rather
+        -- than a normalized child table for v1 -- a lesson plan's topic list
+        -- is edited/reordered as a unit by its author, not queried
+        -- independently, so there's no present need for per-topic rows.
+        -- Revisit if per-topic querying (progress tracking, etc.) needs it.
+        CREATE TABLE IF NOT EXISTS lesson_plans (
+            id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            author_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            slug           TEXT NOT NULL UNIQUE,
+            title          TEXT NOT NULL,
+            subject        TEXT,
+            description    TEXT,
+            topics_json    TEXT NOT NULL DEFAULT '[]',
+            published      BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_lesson_plans_author ON lesson_plans (author_id);
+        CREATE INDEX IF NOT EXISTS idx_lesson_plans_published ON lesson_plans (published, created_at DESC);
+
+        GRANT ALL ON TABLE lesson_plans TO djehuti;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
