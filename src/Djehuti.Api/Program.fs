@@ -5999,6 +5999,121 @@ let main args =
             })
     ) |> ignore
 
+    // ── Djehuti Teacher: lesson plans ───────────────────────────────────────────
+    // See wiki: Djehuti-Teacher, Djehuti-Teacher-Tech-Spec. v1 scope only --
+    // author CRUD + public catalog + single-lesson view. No classes,
+    // enrollment, quizzes, or AI grading yet (later steps in the spec's
+    // sequencing plan).
+
+    let blankToNone (s: string) = if String.IsNullOrWhiteSpace s then None else Some (s.Trim())
+
+    app.MapGet(
+        "/api/teacher/catalog",
+        Func<IResult>(fun () -> Results.Ok(LessonPlanRepository.listPublished ()))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/teacher/lesson-plans/mine",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid -> Results.Ok(LessonPlanRepository.listByAuthor uid))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/teacher/lesson-plans/by-slug/{slug}",
+        Func<HttpContext, string, IResult>(fun ctx slug ->
+            match LessonPlanRepository.tryGetBySlug slug with
+            | None -> Results.NotFound()
+            | Some plan ->
+                if plan.Published then Results.Ok(plan)
+                else
+                    match tryGetAuthClaims ctx with
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | true, uid when uid = plan.AuthorId || Permissions.isAdmin claims.Role -> Results.Ok(plan)
+                        | _ -> Results.NotFound()
+                    | None -> Results.NotFound())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/teacher/lesson-plans/{id}",
+        Func<HttpContext, Guid, IResult>(fun ctx id ->
+            match LessonPlanRepository.tryGetById id with
+            | None -> Results.NotFound()
+            | Some plan ->
+                if plan.Published then Results.Ok(plan)
+                else
+                    match tryGetAuthClaims ctx with
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | true, uid when uid = plan.AuthorId || Permissions.isAdmin claims.Role -> Results.Ok(plan)
+                        | _ -> Results.NotFound()
+                    | None -> Results.NotFound())
+    ) |> ignore
+
+    app.MapPost(
+        "/api/teacher/lesson-plans",
+        Func<HttpContext, {| title: string; subject: string; description: string |}, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    if String.IsNullOrWhiteSpace body.title then
+                        Results.BadRequest("title is required")
+                    else
+                        Results.Ok(LessonPlanRepository.create uid body.title (blankToNone body.subject) (blankToNone body.description)))
+    ) |> ignore
+
+    app.MapPut(
+        "/api/teacher/lesson-plans/{id}",
+        Func<HttpContext, Guid, {| title: string; subject: string; description: string; topics: {| title: string; contentMarkdown: string; videoUrl: string |}[]; published: bool |}, IResult>(fun ctx id body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    match LessonPlanRepository.tryGetById id with
+                    | None -> Results.NotFound()
+                    | Some existing when existing.AuthorId <> uid && not (Permissions.isAdmin claims.Role) -> Results.Forbid()
+                    | Some _ ->
+                        let topics =
+                            (if isNull (box body.topics) then [||] else body.topics)
+                            |> Array.map (fun t ->
+                                ({
+                                    Title = t.title
+                                    ContentMarkdown = t.contentMarkdown
+                                    VideoUrl = blankToNone t.videoUrl
+                                } : LessonPlanRepository.LessonTopic))
+                            |> Array.toList
+                        if LessonPlanRepository.update id body.title (blankToNone body.subject) (blankToNone body.description) topics body.published
+                        then Results.NoContent()
+                        else Results.Problem(detail = "Update failed", statusCode = 500, title = "Error"))
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/teacher/lesson-plans/{id}",
+        Func<HttpContext, Guid, IResult>(fun ctx id ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    match LessonPlanRepository.tryGetById id with
+                    | None -> Results.NotFound()
+                    | Some existing when existing.AuthorId <> uid && not (Permissions.isAdmin claims.Role) -> Results.Forbid()
+                    | Some _ ->
+                        if LessonPlanRepository.delete id then Results.NoContent()
+                        else Results.Problem(detail = "Delete failed", statusCode = 500, title = "Error"))
+    ) |> ignore
+
     // ── Admin: Site Metrics ──────────────────────────────────────────────────
 
     // ── Anonymous page-view beacon (called by React app on every page load) ────

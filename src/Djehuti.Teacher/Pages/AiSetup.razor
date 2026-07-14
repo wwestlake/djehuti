@@ -1,0 +1,100 @@
+@page "/ai-setup"
+@inject AiConfigStore ConfigStore
+
+<PageTitle>AI Setup — Djehuti Teacher</PageTitle>
+
+<div class="teacher-page">
+    <h1>AI Setup</h1>
+    <p class="teacher-page-subtitle">
+        Add your own AI provider key to unlock live tutoring — a per-student AI that works through problems
+        with you rather than just giving the answer. Lesson content itself is free to read without a key;
+        the key powers the interactive tutoring layer on top of it.
+    </p>
+
+    <div class="teacher-settings-card">
+        @if (_loading)
+        {
+            <p class="teacher-muted">Loading…</p>
+        }
+        else
+        {
+            <label class="teacher-settings-label" for="api-key">Anthropic API key</label>
+            <div class="teacher-settings-key-row">
+                <input id="api-key"
+                       class="teacher-settings-input"
+                       type="@(_showKey ? "text" : "password")"
+                       autocomplete="off"
+                       placeholder="sk-ant-…"
+                       @bind="_apiKey"
+                       @bind:event="oninput" />
+                <button type="button" class="teacher-settings-toggle" @onclick="() => _showKey = !_showKey">
+                    @(_showKey ? "Hide" : "Show")
+                </button>
+            </div>
+
+            <label class="teacher-settings-label" for="model">Model</label>
+            <input id="model"
+                   class="teacher-settings-input"
+                   type="text"
+                   placeholder="@AiConfigStore.DefaultModel"
+                   @bind="_model"
+                   @bind:event="oninput" />
+
+            <div class="teacher-settings-actions">
+                <button type="button" class="teacher-cta" @onclick="Save" disabled="@_saving">
+                    @(_saving ? "Saving…" : "Save")
+                </button>
+                <button type="button" class="teacher-cta teacher-cta-ghost" @onclick="Clear" disabled="@_saving">
+                    Remove key
+                </button>
+                @if (_savedMessage is not null)
+                {
+                    <span class="teacher-settings-saved">@_savedMessage</span>
+                }
+            </div>
+
+            <p class="teacher-settings-hint">
+                Stored only in this browser's local storage. Your key is sent directly from your browser to
+                the AI provider and never touches Djehuti's servers — same model DjeLab uses. Without a key,
+                you can still read every lesson's content; you just won't get the interactive tutoring layer.
+            </p>
+        }
+    </div>
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _saving;
+    private bool _showKey;
+    private string _apiKey = "";
+    private string _model = "";
+    private string? _savedMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _apiKey = await ConfigStore.GetApiKeyAsync() ?? "";
+        _model = await ConfigStore.GetModelAsync();
+        _loading = false;
+    }
+
+    private async Task Save()
+    {
+        _saving = true;
+        _savedMessage = null;
+        await ConfigStore.SetApiKeyAsync(_apiKey);
+        await ConfigStore.SetModelAsync(_model);
+        _saving = false;
+        _savedMessage = "Saved.";
+    }
+
+    private async Task Clear()
+    {
+        _saving = true;
+        _savedMessage = null;
+        await ConfigStore.ClearAsync();
+        _apiKey = "";
+        _model = "";
+        _saving = false;
+        _savedMessage = "Removed.";
+    }
+}

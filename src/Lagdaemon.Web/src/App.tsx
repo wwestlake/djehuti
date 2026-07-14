@@ -67,6 +67,7 @@ function Nav({ onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
       ) : (
         <button className="nav-section-back breadcrumb-link" onClick={() => go('/')}>← Home</button>
       )}
+      <a className="nav-community-link" href="/learn/">Learn</a>
       <button className={`nav-community-link${active('/announcements') ? ' active' : ''}`} onClick={() => go('/announcements')}>Announcements</button>
       <button className={`nav-community-link${active('/forum') ? ' active' : ''}`} onClick={() => go('/forum')}>Forum</button>
       <button className={`nav-community-link${active('/blog') ? ' active' : ''}`} onClick={() => go('/blog')}>Blog</button>

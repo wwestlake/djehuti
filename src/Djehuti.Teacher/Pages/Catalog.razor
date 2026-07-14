@@ -1,0 +1,52 @@
+@page "/catalog"
+@inject TeacherApiClient Api
+
+<PageTitle>Catalog — Djehuti Teacher</PageTitle>
+
+<div class="teacher-page">
+    <h1>Catalog</h1>
+    <p class="teacher-page-subtitle">Published lesson plans anyone can start learning from.</p>
+
+    @if (_loading)
+    {
+        <p class="teacher-muted">Loading…</p>
+    }
+    else if (_plans.Count == 0)
+    {
+        <div class="teacher-empty">
+            <p>No lesson plans published yet.</p>
+            <a class="teacher-cta" href="your-lessons">Create the first one →</a>
+        </div>
+    }
+    else
+    {
+        <div class="teacher-card-grid">
+            @foreach (var plan in _plans)
+            {
+                <a class="teacher-lesson-card" href="@($"lesson/{plan.Slug}")">
+                    @if (!string.IsNullOrWhiteSpace(plan.Subject))
+                    {
+                        <span class="teacher-lesson-subject">@plan.Subject</span>
+                    }
+                    <h3>@plan.Title</h3>
+                    @if (!string.IsNullOrWhiteSpace(plan.Description))
+                    {
+                        <p>@plan.Description</p>
+                    }
+                    <span class="teacher-lesson-meta">@plan.Topics.Count topic@(plan.Topics.Count == 1 ? "" : "s")</span>
+                </a>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private List<LessonPlan> _plans = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _plans = await Api.GetCatalogAsync();
+        _loading = false;
+    }
+}

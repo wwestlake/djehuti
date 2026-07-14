@@ -1,0 +1,128 @@
+@page "/edit/{Id:guid}"
+@inject TeacherApiClient Api
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Edit — Djehuti Teacher</PageTitle>
+
+<div class="teacher-page">
+    @if (_loading)
+    {
+        <p class="teacher-muted">Loading…</p>
+    }
+    else if (_plan is null)
+    {
+        <div class="teacher-empty">
+            <p>Couldn't load that lesson plan — it may not exist, or you may not be its author.</p>
+            <a class="teacher-cta" href="your-lessons">Back to Your Lessons →</a>
+        </div>
+    }
+    else
+    {
+        <div class="teacher-edit-header">
+            <h1>Edit lesson plan</h1>
+            <span class="teacher-lesson-status @(_published ? "published" : "draft")">@(_published ? "Published" : "Draft")</span>
+        </div>
+
+        <label class="teacher-settings-label">Title</label>
+        <input class="teacher-settings-input" @bind="_title" @bind:event="oninput" maxlength="120" />
+
+        <label class="teacher-settings-label">Subject</label>
+        <input class="teacher-settings-input" @bind="_subject" @bind:event="oninput" placeholder="e.g. Algebra, Music Theory, Woodworking" maxlength="80" />
+
+        <label class="teacher-settings-label">Description</label>
+        <textarea class="teacher-settings-input teacher-textarea" @bind="_description" @bind:event="oninput" rows="3" maxlength="500"></textarea>
+
+        <h2 class="teacher-topics-heading">Topics</h2>
+        @for (var i = 0; i < _topics.Count; i++)
+        {
+            var index = i;
+            <div class="teacher-topic-editor">
+                <div class="teacher-topic-editor-row">
+                    <input class="teacher-settings-input" placeholder="Topic title" @bind="_topics[index].Title" @bind:event="oninput" />
+                    <button type="button" class="teacher-icon-btn" title="Move up" disabled="@(index == 0)" @onclick="() => MoveTopic(index, -1)">↑</button>
+                    <button type="button" class="teacher-icon-btn" title="Move down" disabled="@(index == _topics.Count - 1)" @onclick="() => MoveTopic(index, 1)">↓</button>
+                    <button type="button" class="teacher-icon-btn teacher-icon-btn-danger" title="Remove topic" @onclick="() => RemoveTopic(index)">✕</button>
+                </div>
+                <input class="teacher-settings-input" placeholder="Video URL (optional, embeddable — e.g. YouTube embed link)" @bind="_topics[index].VideoUrl" @bind:event="oninput" />
+                <textarea class="teacher-settings-input teacher-textarea" placeholder="Content (Markdown)" rows="6" @bind="_topics[index].ContentMarkdown" @bind:event="oninput"></textarea>
+            </div>
+        }
+        <button type="button" class="teacher-cta teacher-cta-ghost" @onclick="AddTopic">+ Add topic</button>
+
+        <div class="teacher-settings-actions" style="margin-top: 1.5rem;">
+            <label class="teacher-publish-toggle">
+                <input type="checkbox" @bind="_published" />
+                Published (visible in the catalog)
+            </label>
+        </div>
+
+        <div class="teacher-settings-actions">
+            <button type="button" class="teacher-cta" @onclick="SaveAsync" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
+            <a class="teacher-cta teacher-cta-ghost" href="@($"lesson/{_plan.Slug}")" target="_blank">Preview →</a>
+            <button type="button" class="teacher-cta teacher-cta-danger" @onclick="DeleteAsync">Delete</button>
+            @if (_savedMessage is not null)
+            {
+                <span class="teacher-settings-saved">@_savedMessage</span>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private LessonPlan? _plan;
+    private string _title = "";
+    private string _subject = "";
+    private string _description = "";
+    private bool _published;
+    private List<LessonTopic> _topics = new();
+    private string? _savedMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var mine = await Api.GetMineAsync();
+        _plan = mine.FirstOrDefault(p => p.Id == Id);
+        if (_plan is not null)
+        {
+            _title = _plan.Title;
+            _subject = _plan.Subject ?? "";
+            _description = _plan.Description ?? "";
+            _published = _plan.Published;
+            _topics = _plan.Topics.Select(t => new LessonTopic { Title = t.Title, ContentMarkdown = t.ContentMarkdown, VideoUrl = t.VideoUrl }).ToList();
+        }
+        _loading = false;
+    }
+
+    private void AddTopic() => _topics.Add(new LessonTopic { Title = $"Topic {_topics.Count + 1}" });
+    private void RemoveTopic(int index) => _topics.RemoveAt(index);
+
+    private void MoveTopic(int index, int delta)
+    {
+        var newIndex = index + delta;
+        if (newIndex < 0 || newIndex >= _topics.Count) return;
+        (_topics[index], _topics[newIndex]) = (_topics[newIndex], _topics[index]);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_plan is null) return;
+        _saving = true;
+        _savedMessage = null;
+        var ok = await Api.UpdateAsync(_plan.Id, _title, _subject, _description, _topics, _published);
+        _saving = false;
+        _savedMessage = ok ? "Saved." : "Save failed.";
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_plan is null) return;
+        var confirmed = await JS.InvokeAsync<bool>("confirm", "Delete this lesson plan? This cannot be undone.");
+        if (!confirmed) return;
+        await Api.DeleteAsync(_plan.Id);
+        Nav.NavigateTo("your-lessons");
+    }
+}
