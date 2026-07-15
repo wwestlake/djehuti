@@ -191,6 +191,7 @@ public sealed class LearningTrack
     public string Title { get; set; } = "";
     public string Slug { get; set; } = "";
     public string? Description { get; set; }
+    public string? Subject { get; set; }
     public string Difficulty { get; set; } = "beginner";
     public int? EstimatedHours { get; set; }
     public int Position { get; set; }
@@ -205,6 +206,7 @@ public sealed class LearningTrackDto
     public string Title { get; set; } = "";
     public string Slug { get; set; } = "";
     public string? Description { get; set; }
+    public string? Subject { get; set; }
     public string Difficulty { get; set; } = "beginner";
     public int? EstimatedHours { get; set; }
     public bool Published { get; set; }

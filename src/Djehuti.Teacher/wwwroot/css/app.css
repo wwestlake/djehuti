@@ -1073,7 +1073,32 @@ a {
     background: var(--teacher-accent);
     color: #1a1208;
     border-radius: 4px;
+    margin-right: 0.5rem;
+}
+
+.teacher-track-subject {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--teacher-accent);
     margin-bottom: 0.5rem;
+}
+
+.teacher-track-subject-link {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--teacher-accent);
+    margin-bottom: 0.8rem;
+    transition: color 0.15s ease;
+}
+
+.teacher-track-subject-link:hover {
+    color: var(--teacher-accent-strong);
 }
 
 .teacher-track-meta {

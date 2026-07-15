@@ -8,6 +8,7 @@ type LearningTrack = {
     Title:           string
     Slug:            string
     Description:     string option
+    Subject:         string option
     Difficulty:      string
     EstimatedHours:  int option
     Position:        int
@@ -41,12 +42,13 @@ let private readTrack (r: System.Data.Common.DbDataReader) : LearningTrack =
         Title           = r.GetString(1)
         Slug            = r.GetString(2)
         Description     = if r.IsDBNull(3) then None else Some (r.GetString(3))
-        Difficulty      = r.GetString(4)
-        EstimatedHours  = if r.IsDBNull(5) then None else Some (r.GetInt32(5))
-        Position        = r.GetInt32(6)
-        Published       = r.GetBoolean(7)
-        CreatedAt       = r.GetFieldValue<DateTimeOffset>(8)
-        UpdatedAt       = r.GetFieldValue<DateTimeOffset>(9)
+        Subject         = if r.IsDBNull(4) then None else Some (r.GetString(4))
+        Difficulty      = r.GetString(5)
+        EstimatedHours  = if r.IsDBNull(6) then None else Some (r.GetInt32(6))
+        Position        = r.GetInt32(7)
+        Published       = r.GetBoolean(8)
+        CreatedAt       = r.GetFieldValue<DateTimeOffset>(9)
+        UpdatedAt       = r.GetFieldValue<DateTimeOffset>(10)
     }
 
 let private readTrackProgress (r: System.Data.Common.DbDataReader) : UserTrackProgress =
@@ -64,7 +66,7 @@ let private readTrackProgress (r: System.Data.Common.DbDataReader) : UserTrackPr
         UpdatedAt         = r.GetFieldValue<DateTimeOffset>(11)
     }
 
-let private selectTrackColumns = "id, title, slug, description, difficulty, estimated_hours, position, published, created_at, updated_at"
+let private selectTrackColumns = "id, title, slug, description, subject, difficulty, estimated_hours, position, published, created_at, updated_at"
 
 // Get all published tracks
 let listPublished () : LearningTrack list =
