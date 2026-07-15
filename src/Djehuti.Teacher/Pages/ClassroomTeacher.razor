@@ -1,0 +1,274 @@
+@page "/classroom/{ClassroomId:guid}"
+@implements IAsyncDisposable
+@inject TeacherApiClient Api
+@inject IJSRuntime JS
+@using Djehuti.Teacher.Services
+
+<PageTitle>@(_classroom?.Name ?? "Classroom") — Djehuti Teacher</PageTitle>
+
+<div class="teacher-page teacher-page-wide">
+    @if (_loading)
+    {
+        <p class="teacher-muted">Loading classroom…</p>
+    }
+    else if (_classroom is null)
+    {
+        <div class="teacher-empty">
+            <p>That classroom doesn't exist or you don't have access to it.</p>
+            <a class="teacher-cta" href="your-classrooms">Back to classrooms →</a>
+        </div>
+    }
+    else
+    {
+        <div class="teacher-classroom-header">
+            <div>
+                <h1>@_classroom.Name</h1>
+                <span class="teacher-classroom-status @_classroom.Status">@_classroom.Status</span>
+            </div>
+            <div class="teacher-classroom-actions">
+                @if (_classroom.Status == "preparing")
+                {
+                    <button type="button" class="teacher-cta" @onclick="StartClassroom" disabled="@_actionInProgress">
+                        @(_actionInProgress ? "Starting…" : "Start Lesson")
+                    </button>
+                }
+                else if (_classroom.Status == "live")
+                {
+                    <button type="button" class="teacher-cta teacher-cta-danger" @onclick="EndClassroom" disabled="@_actionInProgress">
+                        @(_actionInProgress ? "Ending…" : "End Lesson")
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="teacher-classroom-layout">
+            <!-- Left: Control Panel -->
+            <div class="teacher-classroom-controls">
+                <h2>Controls</h2>
+
+                <div class="teacher-control-section">
+                    <label class="teacher-settings-label">Mode</label>
+                    <select class="teacher-settings-input" @bind="_classroom.Mode" @onchange="UpdateMode" disabled="@(_classroom.Status != \"preparing\")">
+                        <option value="solo_ai">Solo AI Teaching</option>
+                        <option value="co_teach">Co-Teaching</option>
+                        <option value="teacher_directed">Teacher-Directed</option>
+                        <option value="student_guided">Student-Guided</option>
+                    </select>
+                </div>
+
+                <div class="teacher-control-section">
+                    <label class="teacher-settings-label">Lesson Plan</label>
+                    @if (_classroom.LessonPlanId.HasValue)
+                    {
+                        <p class="teacher-muted">@(_lessonPlan?.Title ?? "Loading…")</p>
+                    }
+                    else
+                    {
+                        <p class="teacher-muted">No lesson plan selected</p>
+                    }
+                </div>
+
+                <div class="teacher-control-section">
+                    <h3>Quick Actions</h3>
+                    <button type="button" class="teacher-cta teacher-cta-ghost" @onclick="ShowNotationTool">Show Notation</button>
+                    <button type="button" class="teacher-cta teacher-cta-ghost" @onclick="ShowPianoTool">Show Piano</button>
+                    <button type="button" class="teacher-cta teacher-cta-ghost" @onclick="BroadcastMessage">Send Message</button>
+                </div>
+            </div>
+
+            <!-- Center: Chat & Messages -->
+            <div class="teacher-classroom-chat">
+                <h2>Classroom Chat</h2>
+                <div class="teacher-classroom-messages">
+                    @if (_messages.Count == 0)
+                    {
+                        <p class="teacher-muted">No messages yet. Waiting for students…</p>
+                    }
+                    @foreach (var msg in _messages)
+                    {
+                        <div class="teacher-message @msg.Type">
+                            <span class="teacher-message-sender">@msg.SenderName</span>
+                            <span class="teacher-message-content">@msg.Content</span>
+                            <span class="teacher-message-time">@msg.Timestamp.ToString("HH:mm")</span>
+                        </div>
+                    }
+                </div>
+                <div class="teacher-classroom-input">
+                    <input type="text" class="teacher-settings-input" placeholder="Broadcast message…"
+                           @bind="_messageInput" @onkeypress="@(async e => { if (e.Key == \"Enter\") await SendChatMessage(); })" />
+                    <button type="button" class="teacher-cta" @onclick="SendChatMessage" disabled="@string.IsNullOrWhiteSpace(_messageInput)">Send</button>
+                </div>
+            </div>
+
+            <!-- Right: Student List & State -->
+            <div class="teacher-classroom-sidebar">
+                <h2>Students (@_members.Count)</h2>
+                <div class="teacher-member-list">
+                    @if (_members.Count == 0)
+                    {
+                        <p class="teacher-muted">No students joined yet.</p>
+                    }
+                    @foreach (var member in _members)
+                    {
+                        <div class="teacher-member-item">
+                            <span class="teacher-member-name">@member.DisplayName</span>
+                            <span class="teacher-member-status">@(member.IsOnline ? "🟢" : "⚫") @member.Status</span>
+                            @if (_classroom.Status == "live")
+                            {
+                                <button type="button" class="teacher-icon-btn" title="Send directive" @onclick="() => SendDirective(member.UserId)">→</button>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <h3 style="margin-top: 1.5rem;">Classroom Info</h3>
+                <dl>
+                    <dt>Status</dt>
+                    <dd>@_classroom.Status</dd>
+                    <dt>Mode</dt>
+                    <dd>@_classroom.Mode</dd>
+                    <dt>Students</dt>
+                    <dd>@_members.Count(m => m.Role == "student") / @_classroom.MaxStudents</dd>
+                    <dt>Created</dt>
+                    <dd>@_classroom.CreatedAt.ToString("g")</dd>
+                </dl>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid ClassroomId { get; set; }
+
+    private bool _loading = true;
+    private bool _actionInProgress = false;
+    private ClassroomDto? _classroom;
+    private LessonPlan? _lessonPlan;
+    private List<ClassroomMessageDto> _messages = new();
+    private List<ClassroomMemberDisplayDto> _members = new();
+    private string _messageInput = "";
+
+    [Serializable]
+    public class ClassroomDto
+    {
+        public Guid Id { get; set; }
+        public Guid TeacherId { get; set; }
+        public Guid? LessonPlanId { get; set; }
+        public string Name { get; set; } = "";
+        public string Slug { get; set; } = "";
+        public string Status { get; set; } = "preparing";
+        public string Mode { get; set; } = "solo_ai";
+        public int MaxStudents { get; set; } = 30;
+        public DateTimeOffset CreatedAt { get; set; }
+    }
+
+    [Serializable]
+    public class ClassroomMessageDto
+    {
+        public Guid Id { get; set; }
+        public Guid SenderId { get; set; }
+        public string SenderName { get; set; } = "";
+        public string Type { get; set; } = "chat";  // "chat" | "directive" | "system"
+        public string Content { get; set; } = "";
+        public DateTimeOffset Timestamp { get; set; }
+    }
+
+    [Serializable]
+    public class ClassroomMemberDisplayDto
+    {
+        public Guid UserId { get; set; }
+        public string DisplayName { get; set; } = "";
+        public string Role { get; set; } = "student";
+        public bool IsOnline { get; set; }
+        public string Status { get; set; } = "idle";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _classroom = await Api.GetClassroomAsync(ClassroomId);
+        if (_classroom is not null && _classroom.LessonPlanId.HasValue)
+        {
+            _lessonPlan = await Api.GetByIdAsync(_classroom.LessonPlanId.Value);
+        }
+        _members = await Api.GetClassroomMembersAsync(ClassroomId);
+        _loading = false;
+    }
+
+    private async Task StartClassroom()
+    {
+        if (_classroom is null) return;
+        _actionInProgress = true;
+        bool success = await Api.StartClassroomAsync(ClassroomId);
+        if (success)
+        {
+            _classroom.Status = "live";
+        }
+        _actionInProgress = false;
+    }
+
+    private async Task EndClassroom()
+    {
+        if (_classroom is null) return;
+        _actionInProgress = true;
+        bool success = await Api.EndClassroomAsync(ClassroomId);
+        if (success)
+        {
+            _classroom.Status = "archived";
+        }
+        _actionInProgress = false;
+    }
+
+    private async Task UpdateMode()
+    {
+        if (_classroom is null) return;
+        bool success = await Api.UpdateClassroomModeAsync(ClassroomId, _classroom.Mode);
+        if (!success)
+        {
+            // Reset on failure
+            _classroom = await Api.GetClassroomAsync(ClassroomId);
+        }
+    }
+
+    private async Task SendChatMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_messageInput)) return;
+
+        // Send via WebSocket
+        var client = await JS.InvokeAsync<dynamic>("getClassroomClient", ClassroomId.ToString());
+        if (client is not null)
+        {
+            await JS.InvokeVoidAsync("sendChat", _messageInput);
+        }
+
+        _messageInput = "";
+    }
+
+    private void ShowNotationTool()
+    {
+        // TODO: Send directive to show notation
+    }
+
+    private void ShowPianoTool()
+    {
+        // TODO: Send directive to show piano
+    }
+
+    private void BroadcastMessage()
+    {
+        // TODO: Send system message to all
+    }
+
+    private void SendDirective(Guid studentId)
+    {
+        // TODO: Open directive dialog
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("disconnectClassroom", ClassroomId.ToString());
+        }
+        catch { }
+    }
+}
