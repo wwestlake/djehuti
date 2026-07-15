@@ -10,7 +10,7 @@
                     class="teacher-diagram-note @(highlighted ? "highlighted" : "")"
                     fill="@(highlighted ? "#f5a623" : "#ffffff")" stroke="#333" stroke-width="1.5"
                     @onclick="() => HandleClick(key)" />
-            <g transform="@($"translate({key.X},{key.Y + 5})")" text-anchor="middle" font-size="14" fill="#222" style="pointer-events:none;"><text>@key.Name</text></g>
+            <g transform="@($"translate({key.X},{key.Y + 6})")" text-anchor="middle" font-size="20" fill="#222" style="pointer-events:none;"><text>@key.Name</text></g>
         }
     </svg>
 </div>

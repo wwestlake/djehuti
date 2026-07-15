@@ -9,7 +9,7 @@
                   class="teacher-diagram-note @(highlighted ? "highlighted" : "")"
                   fill="@(highlighted ? "#f5a623" : "#ffffff")" stroke="#333" stroke-width="1"
                   @onclick="() => HandleClick(key)" />
-            <g transform="@($"translate({key.X + WhiteKeyWidth / 2},140)")" text-anchor="middle" font-size="10" fill="#333" style="pointer-events:none;"><text>@key.Pitch</text></g>
+            <g transform="@($"translate({key.X + WhiteKeyWidth / 2},140)")" text-anchor="middle" font-size="15" fill="#333" style="pointer-events:none;"><text>@key.Pitch</text></g>
         }
         @foreach (var key in _blackKeys)
         {

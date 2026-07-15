@@ -1,7 +1,7 @@
 @namespace Djehuti.Teacher.Components
 
 <div class="teacher-diagram-panel">
-    <svg viewBox="0 0 620 240" xmlns="http://www.w3.org/2000/svg" style="width:100%; max-width:620px; display:block; margin:0 auto;">
+    <svg viewBox="0 0 620 260" xmlns="http://www.w3.org/2000/svg" style="width:100%; max-width:620px; display:block; margin:0 auto;">
         @foreach (var line in _stringLines)
         {
             <line x1="40" y1="@line" x2="600" y2="@line" stroke="#333" stroke-width="2" />
@@ -13,16 +13,16 @@
         @foreach (var pos in _positions)
         {
             var highlighted = HighlightedIds.Contains(pos.Id);
-            <circle cx="@pos.X" cy="@pos.Y" r="14"
+            <circle cx="@pos.X" cy="@pos.Y" r="17"
                     class="teacher-diagram-note @(highlighted ? "highlighted" : "")"
                     fill="@(highlighted ? "#f5a623" : "#ffffff")" stroke="#333" stroke-width="1.5"
                     @onclick="() => HandleClick(pos)" />
-            <g transform="@($"translate({pos.X},{pos.Y + 4})")" text-anchor="middle" font-size="10" fill="#222" style="pointer-events:none;"><text>@pos.Pitch</text></g>
+            <g transform="@($"translate({pos.X},{pos.Y + 5})")" text-anchor="middle" font-size="15" fill="#222" style="pointer-events:none;"><text>@pos.Pitch</text></g>
         }
         @for (var f = 0; f <= FretCount; f++)
         {
             var x = FretX(f);
-            <g transform="@($"translate({x},{_lastStringY + 20})")" text-anchor="middle" font-size="11" fill="#555"><text>@f</text></g>
+            <g transform="@($"translate({x},{_lastStringY + 22})")" text-anchor="middle" font-size="17" fill="#555"><text>@f</text></g>
         }
     </svg>
 </div>
