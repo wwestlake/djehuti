@@ -7,6 +7,10 @@ public sealed class LessonTopic
     public string Title { get; set; } = "";
     public string ContentMarkdown { get; set; } = "";
     public string? VideoUrl { get; set; }
+    // "markdown" (default) or "notation". A notation topic's board renders
+    // NotationJson (see MusicScore.cs) instead of ContentMarkdown.
+    public string Kind { get; set; } = "markdown";
+    public string? NotationJson { get; set; }
 }
 
 public sealed class LessonPlan
@@ -97,7 +101,7 @@ public sealed class TeacherApiClient
                 title,
                 subject = subject ?? "",
                 description = description ?? "",
-                topics = topics.Select(t => new { title = t.Title, contentMarkdown = t.ContentMarkdown, videoUrl = t.VideoUrl ?? "" }),
+                topics = topics.Select(t => new { title = t.Title, contentMarkdown = t.ContentMarkdown, videoUrl = t.VideoUrl ?? "", kind = t.Kind, notationJson = t.NotationJson ?? "" }),
                 published,
             }, ct);
             return response.IsSuccessStatusCode;

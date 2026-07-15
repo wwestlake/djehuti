@@ -40,12 +40,35 @@
             <div class="teacher-topic-editor">
                 <div class="teacher-topic-editor-row">
                     <input class="teacher-settings-input" placeholder="Topic title" @bind="_topics[index].Title" @bind:event="oninput" />
+                    <select class="teacher-settings-input" style="max-width: 160px;" @bind="_topics[index].Kind">
+                        <option value="markdown">Text</option>
+                        <option value="notation">Music notation</option>
+                        <option value="fretboard">Guitar fretboard</option>
+                        <option value="piano">Piano keys</option>
+                        <option value="circleoffifths">Circle of fifths</option>
+                    </select>
                     <button type="button" class="teacher-icon-btn" title="Move up" disabled="@(index == 0)" @onclick="() => MoveTopic(index, -1)">↑</button>
                     <button type="button" class="teacher-icon-btn" title="Move down" disabled="@(index == _topics.Count - 1)" @onclick="() => MoveTopic(index, 1)">↓</button>
                     <button type="button" class="teacher-icon-btn teacher-icon-btn-danger" title="Remove topic" @onclick="() => RemoveTopic(index)">✕</button>
                 </div>
-                <input class="teacher-settings-input" placeholder="Video URL (optional, embeddable — e.g. YouTube embed link)" @bind="_topics[index].VideoUrl" @bind:event="oninput" />
-                <textarea class="teacher-settings-input teacher-textarea" placeholder="Content (Markdown)" rows="6" @bind="_topics[index].ContentMarkdown" @bind:event="oninput"></textarea>
+                @if (_topics[index].Kind == "notation")
+                {
+                    <p class="teacher-muted" style="margin: 4px 0;">
+                        Score data (JSON) — measures of notes. Example:
+                        <code>@_notationExample</code>
+                        <button type="button" class="teacher-icon-btn" title="Insert example" @onclick="() => _topics[index].NotationJson = _notationExample">Insert example</button>
+                    </p>
+                    <textarea class="teacher-settings-input teacher-textarea" placeholder="Score JSON" rows="8" @bind="_topics[index].NotationJson" @bind:event="oninput"></textarea>
+                }
+                else if (_topics[index].Kind == "fretboard" || _topics[index].Kind == "piano" || _topics[index].Kind == "circleoffifths")
+                {
+                    <p class="teacher-muted" style="margin: 4px 0;">This topic shows a always-the-same reference diagram — nothing to author here. Students can click it and ask the tutor about it.</p>
+                }
+                else
+                {
+                    <input class="teacher-settings-input" placeholder="Video URL (optional, embeddable — e.g. YouTube embed link)" @bind="_topics[index].VideoUrl" @bind:event="oninput" />
+                    <textarea class="teacher-settings-input teacher-textarea" placeholder="Content (Markdown)" rows="6" @bind="_topics[index].ContentMarkdown" @bind:event="oninput"></textarea>
+                }
             </div>
         }
         <button type="button" class="teacher-cta teacher-cta-ghost" @onclick="AddTopic">+ Add topic</button>
@@ -81,6 +104,7 @@
     private bool _published;
     private List<LessonTopic> _topics = new();
     private string? _savedMessage;
+    private const string _notationExample = "{\"clef\":\"treble\",\"timeSignature\":\"4/4\",\"keySignature\":\"C\",\"measures\":[{\"notes\":[{\"id\":\"m1n1\",\"pitch\":\"C4\",\"duration\":\"q\",\"lyric\":\"Twin-\"},{\"id\":\"m1n2\",\"pitch\":\"C4\",\"duration\":\"q\",\"lyric\":\"kle\"},{\"id\":\"m1n3\",\"pitch\":\"G4\",\"duration\":\"q\",\"lyric\":\"twin-\"},{\"id\":\"m1n4\",\"pitch\":\"G4\",\"duration\":\"q\",\"lyric\":\"kle\"}]}]}";
 
     protected override async Task OnInitializedAsync()
     {
@@ -92,7 +116,7 @@
             _subject = _plan.Subject ?? "";
             _description = _plan.Description ?? "";
             _published = _plan.Published;
-            _topics = _plan.Topics.Select(t => new LessonTopic { Title = t.Title, ContentMarkdown = t.ContentMarkdown, VideoUrl = t.VideoUrl }).ToList();
+            _topics = _plan.Topics.Select(t => new LessonTopic { Title = t.Title, ContentMarkdown = t.ContentMarkdown, VideoUrl = t.VideoUrl, Kind = t.Kind, NotationJson = t.NotationJson }).ToList();
         }
         _loading = false;
     }

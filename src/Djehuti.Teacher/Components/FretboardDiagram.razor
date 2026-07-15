@@ -1,0 +1,96 @@
+@namespace Djehuti.Teacher.Components
+
+<div class="teacher-diagram-panel">
+    <svg viewBox="0 0 620 240" xmlns="http://www.w3.org/2000/svg" style="width:100%; max-width:620px; display:block; margin:0 auto;">
+        @foreach (var line in _stringLines)
+        {
+            <line x1="40" y1="@line" x2="600" y2="@line" stroke="#333" stroke-width="2" />
+        }
+        @foreach (var (x, isNut) in _fretLines)
+        {
+            <line x1="@x" y1="20" x2="@x" y2="@_lastStringY" stroke="#333" stroke-width="@(isNut ? 5 : 2)" />
+        }
+        @foreach (var pos in _positions)
+        {
+            var highlighted = HighlightedIds.Contains(pos.Id);
+            <circle cx="@pos.X" cy="@pos.Y" r="14"
+                    class="teacher-diagram-note @(highlighted ? "highlighted" : "")"
+                    fill="@(highlighted ? "#f5a623" : "#ffffff")" stroke="#333" stroke-width="1.5"
+                    @onclick="() => HandleClick(pos)" />
+            <g transform="@($"translate({pos.X},{pos.Y + 4})")" text-anchor="middle" font-size="10" fill="#222" style="pointer-events:none;"><text>@pos.Pitch</text></g>
+        }
+        @for (var f = 0; f <= FretCount; f++)
+        {
+            var x = FretX(f);
+            <g transform="@($"translate({x},{_lastStringY + 20})")" text-anchor="middle" font-size="11" fill="#555"><text>@f</text></g>
+        }
+    </svg>
+</div>
+
+@code {
+    [Parameter] public HashSet<string> HighlightedIds { get; set; } = new();
+    [Parameter] public EventCallback<(string Id, string Description)> OnPositionClicked { get; set; }
+
+    // Standard tuning, low string to high string.
+    private static readonly string[] Strings = { "E2", "A2", "D3", "G3", "B3", "E4" };
+    private const int FretCount = 5;
+    private static readonly string[] SemitoneNames = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+
+    private record Position(string Id, string Pitch, double X, double Y);
+
+    private List<double> _stringLines = new();
+    private List<(double X, bool IsNut)> _fretLines = new();
+    private List<Position> _positions = new();
+    private double _lastStringY;
+
+    protected override void OnInitialized()
+    {
+        for (var s = 0; s < Strings.Length; s++)
+        {
+            _stringLines.Add(StringY(s));
+        }
+        _lastStringY = StringY(Strings.Length - 1);
+
+        for (var f = 0; f <= FretCount; f++)
+        {
+            _fretLines.Add((FretX(f), f == 0));
+        }
+
+        for (var s = 0; s < Strings.Length; s++)
+        {
+            for (var f = 0; f <= FretCount; f++)
+            {
+                var pitch = NoteAt(Strings[s], f);
+                _positions.Add(new Position($"fret-{s}-{f}", pitch, FretX(f), StringY(s)));
+            }
+        }
+    }
+
+    private static double StringY(int stringIndex) => 20 + stringIndex * 40;
+    private static double FretX(int fret) => 40 + fret * (560.0 / FretCount);
+
+    public static string NoteAt(string openNote, int fret)
+    {
+        var letter = openNote[..^1];
+        var octave = int.Parse(openNote[^1..]);
+        var baseIndex = Array.IndexOf(SemitoneNames, letter);
+        var total = baseIndex + fret;
+        var newIndex = total % 12;
+        var octaveShift = total / 12;
+        return $"{SemitoneNames[newIndex]}{octave + octaveShift}";
+    }
+
+    private async Task HandleClick(Position pos)
+    {
+        if (OnPositionClicked.HasDelegate)
+        {
+            await OnPositionClicked.InvokeAsync((pos.Id, $"the note {pos.Pitch} on the guitar fretboard"));
+        }
+    }
+
+    // Legend text handed to the tutor AI so it knows what ids exist and what
+    // they mean -- same purpose as the score JSON for a notation topic.
+    public static string Legend =>
+        "This is a guitar fretboard, frets 0 (open string) through 5, 6 strings tuned E2 A2 D3 G3 B3 E4 low to high. " +
+        "Each clickable position has an id like \"fret-{stringIndex}-{fret}\" (stringIndex 0 = low E string) and plays a specific note.";
+}

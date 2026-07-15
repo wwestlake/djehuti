@@ -16,7 +16,16 @@ type LessonTopic = {
     Title:           string
     ContentMarkdown: string
     VideoUrl:        string option
+    // "markdown" (default) or "notation" -- a notation topic's board renders
+    // NotationJson (a MusicScore, see Djehuti.Teacher's MusicScore.cs) instead
+    // of ContentMarkdown. Old topics predate this field and deserialize with
+    // Kind = null, normalized to "markdown" in readLessonPlan below.
+    Kind:            string
+    NotationJson:    string option
 }
+
+let private normalizeTopic (t: LessonTopic) : LessonTopic =
+    if String.IsNullOrWhiteSpace t.Kind then { t with Kind = "markdown" } else t
 
 type LessonPlanRecord = {
     Id:          Guid
@@ -40,7 +49,9 @@ let private readLessonPlan (r: System.Data.Common.DbDataReader) : LessonPlanReco
         Subject     = if r.IsDBNull(4) then None else Some (r.GetString(4))
         Description = if r.IsDBNull(5) then None else Some (r.GetString(5))
         Topics      =
-            try System.Text.Json.JsonSerializer.Deserialize<LessonTopic list>(r.GetString(6), topicsJsonOptions)
+            try
+                System.Text.Json.JsonSerializer.Deserialize<LessonTopic list>(r.GetString(6), topicsJsonOptions)
+                |> List.map normalizeTopic
             with _ -> []
         Published   = r.GetBoolean(7)
         CreatedAt   = r.GetFieldValue<DateTimeOffset>(8)

@@ -1,6 +1,8 @@
 @namespace Djehuti.Teacher.Layout
 @implements IDisposable
 @inject WebLlmClient WebLlm
+@using Djehuti.Teacher.Services
+@using System.Text.Json
 
 <div class="teacher-tutor">
     <div class="teacher-tutor-header">
@@ -28,7 +30,7 @@
         }
     </div>
 
-    <form class="teacher-tutor-input-row" @onsubmit="SendAsync">
+    <form class="teacher-tutor-input-row" @onsubmit="() => SendMessageAsync(_input, null)">
         <input class="teacher-settings-input"
                placeholder="@InputPlaceholder()"
                @bind="_input" @bind:event="oninput"
@@ -42,9 +44,35 @@
     [Parameter, EditorRequired] public string TopicTitle { get; set; } = "";
     [Parameter, EditorRequired] public string TopicContent { get; set; } = "";
 
+    // When set, this topic is a music-notation topic -- the AI is told the
+    // current score and can respond with directives to highlight notes or
+    // (see OnScoreReplaceRequested) replace the score outright. Null for a
+    // plain text topic, which behaves exactly as before.
+    [Parameter] public MusicScore? Score { get; set; }
+    [Parameter] public HashSet<string> HighlightedNoteIds { get; set; } = new();
+    [Parameter] public EventCallback<HashSet<string>> OnHighlightRequested { get; set; }
+    [Parameter] public EventCallback<MusicScore> OnScoreReplaceRequested { get; set; }
+    // Set for a fretboard/piano/circle-of-fifths topic instead of Score --
+    // static text telling the AI what ids exist on that diagram and what
+    // they mean, since those diagrams have no per-topic authored JSON.
+    [Parameter] public string? DiagramLegend { get; set; }
+
     private bool _sending;
     private string _input = "";
     private List<(string Role, string Content)> _turns = new();
+
+    // The AI can't call real functions on this small in-browser model, so
+    // "tool calling" here is a plain-text directive convention instead: the
+    // model is instructed to end its reply with a line like
+    // [[HIGHLIGHT: id1,id2]] or [[SET_SCORE: {...}]] when it wants to act on
+    // the score. We strip that line before showing the reply and parse it
+    // into the corresponding callback. If the model doesn't follow the
+    // convention, the chat still works -- it just doesn't touch the score,
+    // same graceful-degradation posture as the rest of this app's AI features.
+    private static readonly System.Text.RegularExpressions.Regex HighlightDirective =
+        new(@"\[\[HIGHLIGHT:\s*([^\]]*)\]\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    private static readonly System.Text.RegularExpressions.Regex SetScoreDirective =
+        new(@"\[\[SET_SCORE:\s*(\{.*?\})\s*\]\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
 
     protected override void OnInitialized()
     {
@@ -67,33 +95,70 @@
         ? "Ask a question…"
         : "Waiting for the tutor…";
 
-    private async Task SendAsync()
+    // Called from Lesson.razor when the student clicks a note on the staff.
+    // Goes through the exact same send pipeline as typed input -- a click is
+    // just another way of asking the tutor about something.
+    public Task InjectNoteClickAsync(MusicNote note)
     {
-        var text = _input.Trim();
+        var lyricPart = string.IsNullOrWhiteSpace(note.Lyric) ? "" : $" (lyric: \"{note.Lyric}\")";
+        var displayText = $"🎵 You clicked: {note.Pitch}, {DurationName(note.Duration)}{lyricPart}";
+        return SendMessageAsync($"Tell me about the note {note.Pitch} ({DurationName(note.Duration)}) that I just clicked on.", displayText);
+    }
+
+    // Same idea as InjectNoteClickAsync, but for the fretboard/piano/circle
+    // of fifths diagrams, which click a named position rather than a
+    // MusicNote object.
+    public Task InjectDiagramClickAsync(string description)
+    {
+        var displayText = $"🎵 You clicked: {description}";
+        return SendMessageAsync($"Tell me about {description} that I just clicked on.", displayText);
+    }
+
+    private static string DurationName(string code) => code switch
+    {
+        "w" => "whole note",
+        "h" => "half note",
+        "q" => "quarter note",
+        "8" => "eighth note",
+        "16" => "sixteenth note",
+        _ => code,
+    };
+
+    // text: what's actually sent to the AI. displayText: what shows in the
+    // chat bubble as the "user" turn -- lets a note click show a friendly
+    // summary while sending a clearer instruction to the model.
+    private async Task SendMessageAsync(string text, string? displayText)
+    {
+        text = text?.Trim() ?? "";
         if (string.IsNullOrEmpty(text) || _sending || WebLlm.State != WebLlmState.Ready) return;
 
         _input = "";
         var history = _turns.ToList();
-        _turns.Add(("user", text));
+        _turns.Add(("user", displayText ?? text));
         _sending = true;
         StateHasChanged();
 
         try
         {
-            var systemPrompt =
-                $"You are a patient, encouraging tutor helping a student understand the topic \"{TopicTitle}\" " +
-                $"from the lesson \"{LessonTitle}\". Here is the topic's content for reference:\n\n{TopicContent}\n\n" +
-                "Your job is to build genuine understanding, not to just hand over final answers. When the student " +
-                "asks how to solve something, ask a guiding question or point them at the relevant part of the " +
-                "content first, and let them work through it with you. Keep answers short -- a few sentences, not " +
-                "an essay.";
+            var systemPrompt = BuildSystemPrompt();
 
             var messages = new List<(string Role, string Content)> { ("system", systemPrompt) };
             messages.AddRange(history);
             messages.Add(("user", text));
 
             var reply = await WebLlm.ChatAsync(messages);
-            _turns.Add(("assistant", reply));
+            var (cleanReply, highlightIds, newScore) = ParseDirectives(reply);
+
+            _turns.Add(("assistant", string.IsNullOrWhiteSpace(cleanReply) ? "(showing you on the staff)" : cleanReply));
+
+            if (highlightIds is not null && OnHighlightRequested.HasDelegate)
+            {
+                await OnHighlightRequested.InvokeAsync(highlightIds);
+            }
+            if (newScore is not null && OnScoreReplaceRequested.HasDelegate)
+            {
+                await OnScoreReplaceRequested.InvokeAsync(newScore);
+            }
         }
         catch (Exception ex)
         {
@@ -103,6 +168,70 @@
         {
             _sending = false;
         }
+    }
+
+    private string BuildSystemPrompt()
+    {
+        var basePrompt =
+            $"You are a patient, encouraging tutor helping a student understand the topic \"{TopicTitle}\" " +
+            $"from the lesson \"{LessonTitle}\". Here is the topic's content for reference:\n\n{TopicContent}\n\n" +
+            "Your job is to build genuine understanding, not to just hand over final answers. When the student " +
+            "asks how to solve something, ask a guiding question or point them at the relevant part of the " +
+            "content first, and let them work through it with you. Keep answers short -- a few sentences, not " +
+            "an essay.";
+
+        var highlighted = string.Join(",", HighlightedNoteIds);
+
+        if (Score is not null)
+        {
+            var scoreJson = JsonSerializer.Serialize(Score);
+            return basePrompt +
+                $"\n\nThis is a music theory lesson. Here is the current score on screen (JSON, note ids you can refer to):\n{scoreJson}\n" +
+                $"Currently highlighted note ids: [{highlighted}]\n\n" +
+                "If it would help to point at specific notes (e.g. showing which notes make up a scale or chord), " +
+                "end your reply on its own new line with: [[HIGHLIGHT: id1,id2,id3]] using note ids from the score above. " +
+                "Only do this when it genuinely helps illustrate your answer. Do not invent ids that aren't listed.";
+        }
+
+        if (DiagramLegend is not null)
+        {
+            return basePrompt +
+                $"\n\nThis is a music theory lesson. {DiagramLegend}\n" +
+                $"Currently highlighted ids: [{highlighted}]\n\n" +
+                "If it would help to point at specific things on the diagram, end your reply on its own new line with: " +
+                "[[HIGHLIGHT: id1,id2,id3]] using ids as described above. Only do this when it genuinely helps illustrate " +
+                "your answer. Do not invent ids that aren't listed.";
+        }
+
+        return basePrompt;
+    }
+
+    private static (string CleanReply, HashSet<string>? HighlightIds, MusicScore? NewScore) ParseDirectives(string reply)
+    {
+        HashSet<string>? highlightIds = null;
+        MusicScore? newScore = null;
+
+        var setScoreMatch = SetScoreDirective.Match(reply);
+        if (setScoreMatch.Success)
+        {
+            try
+            {
+                newScore = JsonSerializer.Deserialize<MusicScore>(setScoreMatch.Groups[1].Value, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch { /* malformed AI output -- ignore, chat still works */ }
+            reply = SetScoreDirective.Replace(reply, "");
+        }
+
+        var highlightMatch = HighlightDirective.Match(reply);
+        if (highlightMatch.Success)
+        {
+            highlightIds = highlightMatch.Groups[1].Value
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToHashSet();
+            reply = HighlightDirective.Replace(reply, "");
+        }
+
+        return (reply.Trim(), highlightIds, newScore);
     }
 
     public void Dispose()

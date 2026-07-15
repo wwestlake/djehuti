@@ -1,0 +1,52 @@
+@namespace Djehuti.Teacher.Components
+
+<div class="teacher-diagram-panel">
+    <svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg" style="width:100%; max-width:400px; display:block; margin:0 auto;">
+        <circle cx="200" cy="200" r="180" fill="none" stroke="#ccc" stroke-width="1" />
+        @foreach (var key in _keys)
+        {
+            var highlighted = HighlightedIds.Contains(key.Id);
+            <circle cx="@key.X" cy="@key.Y" r="26"
+                    class="teacher-diagram-note @(highlighted ? "highlighted" : "")"
+                    fill="@(highlighted ? "#f5a623" : "#ffffff")" stroke="#333" stroke-width="1.5"
+                    @onclick="() => HandleClick(key)" />
+            <g transform="@($"translate({key.X},{key.Y + 5})")" text-anchor="middle" font-size="14" fill="#222" style="pointer-events:none;"><text>@key.Name</text></g>
+        }
+    </svg>
+</div>
+
+@code {
+    [Parameter] public HashSet<string> HighlightedIds { get; set; } = new();
+    [Parameter] public EventCallback<(string Id, string Description)> OnPositionClicked { get; set; }
+
+    // Clockwise from the top: each step is a fifth up from the previous key.
+    private static readonly string[] KeyNames = { "C", "G", "D", "A", "E", "B", "F#", "Db", "Ab", "Eb", "Bb", "F" };
+
+    private record Key(string Id, string Name, double X, double Y);
+
+    private List<Key> _keys = new();
+
+    protected override void OnInitialized()
+    {
+        const double centerX = 200, centerY = 200, radius = 150;
+        for (var i = 0; i < KeyNames.Length; i++)
+        {
+            var angle = (Math.PI * 2 * i / KeyNames.Length) - Math.PI / 2; // start at top, clockwise
+            var x = centerX + radius * Math.Cos(angle);
+            var y = centerY + radius * Math.Sin(angle);
+            _keys.Add(new Key($"key-{KeyNames[i]}", KeyNames[i], x, y));
+        }
+    }
+
+    private async Task HandleClick(Key key)
+    {
+        if (OnPositionClicked.HasDelegate)
+        {
+            await OnPositionClicked.InvokeAsync((key.Id, $"the key of {key.Name} major on the circle of fifths"));
+        }
+    }
+
+    public static string Legend =>
+        "This is the circle of fifths: C, G, D, A, E, B, F#, Db, Ab, Eb, Bb, F arranged clockwise, each a fifth above the last. " +
+        "Each clickable key's id is \"key-{name}\", e.g. \"key-C\" or \"key-F#\".";
+}
