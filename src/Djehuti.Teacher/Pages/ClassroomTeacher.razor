@@ -192,6 +192,19 @@
         }
         _members = await Api.GetClassroomMembersAsync(ClassroomId);
         _loading = false;
+
+        // Initialize WebSocket connection
+        _ = InitializeWebSocket();
+    }
+
+    private async Task InitializeWebSocket()
+    {
+        try
+        {
+            var dotnetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("initClassroomClient", ClassroomId.ToString(), dotnetRef);
+        }
+        catch { }
     }
 
     private async Task StartClassroom()
@@ -233,14 +246,26 @@
     {
         if (string.IsNullOrWhiteSpace(_messageInput)) return;
 
-        // Send via WebSocket
-        var client = await JS.InvokeAsync<dynamic>("getClassroomClient", ClassroomId.ToString());
-        if (client is not null)
-        {
-            await JS.InvokeVoidAsync("sendChat", _messageInput);
-        }
-
+        var messageText = _messageInput;
         _messageInput = "";
+
+        // Send via WebSocket
+        try
+        {
+            await JS.InvokeVoidAsync("sendChat", ClassroomId.ToString(), messageText);
+            // Add message to local chat for immediate feedback
+            _messages.Add(new ClassroomMessageDto
+            {
+                Id = Guid.NewGuid(),
+                SenderId = Guid.Empty,  // Will be filled by server
+                SenderName = "You",
+                Type = "chat",
+                Content = messageText,
+                Timestamp = DateTimeOffset.UtcNow
+            });
+            StateHasChanged();
+        }
+        catch { }
     }
 
     private void ShowNotationTool()
@@ -261,6 +286,51 @@
     private void SendDirective(Guid studentId)
     {
         // TODO: Open directive dialog
+    }
+
+    [JSInvokable]
+    public void OnChatMessage(string senderName, string content)
+    {
+        _messages.Add(new ClassroomMessageDto
+        {
+            Id = Guid.NewGuid(),
+            SenderId = Guid.Empty,
+            SenderName = senderName,
+            Type = "chat",
+            Content = content,
+            Timestamp = DateTimeOffset.UtcNow
+        });
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnUserJoined(string userName)
+    {
+        _messages.Add(new ClassroomMessageDto
+        {
+            Id = Guid.NewGuid(),
+            SenderId = Guid.Empty,
+            SenderName = "system",
+            Type = "system",
+            Content = $"{userName} joined",
+            Timestamp = DateTimeOffset.UtcNow
+        });
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnUserLeft(string userName)
+    {
+        _messages.Add(new ClassroomMessageDto
+        {
+            Id = Guid.NewGuid(),
+            SenderId = Guid.Empty,
+            SenderName = "system",
+            Type = "system",
+            Content = $"{userName} left",
+            Timestamp = DateTimeOffset.UtcNow
+        });
+        StateHasChanged();
     }
 
     async ValueTask IAsyncDisposable.DisposeAsync()

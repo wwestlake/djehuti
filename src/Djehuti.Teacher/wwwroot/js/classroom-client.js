@@ -2,9 +2,8 @@
 // Handles connection, message routing, and state management
 
 class ClassroomClient {
-    constructor(classroomId, token, dotnetHelper) {
+    constructor(classroomId, dotnetHelper) {
         this.classroomId = classroomId;
-        this.token = token;
         this.dotnetHelper = dotnetHelper;
         this.ws = null;
         this.connected = false;
@@ -18,7 +17,8 @@ class ClassroomClient {
     async connect() {
         try {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const url = `${protocol}//${window.location.host}/api/classroom/${this.classroomId}/ws?token=${encodeURIComponent(this.token)}`;
+            // No token param - auth comes via cookie
+            const url = `${protocol}//${window.location.host}/api/classroom/${this.classroomId}/ws`;
 
             this.ws = new WebSocket(url);
             this.ws.onopen = () => this.onOpen();
@@ -111,7 +111,8 @@ class ClassroomClient {
 
         const message = {
             type: 'chat',
-            content: content
+            content: content,
+            timestamp: new Date().toISOString()
         };
 
         this.ws.send(JSON.stringify(message));
@@ -154,12 +155,25 @@ class ClassroomClient {
             });
         }
 
-        // Also call .NET if dotnetHelper is available
-        if (this.dotnetHelper && eventType !== 'connected' && eventType !== 'disconnected' && eventType !== 'error') {
+        // Call .NET methods based on message type
+        if (this.dotnetHelper) {
             try {
-                this.dotnetHelper.invokeMethodAsync('OnWebSocketMessage', eventType, data);
+                switch (eventType) {
+                    case 'chat':
+                        this.dotnetHelper.invokeMethodAsync('OnChatMessage', data.senderName || 'Unknown', data.content || '');
+                        break;
+                    case 'directive':
+                        this.dotnetHelper.invokeMethodAsync('OnDirective', data.action || data.tool || '', data.payload || data.data || {});
+                        break;
+                    case 'user_joined':
+                        this.dotnetHelper.invokeMethodAsync('OnUserJoined', data.userName || '');
+                        break;
+                    case 'user_left':
+                        this.dotnetHelper.invokeMethodAsync('OnUserLeft', data.userName || '');
+                        break;
+                }
             } catch (error) {
-                console.warn('Failed to invoke .NET method:', error);
+                console.warn(`Failed to invoke .NET method for ${eventType}:`, error);
             }
         }
     }
@@ -180,15 +194,39 @@ class ClassroomClient {
 // Global instance management
 window.classroomClients = {};
 
-window.initClassroomClient = async function(classroomId, token, dotnetHelper) {
-    const client = new ClassroomClient(classroomId, token, dotnetHelper);
-    await client.connect();
-    window.classroomClients[classroomId] = client;
-    return client;
+window.initClassroomClient = async function(classroomId, dotnetHelper) {
+    try {
+        const client = new ClassroomClient(classroomId, dotnetHelper);
+        await client.connect();
+        window.classroomClients[classroomId] = client;
+        console.log(`Initialized classroom client for ${classroomId}`);
+        return client;
+    } catch (error) {
+        console.error(`Failed to initialize classroom client for ${classroomId}:`, error);
+        return null;
+    }
 };
 
 window.getClassroomClient = function(classroomId) {
     return window.classroomClients[classroomId];
+};
+
+window.sendChat = function(classroomId, content) {
+    const client = window.classroomClients[classroomId];
+    if (client) {
+        client.sendChat(content);
+    } else {
+        console.warn(`No client found for classroom ${classroomId}`);
+    }
+};
+
+window.sendDirective = function(classroomId, toUser, action, payload) {
+    const client = window.classroomClients[classroomId];
+    if (client) {
+        client.sendDirective(toUser, action, payload);
+    } else {
+        console.warn(`No client found for classroom ${classroomId}`);
+    }
 };
 
 window.disconnectClassroom = function(classroomId) {
@@ -196,5 +234,6 @@ window.disconnectClassroom = function(classroomId) {
     if (client) {
         client.disconnect();
         delete window.classroomClients[classroomId];
+        console.log(`Disconnected classroom client for ${classroomId}`);
     }
 };

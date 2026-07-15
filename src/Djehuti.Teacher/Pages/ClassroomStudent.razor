@@ -260,8 +260,16 @@
 
     private async Task InitializeWebSocket()
     {
-        // TODO: Connect to WebSocket and set up event handlers
-        // This will be done in a separate JavaScript initialization
+        try
+        {
+            // Initialize the JavaScript WebSocket client with this Blazor component's reference
+            var dotnetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("initClassroomClient", ClassroomId.ToString(), dotnetRef);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"WebSocket init error: {ex.Message}");
+        }
 
         // Ensure WebLLM is ready
         _ = WebLlm.EnsureReadyAsync();
@@ -333,18 +341,54 @@
     {
         if (string.IsNullOrWhiteSpace(_classInput)) return;
 
+        var messageText = _classInput;
+        _classInput = "";
+
         // Send via WebSocket
         try
         {
-            var client = await JS.InvokeAsync<dynamic>("getClassroomClient", ClassroomId.ToString());
-            if (client is not null)
-            {
-                await JS.InvokeVoidAsync("sendChat", _classInput);
-            }
+            await JS.InvokeVoidAsync("sendChat", ClassroomId.ToString(), messageText);
+            // Add our message to the local chat for immediate feedback
+            _classMessages.Add(new ClassMessageDto { SenderName = "You", Content = messageText });
+            StateHasChanged();
         }
         catch { }
+    }
 
-        _classInput = "";
+    [JSInvokable]
+    public void OnChatMessage(string senderName, string content)
+    {
+        _classMessages.Add(new ClassMessageDto { SenderName = senderName, Content = content });
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnDirective(string tool, object? data)
+    {
+        // Handle incoming directives from teacher
+        if (tool == "notation" && data is not null)
+        {
+            _teachingCanvas = new TeachingCanvasDto { Tool = "notation", Data = data };
+        }
+        else if (tool == "piano")
+        {
+            _teachingCanvas = new TeachingCanvasDto { Tool = "piano", Data = data };
+        }
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnUserJoined(string userName)
+    {
+        _classMessages.Add(new ClassMessageDto { SenderName = "system", Content = $"{userName} joined the classroom" });
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnUserLeft(string userName)
+    {
+        _classMessages.Add(new ClassMessageDto { SenderName = "system", Content = $"{userName} left the classroom" });
+        StateHasChanged();
     }
 
     async ValueTask IAsyncDisposable.DisposeAsync()
