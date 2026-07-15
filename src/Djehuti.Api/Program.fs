@@ -6116,6 +6116,72 @@ let main args =
                         else Results.Problem(detail = "Delete failed", statusCode = 500, title = "Error"))
     ) |> ignore
 
+    // ── Djehuti Teacher: learning tracks ──────────────────────────────────────────
+    // Organize related lessons into tracks, track progress through structured learning paths
+
+    app.MapGet(
+        "/api/teacher/learning-tracks",
+        Func<IResult>(fun () -> Results.Ok(LearningTrackRepository.listPublished ()))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/teacher/learning-tracks/{id}",
+        Func<Guid, IResult>(fun id ->
+            match LearningTrackRepository.tryGetWithLessons id with
+            | None -> Results.NotFound()
+            | Some track when not track.Track.Published -> Results.NotFound()
+            | Some track -> Results.Ok(track))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/teacher/learning-tracks/by-slug/{slug}",
+        Func<string, IResult>(fun slug ->
+            match LearningTrackRepository.tryGetBySlug slug with
+            | None -> Results.NotFound()
+            | Some track when not track.Published -> Results.NotFound()
+            | Some track -> Results.Ok(track))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/teacher/learning-tracks/{trackId}/progress",
+        Func<HttpContext, Guid, IResult>(fun ctx trackId ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    match LearningTrackRepository.tryGetUserProgress uid trackId with
+                    | None -> Results.NotFound()
+                    | Some progress -> Results.Ok(progress))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/teacher/learning-tracks/user/{userId}/progress",
+        Func<HttpContext, Guid, IResult>(fun ctx userId ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid when uid = userId || Permissions.isAdmin claims.Role ->
+                    Results.Ok(LearningTrackRepository.listUserProgress userId)
+                | _ -> Results.Forbid())
+    ) |> ignore
+
+    app.MapPost(
+        "/api/teacher/learning-tracks/{trackId}/lesson/{lessonId}/complete",
+        Func<HttpContext, Guid, Guid, IResult>(fun ctx trackId lessonId ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    LearningTrackRepository.updateProgress uid trackId lessonId
+                    Results.NoContent())
+    ) |> ignore
+
     // ── Desktop app content library (Creation Station, etc.) ────────────────────
     // See docs/agents context: desktop apps authenticate via the loopback+PKCE
     // JWT flow (Auth.fs), then send that same JWT as Authorization: Bearer on

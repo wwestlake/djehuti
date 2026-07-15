@@ -118,4 +118,113 @@ public sealed class TeacherApiClient
         }
         catch { return false; }
     }
+
+    public async Task<List<LearningTrack>> GetLearningTracksAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _http.GetAsync($"{Base}/learning-tracks", ct);
+            if (!response.IsSuccessStatusCode) return new();
+            return await response.Content.ReadFromJsonAsync<List<LearningTrack>>(cancellationToken: ct) ?? new();
+        }
+        catch { return new(); }
+    }
+
+    public async Task<LearningTrackDto?> GetLearningTrackBySlugAsync(string slug, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _http.GetAsync($"{Base}/learning-tracks/by-slug/{Uri.EscapeDataString(slug)}", ct);
+            if (!response.IsSuccessStatusCode) return null;
+            return await response.Content.ReadFromJsonAsync<LearningTrackDto>(cancellationToken: ct);
+        }
+        catch { return null; }
+    }
+
+    public async Task<LearningTrackWithLessons?> GetLearningTrackWithLessonsAsync(Guid trackId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _http.GetAsync($"{Base}/learning-tracks/{trackId}", ct);
+            if (!response.IsSuccessStatusCode) return null;
+            return await response.Content.ReadFromJsonAsync<LearningTrackWithLessons>(cancellationToken: ct);
+        }
+        catch { return null; }
+    }
+
+    public async Task<UserTrackProgressDto?> TryGetUserTrackProgressAsync(Guid trackId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _http.GetAsync($"{Base}/learning-tracks/{trackId}/progress", ct);
+            if (!response.IsSuccessStatusCode) return null;
+            return await response.Content.ReadFromJsonAsync<UserTrackProgressDto>(cancellationToken: ct);
+        }
+        catch { return null; }
+    }
+
+    public async Task<bool> MarkLessonCompleteAsync(Guid trackId, Guid lessonId, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _http.PostAsync($"{Base}/learning-tracks/{trackId}/lesson/{lessonId}/complete", null, ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
+    public async Task<LessonPlan?> GetLessonByIdAsync(Guid id, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _http.GetAsync($"{Base}/lesson-plans/{id}", ct);
+            if (!response.IsSuccessStatusCode) return null;
+            return await response.Content.ReadFromJsonAsync<LessonPlan>(cancellationToken: ct);
+        }
+        catch { return null; }
+    }
+}
+
+public sealed class LearningTrack
+{
+    public Guid Id { get; set; }
+    public string Title { get; set; } = "";
+    public string Slug { get; set; } = "";
+    public string? Description { get; set; }
+    public string Difficulty { get; set; } = "beginner";
+    public int? EstimatedHours { get; set; }
+    public int Position { get; set; }
+    public bool Published { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+public sealed class LearningTrackDto
+{
+    public Guid Id { get; set; }
+    public string Title { get; set; } = "";
+    public string Slug { get; set; } = "";
+    public string? Description { get; set; }
+    public string Difficulty { get; set; } = "beginner";
+    public int? EstimatedHours { get; set; }
+    public bool Published { get; set; }
+}
+
+public sealed class LearningTrackWithLessons
+{
+    public LearningTrackDto Track { get; set; } = new();
+    public List<(Guid LessonId, int Sequence)> Lessons { get; set; } = new();
+}
+
+public sealed class UserTrackProgressDto
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    public Guid TrackId { get; set; }
+    public int LessonsCompleted { get; set; }
+    public int TotalLessons { get; set; }
+    public int CompletionPercent { get; set; }
+    public DateTimeOffset StartedAt { get; set; }
+    public DateTimeOffset? LastAccessedAt { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
 }
