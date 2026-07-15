@@ -1,27 +1,36 @@
 @page "/catalog"
 @inject TeacherApiClient Api
 
-<PageTitle>Catalog — Djehuti Teacher</PageTitle>
+<PageTitle>@(HasSubjectFilter ? $"{Subject} — Djehuti Teacher" : "Catalog — Djehuti Teacher")</PageTitle>
 
 <div class="teacher-page">
-    <h1>Catalog</h1>
-    <p class="teacher-page-subtitle">Published lesson plans anyone can start learning from.</p>
+    <h1>@(HasSubjectFilter ? Subject : "Catalog")</h1>
+    <p class="teacher-page-subtitle">
+        @if (HasSubjectFilter)
+        {
+            @:Published @Subject lesson plans. <a href="catalog">See the full catalog →</a>
+        }
+        else
+        {
+            @:Published lesson plans anyone can start learning from.
+        }
+    </p>
 
     @if (_loading)
     {
         <p class="teacher-muted">Loading…</p>
     }
-    else if (_plans.Count == 0)
+    else if (_filteredPlans.Count == 0)
     {
         <div class="teacher-empty">
-            <p>No lesson plans published yet.</p>
+            <p>No lesson plans published yet@(HasSubjectFilter ? $" in {Subject}" : "").</p>
             <a class="teacher-cta" href="your-lessons">Create the first one →</a>
         </div>
     }
     else
     {
         <div class="teacher-card-grid">
-            @foreach (var plan in _plans)
+            @foreach (var plan in _filteredPlans)
             {
                 <a class="teacher-lesson-card" href="@($"lesson/{plan.Slug}")">
                     @if (!string.IsNullOrWhiteSpace(plan.Subject))
@@ -41,8 +50,16 @@
 </div>
 
 @code {
+    [SupplyParameterFromQuery] public string? Subject { get; set; }
+
     private bool _loading = true;
     private List<LessonPlan> _plans = new();
+
+    private bool HasSubjectFilter => !string.IsNullOrWhiteSpace(Subject);
+    private List<LessonPlan> _filteredPlans =>
+        HasSubjectFilter
+            ? _plans.Where(p => string.Equals(p.Subject, Subject, StringComparison.OrdinalIgnoreCase)).ToList()
+            : _plans;
 
     protected override async Task OnInitializedAsync()
     {

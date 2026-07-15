@@ -6072,7 +6072,7 @@ let main args =
 
     app.MapPut(
         "/api/teacher/lesson-plans/{id}",
-        Func<HttpContext, Guid, {| title: string; subject: string; description: string; topics: {| title: string; contentMarkdown: string; videoUrl: string |}[]; published: bool |}, IResult>(fun ctx id body ->
+        Func<HttpContext, Guid, {| title: string; subject: string; description: string; topics: {| title: string; contentMarkdown: string; videoUrl: string; kind: string; notationJson: string |}[]; published: bool |}, IResult>(fun ctx id body ->
             match tryGetAuthClaims ctx with
             | None -> Results.Unauthorized()
             | Some claims ->
@@ -6090,6 +6090,8 @@ let main args =
                                     Title = t.title
                                     ContentMarkdown = t.contentMarkdown
                                     VideoUrl = blankToNone t.videoUrl
+                                    Kind = if String.IsNullOrWhiteSpace t.kind then "markdown" else t.kind
+                                    NotationJson = blankToNone t.notationJson
                                 } : LessonPlanRepository.LessonTopic))
                             |> Array.toList
                         if LessonPlanRepository.update id body.title (blankToNone body.subject) (blankToNone body.description) topics body.published

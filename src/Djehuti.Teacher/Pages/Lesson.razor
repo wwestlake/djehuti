@@ -1,6 +1,8 @@
 @page "/lesson/{Slug}"
 @inject TeacherApiClient Api
 @inject IJSRuntime JS
+@using Djehuti.Teacher.Components
+@using Djehuti.Teacher.Services
 
 <PageTitle>@(_plan?.Title ?? "Lesson") — Djehuti Teacher</PageTitle>
 
@@ -52,15 +54,38 @@
                 <div class="teacher-board">
                     <div class="teacher-board-surface">
                         <h2>@topic.Title</h2>
-                        @if (!string.IsNullOrWhiteSpace(topic.VideoUrl))
+                        @if (topic.Kind == "notation")
                         {
-                            <div class="teacher-video-embed">
-                                <iframe src="@topic.VideoUrl" allowfullscreen title="@topic.Title"></iframe>
+                            EnsureScoreLoaded(topic);
+                            <MusicStaff Score="_currentScore" HighlightedNoteIds="_highlightedNoteIds" OnNoteClicked="HandleNoteClicked" />
+                        }
+                        else if (topic.Kind == "fretboard")
+                        {
+                            ResetHighlightsIfNewTopic();
+                            <FretboardDiagram HighlightedIds="_highlightedNoteIds" OnPositionClicked="HandleDiagramClicked" />
+                        }
+                        else if (topic.Kind == "piano")
+                        {
+                            ResetHighlightsIfNewTopic();
+                            <PianoKeys HighlightedIds="_highlightedNoteIds" OnPositionClicked="HandleDiagramClicked" />
+                        }
+                        else if (topic.Kind == "circleoffifths")
+                        {
+                            ResetHighlightsIfNewTopic();
+                            <CircleOfFifths HighlightedIds="_highlightedNoteIds" OnPositionClicked="HandleDiagramClicked" />
+                        }
+                        else
+                        {
+                            @if (!string.IsNullOrWhiteSpace(topic.VideoUrl))
+                            {
+                                <div class="teacher-video-embed">
+                                    <iframe src="@topic.VideoUrl" allowfullscreen title="@topic.Title"></iframe>
+                                </div>
+                            }
+                            <div class="teacher-markdown teacher-board-content" @ref="_boardContentRef">
+                                @((MarkupString)RenderMarkdown(topic.ContentMarkdown))
                             </div>
                         }
-                        <div class="teacher-markdown teacher-board-content" @ref="_boardContentRef">
-                            @((MarkupString)RenderMarkdown(topic.ContentMarkdown))
-                        </div>
                     </div>
 
                     <div class="teacher-topic-pager">
@@ -70,7 +95,12 @@
                 </div>
 
                 <div class="teacher-classroom-chat">
-                    <TutorChat @key="_activeTopic" LessonTitle="@_plan.Title" TopicTitle="@topic.Title" TopicContent="@topic.ContentMarkdown" />
+                    <TutorChat @ref="_tutorChat" @key="_activeTopic" LessonTitle="@_plan.Title" TopicTitle="@topic.Title" TopicContent="@topic.ContentMarkdown"
+                               Score="@(topic.Kind == "notation" ? _currentScore : null)"
+                               HighlightedNoteIds="_highlightedNoteIds"
+                               OnHighlightRequested="HandleHighlightRequested"
+                               OnScoreReplaceRequested="HandleScoreReplaceRequested"
+                               DiagramLegend="@DiagramLegendFor(topic.Kind)" />
                 </div>
             </div>
         }
@@ -85,6 +115,79 @@
     private int _activeTopic;
     private ElementReference _boardContentRef;
     private IJSObjectReference? _module;
+    private TutorChat? _tutorChat;
+    private MusicScore _currentScore = new();
+    private HashSet<string> _highlightedNoteIds = new();
+    private int _scoreLoadedForTopic = -1;
+
+    // The AI (and note clicks) can mutate _currentScore/_highlightedNoteIds
+    // for the current viewing session -- that's the "AI can point at and
+    // change what's on screen" behavior from the spec. It is never written
+    // back through TeacherApiClient: a tutoring session illustrating a scale
+    // must not silently overwrite the shared lesson content every student
+    // sees, only what this student is currently looking at.
+    private void EnsureScoreLoaded(LessonTopic topic)
+    {
+        if (_scoreLoadedForTopic == _activeTopic) return;
+        _scoreLoadedForTopic = _activeTopic;
+        _highlightedNoteIds = new();
+        try
+        {
+            _currentScore = string.IsNullOrWhiteSpace(topic.NotationJson)
+                ? new MusicScore()
+                : System.Text.Json.JsonSerializer.Deserialize<MusicScore>(topic.NotationJson, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new MusicScore();
+        }
+        catch
+        {
+            _currentScore = new MusicScore();
+        }
+    }
+
+    private async Task HandleNoteClicked(MusicNote note)
+    {
+        if (_tutorChat is not null)
+        {
+            await _tutorChat.InjectNoteClickAsync(note);
+        }
+    }
+
+    private async Task HandleDiagramClicked((string Id, string Description) position)
+    {
+        if (_tutorChat is not null)
+        {
+            await _tutorChat.InjectDiagramClickAsync(position.Description);
+        }
+    }
+
+    private void HandleHighlightRequested(HashSet<string> noteIds)
+    {
+        _highlightedNoteIds = noteIds;
+        StateHasChanged();
+    }
+
+    private void HandleScoreReplaceRequested(MusicScore score)
+    {
+        _currentScore = score;
+        StateHasChanged();
+    }
+
+    // Fretboard/piano/circle-of-fifths topics have no authored per-topic
+    // content to load (unlike a notation topic's score), only a highlight
+    // set that should reset when the student switches to a different topic.
+    private void ResetHighlightsIfNewTopic()
+    {
+        if (_scoreLoadedForTopic == _activeTopic) return;
+        _scoreLoadedForTopic = _activeTopic;
+        _highlightedNoteIds = new();
+    }
+
+    private static string? DiagramLegendFor(string kind) => kind switch
+    {
+        "fretboard" => Components.FretboardDiagram.Legend,
+        "piano" => Components.PianoKeys.Legend,
+        "circleoffifths" => Components.CircleOfFifths.Legend,
+        _ => null,
+    };
 
     protected override async Task OnInitializedAsync()
     {
