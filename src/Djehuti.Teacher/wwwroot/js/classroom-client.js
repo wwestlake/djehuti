@@ -125,11 +125,12 @@ class ClassroomClient {
             return;
         }
 
+        // toUser can be null for broadcast
         const message = {
             type: 'directive',
-            toUser: toUser,
+            toUser: toUser || null,
             action: action,
-            payload: payload
+            payload: payload || {}
         };
 
         this.ws.send(JSON.stringify(message));

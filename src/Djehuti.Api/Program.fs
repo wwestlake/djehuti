@@ -1016,22 +1016,27 @@ let main args =
                                                     ClassroomRepository.addMessage classroomId (Some userId) "chat" content None None |> ignore
 
                                                 | "directive" when role = "teacher" ->
-                                                    let toUserId = root.GetProperty("toUser").GetString() |> Guid.Parse
                                                     let action = root.GetProperty("action").GetString()
                                                     let payload = root.GetProperty("payload")
+                                                    let toUserStr = root.GetProperty("toUser").GetString()
+                                                    let toUserId = if String.IsNullOrWhiteSpace(toUserStr) then None else Some (Guid.Parse(toUserStr))
 
                                                     let directive = ClassroomConnectionManager.WebSocketMessage.Directive {
                                                         from = userId
-                                                        toUser = toUserId
+                                                        toUser = toUserId |> Option.defaultValue Guid.Empty
                                                         action = action
                                                         payload = payload
                                                         timestamp = DateTimeOffset.UtcNow
                                                     }
-                                                    // Send only to target user (sideband)
-                                                    do! connManager.SendToUserAsync classroomId toUserId directive
-                                                    // Store in database
-                                                    let metadata = JsonSerializer.Serialize({| action = action; payload = payload |})
-                                                    ClassroomRepository.addMessage classroomId (Some userId) "directive" "" (Some toUserId) (Some metadata) |> ignore
+                                                    // Send to target user or broadcast to all students if no target
+                                                    match toUserId with
+                                                    | Some targetId ->
+                                                        do! connManager.SendToUserAsync classroomId targetId directive
+                                                        ClassroomRepository.addMessage classroomId (Some userId) "directive" "" (Some targetId) (Some (JsonSerializer.Serialize({| action = action; payload = payload |}))) |> ignore
+                                                    | None ->
+                                                        // Broadcast to all students
+                                                        do! connManager.BroadcastAsync classroomId directive None
+                                                        ClassroomRepository.addMessage classroomId (Some userId) "directive" "" None (Some (JsonSerializer.Serialize({| action = action; payload = payload |}))) |> ignore
 
                                                 | _ -> ()
                                             with _ ->

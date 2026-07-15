@@ -363,16 +363,23 @@
     }
 
     [JSInvokable]
-    public void OnDirective(string tool, object? data)
+    public void OnDirective(string action, object? data)
     {
         // Handle incoming directives from teacher
-        if (tool == "notation" && data is not null)
+        switch (action)
         {
-            _teachingCanvas = new TeachingCanvasDto { Tool = "notation", Data = data };
-        }
-        else if (tool == "piano")
-        {
-            _teachingCanvas = new TeachingCanvasDto { Tool = "piano", Data = data };
+            case "show_notation":
+                _teachingCanvas = new TeachingCanvasDto { Tool = "notation", Data = data };
+                break;
+            case "show_piano":
+                _teachingCanvas = new TeachingCanvasDto { Tool = "piano", Data = data };
+                break;
+            case "show_fretboard":
+                _teachingCanvas = new TeachingCanvasDto { Tool = "fretboard", Data = data };
+                break;
+            case "clear":
+                _teachingCanvas = null;
+                break;
         }
         StateHasChanged();
     }
