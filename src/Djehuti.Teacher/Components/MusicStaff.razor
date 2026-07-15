@@ -1,5 +1,6 @@
 @namespace Djehuti.Teacher.Components
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 @implements IAsyncDisposable
 @using Djehuti.Teacher.Services
 
@@ -26,7 +27,14 @@
 
         try
         {
-            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/music-interop.js");
+            // A relative "./js/music-interop.js" specifier resolved incorrectly
+            // (missing the /learn/ base path) when the import call originated
+            // from this child component, even though the identical pattern
+            // works fine called directly from a page -- confirmed live by
+            // comparing network requests. Building an absolute URL from
+            // NavigationManager.BaseUri (which correctly reflects <base href>)
+            // sidesteps whatever that resolution quirk is.
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", new Uri(new Uri(Nav.BaseUri), "js/music-interop.js").ToString());
             _selfRef ??= DotNetObjectReference.Create(this);
             var scoreJson = System.Text.Json.JsonSerializer.Serialize(Score);
             var highlightedJson = System.Text.Json.JsonSerializer.Serialize(HighlightedNoteIds);
