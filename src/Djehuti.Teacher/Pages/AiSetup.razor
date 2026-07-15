@@ -1,5 +1,6 @@
 @page "/ai-setup"
 @inject AiConfigStore ConfigStore
+@using Djehuti.Teacher.Services
 
 <PageTitle>AI Setup — Djehuti Teacher</PageTitle>
 
@@ -18,13 +19,21 @@
         }
         else
         {
-            <label class="teacher-settings-label" for="api-key">Anthropic API key</label>
+            <label class="teacher-settings-label" for="provider">AI Provider</label>
+            <select id="provider" class="teacher-settings-input" @bind="_provider">
+                <option value="openai">OpenAI (gpt-4o-mini, gpt-4o)</option>
+                <option value="anthropic">Anthropic Claude (claude-opus-4-1, claude-sonnet-4-5)</option>
+                <option value="google_gemini">Google Gemini (gemini-2.0-flash, gemini-1.5-pro)</option>
+                <option value="mistral">Mistral (mistral-large, mistral-small)</option>
+            </select>
+
+            <label class="teacher-settings-label" for="api-key">API Key</label>
             <div class="teacher-settings-key-row">
                 <input id="api-key"
                        class="teacher-settings-input"
                        type="@(_showKey ? "text" : "password")"
                        autocomplete="off"
-                       placeholder="sk-ant-…"
+                       placeholder="Your API key"
                        @bind="_apiKey"
                        @bind:event="oninput" />
                 <button type="button" class="teacher-settings-toggle" @onclick="() => _showKey = !_showKey">
@@ -54,9 +63,9 @@
             </div>
 
             <p class="teacher-settings-hint">
-                Stored only in this browser's local storage. Your key is sent directly from your browser to
-                the AI provider and never touches Djehuti's servers — same model DjeLab uses. Without a key,
-                you can still read every lesson's content; you just won't get the interactive tutoring layer.
+                Your key is stored only in this browser's local storage and sent directly from your browser to
+                the AI provider. It never touches Djehuti's servers. Without a key, you can still read every
+                lesson's content; the key powers the interactive tutoring layer that works through problems with you.
             </p>
         }
     </div>
@@ -68,14 +77,33 @@
     private bool _showKey;
     private string _apiKey = "";
     private string _model = "";
+    private string _provider = "openai";
     private string? _savedMessage;
 
     protected override async Task OnInitializedAsync()
     {
         _apiKey = await ConfigStore.GetApiKeyAsync() ?? "";
         _model = await ConfigStore.GetModelAsync();
+        var provider = await ConfigStore.GetProviderAsync();
+        _provider = provider switch
+        {
+            ApiProvider.OpenAi => "openai",
+            ApiProvider.Anthropic => "anthropic",
+            ApiProvider.GoogleGemini => "google_gemini",
+            ApiProvider.Mistral => "mistral",
+            _ => "openai",
+        };
         _loading = false;
     }
+
+    private ApiProvider ParseProvider(string value) => value switch
+    {
+        "openai" => ApiProvider.OpenAi,
+        "anthropic" => ApiProvider.Anthropic,
+        "google_gemini" => ApiProvider.GoogleGemini,
+        "mistral" => ApiProvider.Mistral,
+        _ => ApiProvider.OpenAi,
+    };
 
     private async Task Save()
     {
@@ -83,6 +111,7 @@
         _savedMessage = null;
         await ConfigStore.SetApiKeyAsync(_apiKey);
         await ConfigStore.SetModelAsync(_model);
+        await ConfigStore.SetProviderAsync(ParseProvider(_provider));
         _saving = false;
         _savedMessage = "Saved.";
     }
@@ -94,6 +123,7 @@
         await ConfigStore.ClearAsync();
         _apiKey = "";
         _model = "";
+        _provider = "openai";
         _saving = false;
         _savedMessage = "Removed.";
     }

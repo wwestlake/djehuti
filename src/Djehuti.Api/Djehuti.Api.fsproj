@@ -46,6 +46,7 @@
     <Compile Include="ProductReleaseRepository.fs" />
     <Compile Include="DesktopAuthRepository.fs" />
     <Compile Include="LessonPlanRepository.fs" />
+    <Compile Include="LearningTrackRepository.fs" />
     <Compile Include="ContentRepository.fs" />
     <Compile Include="DjeLabFilesRepository.fs" />
     <Compile Include="Program.fs" />

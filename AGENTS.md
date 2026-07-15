@@ -137,3 +137,17 @@ SSH access is available via the PEM key. The deploy workflow is in `.github/work
 ## Project Board
 
 **Keep the project board up to date as work lands.** When substantive work is completed, update the relevant GitHub project board items/status so the board reflects current progress.
+
+---
+
+## BYOK (Bring Your Own Key) Policy
+
+**Djehuti Teacher tutor accepts API keys but officially supports OpenAI only.**
+
+The AI Setup page allows multiple providers (OpenAI, Anthropic, Google Gemini, Mistral) for user convenience and future expansion, but:
+- OpenAI integration is tested and supported
+- Other providers are placeholders for future implementation
+- Users should only use OpenAI keys for the working tutor
+- When BYOK integration fails: tutor falls back to local WebLLM (if available) or shows unavailable message
+
+If a user reports issues with non-OpenAI providers, direct them to use OpenAI or use the free local WebLLM tutor (browser must support WebGPU).

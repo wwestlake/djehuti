@@ -1,0 +1,91 @@
+@page "/learning-tracks"
+@inject TeacherApiClient Api
+
+<PageTitle>@(HasSubjectFilter ? $"{Subject} Tracks — Djehuti Teacher" : "Learning Tracks — Djehuti Teacher")</PageTitle>
+
+<div class="teacher-page">
+    <h1>@(HasSubjectFilter ? Subject : "Learning Tracks")</h1>
+    <p class="teacher-page-subtitle">
+        @if (HasSubjectFilter)
+        {
+            @:Published @Subject learning tracks. <a href="learning-tracks">See all tracks →</a>
+        }
+        else
+        {
+            @:Structured learning paths organized by subject. Complete lessons and track your overall progress.
+        }
+    </p>
+
+    @if (_loading)
+    {
+        <p class="teacher-muted">Loading…</p>
+    }
+    else if (_filteredTracks.Count == 0)
+    {
+        <div class="teacher-empty">
+            <p>No learning tracks published yet@(HasSubjectFilter ? $" in {Subject}" : "").</p>
+            <a class="teacher-cta" href="catalog">Browse lessons instead →</a>
+        </div>
+    }
+    else
+    {
+        <div class="teacher-card-grid">
+            @foreach (var track in _filteredTracks)
+            {
+                <a class="teacher-track-card" href="@($"learning-track/{track.Slug}")">
+                    @if (!string.IsNullOrWhiteSpace(track.Subject))
+                    {
+                        <span class="teacher-track-subject">@track.Subject</span>
+                    }
+                    <h3>@track.Title</h3>
+                    @if (!string.IsNullOrWhiteSpace(track.Description))
+                    {
+                        <p>@track.Description</p>
+                    }
+                    <div class="teacher-track-meta">
+                        <span class="teacher-track-difficulty">@track.Difficulty</span>
+                        @if (track.EstimatedHours.HasValue)
+                        {
+                            <span class="teacher-track-hours">⏱ @track.EstimatedHours hours</span>
+                        }
+                    </div>
+                </a>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery] public string? Subject { get; set; }
+
+    private bool _loading = true;
+    private List<LearningTrack> _tracks = new();
+
+    private bool HasSubjectFilter => !string.IsNullOrWhiteSpace(Subject);
+    private List<LearningTrack> _filteredTracks =>
+        HasSubjectFilter
+            ? _tracks.Where(t => string.Equals(t.Subject, Subject, StringComparison.OrdinalIgnoreCase)).ToList()
+            : _tracks;
+
+    [Serializable]
+    public class LearningTrack
+    {
+        public Guid Id { get; set; }
+        public string Title { get; set; } = "";
+        public string Slug { get; set; } = "";
+        public string? Description { get; set; }
+        public string? Subject { get; set; }
+        public string Difficulty { get; set; } = "beginner";
+        public int? EstimatedHours { get; set; }
+        public int Position { get; set; }
+        public bool Published { get; set; }
+        public DateTimeOffset CreatedAt { get; set; }
+        public DateTimeOffset UpdatedAt { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _tracks = await Api.GetLearningTracksAsync();
+        _loading = false;
+    }
+}

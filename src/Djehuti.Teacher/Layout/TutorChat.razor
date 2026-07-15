@@ -1,6 +1,8 @@
 @namespace Djehuti.Teacher.Layout
 @implements IDisposable
 @inject WebLlmClient WebLlm
+@inject ApiLlmClient ApiLlm
+@inject AiConfigStore ConfigStore
 @using Djehuti.Teacher.Services
 @using System.Text.Json
 
@@ -34,8 +36,8 @@
         <input class="teacher-settings-input"
                placeholder="@InputPlaceholder()"
                @bind="_input" @bind:event="oninput"
-               disabled="@(_sending || WebLlm.State != WebLlmState.Ready)" />
-        <button type="submit" class="teacher-cta" disabled="@(_sending || WebLlm.State != WebLlmState.Ready || string.IsNullOrWhiteSpace(_input))">Ask</button>
+               disabled="@(_sending || !CanChat())" />
+        <button type="submit" class="teacher-cta" disabled="@(_sending || !CanChat() || string.IsNullOrWhiteSpace(_input))">Ask</button>
     </form>
 </div>
 
@@ -59,6 +61,9 @@
 
     private bool _sending;
     private string _input = "";
+    private string? _apiKey;
+    private string? _apiModel;
+    private ApiProvider _apiProvider = AiConfigStore.DefaultProvider;
     private List<(string Role, string Content)> _turns = new();
 
     // The AI can't call real functions on this small in-browser model, so
@@ -74,24 +79,33 @@
     private static readonly System.Text.RegularExpressions.Regex SetScoreDirective =
         new(@"\[\[SET_SCORE:\s*(\{.*?\})\s*\]\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         WebLlm.StateChanged += HandleStateChanged;
         _ = WebLlm.EnsureReadyAsync();
+
+        // Load API configuration for fallback
+        _apiKey = await ConfigStore.GetApiKeyAsync();
+        _apiModel = await ConfigStore.GetModelAsync();
+        _apiProvider = await ConfigStore.GetProviderAsync();
     }
 
     private void HandleStateChanged() => InvokeAsync(StateHasChanged);
+
+    private bool CanChat() => WebLlm.State == WebLlmState.Ready || HasApiKey();
+
+    private bool HasApiKey() => !string.IsNullOrWhiteSpace(_apiKey) && !string.IsNullOrWhiteSpace(_apiModel);
 
     private string StatusText() => WebLlm.State switch
     {
         WebLlmState.Ready => "Free local tutor, running in your browser.",
         WebLlmState.Loading => $"Downloading tutor model ({(int)(WebLlm.ProgressFraction * 100)}%)…",
-        WebLlmState.Unsupported => "Your browser doesn't support WebGPU. Add a key in AI Setup for a BYOK tutor (coming soon).",
-        WebLlmState.Failed => "Local tutor failed to load. Add a key in AI Setup for a BYOK tutor (coming soon).",
+        WebLlmState.Unsupported => HasApiKey() ? $"Using {_apiProvider} API for tutoring." : "Your browser doesn't support WebGPU. Add an API key in AI Setup to enable tutoring.",
+        WebLlmState.Failed => HasApiKey() ? $"Using {_apiProvider} API for tutoring." : "Local tutor failed to load. Add an API key in AI Setup to enable tutoring.",
         _ => "",
     };
 
-    private string InputPlaceholder() => WebLlm.State == WebLlmState.Ready
+    private string InputPlaceholder() => CanChat()
         ? "Ask a question…"
         : "Waiting for the tutor…";
 
@@ -130,7 +144,7 @@
     private async Task SendMessageAsync(string text, string? displayText)
     {
         text = text?.Trim() ?? "";
-        if (string.IsNullOrEmpty(text) || _sending || WebLlm.State != WebLlmState.Ready) return;
+        if (string.IsNullOrEmpty(text) || _sending || !CanChat()) return;
 
         _input = "";
         var history = _turns.ToList();
@@ -146,7 +160,33 @@
             messages.AddRange(history);
             messages.Add(("user", text));
 
-            var reply = await WebLlm.ChatAsync(messages);
+            string? reply = null;
+
+            // Try WebLLM first if ready
+            if (WebLlm.State == WebLlmState.Ready)
+            {
+                try
+                {
+                    reply = await WebLlm.ChatAsync(messages);
+                }
+                catch
+                {
+                    // Fall through to API attempt
+                }
+            }
+
+            // Fall back to API if WebLLM not available or failed
+            if (reply == null && HasApiKey())
+            {
+                reply = await ApiLlm.ChatAsync(messages, _apiProvider, _apiKey!, _apiModel!);
+            }
+
+            if (reply == null)
+            {
+                _turns.Add(("assistant", "Sorry, the tutor is currently unavailable."));
+                return;
+            }
+
             var (cleanReply, highlightIds, newScore) = ParseDirectives(reply);
 
             _turns.Add(("assistant", string.IsNullOrWhiteSpace(cleanReply) ? "(showing you on the staff)" : cleanReply));

@@ -1,0 +1,171 @@
+@page "/learning-track/{Slug}"
+@inject TeacherApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>@(_track?.Title ?? "Learning Track") — Djehuti Teacher</PageTitle>
+
+<div class="teacher-page">
+    @if (_loading)
+    {
+        <p class="teacher-muted">Loading…</p>
+    }
+    else if (_track is null)
+    {
+        <div class="teacher-empty">
+            <p>That learning track doesn't exist or isn't published yet.</p>
+            <a class="teacher-cta" href="learning-tracks">Back to tracks →</a>
+        </div>
+    }
+    else
+    {
+        <div class="teacher-track-header">
+            @if (!string.IsNullOrWhiteSpace(_track.Subject))
+            {
+                <a href="@($"learning-tracks?subject={Uri.EscapeDataString(_track.Subject)}")" class="teacher-track-subject-link">@_track.Subject</a>
+            }
+            <div class="teacher-track-difficulty-badge">@_track.Difficulty</div>
+            <h1>@_track.Title</h1>
+            @if (!string.IsNullOrWhiteSpace(_track.Description))
+            {
+                <p class="teacher-page-subtitle">@_track.Description</p>
+            }
+            @if (_track.EstimatedHours.HasValue)
+            {
+                <p class="teacher-track-hours-label">Estimated time: @_track.EstimatedHours hours</p>
+            }
+        </div>
+
+        @if (_userProgress != null)
+        {
+            <div class="teacher-progress-container">
+                <div class="teacher-progress-text">
+                    <span class="teacher-progress-label">Your Progress</span>
+                    <span class="teacher-progress-fraction">@_userProgress.LessonsCompleted / @_userProgress.TotalLessons lessons</span>
+                </div>
+                <div class="teacher-progress-bar">
+                    <div class="teacher-progress-fill" style="width: @_userProgress.CompletionPercent%"></div>
+                </div>
+                <span class="teacher-progress-percent">@_userProgress.CompletionPercent%</span>
+            </div>
+        }
+
+        @if (_lessons.Count == 0)
+        {
+            <div class="teacher-empty">
+                <p>This track doesn't have any lessons yet.</p>
+            </div>
+        }
+        else
+        {
+            <div class="teacher-track-lessons">
+                <h2>Lessons</h2>
+                <ol class="teacher-lesson-list">
+                    @foreach (var (lessonId, sequence) in _lessons)
+                    {
+                        <li class="teacher-track-lesson-item">
+                            <div class="teacher-lesson-sequence">@sequence</div>
+                            <div class="teacher-lesson-details">
+                                @if (_lessonDetails.TryGetValue(lessonId, out var lesson))
+                                {
+                                    <a href="@($"lesson/{lesson.Slug}")">@lesson.Title</a>
+                                    @if (!string.IsNullOrWhiteSpace(lesson.Description))
+                                    {
+                                        <p class="teacher-lesson-description">@lesson.Description</p>
+                                    }
+                                }
+                                else
+                                {
+                                    <p class="teacher-muted">Loading…</p>
+                                }
+                            </div>
+                        </li>
+                    }
+                </ol>
+            </div>
+        }
+
+        <a class="teacher-cta" href="learning-tracks">Back to tracks →</a>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string? Slug { get; set; }
+
+    private bool _loading = true;
+    private LearningTrackDto? _track;
+    private UserTrackProgressDto? _userProgress;
+    private List<(Guid LessonId, int Sequence)> _lessons = new();
+    private Dictionary<Guid, LessonPreview> _lessonDetails = new();
+
+    [Serializable]
+    public class LearningTrackDto
+    {
+        public Guid Id { get; set; }
+        public string Title { get; set; } = "";
+        public string Slug { get; set; } = "";
+        public string? Description { get; set; }
+        public string? Subject { get; set; }
+        public string Difficulty { get; set; } = "beginner";
+        public int? EstimatedHours { get; set; }
+        public bool Published { get; set; }
+    }
+
+    [Serializable]
+    public class UserTrackProgressDto
+    {
+        public Guid Id { get; set; }
+        public Guid UserId { get; set; }
+        public Guid TrackId { get; set; }
+        public int LessonsCompleted { get; set; }
+        public int TotalLessons { get; set; }
+        public int CompletionPercent { get; set; }
+    }
+
+    [Serializable]
+    public class LessonPreview
+    {
+        public Guid Id { get; set; }
+        public string Title { get; set; } = "";
+        public string Slug { get; set; } = "";
+        public string? Description { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Slug)) return;
+
+        _track = await Api.GetLearningTrackBySlugAsync(Slug);
+        if (_track == null)
+        {
+            _loading = false;
+            return;
+        }
+
+        _userProgress = await Api.TryGetUserTrackProgressAsync(_track.Id);
+
+        // Fetch lessons for this track
+        var trackDetails = await Api.GetLearningTrackWithLessonsAsync(_track.Id);
+        if (trackDetails != null)
+        {
+            _lessons = trackDetails.lessons;
+            // Load lesson details for each lesson
+            foreach (var (lessonId, _) in _lessons)
+            {
+                var lesson = await Api.GetLessonByIdAsync(lessonId);
+                if (lesson != null)
+                {
+                    _lessonDetails[lessonId] = new LessonPreview
+                    {
+                        Id = lesson.Id,
+                        Title = lesson.Title,
+                        Slug = lesson.Slug,
+                        Description = lesson.Description
+                    };
+                }
+            }
+        }
+
+        _loading = false;
+    }
+}
