@@ -18,27 +18,30 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        await JS.InvokeVoidAsync("console.log", $"[MusicStaff] OnAfterRenderAsync firstRender={firstRender} elementId={_elementId}");
+
         // Re-render whenever the score or highlight set actually changed --
         // cheap signature check avoids redrawing the whole staff (and losing
         // click listeners momentarily) on every unrelated parent re-render.
         var signature = System.Text.Json.JsonSerializer.Serialize(Score) + "|" + string.Join(",", HighlightedNoteIds.OrderBy(x => x));
-        if (signature == _lastRenderedSignature && !firstRender) return;
+        if (signature == _lastRenderedSignature && !firstRender)
+        {
+            await JS.InvokeVoidAsync("console.log", "[MusicStaff] skipped -- signature unchanged");
+            return;
+        }
         _lastRenderedSignature = signature;
 
         try
         {
-            // A relative "./js/music-interop.js" specifier resolved incorrectly
-            // (missing the /learn/ base path) when the import call originated
-            // from this child component, even though the identical pattern
-            // works fine called directly from a page -- confirmed live by
-            // comparing network requests. Building an absolute URL from
-            // NavigationManager.BaseUri (which correctly reflects <base href>)
-            // sidesteps whatever that resolution quirk is.
-            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", new Uri(new Uri(Nav.BaseUri), "js/music-interop.js").ToString());
+            var moduleUrl = new Uri(new Uri(Nav.BaseUri), "js/music-interop.js").ToString();
+            await JS.InvokeVoidAsync("console.log", $"[MusicStaff] importing {moduleUrl}");
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", moduleUrl);
+            await JS.InvokeVoidAsync("console.log", "[MusicStaff] import succeeded, calling renderScore");
             _selfRef ??= DotNetObjectReference.Create(this);
             var scoreJson = System.Text.Json.JsonSerializer.Serialize(Score);
             var highlightedJson = System.Text.Json.JsonSerializer.Serialize(HighlightedNoteIds);
             await _module.InvokeVoidAsync("renderScore", _elementId, scoreJson, highlightedJson, _selfRef);
+            await JS.InvokeVoidAsync("console.log", "[MusicStaff] renderScore call completed");
         }
         catch (Exception ex)
         {
