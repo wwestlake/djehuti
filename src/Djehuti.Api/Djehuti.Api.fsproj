@@ -48,6 +48,7 @@
     <Compile Include="LessonPlanRepository.fs" />
     <Compile Include="LearningTrackRepository.fs" />
     <Compile Include="ClassroomRepository.fs" />
+    <Compile Include="ClassroomConnectionManager.fs" />
     <Compile Include="ContentRepository.fs" />
     <Compile Include="DjeLabFilesRepository.fs" />
     <Compile Include="Program.fs" />
