@@ -57,21 +57,37 @@
                         @if (topic.Kind == "notation")
                         {
                             EnsureScoreLoaded(topic);
+                            @if (!string.IsNullOrWhiteSpace(topic.ContentMarkdown))
+                            {
+                                <div class="teacher-markdown teacher-board-content">@((MarkupString)RenderMarkdown(topic.ContentMarkdown))</div>
+                            }
                             <MusicStaff Score="_currentScore" HighlightedNoteIds="_highlightedNoteIds" OnNoteClicked="HandleNoteClicked" />
                         }
                         else if (topic.Kind == "fretboard")
                         {
                             ResetHighlightsIfNewTopic();
+                            @if (!string.IsNullOrWhiteSpace(topic.ContentMarkdown))
+                            {
+                                <div class="teacher-markdown teacher-board-content">@((MarkupString)RenderMarkdown(topic.ContentMarkdown))</div>
+                            }
                             <FretboardDiagram HighlightedIds="_highlightedNoteIds" OnPositionClicked="HandleDiagramClicked" />
                         }
                         else if (topic.Kind == "piano")
                         {
                             ResetHighlightsIfNewTopic();
+                            @if (!string.IsNullOrWhiteSpace(topic.ContentMarkdown))
+                            {
+                                <div class="teacher-markdown teacher-board-content">@((MarkupString)RenderMarkdown(topic.ContentMarkdown))</div>
+                            }
                             <PianoKeys HighlightedIds="_highlightedNoteIds" OnPositionClicked="HandleDiagramClicked" />
                         }
                         else if (topic.Kind == "circleoffifths")
                         {
                             ResetHighlightsIfNewTopic();
+                            @if (!string.IsNullOrWhiteSpace(topic.ContentMarkdown))
+                            {
+                                <div class="teacher-markdown teacher-board-content">@((MarkupString)RenderMarkdown(topic.ContentMarkdown))</div>
+                            }
                             <CircleOfFifths HighlightedIds="_highlightedNoteIds" OnPositionClicked="HandleDiagramClicked" />
                         }
                         else
