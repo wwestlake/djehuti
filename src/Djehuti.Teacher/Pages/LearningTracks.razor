@@ -59,29 +59,13 @@
     [SupplyParameterFromQuery] public string? Subject { get; set; }
 
     private bool _loading = true;
-    private List<LearningTrack> _tracks = new();
+    private List<TeacherApiClient.LearningTrack> _tracks = new();
 
     private bool HasSubjectFilter => !string.IsNullOrWhiteSpace(Subject);
-    private List<LearningTrack> _filteredTracks =>
+    private List<TeacherApiClient.LearningTrack> _filteredTracks =>
         HasSubjectFilter
             ? _tracks.Where(t => string.Equals(t.Subject, Subject, StringComparison.OrdinalIgnoreCase)).ToList()
             : _tracks;
-
-    [Serializable]
-    public class LearningTrack
-    {
-        public Guid Id { get; set; }
-        public string Title { get; set; } = "";
-        public string Slug { get; set; } = "";
-        public string? Description { get; set; }
-        public string? Subject { get; set; }
-        public string Difficulty { get; set; } = "beginner";
-        public int? EstimatedHours { get; set; }
-        public int Position { get; set; }
-        public bool Published { get; set; }
-        public DateTimeOffset CreatedAt { get; set; }
-        public DateTimeOffset UpdatedAt { get; set; }
-    }
 
     protected override async Task OnInitializedAsync()
     {

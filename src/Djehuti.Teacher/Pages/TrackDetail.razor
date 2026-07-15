@@ -93,34 +93,10 @@
     public string? Slug { get; set; }
 
     private bool _loading = true;
-    private LearningTrackDto? _track;
-    private UserTrackProgressDto? _userProgress;
+    private TeacherApiClient.LearningTrackDto? _track;
+    private TeacherApiClient.UserTrackProgressDto? _userProgress;
     private List<(Guid LessonId, int Sequence)> _lessons = new();
     private Dictionary<Guid, LessonPreview> _lessonDetails = new();
-
-    [Serializable]
-    public class LearningTrackDto
-    {
-        public Guid Id { get; set; }
-        public string Title { get; set; } = "";
-        public string Slug { get; set; } = "";
-        public string? Description { get; set; }
-        public string? Subject { get; set; }
-        public string Difficulty { get; set; } = "beginner";
-        public int? EstimatedHours { get; set; }
-        public bool Published { get; set; }
-    }
-
-    [Serializable]
-    public class UserTrackProgressDto
-    {
-        public Guid Id { get; set; }
-        public Guid UserId { get; set; }
-        public Guid TrackId { get; set; }
-        public int LessonsCompleted { get; set; }
-        public int TotalLessons { get; set; }
-        public int CompletionPercent { get; set; }
-    }
 
     [Serializable]
     public class LessonPreview
@@ -148,7 +124,7 @@
         var trackDetails = await Api.GetLearningTrackWithLessonsAsync(_track.Id);
         if (trackDetails != null)
         {
-            _lessons = trackDetails.lessons;
+            _lessons = trackDetails.Lessons;
             // Load lesson details for each lesson
             foreach (var (lessonId, _) in _lessons)
             {
