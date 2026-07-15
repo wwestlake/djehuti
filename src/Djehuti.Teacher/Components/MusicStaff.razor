@@ -11,6 +11,13 @@
     [Parameter] public HashSet<string> HighlightedNoteIds { get; set; } = new();
     [Parameter] public EventCallback<MusicNote> OnNoteClicked { get; set; }
 
+    // music-interop.js reads camelCase keys (score.measures, n.pitch, ...).
+    // JsonSerializer's default PascalCase output made every score look like
+    // it had zero measures to the JS side -- no error, just a silent early
+    // return, which is why this took three rounds of live debugging to find.
+    private static readonly System.Text.Json.JsonSerializerOptions JsOptions =
+        new(System.Text.Json.JsonSerializerDefaults.Web);
+
     private readonly string _elementId = $"music-staff-{Guid.NewGuid():N}";
     private IJSObjectReference? _module;
     private DotNetObjectReference<MusicStaff>? _selfRef;
@@ -18,30 +25,27 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        await JS.InvokeVoidAsync("console.log", $"[MusicStaff] OnAfterRenderAsync firstRender={firstRender} elementId={_elementId}");
-
         // Re-render whenever the score or highlight set actually changed --
         // cheap signature check avoids redrawing the whole staff (and losing
         // click listeners momentarily) on every unrelated parent re-render.
-        var signature = System.Text.Json.JsonSerializer.Serialize(Score) + "|" + string.Join(",", HighlightedNoteIds.OrderBy(x => x));
-        if (signature == _lastRenderedSignature && !firstRender)
-        {
-            await JS.InvokeVoidAsync("console.log", "[MusicStaff] skipped -- signature unchanged");
-            return;
-        }
+        var signature = System.Text.Json.JsonSerializer.Serialize(Score, JsOptions) + "|" + string.Join(",", HighlightedNoteIds.OrderBy(x => x));
+        if (signature == _lastRenderedSignature && !firstRender) return;
         _lastRenderedSignature = signature;
 
         try
         {
-            var moduleUrl = new Uri(new Uri(Nav.BaseUri), "js/music-interop.js").ToString();
-            await JS.InvokeVoidAsync("console.log", $"[MusicStaff] importing {moduleUrl}");
-            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", moduleUrl);
-            await JS.InvokeVoidAsync("console.log", "[MusicStaff] import succeeded, calling renderScore");
+            // A relative "./js/music-interop.js" specifier resolved incorrectly
+            // (missing the /learn/ base path) when the import call originated
+            // from this child component, even though the identical pattern
+            // works fine called directly from a page -- confirmed live by
+            // comparing network requests. Building an absolute URL from
+            // NavigationManager.BaseUri (which correctly reflects <base href>)
+            // sidesteps whatever that resolution quirk is.
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", new Uri(new Uri(Nav.BaseUri), "js/music-interop.js").ToString());
             _selfRef ??= DotNetObjectReference.Create(this);
-            var scoreJson = System.Text.Json.JsonSerializer.Serialize(Score);
-            var highlightedJson = System.Text.Json.JsonSerializer.Serialize(HighlightedNoteIds);
+            var scoreJson = System.Text.Json.JsonSerializer.Serialize(Score, JsOptions);
+            var highlightedJson = System.Text.Json.JsonSerializer.Serialize(HighlightedNoteIds, JsOptions);
             await _module.InvokeVoidAsync("renderScore", _elementId, scoreJson, highlightedJson, _selfRef);
-            await JS.InvokeVoidAsync("console.log", "[MusicStaff] renderScore call completed");
         }
         catch (Exception ex)
         {
