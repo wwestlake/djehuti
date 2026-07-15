@@ -40,9 +40,11 @@
             var highlightedJson = System.Text.Json.JsonSerializer.Serialize(HighlightedNoteIds);
             await _module.InvokeVoidAsync("renderScore", _elementId, scoreJson, highlightedJson, _selfRef);
         }
-        catch (JSException)
+        catch (Exception ex)
         {
             _module = null; // stale cached module across a deploy -- retry next render
+            try { await JS.InvokeVoidAsync("console.error", $"MusicStaff render failed: {ex.GetType().Name}: {ex.Message}"); }
+            catch { /* logging itself failing isn't worth cascading over */ }
         }
     }
 
