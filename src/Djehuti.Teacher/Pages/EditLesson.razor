@@ -59,10 +59,12 @@
                         <button type="button" class="teacher-icon-btn" title="Insert example" @onclick="() => _topics[index].NotationJson = _notationExample">Insert example</button>
                     </p>
                     <textarea class="teacher-settings-input teacher-textarea" placeholder="Score JSON" rows="8" @bind="_topics[index].NotationJson" @bind:event="oninput"></textarea>
+                    <textarea class="teacher-settings-input teacher-textarea" placeholder="Explanatory text shown above the staff (Markdown, optional)" rows="4" @bind="_topics[index].ContentMarkdown" @bind:event="oninput"></textarea>
                 }
                 else if (_topics[index].Kind == "fretboard" || _topics[index].Kind == "piano" || _topics[index].Kind == "circleoffifths")
                 {
-                    <p class="teacher-muted" style="margin: 4px 0;">This topic shows a always-the-same reference diagram — nothing to author here. Students can click it and ask the tutor about it.</p>
+                    <p class="teacher-muted" style="margin: 4px 0;">This topic always shows the same reference diagram — students can click it and ask the tutor about it. Add explanatory text below if you want.</p>
+                    <textarea class="teacher-settings-input teacher-textarea" placeholder="Explanatory text shown above the diagram (Markdown, optional)" rows="4" @bind="_topics[index].ContentMarkdown" @bind:event="oninput"></textarea>
                 }
                 else
                 {
