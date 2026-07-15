@@ -6182,6 +6182,124 @@ let main args =
                     Results.NoContent())
     ) |> ignore
 
+    // ── Djehuti Teacher: Classrooms (Real-time collaborative learning) ───────────
+    // Classrooms enable teachers to create shared learning spaces where:
+    // - Students join and chat with each other
+    // - Each student has their own AI tutor
+    // - Teachers can send directives to students (show notation, highlight, etc.)
+    // - Real-time WebSocket connection for messages and state sync
+
+    app.MapPost(
+        "/api/teacher/classrooms",
+        Func<HttpContext, {| name: string; lessonPlanId: string |}, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    let lessonId = if String.IsNullOrWhiteSpace(body.lessonPlanId) then None else (match Guid.TryParse(body.lessonPlanId) with true, id -> Some id | _ -> None)
+                    let classroom = ClassroomRepository.create uid body.name lessonId "solo_ai"
+                    Results.Ok(classroom))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/teacher/classrooms/{id}",
+        Func<HttpContext, Guid, IResult>(fun ctx id ->
+            match ClassroomRepository.tryGetById id with
+            | None -> Results.NotFound()
+            | Some classroom ->
+                match tryGetAuthClaims ctx with
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | true, uid when uid = classroom.TeacherId || Permissions.isAdmin claims.Role -> Results.Ok(classroom)
+                    | _ -> Results.Forbid()
+                | None -> Results.Forbid())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/teacher/classrooms/mine",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid -> Results.Ok(ClassroomRepository.listByTeacher uid))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/teacher/classrooms/{id}/members",
+        Func<HttpContext, Guid, {| userId: string |}, IResult>(fun ctx classroomId body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId), Guid.TryParse(body.userId) with
+                | (true, teacherId), (true, studentId) ->
+                    match ClassroomRepository.tryGetById classroomId with
+                    | None -> Results.NotFound()
+                    | Some classroom when classroom.TeacherId <> teacherId && not (Permissions.isAdmin claims.Role) ->
+                        Results.Forbid()
+                    | Some _ ->
+                        let member = ClassroomRepository.addMember classroomId studentId "student"
+                        Results.Ok(member)
+                | _ -> Results.BadRequest("Invalid IDs"))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/teacher/classrooms/{id}/members",
+        Func<HttpContext, Guid, IResult>(fun ctx classroomId ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    match ClassroomRepository.tryGetById classroomId with
+                    | None -> Results.NotFound()
+                    | Some classroom when classroom.TeacherId <> uid && not (Permissions.isAdmin claims.Role) ->
+                        Results.Forbid()
+                    | Some _ -> Results.Ok(ClassroomRepository.listMembers classroomId))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/teacher/classrooms/{id}/start",
+        Func<HttpContext, Guid, IResult>(fun ctx classroomId ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    match ClassroomRepository.tryGetById classroomId with
+                    | None -> Results.NotFound()
+                    | Some classroom when classroom.TeacherId <> uid && not (Permissions.isAdmin claims.Role) ->
+                        Results.Forbid()
+                    | Some _ ->
+                        if ClassroomRepository.updateStatus classroomId "live"
+                        then Results.NoContent()
+                        else Results.Problem(detail = "Failed to start classroom", statusCode = 500, title = "Error"))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/teacher/classrooms/{id}/end",
+        Func<HttpContext, Guid, IResult>(fun ctx classroomId ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    match ClassroomRepository.tryGetById classroomId with
+                    | None -> Results.NotFound()
+                    | Some classroom when classroom.TeacherId <> uid && not (Permissions.isAdmin claims.Role) ->
+                        Results.Forbid()
+                    | Some _ ->
+                        if ClassroomRepository.updateStatus classroomId "archived"
+                        then Results.NoContent()
+                        else Results.Problem(detail = "Failed to end classroom", statusCode = 500, title = "Error"))
+    ) |> ignore
+
     // ── Desktop app content library (Creation Station, etc.) ────────────────────
     // See docs/agents context: desktop apps authenticate via the loopback+PKCE
     // JWT flow (Auth.fs), then send that same JWT as Authorization: Bearer on
