@@ -2,13 +2,13 @@ namespace Djehuti.DjeLab.Services;
 
 public class DemoMode
 {
-    private DemoScript? _currentScript;
+    private DemoScriptJson? _currentScript;
     private int _currentStepIndex = -1;
     private CancellationTokenSource? _stepTimer;
-    private readonly Dictionary<string, Func<DemoAction, Task>> _actionHandlers = new();
+    private readonly Dictionary<string, Func<DemoActionJson, Task>> _actionHandlers = new();
 
     public event Action? OnStateChanged;
-    public event Func<DemoAction, Task>? OnActionExecuting;
+    public event Func<DemoActionJson, Task>? OnActionExecuting;
 
     public DemoAnnotationState AnnotationState { get; } = new();
 
@@ -20,7 +20,7 @@ public class DemoMode
         RegisterDefaultHandlers();
     }
 
-    public void LoadScript(DemoScript script)
+    public void LoadScript(DemoScriptJson script)
     {
         _currentScript = script;
         _currentStepIndex = -1;
@@ -117,7 +117,7 @@ public class DemoMode
 
         try
         {
-            await Task.Delay(step.DurationMs, _stepTimer.Token);
+            await Task.Delay(step.Duration, _stepTimer.Token);
             if (!_stepTimer.Token.IsCancellationRequested && IsRunning && !IsPaused)
             {
                 await AdvanceStep();
@@ -141,26 +141,25 @@ public class DemoMode
         _actionHandlers["wait"] = ExecuteWait;
     }
 
-    private Task ExecuteActivatePane(DemoAction action)
+    private Task ExecuteActivatePane(DemoActionJson action)
     {
-        if (action.Params.TryGetValue("paneKind", out var kindObj) && kindObj is string kind)
+        if (action.Params?.TryGetValue("paneKind", out var kindObj) == true && kindObj is string kind)
         {
-            var evt = new WorkspaceTourRequested(kind);
-            OnActionExecuting?.Invoke(new DemoAction { Type = "activatePane", Params = action.Params });
+            // TODO: Trigger workspace tour for the pane
         }
         return Task.CompletedTask;
     }
 
-    private Task ExecuteWait(DemoAction action)
+    private Task ExecuteWait(DemoActionJson action)
     {
-        if (action.Params.TryGetValue("ms", out var msObj) && msObj is int ms)
+        if (action.Params?.TryGetValue("ms", out var msObj) == true && msObj is int ms)
         {
             return Task.Delay(ms);
         }
         return Task.CompletedTask;
     }
 
-    public void RegisterActionHandler(string actionType, Func<DemoAction, Task> handler)
+    public void RegisterActionHandler(string actionType, Func<DemoActionJson, Task> handler)
     {
         _actionHandlers[actionType] = handler;
     }

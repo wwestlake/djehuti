@@ -1877,6 +1877,29 @@ let main args =
         )
     ) |> ignore
 
+    // ── DjeLab Demo Generation ─────────────────────────────────────────────
+    // AI-generated demo scripts for creating product walkthrough videos
+    app.MapPost(
+        "/api/djelab/demo/generate",
+        Func<HttpContext, {| prompt: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    if String.IsNullOrWhiteSpace body.prompt then
+                        return Results.BadRequest({| error = "prompt is required" |})
+                    else
+                        // TODO: Implement Claude API integration to generate demo script
+                        // For now, return placeholder
+                        let placeholder = {|
+                            title = "Demo Generation Not Yet Implemented"
+                            description = Some "Claude API integration coming soon"
+                            steps = []
+                        |}
+                        return Results.Ok(placeholder)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     // ── Forum: Categories (read=anonymous, write=admin) ───────────────────────
 
     // MUD
