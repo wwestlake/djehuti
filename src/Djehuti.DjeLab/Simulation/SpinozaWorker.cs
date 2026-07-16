@@ -4,6 +4,7 @@ using System.Runtime.Versioning;
 using System.Linq;
 using Djehuti.DjeLab.Dsl;
 using Microsoft.FSharp.Core;
+using Microsoft.FSharp.Collections;
 
 namespace Djehuti.DjeLab.Simulation;
 
@@ -33,7 +34,7 @@ public static partial class SpinozaWorker
     }
 
     [JSExport]
-    internal static void Run(string runId, string source, string? runtimeDataJson)
+    internal static void Run(string runId, string source, string? runtimeDataJson, string? parametersJson = null)
     {
         try
         {
@@ -62,6 +63,14 @@ public static partial class SpinozaWorker
                 PostError(runId, runtimeDataError);
                 return;
             }
+
+            var (parameters, parametersError) = TryParseParameters(parametersJson);
+            if (!string.IsNullOrWhiteSpace(parametersError))
+            {
+                PostError(runId, parametersError);
+                return;
+            }
+
             var onEmit = FSharpFunc<Evaluator.Value, Unit>.FromConverter(v =>
             {
                 var json = Evaluator.toJson(v);
@@ -73,7 +82,8 @@ public static partial class SpinozaWorker
                 if (json.IsOk) PostEmit(runId, json.ResultValue);
                 return null!;
             });
-            var evalResult = Evaluator.runWithEmitAndData(onEmit, runtimeData, parseResult.ResultValue);
+
+            var evalResult = Evaluator.runWithEmitAndDataAndParams(onEmit, runtimeData, parameters, parseResult.ResultValue);
 
             if (evalResult.IsError)
             {
@@ -116,6 +126,35 @@ public static partial class SpinozaWorker
         catch (Exception ex)
         {
             return (null, $"Could not parse runtime data: {ex.Message}");
+        }
+    }
+
+    private static (FSharpMap<string, Evaluator.Value> Parameters, string? Error) TryParseParameters(string? parametersJson)
+    {
+        if (string.IsNullOrWhiteSpace(parametersJson))
+            return (MapModule.Empty<string, Evaluator.Value>(), null);
+
+        try
+        {
+            using var document = JsonDocument.Parse(parametersJson);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                return (MapModule.Empty<string, Evaluator.Value>(), "Parameters must be a JSON object");
+
+            var map = document.RootElement.EnumerateObject()
+                .Where(prop => !string.IsNullOrWhiteSpace(prop.Name))
+                .Select(prop =>
+                {
+                    var converted = Evaluator.fromJson(prop.Value);
+                    return (prop.Name, converted.IsOk ? converted.ResultValue : Evaluator.Value.NewVNumber(0.0));
+                })
+                .Aggregate(MapModule.Empty<string, Evaluator.Value>(), (acc, pair) =>
+                    MapModule.Add(pair.Name, pair.Item2, acc));
+
+            return (map, null);
+        }
+        catch (Exception ex)
+        {
+            return (MapModule.Empty<string, Evaluator.Value>(), $"Could not parse parameters: {ex.Message}");
         }
     }
 }

@@ -3,10 +3,12 @@
 @inject IJSRuntime JS
 
 <div class="render-graph">
-    <div class="render-graph-header" @if (!string.IsNullOrWhiteSpace(Descriptor?.Title))
+    @if (!string.IsNullOrWhiteSpace(Descriptor?.Title))
     {
-        <h3>@Descriptor.Title</h3>
-    } />
+        <div class="render-graph-header">
+            <h3>@Descriptor.Title</h3>
+        </div>
+    }
     <div class="render-graph-plot" id="@_plotElementId"></div>
 </div>
 

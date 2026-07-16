@@ -124,7 +124,11 @@ let private buildLinspace (context: string) (startValue: float) (stopValue: floa
 /// this is the same category of thing as a trace/log effect, not a general
 /// I/O escape hatch. When no host is listening (e.g. normal `run`), `emit`
 /// is simply a no-op pass-through.
-let makeBuiltinEnv (onEmit: (Value -> unit) option) : Env =
+///
+/// `param(name, default)` allows programs to declare parameters that can be
+/// bound by the host before execution. Returns the parameter value if provided,
+/// otherwise returns the default. Used for interactive slider/button/input binding.
+let makeBuiltinEnv (onEmit: (Value -> unit) option) (parameters: Map<string, Value> option) : Env =
     let numeric1 name (f: float -> float) =
         name, VBuiltin(name, 1, function
             | [ v ] -> asNumber name v |> Result.map (f >> VNumber)
@@ -198,11 +202,23 @@ let makeBuiltinEnv (onEmit: (Value -> unit) option) : Env =
       "string", VBuiltin("string", 1, function
           | [ v ] -> Ok(VString(valueToString v))
           | args -> Error $"string: expected 1 argument, got {args.Length}")
+      "param", VBuiltin("param", 2, function
+          | [ nameVal; defaultVal ] ->
+              match asString "param" nameVal with
+              | Error e -> Error e
+              | Ok name ->
+                  match parameters with
+                  | Some paramMap ->
+                      match Map.tryFind name paramMap with
+                      | Some value -> Ok value
+                      | None -> Ok defaultVal
+                  | None -> Ok defaultVal
+          | args -> Error $"param: expected 2 arguments, got {args.Length}")
       "pi", VNumber Math.PI
       "e", VNumber Math.E ]
     |> Map.ofList
 
-let builtinEnv : Env = makeBuiltinEnv None
+let builtinEnv : Env = makeBuiltinEnv None None
 
 type private Step =
     | Done of Result<Value, string>
@@ -415,15 +431,27 @@ let run (expr: Expr) : Result<Value, string> =
 /// deferred -- so a host streaming these out (e.g. over a Web Worker's
 /// postMessage) sees them as the program actually computes them.
 let runWithEmit (onEmit: Value -> unit) (expr: Expr) : Result<Value, string> =
-    eval (makeBuiltinEnv (Some onEmit)) expr
+    eval (makeBuiltinEnv (Some onEmit) None) expr
 
-/// Evaluates with `emit(...)` wired to `onEmit` and a host-supplied `data`
-/// binding available to the program.
+/// Evaluates with `emit(...)` wired to `onEmit`, `param()` bound to parameters,
+/// and a host-supplied `data` binding available to the program.
 let runWithEmitAndData (onEmit: Value -> unit) (dataValue: Value option) (expr: Expr) : Result<Value, string> =
     let env =
         match dataValue with
-        | Some value -> Map.add "data" value (makeBuiltinEnv (Some onEmit))
-        | None -> makeBuiltinEnv (Some onEmit)
+        | Some value -> Map.add "data" value (makeBuiltinEnv (Some onEmit) None)
+        | None -> makeBuiltinEnv (Some onEmit) None
+
+    eval env expr
+
+/// Evaluates with `emit(...)` wired to `onEmit`, `param()` bound to parameters,
+/// and optional `data` binding. Used for interactive programs where parameters
+/// come from the host (e.g., slider values, form inputs).
+let runWithEmitAndDataAndParams (onEmit: Value -> unit) (dataValue: Value option) (parameters: Map<string, Value>) (expr: Expr) : Result<Value, string> =
+    let env =
+        let baseEnv = makeBuiltinEnv (Some onEmit) (Some parameters)
+        match dataValue with
+        | Some value -> Map.add "data" value baseEnv
+        | None -> baseEnv
 
     eval env expr
 

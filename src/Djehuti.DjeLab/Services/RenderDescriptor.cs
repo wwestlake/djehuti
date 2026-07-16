@@ -7,7 +7,7 @@ namespace Djehuti.DjeLab.Services;
 /// Describes what the rendering engine should display.
 /// Programs emit these through the render() builtin, the host collects
 /// them, and the RenderEngine turns them into interactive Blazor components.
-public sealed class RenderDescriptor
+public class RenderDescriptor
 {
     [JsonPropertyName("type")]
     public required string Type { get; init; }

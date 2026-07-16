@@ -60,7 +60,7 @@ public sealed class SpinozaWorkerClient : IAsyncDisposable
         await _readyTcs.Task;
     }
 
-    public async Task<RunOutcome> RunAsync(string source, Action<JsonElement> onEmit, string? runtimeDataJson = null)
+    public async Task<RunOutcome> RunAsync(string source, Action<JsonElement> onEmit, string? runtimeDataJson = null, string? parametersJson = null)
     {
         await EnsureStartedAsync();
 
@@ -68,7 +68,7 @@ public sealed class SpinozaWorkerClient : IAsyncDisposable
         var tcs = new TaskCompletionSource<RunOutcome>();
         _activeRuns[runId] = new RunHandlers { OnEmit = onEmit, Completion = tcs };
 
-        await _module!.InvokeVoidAsync("postRun", _worker, runId, source, runtimeDataJson);
+        await _module!.InvokeVoidAsync("postRun", _worker, runId, source, runtimeDataJson, parametersJson);
         return await tcs.Task;
     }
 

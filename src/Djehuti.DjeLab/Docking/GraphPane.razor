@@ -159,7 +159,13 @@
         _needsResize = true;
         StateHasChanged();
 
-        var outcome = await _worker.RunAsync(source, OnEmit, runtimeInputJson);
+        // Serialize RenderEngine parameters to JSON for the worker
+        var parametersJson = _renderEngine?.ParameterValues.Count > 0
+            ? System.Text.Json.JsonSerializer.Serialize(
+                _renderEngine.ParameterValues.ToDictionary(kvp => kvp.Key, kvp => kvp.Value))
+            : null;
+
+        var outcome = await _worker.RunAsync(source, OnEmit, runtimeInputJson, parametersJson);
 
         _running = false;
         _stopping = false;

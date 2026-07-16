@@ -28,21 +28,21 @@
                     case "slider":
                         @if (descriptor is SliderDescriptor sd)
                         {
-                            <RenderSlider Descriptor="sd" OnValueChanged="HandleSliderChanged" />
+                            <RenderSlider Descriptor="sd" OnValueChanged="HandleSliderChangedWrapper" />
                         }
                         break;
 
                     case "button":
                         @if (descriptor is ButtonDescriptor bd)
                         {
-                            <RenderButton Descriptor="bd" OnClick="HandleButtonClick" />
+                            <RenderButton Descriptor="bd" OnClick="HandleButtonClickWrapper" />
                         }
                         break;
 
                     case "input":
                         @if (descriptor is InputDescriptor id)
                         {
-                            <RenderInput Descriptor="id" OnValueChanged="HandleInputChanged" />
+                            <RenderInput Descriptor="id" OnValueChanged="HandleInputChangedWrapper" />
                         }
                         break;
 
@@ -115,12 +115,24 @@
         }
     }
 
+    private Task HandleSliderChangedWrapper((string Name, double Value) args)
+    {
+        HandleSliderChanged(args.Name, args.Value);
+        return Task.CompletedTask;
+    }
+
     private void HandleButtonClick(string? onClick)
     {
         if (!string.IsNullOrWhiteSpace(onClick))
         {
             _ = OnParameterChanged.InvokeAsync((onClick, true));
         }
+    }
+
+    private Task HandleButtonClickWrapper(string? onClick)
+    {
+        HandleButtonClick(onClick);
+        return Task.CompletedTask;
     }
 
     private void HandleInputChanged(string variableName, string value)
@@ -130,6 +142,12 @@
             Engine?.SetParameterValue(variableName, value);
             _ = OnParameterChanged.InvokeAsync((variableName, value));
         }
+    }
+
+    private Task HandleInputChangedWrapper((string Name, string Value) args)
+    {
+        HandleInputChanged(args.Name, args.Value);
+        return Task.CompletedTask;
     }
 
     public void Dispose()
