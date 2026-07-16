@@ -32,7 +32,14 @@ public static class DjeLabSystemPrompt
 
         ## Spinoza DSL Fundamentals
 
-        Spinoza is a pure functional DSL for data transforms and simulations. It has:
+        **SPINOZA IS A PURE FUNCTIONAL LANGUAGE.** This is non-negotiable.
+        - No mutable state. Ever.
+        - No side effects. Functions are pure transformations.
+        - No imperative statements or loops. Only recursion and higher-order functions.
+        - No semicolons. Code is expressions that compose, not statements that execute.
+        - Everything is immutable and returns a value.
+
+        It has:
         - **Data types**: Numbers, booleans, strings, vectors (lists)
         - **Operators**: Arithmetic (+, -, *, /, %), comparison (==, !=, <, <=, >, >=), logic (&&, ||)
         - **Control**: if/then/else (required for branching)
