@@ -1,5 +1,6 @@
 @using System.Text.Json
 @using Djehuti.DjeLab.Services
+@using Djehuti.DjeLab.Components
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 @inject NavigationManager Nav
@@ -152,7 +153,7 @@
         else
         {
             // Clear descriptors but preserve parameter values for next run
-            _renderEngine.Reset();
+            _renderEngine?.Reset();
         }
 
         _plotly ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/plotly-interop.js");
