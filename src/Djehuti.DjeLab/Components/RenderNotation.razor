@@ -1,0 +1,22 @@
+@using Djehuti.DjeLab.Services
+
+<div class="render-notation">
+    @if (!string.IsNullOrWhiteSpace(Descriptor?.Title))
+    {
+        <h4>@Descriptor.Title</h4>
+    }
+    <div class="render-notation-placeholder">
+        [Music Notation Renderer Coming Soon]
+    </div>
+    @if (!string.IsNullOrWhiteSpace(Descriptor?.ScoreJson))
+    {
+        <details>
+            <summary>Score JSON</summary>
+            <pre>@Descriptor.ScoreJson</pre>
+        </details>
+    }
+</div>
+
+@code {
+    [Parameter] public NotationDescriptor? Descriptor { get; set; }
+}

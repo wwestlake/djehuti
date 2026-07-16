@@ -1,0 +1,23 @@
+@using Djehuti.DjeLab.Services
+
+<div class="render-button">
+    <button type="button"
+            class="render-button-input"
+            disabled="@(Descriptor == null || Descriptor.Disabled)"
+            @onclick="HandleClick">
+        @Descriptor?.Label
+    </button>
+</div>
+
+@code {
+    [Parameter] public ButtonDescriptor? Descriptor { get; set; }
+    [Parameter] public EventCallback<string?> OnClick { get; set; }
+
+    private async Task HandleClick()
+    {
+        if (Descriptor is not null)
+        {
+            await OnClick.InvokeAsync(Descriptor.OnClick);
+        }
+    }
+}

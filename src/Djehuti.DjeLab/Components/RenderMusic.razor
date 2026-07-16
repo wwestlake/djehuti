@@ -1,0 +1,22 @@
+@using Djehuti.DjeLab.Services
+
+<div class="render-music">
+    @if (!string.IsNullOrWhiteSpace(Descriptor?.Title))
+    {
+        <h4>@Descriptor.Title</h4>
+    }
+    <div class="render-music-placeholder">
+        [ABC Music Notation Renderer Coming Soon]
+    </div>
+    @if (!string.IsNullOrWhiteSpace(Descriptor?.Abc))
+    {
+        <details>
+            <summary>ABC Notation</summary>
+            <pre>@Descriptor.Abc</pre>
+        </details>
+    }
+</div>
+
+@code {
+    [Parameter] public MusicDescriptor? Descriptor { get; set; }
+}

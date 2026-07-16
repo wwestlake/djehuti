@@ -1,0 +1,22 @@
+@using Djehuti.DjeLab.Services
+
+<div class="render-fretboard">
+    @if (!string.IsNullOrWhiteSpace(Descriptor?.Title))
+    {
+        <h4>@Descriptor.Title</h4>
+    }
+    <div class="render-fretboard-placeholder">
+        [Guitar Fretboard (@Descriptor?.NumStrings strings × @Descriptor?.NumFrets frets) Coming Soon]
+    </div>
+    @if (Descriptor?.Highlighted is { Count: > 0 })
+    {
+        <details>
+            <summary>Highlighted Positions</summary>
+            <pre>@string.Join(", ", Descriptor.Highlighted)</pre>
+        </details>
+    }
+</div>
+
+@code {
+    [Parameter] public FretboardDescriptor? Descriptor { get; set; }
+}

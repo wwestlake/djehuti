@@ -16,46 +16,47 @@
     }
     else
     {
-        <div class="graph-toolbar">
-            <span class="graph-summary">@_chartType &middot; x: @_xLabel &middot; y: @_yLabel@(Is3D ? $" · z: {_zLabel}" : "")</span>
-            @if (_hasRun && !string.IsNullOrWhiteSpace(_source))
-            {
-                <button type="button" class="files-action-btn graph-action-btn" @onclick="SaveSourceAsync" disabled="@_savingSource">Save source</button>
-            }
-            @if (_running)
-            {
-                <button type="button" class="files-action-btn graph-action-btn" @onclick="StopRunAsync" disabled="@_stopping">Stop</button>
-            }
-        </div>
+        @if (_hasRenderDescriptors)
+        {
+            <div class="graph-renders">
+                <RenderHost Engine="_renderEngine"
+                           ShowEmpty="false"
+                           OnParameterChanged="HandleParameterChanged" />
+            </div>
+        }
+        else
+        {
+            <div class="graph-toolbar">
+                <span class="graph-summary">@_chartType &middot; x: @_xLabel &middot; y: @_yLabel@(Is3D ? $" · z: {_zLabel}" : "")</span>
+                @if (_hasRun && !string.IsNullOrWhiteSpace(_source))
+                {
+                    <button type="button" class="files-action-btn graph-action-btn" @onclick="SaveSourceAsync" disabled="@_savingSource">Save source</button>
+                }
+                @if (_running)
+                {
+                    <button type="button" class="files-action-btn graph-action-btn" @onclick="StopRunAsync" disabled="@_stopping">Stop</button>
+                }
+            </div>
 
-        <div class="graph-status-row">
-            @if (_running)
-            {
-                <span class="graph-status graph-status-running">Running... @_pointCount point(s)</span>
-            }
-            else if (_error is not null)
-            {
-                <span class="graph-status graph-status-error">Run failed - @_pointCount point(s)</span>
-            }
-            else
-            {
-                <span class="graph-status">Done - @_pointCount point(s)</span>
-            }
-        </div>
+            <div class="graph-status-row">
+                @if (_running)
+                {
+                    <span class="graph-status graph-status-running">Running... @_pointCount point(s)</span>
+                }
+                else if (_error is not null)
+                {
+                    <span class="graph-status graph-status-error">Run failed - @_pointCount point(s)</span>
+                }
+                else
+                {
+                    <span class="graph-status">Done - @_pointCount point(s)</span>
+                }
+            </div>
+        }
     }
 
-    @* Deliberately NOT inside the @if/@else above and NOT display:none'd
-       away by _hasRun -- this div must already exist in the DOM the moment
-       RunAsync's very first createChart call looks for it via
-       getElementById. It used to live inside the "else" branch, rendered
-       only once _hasRun flipped true -- but createChart ran BEFORE that
-       flip, so getElementById found nothing, Plotly.newPlot silently never
-       ran (createChart's own `if (!el) return`), and every subsequent
-       addPoint call silently no-op'd too (its `!el.data` guard, since
-       Plotly had never initialized the element). The point counter still
-       incremented correctly in C# the whole time, which is exactly why
-       this looked like a successful run that just never rendered anything. *@
-    <div class="graph-plot-host" style="@(_hasRun ? "" : "visibility: hidden;")" id="@_plotElementId"></div>
+    @* Plotly container: hidden when using render descriptors *@
+    <div class="graph-plot-host" style="@(_hasRun && !_hasRenderDescriptors ? "" : "visibility: hidden; display: none;")" id="@_plotElementId"></div>
 </div>
 
 @code {
@@ -71,6 +72,7 @@
     private string _plotElementId = "";
     private SpinozaWorkerClient? _worker;
     private IJSObjectReference? _plotly;
+    private RenderEngine? _renderEngine;
 
     private string _chartType = "line";
     private string _xLabel = "x";
@@ -88,6 +90,7 @@
     private string? _lastRunId;
     private string? _activeRunId;
     private bool _needsResize;
+    private bool _hasRenderDescriptors;
     private readonly object _emitLock = new();
     private readonly List<JsonElement> _pendingEmits = new();
     private bool _emitFlushScheduled;
@@ -137,6 +140,9 @@
         // guarantees a clean slate; the old run's worker is torn down and a
         // fresh one boots for the new run.
         if (_running) await _worker.StopAsync();
+
+        _renderEngine = new RenderEngine();
+        _hasRenderDescriptors = false;
 
         _plotly ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/plotly-interop.js");
         await _plotly.InvokeVoidAsync("createChart", _plotElementId, _chartType, _xLabel, _yLabel, _zLabel);
@@ -221,6 +227,18 @@
 
     private void OnEmit(JsonElement point)
     {
+        // Check if this is a render descriptor (has a "type" property for render types like "graph", "slider", etc.)
+        if (point.ValueKind == JsonValueKind.Object && point.TryGetProperty("type", out var typeElement) && typeElement.ValueKind == JsonValueKind.String)
+        {
+            var typeStr = typeElement.GetString();
+            if (!string.IsNullOrWhiteSpace(typeStr) && IsRenderType(typeStr))
+            {
+                HandleRenderDescriptor(point);
+                return;
+            }
+        }
+
+        // Otherwise treat it as a graph data point (traditional behavior)
         var shouldFlushNow = false;
         lock (_emitLock)
         {
@@ -233,6 +251,23 @@
 
         if (shouldFlushNow) _ = FlushPendingEmitsAsync();
         else _ = FlushPendingEmitsLaterAsync();
+    }
+
+    private bool IsRenderType(string type) => type is
+        "graph" or "button" or "slider" or "input" or "notation" or "piano" or "fretboard" or "music" or "math" or "text" or "container";
+
+    private void HandleRenderDescriptor(JsonElement descriptorJson)
+    {
+        if (_renderEngine is null) return;
+
+        var descriptor = RenderDescriptor.TryDeserialize(descriptorJson);
+        if (descriptor is not null)
+        {
+            _renderEngine.AddDescriptor(descriptor);
+            _hasRenderDescriptors = true;
+            _pointCount++;
+            StateHasChanged();
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -271,6 +306,14 @@
     {
         if (_running && !_stopping)
             _ = StopRunAsync();
+    }
+
+    private void HandleParameterChanged((string Name, object Value) param)
+    {
+        // Parameter change detected from RenderHost (slider, button, input).
+        // In a full implementation, this would trigger a program re-run with the new parameter.
+        // For now, this is a hook for future bidirectional data flow.
+        // TODO: Implement parameter feedback loop to re-run Spinoza with new param values
     }
 
     private async Task FlushPendingEmitsLaterAsync()

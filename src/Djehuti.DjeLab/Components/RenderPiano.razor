@@ -1,0 +1,22 @@
+@using Djehuti.DjeLab.Services
+
+<div class="render-piano">
+    @if (!string.IsNullOrWhiteSpace(Descriptor?.Title))
+    {
+        <h4>@Descriptor.Title</h4>
+    }
+    <div class="render-piano-placeholder">
+        [Piano Keyboard (Octaves @Descriptor?.StartOctave-@Descriptor?.EndOctave Coming Soon]
+    </div>
+    @if (Descriptor?.Highlighted is { Count: > 0 })
+    {
+        <details>
+            <summary>Highlighted Keys</summary>
+            <pre>@string.Join(", ", Descriptor.Highlighted)</pre>
+        </details>
+    }
+</div>
+
+@code {
+    [Parameter] public PianoDescriptor? Descriptor { get; set; }
+}

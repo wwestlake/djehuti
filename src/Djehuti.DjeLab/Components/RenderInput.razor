@@ -1,0 +1,25 @@
+@using Djehuti.DjeLab.Services
+
+<div class="render-input">
+    <label class="render-input-label">@Descriptor?.Label</label>
+    <input type="text"
+           class="render-input-field"
+           placeholder="@(Descriptor?.Placeholder ?? "")"
+           value="@(Descriptor?.Value ?? "")"
+           disabled="@(Descriptor == null)"
+           @onchange="HandleChange" />
+</div>
+
+@code {
+    [Parameter] public InputDescriptor? Descriptor { get; set; }
+    [Parameter] public EventCallback<(string VariableName, string Value)> OnValueChanged { get; set; }
+
+    private async Task HandleChange(ChangeEventArgs e)
+    {
+        if (Descriptor is null)
+            return;
+
+        var value = e.Value?.ToString() ?? "";
+        await OnValueChanged.InvokeAsync((Descriptor.VariableName ?? "", value));
+    }
+}

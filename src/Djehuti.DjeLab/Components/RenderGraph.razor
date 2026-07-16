@@ -1,0 +1,57 @@
+@using Djehuti.DjeLab.Services
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="render-graph">
+    <div class="render-graph-header" @if (!string.IsNullOrWhiteSpace(Descriptor?.Title))
+    {
+        <h3>@Descriptor.Title</h3>
+    } />
+    <div class="render-graph-plot" id="@_plotElementId"></div>
+</div>
+
+@code {
+    [Parameter] public GraphDescriptor? Descriptor { get; set; }
+
+    private string _plotElementId = "";
+    private IJSObjectReference? _plotly;
+    private bool _chartCreated;
+
+    protected override void OnInitialized()
+    {
+        _plotElementId = $"render-graph-{Descriptor?.Id ?? Guid.NewGuid().ToString("N")[..8]}";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || Descriptor is null) return;
+
+        _plotly ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/plotly-interop.js");
+        if (_plotly == null) return;
+
+        var title = Descriptor.Title ?? "Graph";
+        var xLabel = Descriptor.XLabel ?? "x";
+        var yLabel = Descriptor.YLabel ?? "y";
+
+        await _plotly.InvokeVoidAsync("createChart", _plotElementId, "line", xLabel, yLabel, "");
+        _chartCreated = true;
+
+        if (Descriptor.X is { Length: > 0 } && Descriptor.Y is { Length: > 0 })
+        {
+            await _plotly.InvokeVoidAsync("addPoint", _plotElementId, Descriptor.X, Descriptor.Y, title, Descriptor.Color, Descriptor.Mode);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_plotly is not null)
+        {
+            if (_chartCreated)
+            {
+                try { await _plotly.InvokeVoidAsync("dispose", _plotElementId); }
+                catch { /* cleanup on dispose; failure is not critical */ }
+            }
+            await _plotly.DisposeAsync();
+        }
+    }
+}
