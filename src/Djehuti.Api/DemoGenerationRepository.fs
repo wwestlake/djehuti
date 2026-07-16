@@ -1,8 +1,10 @@
 module Djehuti.Api.DemoGenerationRepository
 
 open System
+open System.Net.Http
 open System.Text.Json
 open System.Text.Json.Serialization
+open Djehuti.Core
 
 type DemoActionJson =
     { [<JsonPropertyName("type")>] Type: string
@@ -78,18 +80,44 @@ Example structure:
   ]
 }}"""
 
-// Call Claude API to generate a demo script
-let generateDemoScript (prompt: string) (appName: string) : Async<Result<DemoScriptJson, string>> = async {
+// Call available AI to generate a demo script
+let generateDemoScript (httpClient: HttpClient) (prompt: string) (appName: string) : Async<Result<DemoScriptJson, string>> = async {
     try
-        // TODO: Implement Claude API call
-        // For now, return a placeholder
-        let systemPrompt = demoGenerationSystemPrompt appName
+        match OpenAiResponses.tryOptionsFromEnvironment() with
+        | Error msg ->
+            return Error $"AI service unavailable: {msg}"
+        | Ok options ->
+            let connection = OpenAiResponsesConnection(httpClient, options) :> IAiConnection
 
-        // This would call your Claude API integration
-        // For now, returning error to show the integration point
-        return Error "Claude API integration not yet configured"
+            let systemPrompt = demoGenerationSystemPrompt appName
+            let aiRequest =
+                { ConnectionId = AiConnectionId "demo-generation"
+                  ConversationId = None
+                  Model = Some (ModelId "gpt-4.1")
+                  Messages =
+                    [ { Role = System; Content = systemPrompt; Metadata = Map.empty }
+                      { Role = User; Content = prompt; Metadata = Map.empty } ]
+                  Temperature = Some 0.7
+                  MaxOutputTokens = Some 2000
+                  Metadata = Map.empty }
+
+            let! aiResult = connection.Submit aiRequest
+            match aiResult with
+            | Error err ->
+                return Error $"AI generation failed: {err}"
+            | Ok response ->
+                try
+                    let script = JsonSerializer.Deserialize<DemoScriptJson>(response.Content)
+                    match validateScript script with
+                    | Error errors ->
+                        let errMsg = String.concat "; " errors
+                        return Error $"Invalid script: {errMsg}"
+                    | Ok validScript ->
+                        return Ok validScript
+                with ex ->
+                    return Error $"Failed to parse demo script: {ex.Message}"
     with ex ->
-        return Error $"Failed to generate demo: {ex.Message}"
+        return Error $"Unexpected error: {ex.Message}"
 }
 
 // Validate generated script

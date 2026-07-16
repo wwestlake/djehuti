@@ -1881,7 +1881,7 @@ let main args =
     // AI-generated demo scripts for creating product walkthrough videos
     app.MapPost(
         "/api/djelab/demo/generate",
-        Func<HttpContext, {| prompt: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+        Func<HttpContext, HttpClient, {| prompt: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx httpClient body ->
             async {
                 match tryGetAuthClaims ctx with
                 | None -> return Results.Unauthorized()
@@ -1889,14 +1889,10 @@ let main args =
                     if String.IsNullOrWhiteSpace body.prompt then
                         return Results.BadRequest({| error = "prompt is required" |})
                     else
-                        // TODO: Implement Claude API integration to generate demo script
-                        // For now, return placeholder
-                        let placeholder = {|
-                            title = "Demo Generation Not Yet Implemented"
-                            description = Some "Claude API integration coming soon"
-                            steps = []
-                        |}
-                        return Results.Ok(placeholder)
+                        let! result = DemoGenerationRepository.generateDemoScript httpClient body.prompt "djehuti"
+                        match result with
+                        | Error msg -> return Results.BadRequest({| error = msg |})
+                        | Ok script -> return Results.Ok(script)
             } |> Async.StartAsTask)
     ) |> ignore
 
