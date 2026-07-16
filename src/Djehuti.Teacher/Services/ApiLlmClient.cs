@@ -25,7 +25,12 @@ public sealed class ApiLlmClient
     public async Task<string?> ChatAsync(IEnumerable<(string Role, string Content)> messages, ApiProvider provider, string apiKey, string model)
     {
         if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(model))
+        {
+            Console.WriteLine("ChatAsync: Missing API key or model");
             return null;
+        }
+
+        Console.WriteLine($"ChatAsync: Using {provider} provider, model: {model}");
 
         return provider switch
         {
@@ -61,7 +66,10 @@ public sealed class ApiLlmClient
         {
             var response = await _http.PostAsync("https://api.openai.com/v1/chat/completions", content);
             if (!response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"OpenAI API error: {response.StatusCode}");
                 return null;
+            }
 
             var responseJson = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(responseJson);
@@ -75,10 +83,12 @@ public sealed class ApiLlmClient
                     return textElem.GetString();
                 }
             }
+            Console.WriteLine("OpenAI API: No valid response found");
             return null;
         }
-        catch
+        catch (Exception ex)
         {
+            Console.WriteLine($"OpenAI API exception: {ex.Message}");
             return null;
         }
     }
@@ -112,7 +122,10 @@ public sealed class ApiLlmClient
         {
             var response = await _http.PostAsync("https://api.anthropic.com/v1/messages", content);
             if (!response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"Anthropic API error: {response.StatusCode}");
                 return null;
+            }
 
             var responseJson = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(responseJson);
@@ -125,10 +138,12 @@ public sealed class ApiLlmClient
                     return textElem.GetString();
                 }
             }
+            Console.WriteLine("Anthropic API: No valid response found");
             return null;
         }
-        catch
+        catch (Exception ex)
         {
+            Console.WriteLine($"Anthropic API exception: {ex.Message}");
             return null;
         }
     }
