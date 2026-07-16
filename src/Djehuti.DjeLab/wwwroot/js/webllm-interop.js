@@ -20,6 +20,7 @@ let enginePromise = null;
 let webllmModule = null;
 
 const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
+const CUSTOM_MODEL_URL = "https://lagdaemon.com/models/qwen-2.5-0.5b/";
 
 export function isSupported() {
     return typeof navigator !== "undefined" && !!navigator.gpu;
@@ -55,7 +56,11 @@ export async function init(dotNetRef) {
             console.log("[WebLLM] web-llm module loaded, CreateMLCEngine available:", !!webllmModule.CreateMLCEngine);
 
             console.log(`[WebLLM] Starting engine init for model: ${MODEL_ID}`);
+            console.log(`[WebLLM] Using custom model host: ${CUSTOM_MODEL_URL}`);
+
+            // Use custom model URL from our server instead of Hugging Face CDN
             const engine = await webllmModule.CreateMLCEngine(MODEL_ID, {
+                model: CUSTOM_MODEL_URL,
                 cacheBackend: "indexeddb",
                 initProgressCallback: (report) => {
                     console.log(`[WebLLM] Progress: ${report.text ?? "..."} (${(report.progress * 100).toFixed(1)}%)`);
