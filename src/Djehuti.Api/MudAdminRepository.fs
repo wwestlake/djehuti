@@ -6,6 +6,30 @@ open System.Text.RegularExpressions
 open Npgsql
 open Database
 
+// ── Caching for admin data (5-minute TTL) ───────────────────────────────
+let private worldCache : (MudWorld * DateTime) option ref = ref None
+let private metricsCache : (MudMetrics * DateTime) option ref = ref None
+let private cacheValidityMinutes = 5
+
+let private isCacheValid (cachedTime: DateTime) =
+    DateTime.UtcNow.Subtract(cachedTime).TotalMinutes < float cacheValidityMinutes
+
+let private getCachedWorld () =
+    match !worldCache with
+    | Some (data, time) when isCacheValid time -> Some data
+    | _ -> None
+
+let private cacheWorld (data: MudWorld) =
+    worldCache := Some (data, DateTime.UtcNow)
+
+let private getCachedMetrics () =
+    match !metricsCache with
+    | Some (data, time) when isCacheValid time -> Some data
+    | _ -> None
+
+let private cacheMetrics (data: MudMetrics) =
+    metricsCache := Some (data, DateTime.UtcNow)
+
 type MudZone =
     { Id: Guid
       Name: string
@@ -221,7 +245,7 @@ let private cleanSlug (fallback: string) (value: string) =
 let private nonBlank (value: string) =
     if String.IsNullOrWhiteSpace value then None else Some (value.Trim())
 
-let getWorld () =
+let private getWorldUncached () =
     use conn = openConnection ()
     use zonesCmd = new NpgsqlCommand("SELECT id, name, slug, description, position, created_at FROM mud_zones ORDER BY position, name", conn)
     use zonesReader = zonesCmd.ExecuteReader()
@@ -263,6 +287,14 @@ let getWorld () =
             yield readExit exitsReader ]
 
     { Zones = zones; Rooms = rooms; Exits = exits }
+
+let getWorld () =
+    match getCachedWorld () with
+    | Some cached -> cached
+    | None ->
+        let result = getWorldUncached()
+        cacheWorld result
+        result
 
 let getRecipes () =
     use conn = openConnection ()
@@ -894,98 +926,95 @@ let deleteBuilderAgent (agentId: Guid) =
     cmd.Parameters.AddWithValue("id", agentId) |> ignore
     cmd.ExecuteNonQuery() > 0
 
-let getMetrics () =
+let private getMetricsUncached () =
     use conn = openConnection ()
 
-    use summaryCmd = new NpgsqlCommand(
-        """SELECT
-               (SELECT COUNT(*) FROM mud_zones),
-               (SELECT COUNT(*) FROM mud_rooms),
-               (SELECT COUNT(*) FROM mud_exits),
-               (SELECT COUNT(*) FROM mud_craft_recipes WHERE active = TRUE),
-               (SELECT COUNT(*) FROM mud_items),
-               (SELECT COUNT(*) FROM mud_items WHERE portable = TRUE),
-               (SELECT COUNT(*) FROM mud_items WHERE readable_text IS NOT NULL AND btrim(readable_text) <> ''),
-               (SELECT COUNT(*) FROM mud_characters WHERE deleted_at IS NULL),
-               (SELECT COUNT(*) FROM mud_characters WHERE deleted_at IS NOT NULL),
-               (SELECT COUNT(*) FROM mud_companion_profiles WHERE enabled = TRUE),
-               (SELECT COUNT(*) FROM mud_companion_profiles WHERE byo_openai_key_protected IS NOT NULL),
-               (SELECT COUNT(*) FROM mud_zones z WHERE NOT EXISTS (SELECT 1 FROM mud_rooms r WHERE r.zone_id = z.id)),
-               (SELECT COUNT(*) FROM mud_rooms r WHERE NOT EXISTS (SELECT 1 FROM mud_exits e WHERE e.from_room_id = r.id)),
-               COALESCE((
-                   SELECT ROUND(AVG(exit_count)::numeric, 2)::float8
-                   FROM (
-                       SELECT COUNT(e.id) AS exit_count
-                       FROM mud_rooms r
-                       LEFT JOIN mud_exits e ON e.from_room_id = r.id
-                       GROUP BY r.id
-                   ) q
-               ), 0.0)""", conn)
+    // Optimized: separate simple count queries instead of massive nested query
+    use zoneCountCmd = new NpgsqlCommand("SELECT COUNT(*) FROM mud_zones", conn)
+    let zoneCount = zoneCountCmd.ExecuteScalar() |> unbox<int>
 
-    use summaryReader = summaryCmd.ExecuteReader()
+    use roomCountCmd = new NpgsqlCommand("SELECT COUNT(*) FROM mud_rooms", conn)
+    let roomCount = roomCountCmd.ExecuteScalar() |> unbox<int>
+
+    use exitCountCmd = new NpgsqlCommand("SELECT COUNT(*) FROM mud_exits", conn)
+    let exitCount = exitCountCmd.ExecuteScalar() |> unbox<int>
+
+    use recipeCountCmd = new NpgsqlCommand("SELECT COUNT(*) FROM mud_craft_recipes WHERE active = TRUE", conn)
+    let recipeCount = recipeCountCmd.ExecuteScalar() |> unbox<int>
+
+    use itemCountCmd = new NpgsqlCommand("SELECT COUNT(*) FROM mud_items", conn)
+    let itemCount = itemCountCmd.ExecuteScalar() |> unbox<int>
+
+    use portableCountCmd = new NpgsqlCommand("SELECT COUNT(*) FROM mud_items WHERE portable = TRUE", conn)
+    let portableCount = portableCountCmd.ExecuteScalar() |> unbox<int>
+
+    use readableCountCmd = new NpgsqlCommand("SELECT COUNT(*) FROM mud_items WHERE readable_text IS NOT NULL AND btrim(readable_text) <> ''", conn)
+    let readableCount = readableCountCmd.ExecuteScalar() |> unbox<int>
+
+    use charCountCmd = new NpgsqlCommand("SELECT COUNT(*) FROM mud_characters WHERE deleted_at IS NULL", conn)
+    let charCount = charCountCmd.ExecuteScalar() |> unbox<int>
+
+    use retiredCountCmd = new NpgsqlCommand("SELECT COUNT(*) FROM mud_characters WHERE deleted_at IS NOT NULL", conn)
+    let retiredCount = retiredCountCmd.ExecuteScalar() |> unbox<int>
+
+    use companionCountCmd = new NpgsqlCommand("SELECT COUNT(*) FROM mud_companion_profiles WHERE enabled = TRUE", conn)
+    let companionCount = companionCountCmd.ExecuteScalar() |> unbox<int>
+
+    use byoKeyCountCmd = new NpgsqlCommand("SELECT COUNT(*) FROM mud_companion_profiles WHERE byo_openai_key_protected IS NOT NULL", conn)
+    let byoKeyCount = byoKeyCountCmd.ExecuteScalar() |> unbox<int>
+
+    use emptyZoneCmd = new NpgsqlCommand("SELECT COUNT(*) FROM mud_zones z WHERE NOT EXISTS (SELECT 1 FROM mud_rooms r WHERE r.zone_id = z.id)", conn)
+    let emptyZoneCount = emptyZoneCmd.ExecuteScalar() |> unbox<int>
+
+    use deadEndCmd = new NpgsqlCommand("SELECT COUNT(*) FROM mud_rooms r WHERE NOT EXISTS (SELECT 1 FROM mud_exits e WHERE e.from_room_id = r.id)", conn)
+    let deadEndCount = deadEndCmd.ExecuteScalar() |> unbox<int>
+
+    use avgExitsCmd = new NpgsqlCommand(
+        """SELECT COALESCE(ROUND(AVG(exit_count)::numeric, 2)::float8, 0.0)
+           FROM (SELECT COUNT(e.id) AS exit_count FROM mud_rooms r LEFT JOIN mud_exits e ON e.from_room_id = r.id GROUP BY r.id) q""", conn)
+    let avgExits = avgExitsCmd.ExecuteScalar() |> unbox<float>
+
     let summary =
-        if summaryReader.Read() then
-            { ZoneCount = summaryReader.GetInt32(0)
-              RoomCount = summaryReader.GetInt32(1)
-              ExitCount = summaryReader.GetInt32(2)
-              RecipeCount = summaryReader.GetInt32(3)
-              ItemCount = summaryReader.GetInt32(4)
-              PortableItemCount = summaryReader.GetInt32(5)
-              ReadableItemCount = summaryReader.GetInt32(6)
-              ActiveCharacterCount = summaryReader.GetInt32(7)
-              RetiredCharacterCount = summaryReader.GetInt32(8)
-              CompanionEnabledCount = summaryReader.GetInt32(9)
-              ByoKeyCount = summaryReader.GetInt32(10)
-              EmptyZoneCount = summaryReader.GetInt32(11)
-              DeadEndRoomCount = summaryReader.GetInt32(12)
-              AverageExitsPerRoom = summaryReader.GetDouble(13)
-              RealmCharacterCounts = []
-              ExitTypeCounts = [] }
-        else
-            { ZoneCount = 0
-              RoomCount = 0
-              ExitCount = 0
-              RecipeCount = 0
-              ItemCount = 0
-              PortableItemCount = 0
-              ReadableItemCount = 0
-              ActiveCharacterCount = 0
-              RetiredCharacterCount = 0
-              CompanionEnabledCount = 0
-              ByoKeyCount = 0
-              EmptyZoneCount = 0
-              DeadEndRoomCount = 0
-              AverageExitsPerRoom = 0.0
-              RealmCharacterCounts = []
-              ExitTypeCounts = [] }
-    summaryReader.Close()
+        { ZoneCount = zoneCount
+          RoomCount = roomCount
+          ExitCount = exitCount
+          RecipeCount = recipeCount
+          ItemCount = itemCount
+          PortableItemCount = portableCount
+          ReadableItemCount = readableCount
+          ActiveCharacterCount = charCount
+          RetiredCharacterCount = retiredCount
+          CompanionEnabledCount = companionCount
+          ByoKeyCount = byoKeyCount
+          EmptyZoneCount = emptyZoneCount
+          DeadEndRoomCount = deadEndCount
+          AverageExitsPerRoom = avgExits
+          RealmCharacterCounts = []
+          ExitTypeCounts = [] }
 
     use realmCmd = new NpgsqlCommand(
-        """SELECT realm_slug, COUNT(*)
-           FROM mud_characters
-           WHERE deleted_at IS NULL
-           GROUP BY realm_slug
-           ORDER BY realm_slug""", conn)
+        """SELECT realm_slug, COUNT(*) FROM mud_characters WHERE deleted_at IS NULL GROUP BY realm_slug ORDER BY realm_slug""", conn)
     use realmReader = realmCmd.ExecuteReader()
     let realmCounts =
         [ while realmReader.Read() do
-            yield
-                { RealmSlug = realmReader.GetString(0)
-                  CharacterCount = realmReader.GetInt32(1) } ]
+            yield { RealmSlug = realmReader.GetString(0); CharacterCount = realmReader.GetInt32(1) } ]
     realmReader.Close()
 
     use exitTypeCmd = new NpgsqlCommand(
-        """SELECT exit_type, COUNT(*)
-           FROM mud_exits
-           GROUP BY exit_type
-           ORDER BY COUNT(*) DESC, exit_type""", conn)
+        """SELECT exit_type, COUNT(*) FROM mud_exits GROUP BY exit_type ORDER BY COUNT(*) DESC, exit_type""", conn)
     use exitTypeReader = exitTypeCmd.ExecuteReader()
     let exitTypeCounts =
         [ while exitTypeReader.Read() do
-            yield
-                { ExitType = exitTypeReader.GetString(0)
-                  Count = exitTypeReader.GetInt32(1) } ]
+            yield { ExitType = exitTypeReader.GetString(0); Count = exitTypeReader.GetInt32(1) } ]
 
     { summary with
         RealmCharacterCounts = realmCounts
         ExitTypeCounts = exitTypeCounts }
+
+let getMetrics () =
+    match getCachedMetrics () with
+    | Some cached -> cached
+    | None ->
+        let result = getMetricsUncached()
+        cacheMetrics result
+        result
