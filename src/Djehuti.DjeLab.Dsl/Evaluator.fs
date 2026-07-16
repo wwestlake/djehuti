@@ -17,6 +17,7 @@ open Djehuti.DjeLab.Dsl.Ast
 type Value =
     | VNumber of float
     | VBool of bool
+    | VString of string
     | VVector of Value[]
     /// The environment is a `ref` (not a plain `Env`) so `LetRec` can tie the
     /// recursive knot: it creates the closure, then mutates this same cell
@@ -27,6 +28,8 @@ type Value =
     /// to and unreachable from DSL code -- it only wires recursion.
     | VClosure of parameters: string list * body: Expr * env: Env ref
     | VBuiltin of name: string * arity: int * fn: (Value list -> Result<Value, string>)
+    /// Render descriptor: type and properties for the rendering engine
+    | VRender of renderType: string * props: Map<string, Value>
 
 and Env = Map<string, Value>
 
@@ -34,9 +37,21 @@ let rec private describe (value: Value) : string =
     match value with
     | VNumber n -> string n
     | VBool b -> string b
+    | VString s -> $"\"{s}\""
     | VVector items -> "[" + String.Join(", ", items |> Array.map describe) + "]"
     | VClosure(parameters, _, _) -> $"""<function/{parameters.Length}>"""
     | VBuiltin(name, _, _) -> $"<builtin:{name}>"
+    | VRender(renderType, _) -> $"<render:{renderType}>"
+
+and private valueToString (value: Value) : string =
+    match value with
+    | VNumber n -> string n
+    | VBool b -> string b
+    | VString s -> s
+    | VVector items -> "[" + String.Join(", ", items |> Array.map valueToString) + "]"
+    | VClosure(parameters, _, _) -> $"""<function/{parameters.Length}>"""
+    | VBuiltin(name, _, _) -> $"<builtin:{name}>"
+    | VRender(renderType, _) -> $"<render:{renderType}>"
 
 let private asNumber (context: string) (value: Value) : Result<float, string> =
     match value with
@@ -52,6 +67,11 @@ let private asVector (context: string) (value: Value) : Result<Value[], string> 
     match value with
     | VVector items -> Ok items
     | other -> Error $"{context}: expected a vector, got {describe other}"
+
+let private asString (context: string) (value: Value) : Result<string, string> =
+    match value with
+    | VString s -> Ok s
+    | other -> Error $"{context}: expected a string, got {describe other}"
 
 let private randomSoftware = Random.Shared
 
@@ -156,6 +176,28 @@ let makeBuiltinEnv (onEmit: (Value -> unit) option) : Env =
               onEmit |> Option.iter (fun f -> f v)
               Ok v
           | args -> Error $"emit: expected 1 argument, got {args.Length}")
+      "render", VBuiltin("render", 2, function
+          | [ renderTypeVal; propsVal ] ->
+              match asString "render type" renderTypeVal, asVector "render props" propsVal with
+              | Ok renderType, Ok props ->
+                  // Props is [key, value, key, value, ...] vector
+                  if props.Length % 2 <> 0 then
+                      Error "render: props vector must have even length (key-value pairs)"
+                  else
+                      let rec buildMap i (acc: Map<string, Value>) =
+                          if i >= props.Length then
+                              acc
+                          else
+                              match asString $"render prop key at index {i}" props.[i] with
+                              | Error _ -> acc  // Skip malformed keys
+                              | Ok key ->
+                                  buildMap (i + 2) (Map.add key props.[i + 1] acc)
+                      Ok(VRender(renderType, buildMap 0 Map.empty))
+              | Error e, _ | _, Error e -> Error e
+          | args -> Error $"render: expected 2 arguments, got {args.Length}")
+      "string", VBuiltin("string", 1, function
+          | [ v ] -> Ok(VString(valueToString v))
+          | args -> Error $"string: expected 1 argument, got {args.Length}")
       "pi", VNumber Math.PI
       "e", VNumber Math.E ]
     |> Map.ofList
@@ -182,6 +224,7 @@ and private evalWith (env: Env) (expr: Expr) : Step =
     match expr with
     | Number n -> Done(Ok(VNumber n))
     | Bool b -> Done(Ok(VBool b))
+    | String s -> Done(Ok(VString s))
     | Var name ->
         match Map.tryFind name env with
         | Some v -> Done(Ok v)
@@ -314,7 +357,12 @@ and private evalBinaryOp (op: BinOp) (left: Value) (right: Value) : Result<Value
         | Ok l, Ok r -> Ok(f l r)
         | Error e, _ | _, Error e -> Error e
     match op with
-    | Add -> numOp (fun l r -> VNumber(l + r))
+    | Add ->
+        match left, right with
+        | VString l, VString r -> Ok(VString(l + r))
+        | VString l, r -> Ok(VString(l + valueToString r))
+        | l, VString r -> Ok(VString(valueToString l + r))
+        | _ -> numOp (fun l r -> VNumber(l + r))
     | Sub -> numOp (fun l r -> VNumber(l - r))
     | Mul -> numOp (fun l r -> VNumber(l * r))
     | Div -> numOp (fun l r -> VNumber(l / r))
@@ -393,6 +441,7 @@ let rec toJson (value: Value) : Result<string, string> =
         if Double.IsFinite n then Ok(n.ToString("R", Globalization.CultureInfo.InvariantCulture))
         else Ok "null"
     | VBool b -> Ok(if b then "true" else "false")
+    | VString s -> Ok(JsonSerializer.Serialize s)  // Use JsonSerializer to properly escape string
     | VVector items ->
         let rec collect acc =
             function
@@ -402,4 +451,8 @@ let rec toJson (value: Value) : Result<string, string> =
                 | Ok j -> collect (j :: acc) rest
                 | Error e -> Error e
         items |> Array.toList |> collect [] |> Result.map (fun parts -> "[" + String.Join(",", parts) + "]")
+    | VRender(renderType, props) ->
+        // Render values are kept as structured objects, not serialized to JSON
+        // The host will handle them specially through the emit() channel
+        Error $"render objects cannot be serialized to JSON (use emit to send them to the host)"
     | VClosure _ | VBuiltin _ -> Error $"cannot serialize {describe value} to JSON"

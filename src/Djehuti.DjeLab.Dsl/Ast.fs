@@ -31,6 +31,7 @@ type UnOp =
 type Expr =
     | Number of float
     | Bool of bool
+    | String of string
     | Var of string
     | VectorLit of Expr list
     | Index of Expr * Expr

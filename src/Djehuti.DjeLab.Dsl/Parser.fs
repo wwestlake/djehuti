@@ -46,6 +46,10 @@ let private numberLit: P<Expr> =
 let private boolLit: P<Expr> =
     (stringReturn "true" (Bool true) <|> stringReturn "false" (Bool false)) .>> ws
 
+let private stringLit: P<Expr> =
+    between (pstring "\"") (pstring "\"") (manyChars (satisfy (fun c -> c <> '"'))) .>> ws
+    |>> String
+
 let private exprRef, exprRefImpl = createParserForwardedToRef<Expr, unit> ()
 
 let private argList: P<Expr list> =
@@ -60,6 +64,7 @@ let private parenOrGroup: P<Expr> =
 let private atom: P<Expr> =
     choice
         [ numberLit
+          stringLit
           boolLit
           vectorLit
           parenOrGroup
