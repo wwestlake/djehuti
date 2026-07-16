@@ -62,7 +62,7 @@ public sealed class GraphDescriptor : RenderDescriptor
 public sealed class ButtonDescriptor : RenderDescriptor
 {
     public string Label => (Props.TryGetValue("label", out var l) ? (string?)l : null) ?? "Button";
-    public bool Disabled => Props.TryGetValue("disabled", out var d) && (bool)d;
+    public bool Disabled => Props.TryGetValue("disabled", out var d) && d is bool && (bool)d;
     public string? OnClick => Props.TryGetValue("onClick", out var oc) ? (string?)oc : null;
 }
 
@@ -124,7 +124,7 @@ public sealed class MusicDescriptor : RenderDescriptor
 public sealed class MathDescriptor : RenderDescriptor
 {
     public string? LaTeX => Props.TryGetValue("latex", out var l) ? (string?)l : null;
-    public bool Display => Props.TryGetValue("display", out var d) && (bool)d;
+    public bool Display => Props.TryGetValue("display", out var d) && d is bool && (bool)d;
 }
 
 /// Text/label
