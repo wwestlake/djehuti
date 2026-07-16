@@ -1,0 +1,29 @@
+@using Djehuti.DjeLab.Services
+
+<div class="render-slider">
+    <div class="render-slider-label">
+        <span>@Descriptor?.Label</span>
+        <span class="render-slider-value">@Descriptor?.Value.ToString("F2")@(string.IsNullOrWhiteSpace(Descriptor?.Unit) ? "" : $" {Descriptor.Unit}")</span>
+    </div>
+    <input type="range"
+           class="render-slider-input"
+           min="@Descriptor?.Min.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+           max="@Descriptor?.Max.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+           step="@Descriptor?.Step.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+           value="@Descriptor?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+           disabled="@(Descriptor == null)"
+           @onchange="HandleChange" />
+</div>
+
+@code {
+    [Parameter] public SliderDescriptor? Descriptor { get; set; }
+    [Parameter] public EventCallback<(string VariableName, double Value)> OnValueChanged { get; set; }
+
+    private async Task HandleChange(ChangeEventArgs e)
+    {
+        if (Descriptor is null || !double.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value))
+            return;
+
+        await OnValueChanged.InvokeAsync((Descriptor.VariableName ?? "", value));
+    }
+}

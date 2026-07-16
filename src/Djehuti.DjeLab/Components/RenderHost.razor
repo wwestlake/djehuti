@@ -1,0 +1,156 @@
+@using Djehuti.DjeLab.Services
+@implements IDisposable
+
+<div class="render-host">
+    @if (Engine == null || Engine.Descriptors.Count == 0)
+    {
+        <div class="render-host-empty">
+            @if (ShowEmpty)
+            {
+                <p>@EmptyMessage</p>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="render-host-content">
+            @foreach (var descriptor in Engine.Descriptors)
+            {
+                @switch (descriptor.Type)
+                {
+                    case "graph":
+                        @if (descriptor is GraphDescriptor gd)
+                        {
+                            <RenderGraph Descriptor="gd" />
+                        }
+                        break;
+
+                    case "slider":
+                        @if (descriptor is SliderDescriptor sd)
+                        {
+                            <RenderSlider Descriptor="sd" OnValueChanged="HandleSliderChangedWrapper" />
+                        }
+                        break;
+
+                    case "button":
+                        @if (descriptor is ButtonDescriptor bd)
+                        {
+                            <RenderButton Descriptor="bd" OnClick="HandleButtonClickWrapper" />
+                        }
+                        break;
+
+                    case "input":
+                        @if (descriptor is InputDescriptor id)
+                        {
+                            <RenderInput Descriptor="id" OnValueChanged="HandleInputChangedWrapper" />
+                        }
+                        break;
+
+                    case "text":
+                        @if (descriptor is TextDescriptor td)
+                        {
+                            <RenderText Descriptor="td" />
+                        }
+                        break;
+
+                    case "math":
+                        @if (descriptor is MathDescriptor md)
+                        {
+                            <RenderMath Descriptor="md" />
+                        }
+                        break;
+
+                    case "notation":
+                        @if (descriptor is NotationDescriptor nd)
+                        {
+                            <RenderNotation Descriptor="nd" />
+                        }
+                        break;
+
+                    case "piano":
+                        @if (descriptor is PianoDescriptor pd)
+                        {
+                            <RenderPiano Descriptor="pd" />
+                        }
+                        break;
+
+                    case "fretboard":
+                        @if (descriptor is FretboardDescriptor fd)
+                        {
+                            <RenderFretboard Descriptor="fd" />
+                        }
+                        break;
+
+                    case "music":
+                        @if (descriptor is MusicDescriptor mud)
+                        {
+                            <RenderMusic Descriptor="mud" />
+                        }
+                        break;
+
+                    case "container":
+                        @if (descriptor is ContainerDescriptor cd)
+                        {
+                            <RenderContainer Descriptor="cd" Descriptors="Engine.Descriptors" />
+                        }
+                        break;
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public RenderEngine? Engine { get; set; }
+    [Parameter] public bool ShowEmpty { get; set; } = true;
+    [Parameter] public string EmptyMessage { get; set; } = "Ready to render.";
+    [Parameter] public EventCallback<(string Name, object Value)> OnParameterChanged { get; set; }
+
+    private void HandleSliderChanged(string variableName, double value)
+    {
+        if (!string.IsNullOrWhiteSpace(variableName))
+        {
+            Engine?.SetParameterValue(variableName, value);
+            _ = OnParameterChanged.InvokeAsync((variableName, value));
+        }
+    }
+
+    private Task HandleSliderChangedWrapper((string Name, double Value) args)
+    {
+        HandleSliderChanged(args.Name, args.Value);
+        return Task.CompletedTask;
+    }
+
+    private void HandleButtonClick(string? onClick)
+    {
+        if (!string.IsNullOrWhiteSpace(onClick))
+        {
+            _ = OnParameterChanged.InvokeAsync((onClick, true));
+        }
+    }
+
+    private Task HandleButtonClickWrapper(string? onClick)
+    {
+        HandleButtonClick(onClick);
+        return Task.CompletedTask;
+    }
+
+    private void HandleInputChanged(string variableName, string value)
+    {
+        if (!string.IsNullOrWhiteSpace(variableName))
+        {
+            Engine?.SetParameterValue(variableName, value);
+            _ = OnParameterChanged.InvokeAsync((variableName, value));
+        }
+    }
+
+    private Task HandleInputChangedWrapper((string Name, string Value) args)
+    {
+        HandleInputChanged(args.Name, args.Value);
+        return Task.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+    }
+}

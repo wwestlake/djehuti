@@ -1,0 +1,275 @@
+.render-host {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 1rem;
+}
+
+.render-host-empty {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-secondary, #666);
+    font-size: 0.95rem;
+}
+
+.render-host-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* Graph */
+.render-graph {
+    border: 1px solid var(--border-color, #e0e0e0);
+    border-radius: 4px;
+    background: var(--surface, #fff);
+    overflow: hidden;
+}
+
+.render-graph-header {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color, #e0e0e0);
+}
+
+.render-graph-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.render-graph-plot {
+    min-height: 300px;
+    width: 100%;
+}
+
+/* Slider */
+.render-slider {
+    padding: 1rem;
+    border: 1px solid var(--border-color, #e0e0e0);
+    border-radius: 4px;
+    background: var(--surface, #fff);
+}
+
+.render-slider-label {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+    font-weight: 500;
+}
+
+.render-slider-value {
+    font-family: monospace;
+    color: var(--text-secondary, #666);
+}
+
+.render-slider-input {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--input-bg, #f0f0f0);
+    outline: none;
+    -webkit-appearance: none;
+}
+
+.render-slider-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--primary, #0066cc);
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.render-slider-input::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--primary, #0066cc);
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* Button */
+.render-button {
+    padding: 1rem;
+}
+
+.render-button-input {
+    padding: 0.75rem 1.5rem;
+    background: var(--primary, #0066cc);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.render-button-input:hover:not(:disabled) {
+    background: var(--primary-dark, #0052a3);
+}
+
+.render-button-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Input */
+.render-input {
+    padding: 1rem;
+    border: 1px solid var(--border-color, #e0e0e0);
+    border-radius: 4px;
+    background: var(--surface, #fff);
+}
+
+.render-input-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+.render-input-field {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color, #e0e0e0);
+    border-radius: 3px;
+    font-size: 1rem;
+    box-sizing: border-box;
+}
+
+.render-input-field:focus {
+    outline: none;
+    border-color: var(--primary, #0066cc);
+    box-shadow: 0 0 0 2px var(--primary-light, rgba(0, 102, 204, 0.1));
+}
+
+/* Text */
+.render-text {
+    padding: 1rem;
+    border-radius: 4px;
+}
+
+.render-text-content {
+    line-height: 1.5;
+}
+
+/* Math */
+.render-math {
+    padding: 1rem;
+    border: 1px solid var(--border-color, #e0e0e0);
+    border-radius: 4px;
+    background: var(--surface, #fff);
+    overflow-x: auto;
+}
+
+.render-math-content {
+    min-height: 2rem;
+    display: flex;
+    align-items: center;
+}
+
+/* Notation, Piano, Fretboard, Music */
+.render-notation,
+.render-piano,
+.render-fretboard,
+.render-music {
+    padding: 1rem;
+    border: 1px solid var(--border-color, #e0e0e0);
+    border-radius: 4px;
+    background: var(--surface, #fff);
+}
+
+.render-notation h4,
+.render-piano h4,
+.render-fretboard h4,
+.render-music h4 {
+    margin: 0 0 1rem 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.render-notation-placeholder,
+.render-piano-placeholder,
+.render-fretboard-placeholder,
+.render-music-placeholder {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-secondary, #999);
+    background: var(--bg-secondary, #f5f5f5);
+    border-radius: 3px;
+    font-size: 0.9rem;
+}
+
+/* Music Staff (uses existing MusicStaff component) */
+.render-notation {
+    padding: 1.5rem;
+}
+
+.render-notation :deep(.teacher-music-staff) {
+    margin: 1rem 0;
+}
+
+/* Piano Keyboard */
+.render-piano-keyboard {
+    display: flex;
+    justify-content: center;
+    padding: 1rem 0;
+    overflow-x: auto;
+}
+
+.render-piano-keyboard svg {
+    max-width: 100%;
+    height: auto;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Fretboard Diagram */
+.render-fretboard-diagram {
+    display: flex;
+    justify-content: center;
+    padding: 1rem 0;
+    overflow-x: auto;
+}
+
+.render-fretboard-diagram svg {
+    max-width: 100%;
+    height: auto;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Music (ABC Notation) */
+.render-music-staff {
+    margin: 1rem 0;
+}
+
+.render-music-placeholder {
+    padding: 1rem;
+    color: var(--text-secondary, #999);
+}
+
+.render-notation pre,
+.render-piano pre,
+.render-fretboard pre,
+.render-music pre {
+    background: var(--bg-secondary, #f5f5f5);
+    padding: 0.75rem;
+    border-radius: 3px;
+    overflow-x: auto;
+    font-size: 0.85rem;
+}
+
+/* Container */
+.render-container {
+    border: 1px dashed var(--border-color, #ddd);
+    border-radius: 4px;
+    padding: 1rem;
+    background: var(--bg-container, rgba(0, 0, 0, 0.02));
+}
+
+.render-container-child {
+    /* Spacing handled by container's gap */
+}

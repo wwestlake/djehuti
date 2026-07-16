@@ -1,0 +1,62 @@
+@using Djehuti.DjeLab.Services
+@using System.Text.Json
+@implements IDisposable
+
+<div class="render-notation">
+    @if (!string.IsNullOrWhiteSpace(Descriptor?.Title))
+    {
+        <h4>@Descriptor.Title</h4>
+    }
+    @if (_score is not null)
+    {
+        <MusicStaff Score="_score" HighlightedNoteIds="_highlightedNoteIds" />
+    }
+    else
+    {
+        <div class="render-notation-placeholder">
+            [Unable to parse notation]
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public NotationDescriptor? Descriptor { get; set; }
+
+    private MusicScore? _score;
+    private HashSet<string> _highlightedNoteIds = new();
+
+    protected override void OnParametersSet()
+    {
+        _score = TryParseScore(Descriptor?.ScoreJson);
+        _highlightedNoteIds = new();
+
+        // Populate highlighted notes from descriptor
+        if (Descriptor?.Highlighted is { Count: > 0 })
+        {
+            foreach (var noteId in Descriptor.Highlighted)
+            {
+                _highlightedNoteIds.Add(noteId);
+            }
+        }
+    }
+
+    private MusicScore? TryParseScore(string? scoreJson)
+    {
+        if (string.IsNullOrWhiteSpace(scoreJson))
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(scoreJson);
+            return JsonSerializer.Deserialize<MusicScore>(doc.RootElement, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public void Dispose()
+    {
+    }
+}
