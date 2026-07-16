@@ -867,6 +867,9 @@ let main args =
 
     builder.Services.AddDataProtection() |> ignore
 
+    // Classroom real-time infrastructure
+    builder.Services.AddSingleton<ClassroomConnectionManager.ClassroomConnectionManager>() |> ignore
+
     builder.Services.AddHostedService<HeartbeatWorker.HeartbeatWorker>() |> ignore
     builder.Services.AddHostedService<GameWorldWorker.GameWorldWorker>() |> ignore
     builder.Services.AddHostedService<SemanticIngestionWorker.SemanticIngestionWorker>() |> ignore
@@ -907,6 +910,9 @@ let main args =
 
     app.UseCors() |> ignore
 
+    // Enable WebSocket support for real-time classroom connections
+    app.UseWebSockets() |> ignore
+
     // Update last_activity_at for authenticated users on every request (debounced in DB to 1/min)
     app.Use(fun (ctx: HttpContext) (next: RequestDelegate) ->
         match ctx.Request.Cookies.TryGetValue("djehuti_auth") with
@@ -918,6 +924,138 @@ let main args =
         next.Invoke(ctx)) |> ignore
 
     app.MapGet("/api/health", Func<string>(fun () -> "ok")) |> ignore
+
+    // WebSocket endpoint for real-time classroom communication
+    app.Map("/api/classroom/{classroomId}/ws", fun (app: WebApplication) ->
+        app.Run(fun (ctx: HttpContext) ->
+            task {
+                if not (ctx.WebSockets.IsWebSocketRequest) then
+                    ctx.Response.StatusCode <- 400
+                    return ()
+                else
+                    let classroomId = ctx.GetRouteValue("classroomId") |> string |> Guid.Parse
+
+                    // Get auth from query parameter or header
+                    let token =
+                        match ctx.Request.Query.TryGetValue("token") with
+                        | true, values when values.Count > 0 -> Some (values.[0])
+                        | _ ->
+                            match ctx.Request.Headers.TryGetValue("Authorization") with
+                            | true, authHeader ->
+                                authHeader.ToString()
+                                |> fun h -> if h.StartsWith("Bearer ") then Some (h.Substring(7)) else None
+                            | _ ->
+                                match ctx.Request.Cookies.TryGetValue("djehuti_auth") with
+                                | true, token -> Some token
+                                | _ -> None
+
+                    match token with
+                    | None ->
+                        ctx.Response.StatusCode <- 401
+                        return ()
+                    | Some token ->
+                        match Auth.verifyToken token with
+                        | None ->
+                            ctx.Response.StatusCode <- 401
+                            return ()
+                        | Some claims ->
+                            match Guid.TryParse(claims.UserId) with
+                            | false, _ ->
+                                ctx.Response.StatusCode <- 401
+                                return ()
+                            | true, userId ->
+                                // Get user role from classroom
+                                let role =
+                                    match ClassroomRepository.tryGetById classroomId with
+                                    | Some classroom when classroom.TeacherId = userId -> "teacher"
+                                    | _ -> "student"
+
+                                let connManager = ctx.RequestServices.GetRequiredService<ClassroomConnectionManager.ClassroomConnectionManager>()
+                                let ws = ctx.WebSockets.AcceptWebSocketAsync().Result
+
+                                // Add to connection manager
+                                connManager.AddConnection classroomId userId role ws
+
+                                // Notify others that user joined
+                                do! connManager.BroadcastAsync classroomId
+                                    (ClassroomConnectionManager.WebSocketMessage.UserJoined {
+                                        userId = userId
+                                        userName = claims.UserName
+                                        role = role
+                                    })
+
+                                // Read messages from this connection
+                                let mutable buffer = Array.zeroCreate<byte> 4096
+                                let mutable closeRequested = false
+
+                                while not closeRequested && ws.State = WebSocketState.Open do
+                                    try
+                                        let! result = ws.ReceiveAsync(System.ArraySegment(buffer), System.Threading.CancellationToken.None)
+
+                                        if result.MessageType = WebSocketMessageType.Close then
+                                            closeRequested <- true
+                                        elif result.Count > 0 then
+                                            let messageText = System.Text.Encoding.UTF8.GetString(buffer, 0, result.Count)
+
+                                            try
+                                                let jsonDoc = JsonDocument.Parse(messageText)
+                                                let root = jsonDoc.RootElement
+
+                                                match root.GetProperty("type").GetString() with
+                                                | "chat" ->
+                                                    let content = root.GetProperty("content").GetString()
+                                                    let chatMsg = ClassroomConnectionManager.WebSocketMessage.ChatMessage {
+                                                        senderId = userId
+                                                        senderName = claims.UserName
+                                                        content = content
+                                                        timestamp = DateTimeOffset.UtcNow
+                                                    }
+                                                    // Broadcast to all
+                                                    do! connManager.BroadcastAsync classroomId chatMsg None
+                                                    // Store in database
+                                                    ClassroomRepository.addMessage classroomId (Some userId) "chat" content None None |> ignore
+
+                                                | "directive" when role = "teacher" ->
+                                                    let action = root.GetProperty("action").GetString()
+                                                    let payload = root.GetProperty("payload")
+                                                    let toUserStr = root.GetProperty("toUser").GetString()
+                                                    let toUserId = if String.IsNullOrWhiteSpace(toUserStr) then None else Some (Guid.Parse(toUserStr))
+
+                                                    let directive = ClassroomConnectionManager.WebSocketMessage.Directive {
+                                                        from = userId
+                                                        toUser = toUserId |> Option.defaultValue Guid.Empty
+                                                        action = action
+                                                        payload = payload
+                                                        timestamp = DateTimeOffset.UtcNow
+                                                    }
+                                                    // Send to target user or broadcast to all students if no target
+                                                    match toUserId with
+                                                    | Some targetId ->
+                                                        do! connManager.SendToUserAsync classroomId targetId directive
+                                                        ClassroomRepository.addMessage classroomId (Some userId) "directive" "" (Some targetId) (Some (JsonSerializer.Serialize({| action = action; payload = payload |}))) |> ignore
+                                                    | None ->
+                                                        // Broadcast to all students
+                                                        do! connManager.BroadcastAsync classroomId directive None
+                                                        ClassroomRepository.addMessage classroomId (Some userId) "directive" "" None (Some (JsonSerializer.Serialize({| action = action; payload = payload |}))) |> ignore
+
+                                                | _ -> ()
+                                            with _ ->
+                                                ()  // Ignore malformed messages
+                                    with _ ->
+                                        closeRequested <- true
+
+                                // Notify others that user left
+                                do! connManager.BroadcastAsync classroomId
+                                    (ClassroomConnectionManager.WebSocketMessage.UserLeft {
+                                        userId = userId
+                                        timestamp = DateTimeOffset.UtcNow
+                                    })
+
+                                // Remove from connection manager and clean up
+                                connManager.RemoveConnection classroomId userId |> ignore
+                                ws.Dispose()
+            })
+    ) |> ignore
 
     app.MapGet(
         "/api/datasets",
@@ -6180,6 +6318,124 @@ let main args =
                 | true, uid ->
                     LearningTrackRepository.updateProgress uid trackId lessonId
                     Results.NoContent())
+    ) |> ignore
+
+    // ── Djehuti Teacher: Classrooms (Real-time collaborative learning) ───────────
+    // Classrooms enable teachers to create shared learning spaces where:
+    // - Students join and chat with each other
+    // - Each student has their own AI tutor
+    // - Teachers can send directives to students (show notation, highlight, etc.)
+    // - Real-time WebSocket connection for messages and state sync
+
+    app.MapPost(
+        "/api/teacher/classrooms",
+        Func<HttpContext, {| name: string; lessonPlanId: string |}, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    let lessonId = if String.IsNullOrWhiteSpace(body.lessonPlanId) then None else (match Guid.TryParse(body.lessonPlanId) with true, id -> Some id | _ -> None)
+                    let classroom = ClassroomRepository.create uid body.name lessonId "solo_ai"
+                    Results.Ok(classroom))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/teacher/classrooms/{id}",
+        Func<HttpContext, Guid, IResult>(fun ctx id ->
+            match ClassroomRepository.tryGetById id with
+            | None -> Results.NotFound()
+            | Some classroom ->
+                match tryGetAuthClaims ctx with
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | true, uid when uid = classroom.TeacherId || Permissions.isAdmin claims.Role -> Results.Ok(classroom)
+                    | _ -> Results.Forbid()
+                | None -> Results.Forbid())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/teacher/classrooms/mine",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid -> Results.Ok(ClassroomRepository.listByTeacher uid))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/teacher/classrooms/{id}/members",
+        Func<HttpContext, Guid, {| userId: string |}, IResult>(fun ctx classroomId body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId), Guid.TryParse(body.userId) with
+                | (true, teacherId), (true, studentId) ->
+                    match ClassroomRepository.tryGetById classroomId with
+                    | None -> Results.NotFound()
+                    | Some classroom when classroom.TeacherId <> teacherId && not (Permissions.isAdmin claims.Role) ->
+                        Results.Forbid()
+                    | Some _ ->
+                        let member = ClassroomRepository.addMember classroomId studentId "student"
+                        Results.Ok(member)
+                | _ -> Results.BadRequest("Invalid IDs"))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/teacher/classrooms/{id}/members",
+        Func<HttpContext, Guid, IResult>(fun ctx classroomId ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    match ClassroomRepository.tryGetById classroomId with
+                    | None -> Results.NotFound()
+                    | Some classroom when classroom.TeacherId <> uid && not (Permissions.isAdmin claims.Role) ->
+                        Results.Forbid()
+                    | Some _ -> Results.Ok(ClassroomRepository.listMembers classroomId))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/teacher/classrooms/{id}/start",
+        Func<HttpContext, Guid, IResult>(fun ctx classroomId ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    match ClassroomRepository.tryGetById classroomId with
+                    | None -> Results.NotFound()
+                    | Some classroom when classroom.TeacherId <> uid && not (Permissions.isAdmin claims.Role) ->
+                        Results.Forbid()
+                    | Some _ ->
+                        if ClassroomRepository.updateStatus classroomId "live"
+                        then Results.NoContent()
+                        else Results.Problem(detail = "Failed to start classroom", statusCode = 500, title = "Error"))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/teacher/classrooms/{id}/end",
+        Func<HttpContext, Guid, IResult>(fun ctx classroomId ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, uid ->
+                    match ClassroomRepository.tryGetById classroomId with
+                    | None -> Results.NotFound()
+                    | Some classroom when classroom.TeacherId <> uid && not (Permissions.isAdmin claims.Role) ->
+                        Results.Forbid()
+                    | Some _ ->
+                        if ClassroomRepository.updateStatus classroomId "archived"
+                        then Results.NoContent()
+                        else Results.Problem(detail = "Failed to end classroom", statusCode = 500, title = "Error"))
     ) |> ignore
 
     // ── Desktop app content library (Creation Station, etc.) ────────────────────

@@ -1,0 +1,425 @@
+@page "/classroom/{ClassroomId:guid}/join"
+@implements IAsyncDisposable
+@inject TeacherApiClient Api
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject WebLlmClient WebLlm
+@inject ApiLlmClient ApiLlm
+@inject AiConfigStore ConfigStore
+
+<PageTitle>Join Classroom — Djehuti Teacher</PageTitle>
+
+<div class="teacher-page teacher-page-wide">
+    @if (_loading)
+    {
+        <p class="teacher-muted">Loading classroom…</p>
+    }
+    else if (_classroom is null)
+    {
+        <div class="teacher-empty">
+            <p>That classroom doesn't exist or isn't available.</p>
+            <a class="teacher-cta" href="/">Back to home →</a>
+        </div>
+    }
+    else if (!_joined)
+    {
+        <div class="teacher-classroom-joinscreen">
+            <h1>Join: @_classroom.Name</h1>
+            <p class="teacher-page-subtitle">@_classroom.Status</p>
+
+            <div class="teacher-classroom-joincard">
+                <p>This is a live learning session. You'll be able to chat with other students and work with the AI tutor.</p>
+
+                <button type="button" class="teacher-cta" @onclick="JoinClassroom" disabled="@_joining">
+                    @(_joining ? "Joining…" : "Join Classroom")
+                </button>
+
+                @if (!string.IsNullOrWhiteSpace(_joinError))
+                {
+                    <p class="teacher-error">@_joinError</p>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="teacher-classroom-student-layout">
+            <!-- Left: AI Tutor -->
+            <div class="teacher-classroom-tutor">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2>@(_classroom.Name)</h2>
+                    @switch (WebLlm.State)
+                    {
+                        case WebLlmState.Ready:
+                            <span title="Local AI running" style="color: #10b981;">🟢 Local AI</span>
+                            break;
+                        case WebLlmState.Loading:
+                            <span title="Loading local AI..." style="color: var(--teacher-accent);">🟡 Loading</span>
+                            break;
+                        case WebLlmState.Unsupported:
+                        case WebLlmState.Failed:
+                            <span title="Local AI unavailable" style="color: var(--teacher-danger);">🔴 Unavailable</span>
+                            break;
+                    }
+                </div>
+                <p class="teacher-muted">
+                    @switch (WebLlm.State)
+                    {
+                        case WebLlmState.Ready:
+                            @:Using free local AI tutor
+                            break;
+                        case WebLlmState.Loading:
+                            @:Downloading AI model (@((int)(WebLlm.ProgressFraction * 100))%)…
+                            break;
+                        case WebLlmState.Unsupported:
+                            @:Your browser doesn't support local AI. <a href="/ai-setup">Add an API key</a> to enable tutoring.
+                            break;
+                        case WebLlmState.Failed:
+                            @:Local AI failed to load. <a href="/ai-setup">Add an API key</a> as a backup.
+                            break;
+                    }
+                </p>
+
+                <div class="teacher-tutor-messages">
+                    @foreach (var msg in _tutorMessages)
+                    {
+                        <div class="teacher-message @msg.Role">
+                            <div class="teacher-message-bubble">@msg.Content</div>
+                        </div>
+                    }
+                </div>
+
+                <div class="teacher-tutor-input">
+                    <input type="text" class="teacher-settings-input" placeholder="Ask the tutor…"
+                           @bind="_tutorInput" @onkeypress="OnTutorKeyPress" />
+                    <button type="button" class="teacher-cta" @onclick="SendToTutor" disabled="@(string.IsNullOrWhiteSpace(_tutorInput) || _tutorSending)">
+                        @(_tutorSending ? "…" : "Ask")
+                    </button>
+                </div>
+            </div>
+
+            <!-- Center: Teaching Canvas -->
+            <div class="teacher-classroom-canvas">
+                @if (_teachingCanvas is null)
+                {
+                    <div class="teacher-canvas-empty">
+                        <p>Waiting for teaching tools…</p>
+                    </div>
+                }
+                else
+                {
+                    @switch (_teachingCanvas.Tool)
+                    {
+                        case "notation":
+                            <p class="teacher-muted">Music notation would display here</p>
+                            break;
+                        case "piano":
+                            <p class="teacher-muted">Piano keyboard would display here</p>
+                            break;
+                        case "fretboard":
+                            <p class="teacher-muted">Fretboard would display here</p>
+                            break;
+                        default:
+                            <p class="teacher-muted">@_teachingCanvas.Tool</p>
+                            break;
+                    }
+                }
+            </div>
+
+            <!-- Right: Class Chat -->
+            <div class="teacher-classroom-classmates">
+                <h3>Class Chat</h3>
+                <div class="teacher-classmate-messages">
+                    @foreach (var msg in _classMessages)
+                    {
+                        <div class="teacher-message">
+                            <span class="teacher-message-sender">@msg.SenderName:</span>
+                            <span class="teacher-message-content">@msg.Content</span>
+                        </div>
+                    }
+                </div>
+
+                <div class="teacher-classmate-input">
+                    <input type="text" class="teacher-settings-input" placeholder="Say something…"
+                           @bind="_classInput" @onkeypress="OnClassKeyPress" />
+                    <button type="button" class="teacher-cta" @onclick="SendToClass" disabled="@string.IsNullOrWhiteSpace(_classInput)">Send</button>
+                </div>
+
+                <h3 style="margin-top: 1rem;">Students (@_classmates.Count)</h3>
+                <div class="teacher-classmate-list">
+                    @foreach (var student in _classmates)
+                    {
+                        <div class="teacher-classmate-item">
+                            @student.Name
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid ClassroomId { get; set; }
+
+    private bool _loading = true;
+    private bool _joined = false;
+    private bool _joining = false;
+    private string _joinError = "";
+    private bool _tutorSending = false;
+
+    private ClassroomDto? _classroom;
+    private List<TutorMessageDto> _tutorMessages = new();
+    private List<ClassMessageDto> _classMessages = new();
+    private List<ClassmateDto> _classmates = new();
+    private TeachingCanvasDto? _teachingCanvas;
+
+    private string _tutorInput = "";
+    private string _classInput = "";
+
+    [Serializable]
+    public class ClassroomDto
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = "";
+        public string Status { get; set; } = "live";
+    }
+
+    [Serializable]
+    public class TutorMessageDto
+    {
+        public string Role { get; set; } = "user";  // "user" | "assistant"
+        public string Content { get; set; } = "";
+    }
+
+    [Serializable]
+    public class ClassMessageDto
+    {
+        public string SenderName { get; set; } = "";
+        public string Content { get; set; } = "";
+    }
+
+    [Serializable]
+    public class ClassmateDto
+    {
+        public Guid UserId { get; set; }
+        public string Name { get; set; } = "";
+    }
+
+    [Serializable]
+    public class TeachingCanvasDto
+    {
+        public string Tool { get; set; } = "";  // "notation" | "piano" | "fretboard"
+        public object? Data { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _classroom = await Api.GetClassroomAsync(ClassroomId);
+            _loading = false;
+        }
+        catch
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OnTutorKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendToTutor();
+        }
+    }
+
+    private async Task OnClassKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendToClass();
+        }
+    }
+
+    private async Task JoinClassroom()
+    {
+        if (_classroom is null) return;
+
+        _joining = true;
+        _joinError = "";
+
+        try
+        {
+            // Add user to classroom
+            bool success = await Api.JoinClassroomAsync(ClassroomId);
+            if (success)
+            {
+                _joined = true;
+                // Initialize WebSocket connection
+                await InitializeWebSocket();
+            }
+            else
+            {
+                _joinError = "Failed to join classroom";
+            }
+        }
+        catch (Exception ex)
+        {
+            _joinError = ex.Message;
+        }
+        finally
+        {
+            _joining = false;
+        }
+    }
+
+    private async Task InitializeWebSocket()
+    {
+        try
+        {
+            // Initialize the JavaScript WebSocket client with this Blazor component's reference
+            var dotnetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("initClassroomClient", ClassroomId.ToString(), dotnetRef);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"WebSocket init error: {ex.Message}");
+        }
+
+        // Ensure WebLLM is ready
+        _ = WebLlm.EnsureReadyAsync();
+    }
+
+    private async Task SendToTutor()
+    {
+        if (string.IsNullOrWhiteSpace(_tutorInput)) return;
+
+        var userMessage = _tutorInput;
+        _tutorMessages.Add(new TutorMessageDto { Role = "user", Content = userMessage });
+        _tutorSending = true;
+        _tutorInput = "";
+
+        try
+        {
+            var systemPrompt = $"You are a helpful AI tutor in a classroom learning about {_classroom?.Name}. Help students learn interactively.";
+            var messages = new List<(string Role, string Content)> { ("system", systemPrompt) };
+            messages.AddRange(_tutorMessages.Select(m => (m.Role, m.Content)));
+
+            string? reply = null;
+
+            // Try WebLLM first (local, free)
+            if (WebLlm.State == WebLlmState.Ready)
+            {
+                try
+                {
+                    reply = await WebLlm.ChatAsync(messages);
+                }
+                catch
+                {
+                    // Fall through to API if WebLLM fails
+                }
+            }
+
+            // Fall back to BYOK if configured
+            if (reply == null)
+            {
+                var apiKey = await ConfigStore.GetApiKeyAsync();
+                var model = await ConfigStore.GetModelAsync();
+                var provider = await ConfigStore.GetProviderAsync();
+
+                if (!string.IsNullOrWhiteSpace(apiKey) && !string.IsNullOrWhiteSpace(model))
+                {
+                    reply = await ApiLlm.ChatAsync(messages, provider, apiKey, model);
+                }
+            }
+
+            if (reply != null)
+            {
+                _tutorMessages.Add(new TutorMessageDto { Role = "assistant", Content = reply });
+            }
+            else
+            {
+                _tutorMessages.Add(new TutorMessageDto { Role = "assistant", Content = "Tutor is loading... try again in a moment." });
+            }
+        }
+        catch (Exception ex)
+        {
+            _tutorMessages.Add(new TutorMessageDto { Role = "assistant", Content = $"Error: {ex.Message}" });
+        }
+        finally
+        {
+            _tutorSending = false;
+        }
+    }
+
+    private async Task SendToClass()
+    {
+        if (string.IsNullOrWhiteSpace(_classInput)) return;
+
+        var messageText = _classInput;
+        _classInput = "";
+
+        // Send via WebSocket
+        try
+        {
+            await JS.InvokeVoidAsync("sendChat", ClassroomId.ToString(), messageText);
+            // Add our message to the local chat for immediate feedback
+            _classMessages.Add(new ClassMessageDto { SenderName = "You", Content = messageText });
+            StateHasChanged();
+        }
+        catch { }
+    }
+
+    [JSInvokable]
+    public void OnChatMessage(string senderName, string content)
+    {
+        _classMessages.Add(new ClassMessageDto { SenderName = senderName, Content = content });
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnDirective(string action, object? data)
+    {
+        // Handle incoming directives from teacher
+        switch (action)
+        {
+            case "show_notation":
+                _teachingCanvas = new TeachingCanvasDto { Tool = "notation", Data = data };
+                break;
+            case "show_piano":
+                _teachingCanvas = new TeachingCanvasDto { Tool = "piano", Data = data };
+                break;
+            case "show_fretboard":
+                _teachingCanvas = new TeachingCanvasDto { Tool = "fretboard", Data = data };
+                break;
+            case "clear":
+                _teachingCanvas = null;
+                break;
+        }
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnUserJoined(string userName)
+    {
+        _classMessages.Add(new ClassMessageDto { SenderName = "system", Content = $"{userName} joined the classroom" });
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnUserLeft(string userName)
+    {
+        _classMessages.Add(new ClassMessageDto { SenderName = "system", Content = $"{userName} left the classroom" });
+        StateHasChanged();
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("disconnectClassroom", ClassroomId.ToString());
+        }
+        catch { }
+    }
+}

@@ -1249,3 +1249,350 @@ a {
     color: var(--teacher-muted);
     margin: 0;
 }
+
+/* ── Classroom Styles ──────────────────────────────────────────────── */
+
+.teacher-classroom-layout {
+    display: grid;
+    grid-template-columns: 220px 1fr 280px;
+    gap: 1rem;
+    height: calc(100vh - 200px);
+}
+
+.teacher-classroom-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--teacher-border);
+}
+
+.teacher-classroom-header h1 {
+    margin: 0;
+}
+
+.teacher-classroom-status {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.teacher-classroom-status.preparing {
+    background: var(--teacher-accent);
+    color: #1a1208;
+}
+
+.teacher-classroom-status.live {
+    background: #10b981;
+    color: white;
+}
+
+.teacher-classroom-status.archived {
+    background: var(--teacher-muted);
+    color: #1a1208;
+}
+
+.teacher-classroom-controls {
+    background: var(--teacher-surface);
+    border: 1px solid var(--teacher-border);
+    border-radius: 8px;
+    padding: 1rem;
+    overflow-y: auto;
+}
+
+.teacher-classroom-controls h2,
+.teacher-classroom-controls h3 {
+    font-size: 1rem;
+    margin: 0 0 0.75rem 0;
+}
+
+.teacher-control-section {
+    margin-bottom: 1.25rem;
+}
+
+.teacher-control-section label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--teacher-muted);
+    margin-bottom: 0.4rem;
+}
+
+.teacher-control-section p {
+    margin: 0;
+    font-size: 0.85rem;
+}
+
+.teacher-classroom-chat {
+    display: flex;
+    flex-direction: column;
+    background: var(--teacher-surface);
+    border: 1px solid var(--teacher-border);
+    border-radius: 8px;
+    padding: 1rem;
+    overflow: hidden;
+}
+
+.teacher-classroom-chat h2 {
+    margin: 0 0 0.75rem 0;
+    font-size: 1rem;
+}
+
+.teacher-classroom-messages {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.teacher-message {
+    padding: 0.5rem;
+    background: var(--teacher-bg);
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.teacher-message.chat {
+    border-left: 2px solid var(--teacher-accent);
+}
+
+.teacher-message.directive {
+    border-left: 2px solid var(--teacher-violet);
+}
+
+.teacher-message.system {
+    border-left: 2px solid var(--teacher-muted);
+    font-style: italic;
+}
+
+.teacher-message-sender {
+    display: block;
+    font-weight: 600;
+    color: var(--teacher-accent);
+    font-size: 0.75rem;
+}
+
+.teacher-message-content {
+    display: block;
+    margin-top: 0.25rem;
+}
+
+.teacher-message-time {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--teacher-muted);
+    margin-top: 0.25rem;
+}
+
+.teacher-classroom-input {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.teacher-classroom-input input {
+    flex: 1;
+    min-height: 36px;
+}
+
+.teacher-classroom-sidebar {
+    background: var(--teacher-surface);
+    border: 1px solid var(--teacher-border);
+    border-radius: 8px;
+    padding: 1rem;
+    overflow-y: auto;
+}
+
+.teacher-classroom-sidebar h2,
+.teacher-classroom-sidebar h3 {
+    font-size: 1rem;
+    margin: 0 0 0.75rem 0;
+}
+
+.teacher-member-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.teacher-member-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem;
+    background: var(--teacher-bg);
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.teacher-member-name {
+    font-weight: 600;
+    flex: 1;
+}
+
+.teacher-member-status {
+    color: var(--teacher-muted);
+    font-size: 0.75rem;
+    margin-right: 0.5rem;
+}
+
+.teacher-classroom-sidebar dl {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+}
+
+.teacher-classroom-sidebar dt {
+    font-weight: 600;
+    color: var(--teacher-muted);
+}
+
+.teacher-classroom-sidebar dd {
+    margin: 0;
+    color: var(--teacher-text);
+}
+
+/* Student Classroom View */
+
+.teacher-classroom-joinscreen {
+    max-width: 600px;
+    margin: 4rem auto;
+    text-align: center;
+}
+
+.teacher-classroom-joincard {
+    background: var(--teacher-surface);
+    border: 1px solid var(--teacher-border);
+    border-radius: 12px;
+    padding: 2rem;
+    margin-top: 1.5rem;
+}
+
+.teacher-classroom-student-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr 280px;
+    gap: 1rem;
+    height: calc(100vh - 200px);
+}
+
+.teacher-classroom-tutor {
+    display: flex;
+    flex-direction: column;
+    background: var(--teacher-surface);
+    border: 1px solid var(--teacher-border);
+    border-radius: 8px;
+    padding: 1rem;
+    overflow: hidden;
+}
+
+.teacher-classroom-tutor h2 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1rem;
+}
+
+.teacher-tutor-messages {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.teacher-message.user {
+    text-align: right;
+}
+
+.teacher-message-bubble {
+    display: inline-block;
+    background: var(--teacher-accent);
+    color: #1a1208;
+    padding: 0.75rem;
+    border-radius: 8px;
+    max-width: 80%;
+    word-wrap: break-word;
+}
+
+.teacher-message.assistant .teacher-message-bubble {
+    background: var(--teacher-bg);
+    color: var(--teacher-text);
+    text-align: left;
+}
+
+.teacher-tutor-input {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.teacher-classroom-canvas {
+    background: var(--teacher-surface);
+    border: 1px solid var(--teacher-border);
+    border-radius: 8px;
+    padding: 1rem;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.teacher-canvas-empty {
+    text-align: center;
+    color: var(--teacher-muted);
+}
+
+.teacher-classroom-classmates {
+    background: var(--teacher-surface);
+    border: 1px solid var(--teacher-border);
+    border-radius: 8px;
+    padding: 1rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.teacher-classroom-classmates h3 {
+    margin: 0 0 0.75rem 0;
+    font-size: 0.95rem;
+}
+
+.teacher-classmate-messages {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    min-height: 200px;
+}
+
+.teacher-classmate-input {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.teacher-classmate-input input {
+    flex: 1;
+    min-height: 32px;
+}
+
+.teacher-classmate-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+}
+
+.teacher-classmate-item {
+    padding: 0.4rem 0.5rem;
+    background: var(--teacher-bg);
+    border-radius: 3px;
+}
