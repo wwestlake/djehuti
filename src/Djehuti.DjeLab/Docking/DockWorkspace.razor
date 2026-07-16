@@ -1,9 +1,11 @@
 @using System.Text.Json
 @using Djehuti.DjeLab.Services
+@using Djehuti.DjeLab.Components
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 @inject DjeLabFilesClient FilesClient
 @inject WorkspaceActions Actions
+@inject DemoMode DemoMode
 
 <div class="dock-workspace" @ref="_containerRef"
      @onpointermove="OnContainerPointerMove" @onpointerup="OnContainerPointerUp" @onpointerleave="OnContainerPointerUp">
@@ -43,6 +45,9 @@
                       OnClosePane="HandleClosePane" />
     </div>
 </div>
+
+<DemoAnnotation />
+<DemoController />
 
 @code {
     private ElementReference _containerRef;

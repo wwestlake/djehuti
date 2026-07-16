@@ -1,0 +1,84 @@
+{
+  "title": "Getting Started with DjeLab",
+  "description": "A brief tour of the DjeLab workspace and its main features",
+  "steps": [
+    {
+      "id": "intro-1",
+      "action": {
+        "type": "none"
+      },
+      "annotation": "Welcome to DjeLab! This demo will show you the main features of the workspace.",
+      "pointerTarget": null,
+      "duration": 3000
+    },
+    {
+      "id": "files-intro",
+      "action": {
+        "type": "activatePane",
+        "params": {
+          "paneKind": "files"
+        }
+      },
+      "annotation": "This is the Files pane. Upload your data files and scripts here, backed by cloud storage.",
+      "pointerTarget": "pane:files",
+      "duration": 2500
+    },
+    {
+      "id": "editor-intro",
+      "action": {
+        "type": "activatePane",
+        "params": {
+          "paneKind": "editor"
+        }
+      },
+      "annotation": "The Editor lets you write and edit code with syntax highlighting. Perfect for fine-tuning your work.",
+      "pointerTarget": "pane:editor",
+      "duration": 2500
+    },
+    {
+      "id": "flow-intro",
+      "action": {
+        "type": "activatePane",
+        "params": {
+          "paneKind": "flow"
+        }
+      },
+      "annotation": "Visual Spinoza is our visual node editor. Wire nodes together to build programs without typing code.",
+      "pointerTarget": "pane:flow",
+      "duration": 2500
+    },
+    {
+      "id": "graph-intro",
+      "action": {
+        "type": "activatePane",
+        "params": {
+          "paneKind": "graph"
+        }
+      },
+      "annotation": "Live plots and charts display here. Visualize data and simulation results in real time.",
+      "pointerTarget": "pane:graph",
+      "duration": 2500
+    },
+    {
+      "id": "chat-intro",
+      "action": {
+        "type": "activatePane",
+        "params": {
+          "paneKind": "chat"
+        }
+      },
+      "annotation": "Chat with Ibis (free) or Seshat (BYOK). Ask for tours, help, or analysis.",
+      "pointerTarget": "pane:chat",
+      "duration": 2500
+    },
+    {
+      "id": "outro",
+      "action": {
+        "type": "none"
+      },
+      "annotation": "That's the core of DjeLab! Drag panes to rearrange, add more panes, or dive into the tutorials.",
+      "pointerTarget": null,
+      "duration": 3000
+    }
+  ]
+}

@@ -51,6 +51,7 @@
     <Compile Include="ClassroomConnectionManager.fs" />
     <Compile Include="ContentRepository.fs" />
     <Compile Include="DjeLabFilesRepository.fs" />
+    <Compile Include="DemoGenerationRepository.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

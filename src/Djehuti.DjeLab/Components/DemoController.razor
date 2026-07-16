@@ -1,0 +1,78 @@
+@using Djehuti.DjeLab.Services
+@inject DemoMode DemoMode
+
+<div class="demo-controller" style="display: @(IsVisible ? "flex" : "none")">
+    <div class="demo-controller-content">
+        <span class="demo-title">@DemoMode.AnnotationState.Annotation</span>
+        <div class="demo-controls">
+            @if (!DemoMode.IsRunning)
+            {
+                <button type="button" class="demo-btn demo-btn-play" @onclick="StartDemo" title="Start demo">
+                    ▶ Play
+                </button>
+            }
+            else if (DemoMode.IsPaused)
+            {
+                <button type="button" class="demo-btn demo-btn-resume" @onclick="ResumeDemo" title="Resume demo">
+                    ▶ Resume
+                </button>
+            }
+            else
+            {
+                <button type="button" class="demo-btn demo-btn-pause" @onclick="PauseDemo" title="Pause demo">
+                    ⏸ Pause
+                </button>
+            }
+
+            @if (DemoMode.IsRunning || DemoMode.IsPaused)
+            {
+                <button type="button" class="demo-btn demo-btn-skip" @onclick="AdvanceStep" title="Next step">
+                    ⏭ Next
+                </button>
+                <button type="button" class="demo-btn demo-btn-stop" @onclick="StopDemo" title="Stop demo">
+                    ⏹ Stop
+                </button>
+            }
+        </div>
+    </div>
+</div>
+
+
+@code {
+    private bool IsVisible => DemoMode.AnnotationState.IsVisible;
+
+    protected override void OnInitialized()
+    {
+        DemoMode.OnStateChanged += StateHasChanged;
+    }
+
+    private async Task StartDemo()
+    {
+        await DemoMode.StartDemo();
+    }
+
+    private void PauseDemo()
+    {
+        DemoMode.PauseDemo();
+    }
+
+    private async Task ResumeDemo()
+    {
+        await DemoMode.ResumeDemo();
+    }
+
+    private async Task AdvanceStep()
+    {
+        await DemoMode.AdvanceStep();
+    }
+
+    private void StopDemo()
+    {
+        DemoMode.StopDemo();
+    }
+
+    public void Dispose()
+    {
+        DemoMode.OnStateChanged -= StateHasChanged;
+    }
+}

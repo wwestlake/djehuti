@@ -18,5 +18,6 @@ builder.Services.AddSingleton<WorkspaceActions>();
 // shared across every ChatPane instance (Ibis panes, tab reopens, etc.)
 // rather than re-downloading per component.
 builder.Services.AddSingleton<WebLlmClient>();
+builder.Services.AddSingleton<DemoMode>();
 
 await builder.Build().RunAsync();

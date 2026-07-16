@@ -1877,6 +1877,25 @@ let main args =
         )
     ) |> ignore
 
+    // ── DjeLab Demo Generation ─────────────────────────────────────────────
+    // AI-generated demo scripts for creating product walkthrough videos
+    app.MapPost(
+        "/api/djelab/demo/generate",
+        Func<HttpContext, HttpClient, {| prompt: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx httpClient body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    if String.IsNullOrWhiteSpace body.prompt then
+                        return Results.BadRequest({| error = "prompt is required" |})
+                    else
+                        let! result = DemoGenerationRepository.generateDemoScript httpClient body.prompt "djehuti"
+                        match result with
+                        | Error msg -> return Results.BadRequest({| error = msg |})
+                        | Ok script -> return Results.Ok(script)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     // ── Forum: Categories (read=anonymous, write=admin) ───────────────────────
 
     // MUD
