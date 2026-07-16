@@ -141,8 +141,19 @@
         // fresh one boots for the new run.
         if (_running) await _worker.StopAsync();
 
-        _renderEngine = new RenderEngine();
-        _hasRenderDescriptors = false;
+        // Preserve RenderEngine between runs, but clear descriptors
+        // This allows parameter values to flow back to the program on re-run
+        bool isRerun = _renderEngine is not null && _hasRenderDescriptors;
+        if (!isRerun)
+        {
+            _renderEngine = new RenderEngine();
+            _hasRenderDescriptors = false;
+        }
+        else
+        {
+            // Clear descriptors but preserve parameter values for next run
+            _renderEngine.Reset();
+        }
 
         _plotly ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/plotly-interop.js");
         await _plotly.InvokeVoidAsync("createChart", _plotElementId, _chartType, _xLabel, _yLabel, _zLabel);
@@ -317,9 +328,11 @@
     private void HandleParameterChanged((string Name, object Value) param)
     {
         // Parameter change detected from RenderHost (slider, button, input).
-        // In a full implementation, this would trigger a program re-run with the new parameter.
-        // For now, this is a hook for future bidirectional data flow.
-        // TODO: Implement parameter feedback loop to re-run Spinoza with new param values
+        // Trigger re-run with updated parameters.
+        if (_running || string.IsNullOrWhiteSpace(_source) || _activeRunId is null)
+            return;
+
+        _ = RunAsync(_activeRunId, _source, null);
     }
 
     private async Task FlushPendingEmitsLaterAsync()
