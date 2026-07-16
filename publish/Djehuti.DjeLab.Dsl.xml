@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="utf-8"?>
+<doc>
+<assembly><name>Djehuti.DjeLab.Dsl</name></assembly>
+<members>
+<member name="T:Djehuti.DjeLab.Dsl.Ast.Expr.LetRec">
+<summary>
+ Recursive function binding: `funcBody` may refer to `name` for
+ recursion (the only repetition mechanism in the language).
+</summary>
+</member>
+<member name="T:Djehuti.DjeLab.Dsl.Ast.Expr.Let">
+<summary>
+ Non-recursive binding: `value` cannot refer to `name`.
+</summary>
+</member>
+<member name="T:Djehuti.DjeLab.Dsl.Ast">
+<summary>
+ The DjeLab DSL&apos;s abstract syntax tree.
+
+ This is deliberately the *entire* vocabulary of what a DjeLab program can
+ express. There is no node type for file I/O, network access, reflection,
+ or mutable state -- those aren&apos;t blocked by a guardrail pass, they simply
+ have no representation in the tree, so they cannot be constructed by the
+ parser in the first place. The only way to repeat computation is
+ recursion (LetRec); there is no loop construct.
+</summary>
+</member>
+<member name="M:Djehuti.DjeLab.Dsl.Parser.parse(System.String)">
+<summary>
+ Parses DjeLab DSL source into an AST, or a human-readable error message.
+</summary>
+</member>
+<member name="P:Djehuti.DjeLab.Dsl.Parser.postfix">
+<summary>
+ Postfix: call `f(a, b)` and index `v[i]`, left-associative and chainable
+ (e.g. `matrix[i][j]`, `curry(x)(y)`).
+</summary>
+</member>
+<member name="T:Djehuti.DjeLab.Dsl.Parser">
+<summary>
+ Parses DjeLab DSL source text into an `Ast.Expr`.
+
+ Grammar (informal):
+   expr      := let | letrec | if | lambda | orExpr
+   let       := &quot;let&quot; ident &quot;=&quot; expr &quot;in&quot; expr
+   letrec    := &quot;let&quot; &quot;rec&quot; ident ident* &quot;=&quot; expr &quot;in&quot; expr
+   if        := &quot;if&quot; expr &quot;then&quot; expr &quot;else&quot; expr
+   lambda    := &quot;fun&quot; ident+ &quot;-&gt;&quot; expr
+   orExpr    := andExpr (&quot;||&quot; andExpr)*
+   andExpr   := cmpExpr (&quot;&amp;&amp;&quot; cmpExpr)*
+   cmpExpr   := addExpr ((&quot;==&quot; | &quot;!=&quot; | &quot;&lt;=&quot; | &quot;&gt;=&quot; | &quot;&lt;&quot; | &quot;&gt;&quot;) addExpr)?
+   addExpr   := mulExpr ((&quot;+&quot; | &quot;-&quot;) mulExpr)*
+   mulExpr   := powExpr ((&quot;*&quot; | &quot;/&quot; | &quot;%&quot;) powExpr)*
+   powExpr   := unary (&quot;^&quot; powExpr)?          -- right-associative
+   unary     := (&quot;-&quot; | &quot;not&quot;) unary | postfix
+   postfix   := atom (&quot;(&quot; args &quot;)&quot; | &quot;[&quot; expr &quot;]&quot;)*
+   atom      := number | bool | ident | &quot;(&quot; expr &quot;)&quot; | &quot;[&quot; args &quot;]&quot;
+</summary>
+</member>
+<member name="T:Djehuti.DjeLab.Dsl.Preflight">
+<summary>
+ Lightweight validation and safety hints for generated Spinoza source.
+</summary>
+</member>
+<member name="T:Djehuti.DjeLab.Dsl.Evaluator.Value.VRender">
+<summary>
+ Render descriptor: type and properties for the rendering engine
+</summary>
+</member>
+<member name="T:Djehuti.DjeLab.Dsl.Evaluator.Value.VClosure">
+<summary>
+ The environment is a `ref` (not a plain `Env`) so `LetRec` can tie the
+ recursive knot: it creates the closure, then mutates this same cell
+ to include the closure&apos;s own name. `Map` itself is immutable --
+ reassigning a `Map`-typed field after construction would not be
+ visible to a closure holding the old value, hence the indirection.
+ This is the only mutation in the whole module, and it is invisible
+ to and unreachable from DSL code -- it only wires recursion.
+</summary>
+</member>
+<member name="M:Djehuti.DjeLab.Dsl.Evaluator.toJson(Djehuti.DjeLab.Dsl.Evaluator.Value)">
+<summary>
+ Renders a Value as JSON, for transport across a worker postMessage
+ boundary or similar host interop. Numbers that aren&apos;t finite (NaN,
+ +/-Infinity -- both reachable from ordinary DSL arithmetic like `1/0` or
+ `sqrt(-1)`... no, sqrt(-1) errors, but `1/0` and `0/0` do not) serialize
+ as JSON `null` rather than throwing, since raw NaN/Infinity have no JSON
+ representation; the host is expected to treat a null point as &quot;skip it.&quot;
+ A function value (VClosure/VBuiltin) has no meaningful JSON form and is
+ a hard error here, same as any other DSL type mismatch.
+</summary>
+</member>
+<member name="M:Djehuti.DjeLab.Dsl.Evaluator.runWithEmitAndDataAndParams(Microsoft.FSharp.Core.FSharpFunc{Djehuti.DjeLab.Dsl.Evaluator.Value,Microsoft.FSharp.Core.Unit},Microsoft.FSharp.Core.FSharpOption{Djehuti.DjeLab.Dsl.Evaluator.Value},Microsoft.FSharp.Collections.FSharpMap{System.String,Djehuti.DjeLab.Dsl.Evaluator.Value},Djehuti.DjeLab.Dsl.Ast.Expr)">
+<summary>
+ Evaluates with `emit(...)` wired to `onEmit`, `param()` bound to parameters,
+ and optional `data` binding. Used for interactive programs where parameters
+ come from the host (e.g., slider values, form inputs).
+</summary>
+</member>
+<member name="M:Djehuti.DjeLab.Dsl.Evaluator.runWithEmitAndData(Microsoft.FSharp.Core.FSharpFunc{Djehuti.DjeLab.Dsl.Evaluator.Value,Microsoft.FSharp.Core.Unit},Microsoft.FSharp.Core.FSharpOption{Djehuti.DjeLab.Dsl.Evaluator.Value},Djehuti.DjeLab.Dsl.Ast.Expr)">
+<summary>
+ Evaluates with `emit(...)` wired to `onEmit`, `param()` bound to parameters,
+ and a host-supplied `data` binding available to the program.
+</summary>
+</member>
+<member name="M:Djehuti.DjeLab.Dsl.Evaluator.runWithEmit(Microsoft.FSharp.Core.FSharpFunc{Djehuti.DjeLab.Dsl.Evaluator.Value,Microsoft.FSharp.Core.Unit},Djehuti.DjeLab.Dsl.Ast.Expr)">
+<summary>
+ Evaluates with `emit(...)` wired to `onEmit`, called synchronously the
+ instant each `emit` call is reached during the walk -- not batched or
+ deferred -- so a host streaming these out (e.g. over a Web Worker&apos;s
+ postMessage) sees them as the program actually computes them.
+</summary>
+</member>
+<member name="M:Djehuti.DjeLab.Dsl.Evaluator.run(Djehuti.DjeLab.Dsl.Ast.Expr)">
+<summary>
+ Evaluates against the standard builtin environment.
+</summary>
+</member>
+<member name="M:Djehuti.DjeLab.Dsl.Evaluator.eval(Microsoft.FSharp.Collections.FSharpMap{System.String,Djehuti.DjeLab.Dsl.Evaluator.Value},Djehuti.DjeLab.Dsl.Ast.Expr)">
+<summary>
+ Evaluates an expression.
+</summary>
+</member>
+<member name="M:Djehuti.DjeLab.Dsl.Evaluator.valueEquals(Djehuti.DjeLab.Dsl.Evaluator.Value,Djehuti.DjeLab.Dsl.Evaluator.Value)">
+<summary>
+ `Value` can&apos;t derive structural equality (it embeds functions via
+ `VClosure`/`VBuiltin`), so `==`/`!=` get their own recursive comparison:
+ numbers, bools, and vectors compare structurally; comparing a function
+ is a DSL-level error rather than silently `false`.
+</summary>
+</member>
+<member name="M:Djehuti.DjeLab.Dsl.Evaluator.makeBuiltinEnv(Microsoft.FSharp.Core.FSharpOption{Microsoft.FSharp.Core.FSharpFunc{Djehuti.DjeLab.Dsl.Evaluator.Value,Microsoft.FSharp.Core.Unit}},Microsoft.FSharp.Core.FSharpOption{Microsoft.FSharp.Collections.FSharpMap{System.String,Djehuti.DjeLab.Dsl.Evaluator.Value}})">
+<summary>
+ Built-in math functions available to every DjeLab program. This is the
+ entire surface of &quot;library calls&quot; a program can make -- adding a new
+ capability means adding an entry here, not opening up the language.
+
+ `onEmit` wires Spinoza&apos;s one deliberate side channel: calling
+ `emit(point)` reports `point` to the host (used to stream simulation/plot
+ points out to a live chart while a longer-running program is still
+ executing) and returns `point` unchanged, so it composes inline without
+ needing a sequencing operator. It is write-only -- a program can never
+ read anything back through it -- so the language stays otherwise pure;
+ this is the same category of thing as a trace/log effect, not a general
+ I/O escape hatch. When no host is listening (e.g. normal `run`), `emit`
+ is simply a no-op pass-through.
+
+ `param(name, default)` allows programs to declare parameters that can be
+ bound by the host before execution. Returns the parameter value if provided,
+ otherwise returns the default. Used for interactive slider/button/input binding.
+</summary>
+</member>
+<member name="T:Djehuti.DjeLab.Dsl.Evaluator">
+<summary>
+ Tree-walking evaluator for the DjeLab DSL AST.
+
+ This is a plain, pure function over the AST -- no file/network access is
+ possible because nothing in `Value` or `eval` ever touches them. The one
+ safety guarantee the host still needs is process-level sandboxing
+ (isolated process, wall-clock/CPU/memory ceiling) for genuinely
+ non-terminating programs. The evaluator itself does not impose an
+ artificial reduction cap here; long tail-recursive programs are allowed
+ to run until they finish or the host stops them.
+</summary>
+</member>
+</members>
+</doc>

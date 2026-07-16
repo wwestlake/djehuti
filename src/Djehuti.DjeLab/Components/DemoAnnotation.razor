@@ -1,0 +1,118 @@
+@using Djehuti.DjeLab.Services
+@inject IJSRuntime JS
+@inject DemoMode DemoMode
+
+<div class="demo-annotation-overlay" style="display: @(State.IsVisible ? "block" : "none")">
+    @if (State.IsVisible && !string.IsNullOrWhiteSpace(State.Annotation))
+    {
+        <div class="demo-bubble" @ref="_bubbleRef"
+             style="left: @(_bubbleX)px; top: @(_bubbleY)px;">
+            <div class="demo-bubble-content">
+                <p>@State.Annotation</p>
+                @if (State.TotalSteps > 1)
+                {
+                    <div class="demo-step-indicator">
+                        Step @(State.CurrentStepIndex + 1) of @State.TotalSteps
+                    </div>
+                }
+            </div>
+            @if (!string.IsNullOrWhiteSpace(State.PointerTarget))
+            {
+                <svg class="demo-pointer-line" @ref="_pointerRef"
+                     style="position: absolute; pointer-events: none;">
+                    <line x1="0" y1="0" x2="@_pointerEndX" y2="@_pointerEndY"
+                          stroke="currentColor" stroke-width="2" stroke-dasharray="5,5" />
+                </svg>
+            }
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(State.PointerTarget))
+        {
+            <div class="demo-pointer-highlight" style="@_highlightStyle"></div>
+        }
+    }
+</div>
+
+
+@code {
+    private DemoAnnotationState State => DemoMode.AnnotationState;
+    private ElementReference _bubbleRef;
+    private ElementReference _pointerRef;
+    private double _bubbleX;
+    private double _bubbleY;
+    private double _pointerEndX;
+    private double _pointerEndY;
+    private string _highlightStyle = "";
+
+    protected override void OnInitialized()
+    {
+        DemoMode.OnStateChanged += StateHasChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (State.IsVisible && !string.IsNullOrWhiteSpace(State.PointerTarget))
+        {
+            await UpdatePointerPosition();
+        }
+    }
+
+    private async Task UpdatePointerPosition()
+    {
+        try
+        {
+            var target = State.PointerTarget;
+            if (string.IsNullOrWhiteSpace(target))
+                return;
+
+            // Parse target: "pane:files" or "element:import-btn"
+            var parts = target.Split(':', 2);
+            if (parts.Length != 2)
+                return;
+
+            var selector = parts[0] switch
+            {
+                "pane" => $"[data-pane-kind='{parts[1]}']",
+                "element" => $"[data-demo-target='{parts[1]}']",
+                _ => null
+            };
+
+            if (selector is null)
+                return;
+
+            var rect = await JS.InvokeAsync<BoundingClientRect>("dj_getElementRect", selector);
+            if (rect is null)
+                return;
+
+            _bubbleX = rect.Left + rect.Width / 2 - 150;
+            _bubbleY = Math.Max(10, rect.Top - 120);
+
+            var viewportWidth = await JS.InvokeAsync<double>("dj_getViewportWidth");
+            if (_bubbleX < 10) _bubbleX = 10;
+            if (_bubbleX > viewportWidth - 310) _bubbleX = viewportWidth - 310;
+
+            _pointerEndX = 150;
+            _pointerEndY = 110;
+
+            _highlightStyle = $"left: {rect.Left}px; top: {rect.Top}px; width: {rect.Width}px; height: {rect.Height}px;";
+            StateHasChanged();
+        }
+        catch
+        {
+            // Element not found or JS interop failed
+        }
+    }
+
+    private sealed class BoundingClientRect
+    {
+        public double Left { get; set; }
+        public double Top { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+    }
+
+    public void Dispose()
+    {
+        DemoMode.OnStateChanged -= StateHasChanged;
+    }
+}
