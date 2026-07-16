@@ -88,6 +88,9 @@
         _apiKey = await ConfigStore.GetApiKeyAsync();
         _apiModel = await ConfigStore.GetModelAsync();
         _apiProvider = await ConfigStore.GetProviderAsync();
+
+        // Debug: Log loaded config
+        await JS.InvokeVoidAsync("console.log", $"BYOK Config Loaded - Key: {(!string.IsNullOrEmpty(_apiKey) ? "[present]" : "[missing]")}, Model: {_apiModel}, Provider: {_apiProvider}");
     }
 
     private void HandleStateChanged() => InvokeAsync(StateHasChanged);
@@ -163,27 +166,40 @@
             string? reply = null;
 
             // Try WebLLM first if ready
+            await JS.InvokeVoidAsync("console.log", $"WebLLM State: {WebLlm.State}");
             if (WebLlm.State == WebLlmState.Ready)
             {
                 try
                 {
                     reply = await WebLlm.ChatAsync(messages);
+                    await JS.InvokeVoidAsync("console.log", "WebLLM succeeded");
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Fall through to API attempt
+                    await JS.InvokeVoidAsync("console.log", $"WebLLM failed: {ex.Message}");
                 }
             }
 
             // Fall back to API if WebLLM not available or failed
+            await JS.InvokeVoidAsync("console.log", $"HasApiKey: {HasApiKey()}, Reply is null: {reply == null}");
             if (reply == null && HasApiKey())
             {
+                await JS.InvokeVoidAsync("console.log", $"Trying API with provider: {_apiProvider}");
                 reply = await ApiLlm.ChatAsync(messages, _apiProvider, _apiKey!, _apiModel!);
+                if (reply != null)
+                {
+                    await JS.InvokeVoidAsync("console.log", "API succeeded");
+                }
+                else
+                {
+                    await JS.InvokeVoidAsync("console.log", "API failed or returned null");
+                }
             }
 
             if (reply == null)
             {
                 _turns.Add(("assistant", "Sorry, the tutor is currently unavailable."));
+                await JS.InvokeVoidAsync("console.log", "Both WebLLM and API unavailable");
                 return;
             }
 
