@@ -29,8 +29,23 @@ export async function init(dotNetRef) {
     if (enginePromise) return true;
 
     if (!isSupported()) {
-        console.error("[WebLLM] WebGPU not supported");
+        console.error("[WebLLM] WebGPU not supported - navigator.gpu is not available");
         return false;
+    }
+
+    // Test basic network connectivity to diagnostic URLs
+    console.log("[WebLLM] Testing network connectivity...");
+    try {
+        const testResponses = await Promise.allSettled([
+            fetch("https://huggingface.co/", { method: "HEAD", mode: "no-cors" }).then(() => "huggingface.co: OK"),
+            fetch("https://cdn-lfs.huggingface.co/", { method: "HEAD", mode: "no-cors" }).then(() => "cdn-lfs: OK"),
+        ]);
+        testResponses.forEach(r => {
+            if (r.status === "fulfilled") console.log(`[WebLLM] Network test: ${r.value}`);
+            else console.log(`[WebLLM] Network test failed: ${r.reason}`);
+        });
+    } catch (e) {
+        console.warn("[WebLLM] Network diagnostic failed:", e);
     }
 
     enginePromise = (async () => {
