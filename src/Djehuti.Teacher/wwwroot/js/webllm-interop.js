@@ -20,7 +20,7 @@ let enginePromise = null;
 let webllmModule = null;
 
 const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
-const CUSTOM_MODEL_URL = "https://lagdaemon.com/models/qwen-2.5-0.5b/";
+const CUSTOM_MODEL_URL = "https://us-east-1-886110331954-us-east-2-an.s3.us-east-2.amazonaws.com/models/qwen-2.5-0.5b/";
 
 export function isSupported() {
     return typeof navigator !== "undefined" && !!navigator.gpu;
