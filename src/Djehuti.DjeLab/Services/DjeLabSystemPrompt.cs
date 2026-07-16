@@ -39,6 +39,29 @@ public static class DjeLabSystemPrompt
         - No semicolons. Code is expressions that compose, not statements that execute.
         - Everything is immutable and returns a value.
 
+        ## Spinoza Grammar (EBNF)
+
+        ```
+        expr      = let | letrec | if | lambda | orExpr
+        let       = "let" ident "=" expr "in" expr
+        letrec    = "let" "rec" ident ident* "=" expr "in" expr
+        if        = "if" expr "then" expr "else" expr
+        lambda    = "fun" ident+ "->" expr
+        orExpr    = andExpr ("||" andExpr)*
+        andExpr   = cmpExpr ("&&" cmpExpr)*
+        cmpExpr   = addExpr (("==" | "!=" | "<=" | ">=" | "<" | ">") addExpr)?
+        addExpr   = mulExpr (("+" | "-") mulExpr)*
+        mulExpr   = powExpr (("*" | "/" | "%") powExpr)*
+        powExpr   = unary ("^" powExpr)?
+        unary     = ("-" | "not") unary | postfix
+        postfix   = atom ("(" args ")" | "[" expr "]")*
+        atom      = number | bool | string | ident | "(" expr ")" | "[" args "]"
+        args      = expr ("," expr)*
+
+        Reserved words: let, rec, in, if, then, else, fun, true, false, not
+        Operators: + - * / % ^ == != < <= > >= && ||
+        ```
+
         It has:
         - **Data types**: Numbers, booleans, strings, vectors (lists)
         - **Operators**: Arithmetic (+, -, *, /, %), comparison (==, !=, <, <=, >, >=), logic (&&, ||)
