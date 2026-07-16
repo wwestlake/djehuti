@@ -172,7 +172,7 @@
     align-items: center;
 }
 
-/* Notation, Piano, Fretboard, Music placeholders */
+/* Notation, Piano, Fretboard, Music */
 .render-notation,
 .render-piano,
 .render-fretboard,
@@ -204,11 +204,51 @@
     font-size: 0.9rem;
 }
 
-.render-notation details,
-.render-piano details,
-.render-fretboard details,
-.render-music details {
-    margin-top: 1rem;
+/* Music Staff (uses existing MusicStaff component) */
+.render-notation {
+    padding: 1.5rem;
+}
+
+.render-notation :deep(.teacher-music-staff) {
+    margin: 1rem 0;
+}
+
+/* Piano Keyboard */
+.render-piano-keyboard {
+    display: flex;
+    justify-content: center;
+    padding: 1rem 0;
+    overflow-x: auto;
+}
+
+.render-piano-keyboard svg {
+    max-width: 100%;
+    height: auto;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Fretboard Diagram */
+.render-fretboard-diagram {
+    display: flex;
+    justify-content: center;
+    padding: 1rem 0;
+    overflow-x: auto;
+}
+
+.render-fretboard-diagram svg {
+    max-width: 100%;
+    height: auto;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Music (ABC Notation) */
+.render-music-staff {
+    margin: 1rem 0;
+}
+
+.render-music-placeholder {
+    padding: 1rem;
+    color: var(--text-secondary, #999);
 }
 
 .render-notation pre,
