@@ -3,6 +3,7 @@
 @inject WebLlmClient WebLlm
 @inject ApiLlmClient ApiLlm
 @inject AiConfigStore ConfigStore
+@inject MultiProviderConfigStore MultiConfigStore
 @inject HelperSystem HelperSystem
 @using Djehuti.Teacher.Services
 @using Djehuti.Teacher.Services.Helper
@@ -101,6 +102,13 @@
 
     private bool HasApiKey() => !string.IsNullOrWhiteSpace(_apiKey) && !string.IsNullOrWhiteSpace(_apiModel);
 
+    // Check if any provider has a configured key
+    private async Task<bool> HasConfiguredKeyAsync()
+    {
+        var (key, model) = await MultiConfigStore.GetActiveCredentialsAsync();
+        return !string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(model);
+    }
+
     private string StatusText() => WebLlm.State switch
     {
         WebLlmState.Ready => "Free local tutor, running in your browser.",
@@ -183,11 +191,14 @@
             }
 
             // Fall back to API if WebLLM not available or failed
-            await JS.InvokeVoidAsync("console.log", $"HasApiKey: {HasApiKey()}, Reply is null: {reply == null}");
-            if (reply == null && HasApiKey())
+            var hasConfiguredKey = await HasConfiguredKeyAsync();
+            await JS.InvokeVoidAsync("console.log", $"HasConfiguredKey: {hasConfiguredKey}, Reply is null: {reply == null}");
+            if (reply == null && hasConfiguredKey)
             {
-                await JS.InvokeVoidAsync("console.log", $"Trying API with provider: {_apiProvider}");
-                reply = await ApiLlm.ChatAsync(messages, _apiProvider, _apiKey!, _apiModel!);
+                await JS.InvokeVoidAsync("console.log", "Trying API with active provider");
+                // Strip system message from messages list since ChatAsync adds it
+                var messagesWithoutSystem = messages.Where(m => m.Role.ToLowerInvariant() != "system").ToList();
+                reply = await ApiLlm.ChatAsync(messagesWithoutSystem, systemPrompt);
                 if (reply != null)
                 {
                     await JS.InvokeVoidAsync("console.log", "API succeeded");
