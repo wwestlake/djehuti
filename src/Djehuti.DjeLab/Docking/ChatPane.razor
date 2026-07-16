@@ -20,7 +20,37 @@
     {
         if (_turns.Count == 0)
         {
-            if (!_hasKey && !_isIbisPane)
+            if (_isIbisPane)
+            {
+                <div class="chat-pane-empty chat-pane-empty-host">
+                    @if (WebLlm.State == WebLlmState.Ready)
+                    {
+                        <p><strong>🟢 Ibis is ready.</strong></p>
+                        <p>The free AI helper is running locally in your browser. No API key needed.</p>
+                    }
+                    else if (WebLlm.State == WebLlmState.Loading)
+                    {
+                        <p><strong>🟡 Ibis is loading...</strong></p>
+                        <p>Downloading the AI model (@((int)(WebLlm.ProgressFraction * 100))%). This takes a minute on first use, then runs from cache.</p>
+                    }
+                    else if (WebLlm.State == WebLlmState.Unsupported)
+                    {
+                        <p><strong>Ibis needs WebGPU support.</strong></p>
+                        <p>Your browser doesn't support local AI. Add an OpenAI key in <a class="chat-pane-setup-link" href="settings">AI Setup</a> to enable Ibis.</p>
+                    }
+                    else if (WebLlm.State == WebLlmState.Failed)
+                    {
+                        <p><strong>Ibis failed to load.</strong></p>
+                        <p>Local AI encountered an error. Add an OpenAI key in <a class="chat-pane-setup-link" href="settings">AI Setup</a> to enable Ibis.</p>
+                    }
+                    else
+                    {
+                        <p><strong>Ibis is starting...</strong></p>
+                        <p>Preparing the free AI helper.</p>
+                    }
+                </div>
+            }
+            else if (!_hasKey)
             {
                 <div class="chat-pane-empty chat-pane-empty-host">
                     <p><strong>Seshat is waiting for BYOK.</strong></p>
@@ -92,7 +122,7 @@
                 }
                 else
                 {
-                    <button type="submit" class="chat-pane-send" disabled="@string.IsNullOrWhiteSpace(_input)">
+                    <button type="submit" class="chat-pane-send" disabled="@(string.IsNullOrWhiteSpace(_input) || !CanChat())">
                         Send
                     </button>
                 }
@@ -547,8 +577,14 @@
         _ => "Ask Ibis anything about the workspace.",
     };
 
+    private bool CanChat() => _isIbisPane
+        ? WebLlm.State != WebLlmState.Unsupported && WebLlm.State != WebLlmState.Failed  // Allow chat even while loading (tours work)
+        : (_hasKey || _turns.Count > 0);  // Seshat: need key, or allow if already chatting
+
     private string GetPlaceholder() => _isIbisPane
-        ? $"Ask {DisplayName} for a tour or basic help…"
+        ? (WebLlm.State == WebLlmState.Loading
+            ? $"Ibis is downloading… {(int)(WebLlm.ProgressFraction * 100)}%"
+            : $"Ask {DisplayName} for a tour or basic help…")
         : (_hasKey
             ? $"Ask {DisplayName} about a math problem…"
             : $"Add a key in AI Setup to wake up {DisplayName}…");
