@@ -59,6 +59,41 @@ public static class DjeLabSystemPrompt
         - Syntax errors: Check semicolon placement, variable names, and function signatures
         - Type mismatches: Ensure vectors are indexed with numbers, operations match types
 
+        ## Working Code Patterns
+
+        **Wrong** (imperative with semicolons):
+        ```
+        let t = range(0, 2*pi, 0.1);
+        emit([t, sin(t)]);  // NO: emit doesn't exist, semicolons not allowed
+        ```
+
+        **Right** (functional, everything is an expression):
+        ```
+        let t = range(0, 2*pi, 0.1);
+        map(t, sin)  // Map sin over t values
+        ```
+
+        **Recursive function (only looping mechanism)**:
+        ```
+        let-rec sine_wave(n, acc) =
+          if n >= 100 then acc
+          else sine_wave(n + 1, append(acc, [n, sin(n * 0.1)]))
+        sine_wave(0, [])
+        ```
+
+        **Lambda for transforms**:
+        ```
+        let data = [1, 2, 3, 4, 5];
+        let squared = map(data, (x) => x * x);
+        squared
+        ```
+
+        **Key rules**:
+        - NO semicolons (`;`); they're syntax errors
+        - NO statement sequences; use nested let bindings or lambdas
+        - Return value is the last expression in the program
+        - Functions must be called as part of an expression, not standalone
+
         ## Workflow
 
         When the user asks for a plot, transform, or simulation:
