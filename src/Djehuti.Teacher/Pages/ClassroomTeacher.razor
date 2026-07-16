@@ -48,7 +48,7 @@
 
                 <div class="teacher-control-section">
                     <label class="teacher-settings-label">Mode</label>
-                    <select class="teacher-settings-input" @bind="_classroom.Mode" @onchange="UpdateMode" disabled="@(_classroom.Status != \"preparing\")">
+                    <select class="teacher-settings-input" @onchange="OnModeChange" disabled="@IsModeDisabled()">
                         <option value="solo_ai">Solo AI Teaching</option>
                         <option value="co_teach">Co-Teaching</option>
                         <option value="teacher_directed">Teacher-Directed</option>
@@ -95,7 +95,7 @@
                 </div>
                 <div class="teacher-classroom-input">
                     <input type="text" class="teacher-settings-input" placeholder="Broadcast message…"
-                           @bind="_messageInput" @onkeypress="@(async e => { if (e.Key == \"Enter\") await SendChatMessage(); })" />
+                           @bind="_messageInput" @onkeypress="OnMessageKeyPress" />
                     <button type="button" class="teacher-cta" @onclick="SendChatMessage" disabled="@string.IsNullOrWhiteSpace(_messageInput)">Send</button>
                 </div>
             </div>
@@ -231,6 +231,15 @@
         _actionInProgress = false;
     }
 
+    private bool IsModeDisabled() => _classroom?.Status != "preparing";
+
+    private async Task OnModeChange(ChangeEventArgs e)
+    {
+        if (_classroom is null) return;
+        _classroom.Mode = e.Value?.ToString() ?? _classroom.Mode;
+        await UpdateMode();
+    }
+
     private async Task UpdateMode()
     {
         if (_classroom is null) return;
@@ -239,6 +248,14 @@
         {
             // Reset on failure
             _classroom = await Api.GetClassroomAsync(ClassroomId);
+        }
+    }
+
+    private async Task OnMessageKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendChatMessage();
         }
     }
 

@@ -91,7 +91,7 @@
 
                 <div class="teacher-tutor-input">
                     <input type="text" class="teacher-settings-input" placeholder="Ask the tutor…"
-                           @bind="_tutorInput" @onkeypress="@(async e => { if (e.Key == \"Enter\") await SendToTutor(); })" />
+                           @bind="_tutorInput" @onkeypress="OnTutorKeyPress" />
                     <button type="button" class="teacher-cta" @onclick="SendToTutor" disabled="@(string.IsNullOrWhiteSpace(_tutorInput) || _tutorSending)">
                         @(_tutorSending ? "…" : "Ask")
                     </button>
@@ -141,7 +141,7 @@
 
                 <div class="teacher-classmate-input">
                     <input type="text" class="teacher-settings-input" placeholder="Say something…"
-                           @bind="_classInput" @onkeypress="@(async e => { if (e.Key == \"Enter\") await SendToClass(); })" />
+                           @bind="_classInput" @onkeypress="OnClassKeyPress" />
                     <button type="button" class="teacher-cta" @onclick="SendToClass" disabled="@string.IsNullOrWhiteSpace(_classInput)">Send</button>
                 </div>
 
@@ -223,6 +223,22 @@
         catch
         {
             _loading = false;
+        }
+    }
+
+    private async Task OnTutorKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendToTutor();
+        }
+    }
+
+    private async Task OnClassKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendToClass();
         }
     }
 
