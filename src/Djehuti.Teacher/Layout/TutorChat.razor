@@ -3,7 +3,9 @@
 @inject WebLlmClient WebLlm
 @inject ApiLlmClient ApiLlm
 @inject AiConfigStore ConfigStore
+@inject HelperSystem HelperSystem
 @using Djehuti.Teacher.Services
+@using Djehuti.Teacher.Services.Helper
 @using System.Text.Json
 
 <div class="teacher-tutor">
@@ -198,8 +200,29 @@
 
             if (reply == null)
             {
-                _turns.Add(("assistant", "Sorry, the tutor is currently unavailable."));
-                await JS.InvokeVoidAsync("console.log", "Both WebLLM and API unavailable");
+                // Both WebLLM and API unavailable - use HelperSystem for guidance
+                var guidance = await HelperSystem.EvaluateAsync();
+
+                if (guidance.Type == "guidance")
+                {
+                    // Format guidance with actions as a readable message
+                    var guidanceMsg = guidance.Content;
+                    if (guidance.Actions.Any())
+                    {
+                        guidanceMsg += "\n\n";
+                        foreach (var action in guidance.Actions)
+                        {
+                            guidanceMsg += $"→ {action.Label}: {action.Description}\n";
+                        }
+                    }
+                    _turns.Add(("assistant", guidanceMsg));
+                }
+                else
+                {
+                    _turns.Add(("assistant", "Sorry, the tutor is currently unavailable."));
+                }
+
+                await JS.InvokeVoidAsync("console.log", "Both WebLLM and API unavailable, showing guidance");
                 return;
             }
 
