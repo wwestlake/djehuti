@@ -30,8 +30,8 @@
                     }
                     else if (WebLlm.State == WebLlmState.Loading)
                     {
-                        <p><strong>🟡 Ibis is loading...</strong></p>
-                        <p>Downloading the AI model (@((int)(WebLlm.ProgressFraction * 100))%). This takes a minute on first use, then runs from cache.</p>
+                        <p><strong>🟡 Ibis is Loading please wait...</strong></p>
+                        <p>First time takes a minute. Then it runs from cache.</p>
                     }
                     else if (WebLlm.State == WebLlmState.Unsupported)
                     {
@@ -571,7 +571,7 @@
     private string GetIbisEmptyStateText() => WebLlm.State switch
     {
         WebLlmState.Ready => "Ask Ibis anything about the workspace — running a real local model, right in your browser.",
-        WebLlmState.Loading => $"Downloading Ibis's model into your browser ({(int)(WebLlm.ProgressFraction * 100)}%)… tour and navigation commands work right away in the meantime.",
+        WebLlmState.Loading => "Ibis is Loading please wait...",
         WebLlmState.Unsupported => "Your browser doesn't support WebGPU, so Ibis is running in basic keyword mode — tours and navigation still work.",
         WebLlmState.Failed => "Ibis's local model failed to load, so it's running in basic keyword mode for now — tours and navigation still work.",
         _ => "Ask Ibis anything about the workspace.",
@@ -583,7 +583,7 @@
 
     private string GetPlaceholder() => _isIbisPane
         ? (WebLlm.State == WebLlmState.Loading
-            ? $"Ibis is downloading… {(int)(WebLlm.ProgressFraction * 100)}%"
+            ? "Ibis is Loading please wait..."
             : $"Ask {DisplayName} for a tour or basic help…")
         : (_hasKey
             ? $"Ask {DisplayName} about a math problem…"
