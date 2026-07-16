@@ -6,30 +6,6 @@ open System.Text.RegularExpressions
 open Npgsql
 open Database
 
-// ── Caching for admin data (5-minute TTL) ───────────────────────────────
-let private worldCache : (MudWorld * DateTime) option ref = ref None
-let private metricsCache : (MudMetrics * DateTime) option ref = ref None
-let private cacheValidityMinutes = 5
-
-let private isCacheValid (cachedTime: DateTime) =
-    DateTime.UtcNow.Subtract(cachedTime).TotalMinutes < float cacheValidityMinutes
-
-let private getCachedWorld () =
-    match !worldCache with
-    | Some (data, time) when isCacheValid time -> Some data
-    | _ -> None
-
-let private cacheWorld (data: MudWorld) =
-    worldCache := Some (data, DateTime.UtcNow)
-
-let private getCachedMetrics () =
-    match !metricsCache with
-    | Some (data, time) when isCacheValid time -> Some data
-    | _ -> None
-
-let private cacheMetrics (data: MudMetrics) =
-    metricsCache := Some (data, DateTime.UtcNow)
-
 type MudZone =
     { Id: Guid
       Name: string
@@ -159,6 +135,30 @@ type MudAdminMetrics =
       AverageExitsPerRoom: float
       RealmCharacterCounts: MudRealmMetric list
       ExitTypeCounts: MudExitTypeMetric list }
+
+// ── Caching for admin data (5-minute TTL) ───────────────────────────────
+let private worldCache : (MudWorld * DateTime) option ref = ref None
+let private metricsCache : (MudAdminMetrics * DateTime) option ref = ref None
+let private cacheValidityMinutes = 5
+
+let private isCacheValid (cachedTime: DateTime) =
+    DateTime.UtcNow.Subtract(cachedTime).TotalMinutes < float cacheValidityMinutes
+
+let private getCachedWorld () =
+    match !worldCache with
+    | Some (data, time) when isCacheValid time -> Some data
+    | _ -> None
+
+let private cacheWorld (data: MudWorld) =
+    worldCache := Some (data, DateTime.UtcNow)
+
+let private getCachedMetrics () =
+    match !metricsCache with
+    | Some (data, time) when isCacheValid time -> Some data
+    | _ -> None
+
+let private cacheMetrics (data: MudAdminMetrics) =
+    metricsCache := Some (data, DateTime.UtcNow)
 
 let private readZone (r: DbDataReader) =
     { Id = r.GetGuid(0)
