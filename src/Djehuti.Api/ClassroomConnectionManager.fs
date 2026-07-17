@@ -1,7 +1,5 @@
 module Djehuti.Api.ClassroomConnectionManager
 
-#nowarn "FS0035"
-
 open System
 open System.Collections.Concurrent
 open System.Net.WebSockets
@@ -16,14 +14,22 @@ type ConnectedUser = {
     ConnectedAt: DateTimeOffset
 }
 
+// Message payload types (separate records to avoid deprecated anonymous record syntax)
+type ChatMessageData = { senderId: Guid; senderName: string; content: string; timestamp: DateTimeOffset }
+type DirectiveData = { from: Guid; toUser: Guid; action: string; payload: JsonElement; timestamp: DateTimeOffset }
+type StateSyncData = { currentTopic: string option; teachingCanvas: JsonElement option; timestamp: DateTimeOffset }
+type UserJoinedData = { userId: Guid; userName: string; role: string }
+type UserLeftData = { userId: Guid; timestamp: DateTimeOffset }
+type SystemMessageData = { content: string; timestamp: DateTimeOffset }
+
 // Message types exchanged over WebSocket
 type WebSocketMessage =
-    | ChatMessage of { senderId: Guid; senderName: string; content: string; timestamp: DateTimeOffset }
-    | Directive of { from: Guid; toUser: Guid; action: string; payload: JsonElement; timestamp: DateTimeOffset }
-    | StateSync of { currentTopic: string option; teachingCanvas: JsonElement option; timestamp: DateTimeOffset }
-    | UserJoined of { userId: Guid; userName: string; role: string }
-    | UserLeft of { userId: Guid; timestamp: DateTimeOffset }
-    | SystemMessage of { content: string; timestamp: DateTimeOffset }
+    | ChatMessage of ChatMessageData
+    | Directive of DirectiveData
+    | StateSync of StateSyncData
+    | UserJoined of UserJoinedData
+    | UserLeft of UserLeftData
+    | SystemMessage of SystemMessageData
 
 // Serialize/deserialize WebSocket messages
 let serializeMessage (msg: WebSocketMessage) : string =
