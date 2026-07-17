@@ -1,5 +1,7 @@
 module Djehuti.Api.ClassroomConnectionManager
 
+#nowarn "FS0035"
+
 open System
 open System.Collections.Concurrent
 open System.Net.WebSockets
