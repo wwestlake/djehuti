@@ -6039,6 +6039,34 @@ let main args =
                 |}))
     ) |> ignore
 
+    // Log a download for metrics tracking
+    app.MapPost(
+        "/api/products/{slug}/releases/{version}/log-download",
+        Func<string, string, IResult>(fun slug version ->
+            match ProductRepository.listActive () |> List.tryFind (fun p -> p.Slug = slug) with
+            | None -> Results.NotFound("Product not found")
+            | Some product ->
+                DownloadMetricsRepository.logDownload product.Id version
+                Results.Ok())
+    ) |> ignore
+
+    // Get download metrics for admin dashboard
+    app.MapGet(
+        "/api/admin/products/{productId}/download-metrics",
+        Func<HttpContext, Guid, IResult>(fun ctx productId ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims when not (Permissions.isAdmin claims.Role) -> Results.Forbid()
+            | Some _ ->
+                let stats = DownloadMetricsRepository.getDownloadsByVersion productId
+                let total = DownloadMetricsRepository.getTotalDownloads productId
+                Results.Ok({|
+                    total = total
+                    byVersion = stats
+                |})
+        )
+    ) |> ignore
+
     app.MapPost(
         "/api/webhooks/github/releases",
         Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
