@@ -6398,8 +6398,8 @@ let main args =
                     | Some classroom when classroom.TeacherId <> teacherId && not (Permissions.isAdmin claims.Role) ->
                         Results.Forbid()
                     | Some _ ->
-                        let member = ClassroomRepository.addMember classroomId studentId "student"
-                        Results.Ok(member)
+                        let newMember = ClassroomRepository.addMember classroomId studentId "student"
+                        Results.Ok(newMember)
                 | _ -> Results.BadRequest("Invalid IDs"))
     ) |> ignore
 
