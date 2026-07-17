@@ -4272,6 +4272,19 @@ let private migrations : (int * string) list =
 
         GRANT ALL ON TABLE content_items TO djehuti;
         """
+    // Download metrics tracking
+    "78", """
+        CREATE TABLE IF NOT EXISTS download_metrics (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            product_id      UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            version         TEXT NOT NULL,
+            timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_download_metrics_product_version ON download_metrics (product_id, version);
+        CREATE INDEX IF NOT EXISTS idx_download_metrics_timestamp ON download_metrics (timestamp DESC);
+
+        GRANT ALL ON TABLE download_metrics TO djehuti;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

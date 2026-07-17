@@ -54,6 +54,7 @@
     <Compile Include="ContentRepository.fs" />
     <Compile Include="DjeLabFilesRepository.fs" />
     <Compile Include="DemoGenerationRepository.fs" />
+    <Compile Include="DownloadMetricsRepository.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
