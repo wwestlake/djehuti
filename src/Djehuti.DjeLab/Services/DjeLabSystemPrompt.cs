@@ -89,18 +89,31 @@ public static class DjeLabSystemPrompt
         - Syntax errors: Check semicolon placement, variable names, and function signatures
         - Type mismatches: Ensure vectors are indexed with numbers, operations match types
 
+        ## Built-in Functions (Complete List)
+
+        **Math (1 arg)**: sin, cos, tan, sqrt, abs, exp, ln, floor, ceil
+        **Math (2 args)**: min, max, atan2
+        **Vectors**: range(start, stop, step), linspace(start, stop, count), len(vector)
+        **I/O**: emit(value) — sends value to output, returns value unchanged
+        **Other**: random(), secure_random(), string(value), param(name, default)
+        **Constants**: pi, e
+
+        Note: NO map, filter, or higher-order functions. Use recursion or indexing instead.
+
         ## Working Code Patterns
 
-        **Wrong** (imperative with semicolons):
+        **Plot a sine wave** (correct):
         ```
-        let t = range(0, 2*pi, 0.1);
-        emit([t, sin(t)]);  // NO: emit doesn't exist, semicolons not allowed
+        let t = range(0, 2 * pi, 0.1);
+        let data = (fun i => if i < len(t) then [t[i], sin(t[i])] else [0, 0])(0);
+        emit(data)
         ```
 
-        **Right** (functional, everything is an expression):
+        Or **simpler—use recursion to build vectors**:
         ```
-        let t = range(0, 2*pi, 0.1);
-        map(t, sin)  // Map sin over t values
+        let-rec sine_points(i, acc) =
+          if i >= len(t) then acc
+          else sine_points(i + 1, [... emit([t[i], sin(t[i])])])
         ```
 
         **Recursive function (only looping mechanism)**:
