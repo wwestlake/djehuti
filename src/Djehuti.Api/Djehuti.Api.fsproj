@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
-    <WarningLevel>4</WarningLevel>
-    <DisabledWarnings>FS0035</DisabledWarnings>
+    <NoWarn>$(NoWarn);FS0035</NoWarn>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
