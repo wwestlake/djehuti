@@ -4272,8 +4272,7 @@ let private migrations : (int * string) list =
 
         GRANT ALL ON TABLE content_items TO djehuti;
         """
-    // Download metrics tracking
-    "78", """
+    78, """
         CREATE TABLE IF NOT EXISTS download_metrics (
             id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             product_id      UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
