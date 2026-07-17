@@ -329,6 +329,49 @@ and private evalWith (env: Env) (expr: Expr) : Step =
 
 and private applyCallable (callee: Value) (args: Value list) : Step =
     match callee with
+    // Special handling for map and filter that need evalWith access
+    | VBuiltin("map", 2, _) when args.Length = 2 ->
+        (match asVector "map" args.[0] with
+         | Error e -> Done(Error e)
+         | Ok items ->
+             let fnVal = args.[1]
+             let results = Array.map (fun item ->
+                 match fnVal with
+                 | VClosure(params, body, envCell) when params.Length = 1 ->
+                     let callEnv = Map.add params.[0] item !envCell
+                     (match evalWith callEnv body with
+                      | Done(Ok v) -> Some v
+                      | Done(Error _) -> None
+                      | More _ -> None)
+                 | VBuiltin(_, 1, fn) ->
+                     (match fn [item] with
+                      | Ok v -> Some v
+                      | Error _ -> None)
+                 | _ -> None) items
+             if Array.forall Option.isSome results then
+                 Done(Ok(VVector(Array.map Option.get results)))
+             else
+                 Done(Error "map: function application failed"))
+    | VBuiltin("filter", 2, _) when args.Length = 2 ->
+        (match asVector "filter" args.[0] with
+         | Error e -> Done(Error e)
+         | Ok items ->
+             let fnVal = args.[1]
+             let filtered = Array.choose (fun item ->
+                 match fnVal with
+                 | VClosure(params, body, envCell) when params.Length = 1 ->
+                     let callEnv = Map.add params.[0] item !envCell
+                     (match evalWith callEnv body with
+                      | Done(Ok(VBool true)) -> Some item
+                      | Done(Ok(VBool false)) -> None
+                      | _ -> None)
+                 | VBuiltin(_, 1, fn) ->
+                     (match fn [item] with
+                      | Ok(VBool true) -> Some item
+                      | Ok(VBool false) -> None
+                      | _ -> None)
+                 | _ -> None) items
+             Done(Ok(VVector(filtered))))
     | VBuiltin(name, arity, fn) ->
         if args.Length <> arity then
             Done(Error $"{name}: expected {arity} argument(s), got {args.Length}")
