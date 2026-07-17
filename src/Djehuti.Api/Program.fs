@@ -870,9 +870,10 @@ let main args =
     // Classroom real-time infrastructure
     builder.Services.AddSingleton<ClassroomConnectionManager.ClassroomConnectionManager>() |> ignore
 
-    builder.Services.AddHostedService<HeartbeatWorker.HeartbeatWorker>() |> ignore
-    builder.Services.AddHostedService<GameWorldWorker.GameWorldWorker>() |> ignore
-    builder.Services.AddHostedService<SemanticIngestionWorker.SemanticIngestionWorker>() |> ignore
+    // DISABLED: Background workers causing database bloat
+    // builder.Services.AddHostedService<HeartbeatWorker.HeartbeatWorker>() |> ignore
+    // builder.Services.AddHostedService<GameWorldWorker.GameWorldWorker>() |> ignore
+    // builder.Services.AddHostedService<SemanticIngestionWorker.SemanticIngestionWorker>() |> ignore
 
     let app = builder.Build()
     let protector = app.Services.GetRequiredService<IDataProtectionProvider>()
