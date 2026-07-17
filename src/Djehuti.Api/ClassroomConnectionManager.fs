@@ -14,15 +14,15 @@ type ConnectedUser = {
     ConnectedAt: DateTimeOffset
 }
 
-// Message payloads
-type ChatMessageData = {
+// Message payload types
+type ChatMessagePayload = {
     senderId: Guid
     senderName: string
     content: string
     timestamp: DateTimeOffset
 }
 
-type DirectiveData = {
+type DirectivePayload = {
     from: Guid
     toUser: Guid
     action: string
@@ -30,36 +30,36 @@ type DirectiveData = {
     timestamp: DateTimeOffset
 }
 
-type StateSyncData = {
+type StateSyncPayload = {
     currentTopic: string option
     teachingCanvas: JsonElement option
     timestamp: DateTimeOffset
 }
 
-type UserJoinedData = {
+type UserJoinedPayload = {
     userId: Guid
     userName: string
     role: string
 }
 
-type UserLeftData = {
+type UserLeftPayload = {
     userId: Guid
     timestamp: DateTimeOffset
 }
 
-type SystemMessageData = {
+type SystemMessagePayload = {
     content: string
     timestamp: DateTimeOffset
 }
 
 // Message types exchanged over WebSocket
 type WebSocketMessage =
-    | ChatMessage of ChatMessageData
-    | Directive of DirectiveData
-    | StateSync of StateSyncData
-    | UserJoined of UserJoinedData
-    | UserLeft of UserLeftData
-    | SystemMessage of SystemMessageData
+    | ChatMessage of ChatMessagePayload
+    | Directive of DirectivePayload
+    | StateSync of StateSyncPayload
+    | UserJoined of UserJoinedPayload
+    | UserLeft of UserLeftPayload
+    | SystemMessage of SystemMessagePayload
 
 // Serialize/deserialize WebSocket messages
 let serializeMessage (msg: WebSocketMessage) : string =
