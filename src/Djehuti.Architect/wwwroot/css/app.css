@@ -75,6 +75,24 @@ a {
     padding: 3rem 1.5rem;
 }
 
+.arch-page-wide {
+    max-width: 1100px;
+}
+
+.arch-diagram {
+    margin-top: 2rem;
+    padding: 1.5rem;
+    background: var(--arch-panel);
+    border: 1px solid var(--arch-border);
+    border-radius: 0.75rem;
+    overflow-x: auto;
+}
+
+.arch-diagram svg {
+    max-width: 100%;
+    height: auto;
+}
+
 .arch-subtitle {
     color: var(--arch-muted);
     font-size: 1.05rem;
