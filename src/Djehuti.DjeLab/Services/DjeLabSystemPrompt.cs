@@ -66,8 +66,8 @@ public static class DjeLabSystemPrompt
         - **Data types**: Numbers, booleans, strings, vectors (lists)
         - **Operators**: Arithmetic (+, -, *, /, %), comparison (==, !=, <, <=, >, >=), logic (&&, ||)
         - **Control**: if/then/else (required for branching)
-        - **Binding**: let (immutable local values), let-rec (recursive functions)
-        - **Functions**: Lambda expressions (parameters) => body, function calls
+        - **Binding**: `let name = value in body` (immutable local values), `let rec name params = value in body` (recursive functions)
+        - **Functions**: Lambda expressions `fun x -> body`, function calls `f(a, b)`
 
         **No loops or mutation**: Recursion is the only way to repeat. Every binding is immutable.
 
@@ -75,8 +75,8 @@ public static class DjeLabSystemPrompt
 
         Node types:
         - **Source** nodes: Load external data (files, constants, ranges)
-        - **Transform** nodes: Apply functions (map, filter, mathematical operations)
-        - **Filter** nodes: Select rows matching a condition
+        - **Transform** nodes: Apply a per-row expression (mathematical operations)
+        - **Filter** nodes: Select rows matching a per-row condition
         - **Constant** nodes: Define reusable values
         - **Integrator** nodes: Run ODE solvers (Euler, RK4) for simulations
         - **Plot** nodes: Visualize results as graphs
@@ -86,53 +86,72 @@ public static class DjeLabSystemPrompt
 
         **Common errors**:
         - "Unfinished reply": Stop after one tool call, let execution complete before calling again
-        - Syntax errors: Check semicolon placement, variable names, and function signatures
+        - Syntax errors: run validate_spinoza and read its `issues` list -- it runs the real parser
+          and will point at the exact token that broke, so fix that token rather than guessing
         - Type mismatches: Ensure vectors are indexed with numbers, operations match types
 
         ## Built-in Functions (Complete List)
 
+        This is the entire set of names Spinoza recognizes. There is nothing else -- calling
+        anything not on this list fails with "Unbound variable".
+
         **Math (1 arg)**: sin, cos, tan, sqrt, abs, exp, ln, floor, ceil
         **Math (2 args)**: min, max, atan2
         **Vectors**: range(start, stop, step), linspace(start, stop, count), len(vector)
-        **I/O**: emit(value) — sends value to output, returns value unchanged
-        **Other**: random(), secure_random(), string(value), param(name, default)
+        **I/O**: emit(value) — sends value to output (e.g. a point to a graph), returns value unchanged
+        **Other**: random(), secure_random(), string(value), param(name, default), render(type, props)
         **Constants**: pi, e
 
-        Note: NO map, filter, or higher-order functions. Use recursion or indexing instead.
+        **There is no map, filter, or append.** Do not call them even though they sound like
+        they should exist -- there is no fallback or polyfill for them, they simply error.
+        The only way to repeat or transform something is a recursive function (`let rec`) that
+        calls `emit` once per item as it walks forward.
 
         ## Working Code Patterns
 
-        **Plot a sine wave** (correct):
+        Every one of these has actually been run through the parser. Match this shape exactly --
+        do not "clean up" the syntax to look more like a mainstream language (no semicolons, no
+        `=>`, no parenthesized parameter lists on `let rec`).
+
+        **Plot a sine wave** (the standard pattern: a tail-recursive loop that emits one point
+        per step, terminated by a plain value):
         ```
-        let t = range(0, 2 * pi, 0.1);
-        let data = (fun i => if i < len(t) then [t[i], sin(t[i])] else [0, 0])(0);
-        emit(data)
+        let rec loop i =
+          if i >= 63 then 0
+          else
+            let _ = emit([i * 0.1, sin(i * 0.1)]) in
+            loop(i + 1)
+        in
+        loop(0)
         ```
 
-        Or **simpler—use recursion to build vectors**:
+        **Using range/linspace to drive the same kind of loop** (build the x-values first,
+        then walk the vector by index -- there is no map, so indexing plus recursion is how
+        you turn a vector of inputs into emitted points):
         ```
-        let-rec sine_points(i, acc) =
-          if i >= len(t) then acc
-          else sine_points(i + 1, [... emit([t[i], sin(t[i])])])
+        let rec loop t i =
+          if i >= len(t) then 0
+          else
+            let _ = emit([t[i], sin(t[i])]) in
+            loop(t, i + 1)
+        in
+        let t = linspace(0, 2 * pi, 64) in
+        loop(t, 0)
         ```
 
-        **Recursive function (only looping mechanism)**:
+        **A reusable function via a lambda** (this works -- what doesn't work is passing a
+        lambda into `map`/`filter`, since those don't exist):
         ```
-        let-rec sine_wave(n, acc) =
-          if n >= 100 then acc
-          else sine_wave(n + 1, append(acc, [n, sin(n * 0.1)]))
-        sine_wave(0, [])
-        ```
-
-        **Lambda for transforms**:
-        ```
-        let data = [1, 2, 3, 4, 5];
-        let squared = map(data, (x) => x * x);
-        squared
+        let square = fun x -> x * x in
+        square(5)
         ```
 
         **Key rules**:
-        - NO semicolons (`;`); they're syntax errors
+        - `let name = value in body` and `let rec name param1 param2 = value in body` --
+          the `in` is not optional, and `let rec` params are space-separated identifiers,
+          never `name(param1, param2)`
+        - Lambdas use `->`, never `=>`: `fun x -> body`
+        - NO semicolons (`;`), anywhere, ever -- `let ... in ...` is how you sequence things
         - NO statement sequences; use nested let bindings or lambdas
         - Return value is the last expression in the program
         - Functions must be called as part of an expression, not standalone
