@@ -1,0 +1,18 @@
+@namespace Djehuti.Architect.Layout
+@inherits LayoutComponentBase
+
+<div class="arch-shell">
+    <header class="arch-topbar">
+        <a class="arch-brand" href="">
+            <span class="arch-brand-mark">DA</span>
+            <span class="arch-brand-name">Djehuti Architect</span>
+        </a>
+        <nav class="arch-nav">
+            <NavLink href="" Match="NavLinkMatch.All">Workspace</NavLink>
+        </nav>
+    </header>
+
+    <main class="arch-main">
+        @Body
+    </main>
+</div>
