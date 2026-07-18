@@ -80,6 +80,34 @@ Example structure:
   ]
 }}"""
 
+// Validate generated script
+let validateScript (script: DemoScriptJson) : Result<DemoScriptJson, string list> =
+    let mutable errors = []
+
+    if String.IsNullOrWhiteSpace script.Title then
+        errors <- "Title is required" :: errors
+
+    if script.Steps |> List.isEmpty then
+        errors <- "At least one step is required" :: errors
+
+    for step in script.Steps do
+        if String.IsNullOrWhiteSpace step.Id then
+            errors <- "Step ID is required" :: errors
+
+        if String.IsNullOrWhiteSpace step.Action.Type then
+            errors <- "Action type is required" :: errors
+
+        let validTypes = ["none"; "activatePane"; "wait"]
+        if not (List.contains step.Action.Type validTypes) then
+            errors <- $"Invalid action type: {step.Action.Type}" :: errors
+
+        if step.Duration < 500 then
+            errors <- $"Step duration must be at least 500ms" :: errors
+
+    match errors with
+    | [] -> Ok script
+    | errors -> Error (List.rev errors)
+
 // Call available AI to generate a demo script
 let generateDemoScript (httpClient: HttpClient) (prompt: string) (appName: string) : Async<Result<DemoScriptJson, string>> = async {
     try
@@ -119,31 +147,3 @@ let generateDemoScript (httpClient: HttpClient) (prompt: string) (appName: strin
     with ex ->
         return Error $"Unexpected error: {ex.Message}"
 }
-
-// Validate generated script
-let validateScript (script: DemoScriptJson) : Result<DemoScriptJson, string list> =
-    let mutable errors = []
-
-    if String.IsNullOrWhiteSpace script.Title then
-        errors <- "Title is required" :: errors
-
-    if script.Steps |> List.isEmpty then
-        errors <- "At least one step is required" :: errors
-
-    for step in script.Steps do
-        if String.IsNullOrWhiteSpace step.Id then
-            errors <- "Step ID is required" :: errors
-
-        if String.IsNullOrWhiteSpace step.Action.Type then
-            errors <- "Action type is required" :: errors
-
-        let validTypes = ["none"; "activatePane"; "wait"]
-        if not (List.contains step.Action.Type validTypes) then
-            errors <- $"Invalid action type: {step.Action.Type}" :: errors
-
-        if step.Duration < 500 then
-            errors <- $"Step duration must be at least 500ms" :: errors
-
-    match errors with
-    | [] -> Ok script
-    | errors -> Error (List.rev errors)
