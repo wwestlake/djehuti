@@ -188,9 +188,17 @@
         _classroom = await Api.GetClassroomAsync(ClassroomId);
         if (_classroom is not null && _classroom.LessonPlanId.HasValue)
         {
-            _lessonPlan = await Api.GetByIdAsync(_classroom.LessonPlanId.Value);
+            _lessonPlan = await Api.GetLessonByIdAsync(_classroom.LessonPlanId.Value);
         }
-        _members = await Api.GetClassroomMembersAsync(ClassroomId);
+        var memberDynamics = await Api.GetClassroomMembersAsync(ClassroomId);
+        _members = memberDynamics?.ConvertAll(m => new ClassroomMemberDisplayDto
+        {
+            UserId = Guid.Parse(m.UserId.ToString() ?? Guid.Empty.ToString()),
+            DisplayName = m.DisplayName?.ToString() ?? "Anonymous",
+            Role = m.Role?.ToString() ?? "student",
+            Status = m.Status?.ToString() ?? "idle",
+            IsOnline = m.IsOnline == true
+        }) ?? new();
         _loading = false;
 
         // Initialize WebSocket connection

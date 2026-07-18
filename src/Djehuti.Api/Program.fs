@@ -927,10 +927,15 @@ let main args =
 
     app.MapGet("/api/health", Func<string>(fun () -> "ok")) |> ignore
 
-    // WebSocket endpoint for real-time classroom communication
-    // TODO: Fix WebSocket implementation - currently has async/await binding issues
-    // Disabled for now to allow build to complete
-    ()
+    // DISABLED: WebSocket endpoint has async/await binding issues that prevent compilation
+    // The real-time classroom communication will be implemented in a future iteration
+    // once async patterns in F# task blocks can be properly resolved.
+    // app.Map("/api/classroom/{classroomId}/ws", fun (app: WebApplication) ->
+    //     app.Run(fun (ctx: HttpContext) ->
+    //         task {
+    //             // ... implementation disabled ...
+    //         })
+    // ) |> ignore
 
     app.MapGet(
         "/api/datasets",

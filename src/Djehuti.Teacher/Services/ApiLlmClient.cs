@@ -1,17 +1,24 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Djehuti.Teacher.Services.Providers;
 
 namespace Djehuti.Teacher.Services;
 
-public sealed class ApiLlmClientNew
+public enum ApiProvider
+{
+    OpenAi,
+    Anthropic,
+    GoogleGemini,
+    Mistral,
+}
+
+public sealed class ApiLlmClient
 {
     private readonly HttpClient _http;
     private readonly MultiProviderConfigStore _configStore;
     private readonly Dictionary<string, IProviderDefinition> _providers;
 
-    public ApiLlmClientNew(
-        HttpClient http,
-        MultiProviderConfigStore configStore,
-        Dictionary<string, IProviderDefinition> providers)
+    public ApiLlmClient(HttpClient http, MultiProviderConfigStore configStore, Dictionary<string, IProviderDefinition> providers)
     {
         _http = http;
         _configStore = configStore;
