@@ -4,14 +4,26 @@ using System.Text.Json;
 
 namespace Djehuti.DjeLab.Services;
 
+/// <summary>A tool handler's result: `Output` is the plain-text payload sent
+/// back to the model as the function_call_output (unaffected by `IsError` --
+/// the model always sees the real text either way). `IsError` is read only
+/// by the local tool-call loop, to decide whether this attempt counts
+/// toward the same-tool-repeated-failure circuit breaker. A tool that ran
+/// and reported a legitimate result -- including "no source" from
+/// validate_spinoza -- is not the same thing as a tool that could not
+/// complete its job; only the latter should trip the breaker.</summary>
+public readonly record struct ToolResult(string Output, bool IsError)
+{
+    public static ToolResult Ok(string output) => new(output, false);
+    public static ToolResult Error(string output) => new(output, true);
+}
+
 /// <summary>A tool handler receives the raw JSON arguments string the model
-/// supplied and returns a plain-text result that becomes the tool's
-/// function_call_output -- the model sees this and can react to it (e.g.
-/// mention how many points a simulation actually produced) in its next
-/// turn. Handlers are supplied by the caller (ChatPane), not this class --
-/// AiChatClient only knows the OpenAI protocol for running the tool loop,
-/// not what any given tool actually does in this app.</summary>
-public delegate Task<string> ToolHandler(string argumentsJson, CancellationToken ct);
+/// supplied and returns a `ToolResult`. Handlers are supplied by the caller
+/// (ChatPane), not this class -- AiChatClient only knows the OpenAI protocol
+/// for running the tool loop, not what any given tool actually does in this
+/// app.</summary>
+public delegate Task<ToolResult> ToolHandler(string argumentsJson, CancellationToken ct);
 
 /// <summary>
 /// Calls OpenAI's Responses API directly from the browser using the user's
@@ -32,14 +44,19 @@ public sealed class AiChatClient
 {
     private const string Endpoint = "https://api.openai.com/v1/responses";
 
-    // A tool loop that never terminates would hang the chat forever if a
-    // model got stuck calling tools back-to-back; this is a real ceiling,
-    // not an expected-case limit. Started at 6, then 12 -- both proved too
-    // low for multi-step tasks that are legitimately several tool calls
-    // deep (inspect a file, bundle a project, validate, run, fix, rerun),
-    // as opposed to a model stuck repeating the same mistake. Raised again
-    // to give those longer flows room to actually finish.
-    private const int MaxToolRounds = 24;
+    // Two-tier stop condition. The real signal that something is stuck is
+    // the SAME tool erroring several times in a row -- a model retrying
+    // run_simulation against a syntax error it isn't fixing looks nothing
+    // like a model that's several genuinely-progressing calls deep into a
+    // file-based analysis (inspect, bundle, validate, run). Counting total
+    // rounds conflated those two cases and forced picking one number that
+    // was wrong for both; MaxConsecutiveSameToolErrors targets the actual
+    // failure pattern instead. MaxToolRounds stays only as a last-resort
+    // backstop against a loop that never errors but also never finishes
+    // (e.g. ping-ponging between different tools without converging), so it
+    // can be generous -- it's not expected to be the thing that fires.
+    private const int MaxConsecutiveSameToolErrors = 4;
+    private const int MaxToolRounds = 40;
 
     private static readonly object[] Tools =
     [
@@ -164,6 +181,9 @@ public sealed class AiChatClient
             input.Add(new { role = turn.Role, content = turn.Content });
         input.Add(new { role = "user", content = newMessage });
 
+        string? lastErroredTool = null;
+        var consecutiveSameToolErrors = 0;
+
         for (var round = 0; round < MaxToolRounds; round++)
         {
             onStatus?.Invoke(round == 0 ? "Figuring out the request..." : "Checking the last result...");
@@ -192,36 +212,57 @@ public sealed class AiChatClient
                     arguments = call.ArgumentsJson
                 });
 
-                string output;
+                ToolResult result;
                 if (toolHandlers.TryGetValue(call.Name, out var handler))
                 {
                     try
                     {
                         onStatus?.Invoke(DescribeToolStatus(call.Name, call.ArgumentsJson));
-                        output = await handler(call.ArgumentsJson, ct);
+                        result = await handler(call.ArgumentsJson, ct);
                     }
                     catch (Exception ex)
                     {
-                        output = $"Tool error: {ex.Message}";
+                        result = ToolResult.Error($"Tool error: {ex.Message}");
                     }
                 }
                 else
                 {
-                    output = $"Unknown tool '{call.Name}'.";
+                    result = ToolResult.Error($"Unknown tool '{call.Name}'.");
+                }
+
+                if (result.IsError && call.Name == lastErroredTool)
+                {
+                    consecutiveSameToolErrors++;
+                }
+                else if (result.IsError)
+                {
+                    lastErroredTool = call.Name;
+                    consecutiveSameToolErrors = 1;
+                }
+                else
+                {
+                    lastErroredTool = null;
+                    consecutiveSameToolErrors = 0;
                 }
 
                 input.Add(new
                 {
                     type = "function_call_output",
                     call_id = call.CallId,
-                    output
+                    output = result.Output
                 });
+
+                if (consecutiveSameToolErrors >= MaxConsecutiveSameToolErrors)
+                {
+                    throw new InvalidOperationException(
+                        $"The assistant called '{call.Name}' and got an error {consecutiveSameToolErrors} times in a row without success. Stopping to avoid a runaway loop.");
+                }
             }
             // Loop again: the model sees the tool outputs and either replies
             // with text or asks for another tool call.
         }
 
-        throw new InvalidOperationException("The assistant made too many tool calls in a row without finishing its reply.");
+        throw new InvalidOperationException("The assistant made too many tool calls without finishing its reply.");
     }
 
     private static string DescribeToolStatus(string toolName, string argumentsJson)
