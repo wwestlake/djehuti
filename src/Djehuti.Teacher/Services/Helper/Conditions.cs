@@ -2,11 +2,11 @@ namespace Djehuti.Teacher.Services.Helper;
 
 public class WebLLMAvailableCondition : ICondition
 {
-    private readonly WebLlmInterop _webLlm;
+    private readonly WebLlmClient _webLlm;
 
     public string Name => "WebLLMAvailable";
 
-    public WebLLMAvailableCondition(WebLlmInterop webLlm)
+    public WebLLMAvailableCondition(WebLlmClient webLlm)
     {
         _webLlm = webLlm;
     }
