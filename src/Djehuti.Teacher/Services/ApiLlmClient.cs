@@ -2,13 +2,13 @@ using Djehuti.Teacher.Services.Providers;
 
 namespace Djehuti.Teacher.Services;
 
-public sealed class ApiLlmClientNew
+public sealed class ApiLlmClient
 {
     private readonly HttpClient _http;
     private readonly MultiProviderConfigStore _configStore;
     private readonly Dictionary<string, IProviderDefinition> _providers;
 
-    public ApiLlmClientNew(
+    public ApiLlmClient(
         HttpClient http,
         MultiProviderConfigStore configStore,
         Dictionary<string, IProviderDefinition> providers)

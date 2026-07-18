@@ -27,6 +27,27 @@ public sealed class LessonPlan
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
+public sealed class LearningTrack
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+    public string? Description { get; set; }
+}
+
+public sealed class LearningTrackDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+    public string? Description { get; set; }
+}
+
+public sealed class UserTrackProgressDto
+{
+    public Guid UserId { get; set; }
+    public Guid TrackId { get; set; }
+    public int Progress { get; set; }
+}
+
 // Calls Djehuti.Api's /api/teacher/* endpoints (Program.fs, backed by
 // LessonPlanRepository.fs). Auth rides the same djehuti_auth cookie every
 // other first-party app on the domain uses -- no separate login here.
