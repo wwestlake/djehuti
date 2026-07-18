@@ -2,10 +2,25 @@
 
 <PageTitle>Djehuti Architect</PageTitle>
 
-<div class="arch-page">
+<div class="arch-page arch-page-wide">
     <h1>Djehuti Architect</h1>
     <p class="arch-subtitle">
         Read a repository, build an architecture model, generate diagrams and docs from it.
     </p>
-    <p class="arch-status">Workspace scaffold -- repo reading, diagram rendering, and the AI assistant land next.</p>
+    <p class="arch-status">
+        Repo reading and the AI assistant land next -- this is a hand-authored sample model,
+        exercising the model &rarr; Mermaid &rarr; SVG pipeline end to end.
+    </p>
+
+    <MermaidDiagram DiagramSource="@_diagramSource" />
 </div>
+
+@code {
+    private string _diagramSource = "";
+
+    protected override void OnInitialized()
+    {
+        var model = SampleModels.DjehutiOverview();
+        _diagramSource = MermaidGenerator.GenerateContainerDiagram(model);
+    }
+}
