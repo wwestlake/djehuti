@@ -190,7 +190,7 @@ public sealed class TeacherApiClient
         {
             var response = await _http.GetAsync($"{Base}/classrooms/{id}", ct);
             if (!response.IsSuccessStatusCode) return null;
-            return await response.Content.ReadAsAsync<dynamic>(cancellationToken: ct);
+            return await response.Content.ReadFromJsonAsync<dynamic>(cancellationToken: ct);
         }
         catch { return null; }
     }
@@ -212,7 +212,7 @@ public sealed class TeacherApiClient
         {
             var response = await _http.PostAsJsonAsync($"{Base}/classrooms", new { name, lessonPlanId }, ct);
             if (!response.IsSuccessStatusCode) return null;
-            return await response.Content.ReadAsAsync<dynamic>(cancellationToken: ct);
+            return await response.Content.ReadFromJsonAsync<dynamic>(cancellationToken: ct);
         }
         catch { return null; }
     }
