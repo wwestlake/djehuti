@@ -1,0 +1,110 @@
+:root {
+    --arch-bg: #0b0f1a;
+    --arch-panel: #121826;
+    --arch-border: #23304a;
+    --arch-text: #e6ebf5;
+    --arch-muted: #8b97b0;
+    --arch-accent: #4f8cff;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--arch-bg);
+    color: var(--arch-text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+a {
+    color: var(--arch-accent);
+    text-decoration: none;
+}
+
+.arch-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+.arch-topbar {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 0.75rem 1.5rem;
+    border-bottom: 1px solid var(--arch-border);
+    background: var(--arch-panel);
+}
+
+.arch-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+}
+
+.arch-brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+    background: var(--arch-accent);
+    color: #fff;
+    font-size: 0.85rem;
+}
+
+.arch-nav a {
+    color: var(--arch-muted);
+}
+
+.arch-nav a.active {
+    color: var(--arch-text);
+}
+
+.arch-main {
+    flex: 1;
+}
+
+.arch-page {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem;
+}
+
+.arch-subtitle {
+    color: var(--arch-muted);
+    font-size: 1.05rem;
+}
+
+.arch-status {
+    margin-top: 2rem;
+    padding: 0.75rem 1rem;
+    border: 1px dashed var(--arch-border);
+    border-radius: 0.5rem;
+    color: var(--arch-muted);
+    font-size: 0.9rem;
+}
+
+#blazor-error-ui {
+    background: lightyellow;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+    color: #111;
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: 0.75rem;
+    top: 0.5rem;
+}
