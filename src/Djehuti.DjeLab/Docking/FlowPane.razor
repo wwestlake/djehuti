@@ -4,6 +4,7 @@
 @using Djehuti.DjeLab.Dsl
 @implements IAsyncDisposable
 @inject DjeLabFilesClient FilesClient
+@inject DjeLabStorageScopeService StorageScope
 @inject WorkspaceActions Actions
 @inject IJSRuntime JS
 @inject HttpClient Http
@@ -2133,14 +2134,16 @@
         try
         {
             _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
+            var scopedStorageKey = await StorageScope.QualifyAsync(StorageKey);
             if (_nodes.Count == 0)
             {
+                await _module.InvokeVoidAsync("removeJson", scopedStorageKey);
                 await _module.InvokeVoidAsync("removeJson", StorageKey);
                 return;
             }
 
             var snapshot = new FlowPaneSnapshot(_nodes);
-            await _module.InvokeVoidAsync("saveJson", StorageKey, JsonSerializer.Serialize(snapshot));
+            await _module.InvokeVoidAsync("saveJson", scopedStorageKey, JsonSerializer.Serialize(snapshot));
         }
         catch
         {
@@ -2153,7 +2156,17 @@
         try
         {
             _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dock-interop.js");
-            var json = await _module.InvokeAsync<string?>("loadJson", StorageKey);
+            var scopedStorageKey = await StorageScope.QualifyAsync(StorageKey);
+            var json = await _module.InvokeAsync<string?>("loadJson", scopedStorageKey);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                json = await _module.InvokeAsync<string?>("loadJson", StorageKey);
+                if (!string.IsNullOrWhiteSpace(json))
+                {
+                    await _module.InvokeVoidAsync("saveJson", scopedStorageKey, json);
+                    await _module.InvokeVoidAsync("removeJson", StorageKey);
+                }
+            }
             if (!string.IsNullOrWhiteSpace(json))
             {
                 var snapshot = JsonSerializer.Deserialize<FlowPaneSnapshot>(json);

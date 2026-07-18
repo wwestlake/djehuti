@@ -14,7 +14,7 @@ type ConnectedUser = {
     ConnectedAt: DateTimeOffset
 }
 
-// Message payload types for WebSocket
+// Message payload types (separate records to avoid deprecated anonymous record syntax)
 type ChatMessageData = { senderId: Guid; senderName: string; content: string; timestamp: DateTimeOffset }
 type DirectiveData = { from: Guid; toUser: Guid; action: string; payload: JsonElement; timestamp: DateTimeOffset }
 type StateSyncData = { currentTopic: string option; teachingCanvas: JsonElement option; timestamp: DateTimeOffset }

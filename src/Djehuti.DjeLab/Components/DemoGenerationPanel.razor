@@ -1,0 +1,285 @@
+@using Djehuti.DjeLab.Services
+@inject HttpClient Http
+@inject DemoMode DemoMode
+
+<div class="demo-generation-panel">
+    <h3>Generate Demo from Prompt</h3>
+    <p class="demo-hint">Describe what you want to demonstrate and AI will create an interactive walkthrough script.</p>
+
+    <div class="demo-gen-form">
+        <textarea class="demo-prompt-input"
+                  @bind="_prompt"
+                  placeholder="e.g., 'Show how to analyze sales data with regional filter'"
+                  @onkeyup="OnPromptKeyUp"
+                  disabled="@_isGenerating"></textarea>
+
+        <div class="demo-gen-controls">
+            <button type="button"
+                    class="demo-gen-btn demo-gen-btn-primary"
+                    @onclick="GenerateDemo"
+                    disabled="@(_isGenerating || string.IsNullOrWhiteSpace(_prompt))">
+                @if (_isGenerating)
+                {
+                    <span>⏳ Generating...</span>
+                }
+                else
+                {
+                    <span>✨ Generate Demo</span>
+                }
+            </button>
+
+            @if (_generatedScript is not null && _errorMessage is null)
+            {
+                <button type="button"
+                        class="demo-gen-btn demo-gen-btn-success"
+                        @onclick="PlayGeneratedDemo">
+                    ▶ Play Demo
+                </button>
+
+                <button type="button"
+                        class="demo-gen-btn demo-gen-btn-secondary"
+                        @onclick="ClearGenerated">
+                    ✕ Clear
+                </button>
+            }
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_errorMessage))
+        {
+            <div class="demo-gen-error">
+                @_errorMessage
+            </div>
+        }
+
+        @if (_generatedScript is not null && _errorMessage is null)
+        {
+            <div class="demo-gen-preview">
+                <h4>Generated Demo: @_generatedScript.Title</h4>
+                @if (!string.IsNullOrWhiteSpace(_generatedScript.Description))
+                {
+                    <p>@_generatedScript.Description</p>
+                }
+                <p class="demo-gen-step-count">@_generatedScript.Steps.Count steps</p>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+.demo-generation-panel {
+    padding: 20px;
+    background: #f9fafb;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+}
+
+.demo-generation-panel h3 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.demo-hint {
+    margin: 0 0 16px 0;
+    font-size: 13px;
+    color: #6b7280;
+    line-height: 1.4;
+}
+
+.demo-gen-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.demo-prompt-input {
+    padding: 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 14px;
+    min-height: 80px;
+    resize: vertical;
+    line-height: 1.4;
+}
+
+.demo-prompt-input:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.demo-prompt-input:disabled {
+    background: #f3f4f6;
+    color: #9ca3af;
+    cursor: not-allowed;
+}
+
+.demo-gen-controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.demo-gen-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.demo-gen-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.demo-gen-btn-primary {
+    background: #6366f1;
+    color: white;
+}
+
+.demo-gen-btn-primary:hover:not(:disabled) {
+    background: #4f46e5;
+}
+
+.demo-gen-btn-primary:active:not(:disabled) {
+    background: #4338ca;
+}
+
+.demo-gen-btn-success {
+    background: #10b981;
+    color: white;
+}
+
+.demo-gen-btn-success:hover {
+    background: #059669;
+}
+
+.demo-gen-btn-secondary {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+.demo-gen-btn-secondary:hover {
+    background: #d1d5db;
+}
+
+.demo-gen-error {
+    padding: 10px;
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.demo-gen-preview {
+    padding: 12px;
+    background: white;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+}
+
+.demo-gen-preview h4 {
+    margin: 0 0 6px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.demo-gen-preview p {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    color: #4b5563;
+    line-height: 1.4;
+}
+
+.demo-gen-step-count {
+    font-size: 12px;
+    color: #6b7280;
+    margin: 0;
+}
+</style>
+
+@code {
+    private string _prompt = "";
+    private bool _isGenerating = false;
+    private string? _errorMessage;
+    private DemoScriptJson? _generatedScript;
+
+    private async Task GenerateDemo()
+    {
+        if (string.IsNullOrWhiteSpace(_prompt))
+            return;
+
+        _isGenerating = true;
+        _errorMessage = null;
+        _generatedScript = null;
+        StateHasChanged();
+
+        try
+        {
+            var request = new { prompt = _prompt };
+            var response = await Http.PostAsJsonAsync("/api/djelab/demo/generate", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var script = await response.Content.ReadFromJsonAsync<DemoScriptJson>();
+                if (script is not null)
+                {
+                    _generatedScript = script;
+                    _errorMessage = null;
+                }
+                else
+                {
+                    _errorMessage = "Failed to parse generated demo script";
+                }
+            }
+            else
+            {
+                _errorMessage = $"Error: {response.StatusCode}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to generate demo: {ex.Message}";
+        }
+        finally
+        {
+            _isGenerating = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task PlayGeneratedDemo()
+    {
+        if (_generatedScript is not null)
+        {
+            DemoMode.LoadScript(_generatedScript);
+            await DemoMode.StartDemo();
+        }
+    }
+
+    private void ClearGenerated()
+    {
+        _generatedScript = null;
+        _errorMessage = null;
+        _prompt = "";
+        StateHasChanged();
+    }
+
+    private Task OnPromptKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && e.CtrlKey && !_isGenerating && !string.IsNullOrWhiteSpace(_prompt))
+        {
+            return GenerateDemo();
+        }
+        return Task.CompletedTask;
+    }
+}

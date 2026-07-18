@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <NoWarn>$(NoWarn);FS0035</NoWarn>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
@@ -52,6 +53,8 @@
     <Compile Include="ClassroomConnectionManager.fs" />
     <Compile Include="ContentRepository.fs" />
     <Compile Include="DjeLabFilesRepository.fs" />
+    <Compile Include="DemoGenerationRepository.fs" />
+    <Compile Include="DownloadMetricsRepository.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

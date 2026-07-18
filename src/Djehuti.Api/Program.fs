@@ -1,6 +1,7 @@
 open System
 open System.IO
 open System.Net.Http
+open System.Net.WebSockets
 open System.Text.Json
 open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.DataProtection
@@ -1754,6 +1755,25 @@ let main args =
                         |> List.map (fun h -> {| title = h.Title; content = h.Content; similarity = h.Similarity |})
                     Results.Ok(results)
         )
+    ) |> ignore
+
+    // ── DjeLab Demo Generation ─────────────────────────────────────────────
+    // AI-generated demo scripts for creating product walkthrough videos
+    app.MapPost(
+        "/api/djelab/demo/generate",
+        Func<HttpContext, HttpClient, {| prompt: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx httpClient body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    if String.IsNullOrWhiteSpace body.prompt then
+                        return Results.BadRequest({| error = "prompt is required" |})
+                    else
+                        let! result = DemoGenerationRepository.generateDemoScript httpClient body.prompt "djehuti"
+                        match result with
+                        | Error msg -> return Results.BadRequest({| error = msg |})
+                        | Ok script -> return Results.Ok(script)
+            } |> Async.StartAsTask)
     ) |> ignore
 
     // ── Forum: Categories (read=anonymous, write=admin) ───────────────────────
@@ -5897,6 +5917,34 @@ let main args =
                     product = toPublicProduct product
                     releases = ProductReleaseRepository.listForProduct product.Id
                 |}))
+    ) |> ignore
+
+    // Log a download for metrics tracking
+    app.MapPost(
+        "/api/products/{slug}/releases/{version}/log-download",
+        Func<string, string, IResult>(fun slug version ->
+            match ProductRepository.listActive () |> List.tryFind (fun p -> p.Slug = slug) with
+            | None -> Results.NotFound("Product not found")
+            | Some product ->
+                DownloadMetricsRepository.logDownload product.Id version
+                Results.Ok())
+    ) |> ignore
+
+    // Get download metrics for admin dashboard
+    app.MapGet(
+        "/api/admin/products/{productId}/download-metrics",
+        Func<HttpContext, Guid, IResult>(fun ctx productId ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims when not (Permissions.isAdmin claims.Role) -> Results.Forbid()
+            | Some _ ->
+                let stats = DownloadMetricsRepository.getDownloadsByVersion productId
+                let total = DownloadMetricsRepository.getTotalDownloads productId
+                Results.Ok({|
+                    total = total
+                    byVersion = stats
+                |})
+        )
     ) |> ignore
 
     app.MapPost(
