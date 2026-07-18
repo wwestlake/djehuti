@@ -9,9 +9,15 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
+// Single HttpClient for the whole app. BaseAddress only matters for relative-URI
+// calls (TeacherApiClient, AuthCorner, YourLessons -- all same-origin /djehuti/api/...);
+// absolute-URI calls (external LLM providers, Ollama) bypass BaseAddress entirely,
+// so one client serves both. A second, BaseAddress-less registration used to exist
+// here "for external API calls" but since HttpClient ignores BaseAddress for absolute
+// URIs anyway, it was redundant -- and because both registrations were unkeyed, the
+// second one silently won constructor injection everywhere, leaving TeacherApiClient
+// with no BaseAddress and breaking every relative-URL call app-wide.
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
-// Additional HttpClient for external API calls (OpenAI, Anthropic, etc) -- no BaseAddress so it can reach any endpoint
-builder.Services.AddScoped(sp => new HttpClient());
 builder.Services.AddSingleton<AiConfigStore>();
 builder.Services.AddScoped<MultiProviderConfigStore>();
 builder.Services.AddScoped<TeacherApiClient>();
