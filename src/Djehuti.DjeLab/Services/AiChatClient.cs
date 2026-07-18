@@ -34,13 +34,12 @@ public sealed class AiChatClient
 
     // A tool loop that never terminates would hang the chat forever if a
     // model got stuck calling tools back-to-back; this is a real ceiling,
-    // not an expected-case limit. Started at 6 -- found live to be too low
-    // for a model retrying run_simulation against a genuinely confusing
-    // parser error (see Parser.fs's attempt-wrapping fix); raised once that
-    // was fixed, since a model that can actually see its own mistake should
-    // converge within a handful of retries, but the margin is worth keeping
-    // generous rather than fighting this exact failure mode again.
-    private const int MaxToolRounds = 12;
+    // not an expected-case limit. Started at 6, then 12 -- both proved too
+    // low for multi-step tasks that are legitimately several tool calls
+    // deep (inspect a file, bundle a project, validate, run, fix, rerun),
+    // as opposed to a model stuck repeating the same mistake. Raised again
+    // to give those longer flows room to actually finish.
+    private const int MaxToolRounds = 24;
 
     private static readonly object[] Tools =
     [
