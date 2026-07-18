@@ -870,9 +870,10 @@ let main args =
     // Classroom real-time infrastructure
     builder.Services.AddSingleton<ClassroomConnectionManager.ClassroomConnectionManager>() |> ignore
 
-    builder.Services.AddHostedService<HeartbeatWorker.HeartbeatWorker>() |> ignore
-    builder.Services.AddHostedService<GameWorldWorker.GameWorldWorker>() |> ignore
-    builder.Services.AddHostedService<SemanticIngestionWorker.SemanticIngestionWorker>() |> ignore
+    // DISABLED: Background workers causing database bloat
+    // builder.Services.AddHostedService<HeartbeatWorker.HeartbeatWorker>() |> ignore
+    // builder.Services.AddHostedService<GameWorldWorker.GameWorldWorker>() |> ignore
+    // builder.Services.AddHostedService<SemanticIngestionWorker.SemanticIngestionWorker>() |> ignore
 
     let app = builder.Build()
     let protector = app.Services.GetRequiredService<IDataProtectionProvider>()
@@ -933,7 +934,7 @@ let main args =
                     ctx.Response.StatusCode <- 400
                     return ()
                 else
-                    let classroomId = ctx.GetRouteValue("classroomId") |> string |> Guid.Parse
+                    let classroomId = ctx.Request.RouteValues.["classroomId"] |> string |> Guid.Parse
 
                     // Get auth from query parameter or header
                     let token =
@@ -980,7 +981,7 @@ let main args =
                                 do! connManager.BroadcastAsync classroomId
                                     (ClassroomConnectionManager.WebSocketMessage.UserJoined {
                                         userId = userId
-                                        userName = claims.UserName
+                                        userName = claims.DisplayName |> Option.defaultValue claims.Email
                                         role = role
                                     })
 
@@ -1006,7 +1007,7 @@ let main args =
                                                     let content = root.GetProperty("content").GetString()
                                                     let chatMsg = ClassroomConnectionManager.WebSocketMessage.ChatMessage {
                                                         senderId = userId
-                                                        senderName = claims.UserName
+                                                        senderName = claims.DisplayName |> Option.defaultValue claims.Email
                                                         content = content
                                                         timestamp = DateTimeOffset.UtcNow
                                                     }
