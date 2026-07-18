@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import type { ReactNode } from 'react'
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import './App.css'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -46,6 +47,40 @@ type NavProps = {
   onOpenAchievements: () => void
 }
 
+// Click-to-open dropdown on desktop, plain expandable section in the mobile
+// drawer (same markup works for both -- the drawer's own vertical flow
+// makes an absolutely-positioned panel unnecessary there; only the CSS
+// under .nav-desktop switches it to a floating panel).
+function NavGroup({ label, children, onNavigate }: { label: string; children: ReactNode; onNavigate: () => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [open])
+
+  return (
+    <div className={`nav-group${open ? ' open' : ''}`} ref={ref}>
+      <button
+        type="button"
+        className="nav-community-link nav-group-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+      >
+        {label} <span className="nav-group-caret">▾</span>
+      </button>
+      <div className="nav-group-panel" onClick={() => { setOpen(false); onNavigate() }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
 function Nav({ onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -67,22 +102,26 @@ function Nav({ onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
       ) : (
         <button className="nav-section-back breadcrumb-link" onClick={() => go('/')}>← Home</button>
       )}
-      <a className="nav-community-link" href="/learn/">Learn</a>
       <button className={`nav-community-link${active('/announcements') ? ' active' : ''}`} onClick={() => go('/announcements')}>Announcements</button>
-      <button className={`nav-community-link${active('/forum') ? ' active' : ''}`} onClick={() => go('/forum')}>Forum</button>
-      <button className={`nav-community-link${active('/blog') ? ' active' : ''}`} onClick={() => go('/blog')}>Blog</button>
-      <button className={`nav-community-link${active('/papers') ? ' active' : ''}`} onClick={() => go('/papers')}>Papers</button>
+      <NavGroup label="Tools" onNavigate={() => setDrawerOpen(false)}>
+        <a className="nav-community-link" href="/learn/">Learn</a>
+        <button className={`nav-community-link${active('/papers') ? ' active' : ''}`} onClick={() => go('/papers')}>Papers</button>
+        <button className={`nav-community-link${active('/downloads') ? ' active' : ''}`} onClick={() => go('/downloads')}>Downloads</button>
+        {user?.roles?.includes('system:engineer') && (
+          <a className="nav-community-link" href="/math/">DjeLab</a>
+        )}
+      </NavGroup>
+      <NavGroup label="Social" onNavigate={() => setDrawerOpen(false)}>
+        <button className={`nav-community-link${active('/forum') ? ' active' : ''}`} onClick={() => go('/forum')}>Forum</button>
+        <button className={`nav-community-link${active('/blog') ? ' active' : ''}`} onClick={() => go('/blog')}>Blog</button>
+        <a className="nav-community-link" href="/mud/">MUD</a>
+      </NavGroup>
       <button className={`nav-community-link${active('/sponsors') ? ' active' : ''}`} onClick={() => go('/sponsors')}>Sponsors</button>
-      <button className={`nav-community-link${active('/downloads') ? ' active' : ''}`} onClick={() => go('/downloads')}>Downloads</button>
-      <a className="nav-community-link" href="/mud/">MUD</a>
       {user && (
         <button className={`nav-community-link${active('/profile') ? ' active' : ''}`} onClick={() => go('/profile')}>Profile</button>
       )}
       {user?.role === 'admin' && (
         <button className={`nav-community-link${active('/admin') ? ' active' : ''}`} onClick={() => go('/admin')}>Admin</button>
-      )}
-      {user?.roles?.includes('system:engineer') && (
-        <a className="nav-community-link" href="/math/">DjeLab</a>
       )}
       <a className="nav-cta" href="/djehuti/" onClick={() => setDrawerOpen(false)}>Open Djehuti ↗</a>
     </>
