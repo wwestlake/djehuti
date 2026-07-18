@@ -1761,7 +1761,7 @@ let main args =
     // AI-generated demo scripts for creating product walkthrough videos
     app.MapPost(
         "/api/djelab/demo/generate",
-        Func<HttpContext, HttpClient, {| prompt: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx httpClient body ->
+        Func<HttpContext, {| prompt: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
             async {
                 match tryGetAuthClaims ctx with
                 | None -> return Results.Unauthorized()
@@ -1769,6 +1769,7 @@ let main args =
                     if String.IsNullOrWhiteSpace body.prompt then
                         return Results.BadRequest({| error = "prompt is required" |})
                     else
+                        use httpClient = new HttpClient()
                         let! result = DemoGenerationRepository.generateDemoScript httpClient body.prompt "djehuti"
                         match result with
                         | Error msg -> return Results.BadRequest({| error = msg |})
