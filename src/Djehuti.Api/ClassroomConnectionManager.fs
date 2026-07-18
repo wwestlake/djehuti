@@ -103,7 +103,7 @@ type ClassroomConnectionManager() =
         | true, classroomConnections ->
             match classroomConnections.TryGetValue(userId) with
             | true, user -> Some user
-            | false -> None
+            | false, _ -> None
         | false, _ -> None
 
     // Get all connections in a classroom
