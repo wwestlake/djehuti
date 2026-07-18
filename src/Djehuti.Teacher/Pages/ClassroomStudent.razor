@@ -330,7 +330,7 @@
 
                 if (!string.IsNullOrWhiteSpace(apiKey) && !string.IsNullOrWhiteSpace(model))
                 {
-                    reply = await ApiLlm.ChatAsync(messages, provider, apiKey, model);
+                    reply = await ApiLlm.ChatAsync(messages, provider.ToString().ToLowerInvariant(), apiKey, model);
                 }
             }
 

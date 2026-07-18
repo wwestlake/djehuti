@@ -5,7 +5,7 @@ public class HelperSystem
     private readonly List<ICondition> _conditions;
 
     public HelperSystem(
-        WebLlmInterop webLlm,
+        WebLlmClient webLlm,
         AiConfigStore configStore,
         HttpClient http)
     {
