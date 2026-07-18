@@ -27,27 +27,6 @@ public sealed class LessonPlan
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
-public sealed class LearningTrack
-{
-    public Guid Id { get; set; }
-    public string Name { get; set; } = "";
-    public string? Description { get; set; }
-}
-
-public sealed class LearningTrackDto
-{
-    public Guid Id { get; set; }
-    public string Name { get; set; } = "";
-    public string? Description { get; set; }
-}
-
-public sealed class UserTrackProgressDto
-{
-    public Guid UserId { get; set; }
-    public Guid TrackId { get; set; }
-    public int Progress { get; set; }
-}
-
 // Calls Djehuti.Api's /api/teacher/* endpoints (Program.fs, backed by
 // LessonPlanRepository.fs). Auth rides the same djehuti_auth cookie every
 // other first-party app on the domain uses -- no separate login here.
@@ -288,50 +267,50 @@ public sealed class TeacherApiClient
         }
         catch { return false; }
     }
-}
 
-public sealed class LearningTrack
-{
-    public Guid Id { get; set; }
-    public string Title { get; set; } = "";
-    public string Slug { get; set; } = "";
-    public string? Description { get; set; }
-    public string? Subject { get; set; }
-    public string Difficulty { get; set; } = "beginner";
-    public int? EstimatedHours { get; set; }
-    public int Position { get; set; }
-    public bool Published { get; set; }
-    public DateTimeOffset CreatedAt { get; set; }
-    public DateTimeOffset UpdatedAt { get; set; }
-}
+    public sealed class LearningTrack
+    {
+        public Guid Id { get; set; }
+        public string Title { get; set; } = "";
+        public string Slug { get; set; } = "";
+        public string? Description { get; set; }
+        public string? Subject { get; set; }
+        public string Difficulty { get; set; } = "beginner";
+        public int? EstimatedHours { get; set; }
+        public int Position { get; set; }
+        public bool Published { get; set; }
+        public DateTimeOffset CreatedAt { get; set; }
+        public DateTimeOffset UpdatedAt { get; set; }
+    }
 
-public sealed class LearningTrackDto
-{
-    public Guid Id { get; set; }
-    public string Title { get; set; } = "";
-    public string Slug { get; set; } = "";
-    public string? Description { get; set; }
-    public string? Subject { get; set; }
-    public string Difficulty { get; set; } = "beginner";
-    public int? EstimatedHours { get; set; }
-    public bool Published { get; set; }
-}
+    public sealed class LearningTrackDto
+    {
+        public Guid Id { get; set; }
+        public string Title { get; set; } = "";
+        public string Slug { get; set; } = "";
+        public string? Description { get; set; }
+        public string? Subject { get; set; }
+        public string Difficulty { get; set; } = "beginner";
+        public int? EstimatedHours { get; set; }
+        public bool Published { get; set; }
+    }
 
-public sealed class LearningTrackWithLessons
-{
-    public LearningTrackDto Track { get; set; } = new();
-    public List<(Guid LessonId, int Sequence)> Lessons { get; set; } = new();
-}
+    public sealed class LearningTrackWithLessons
+    {
+        public LearningTrackDto Track { get; set; } = new();
+        public List<(Guid LessonId, int Sequence)> Lessons { get; set; } = new();
+    }
 
-public sealed class UserTrackProgressDto
-{
-    public Guid Id { get; set; }
-    public Guid UserId { get; set; }
-    public Guid TrackId { get; set; }
-    public int LessonsCompleted { get; set; }
-    public int TotalLessons { get; set; }
-    public int CompletionPercent { get; set; }
-    public DateTimeOffset StartedAt { get; set; }
-    public DateTimeOffset? LastAccessedAt { get; set; }
-    public DateTimeOffset? CompletedAt { get; set; }
+    public sealed class UserTrackProgressDto
+    {
+        public Guid Id { get; set; }
+        public Guid UserId { get; set; }
+        public Guid TrackId { get; set; }
+        public int LessonsCompleted { get; set; }
+        public int TotalLessons { get; set; }
+        public int CompletionPercent { get; set; }
+        public DateTimeOffset StartedAt { get; set; }
+        public DateTimeOffset? LastAccessedAt { get; set; }
+        public DateTimeOffset? CompletedAt { get; set; }
+    }
 }
