@@ -1,11 +1,12 @@
 /// Parses DjeLab DSL source text into an `Ast.Expr`.
 ///
 /// Grammar (informal):
-///   expr      := let | letrec | if | lambda | orExpr
+///   expr      := let | letrec | if | lambda | pipeExpr
 ///   let       := "let" ident "=" expr "in" expr
 ///   letrec    := "let" "rec" ident ident* "=" expr "in" expr
 ///   if        := "if" expr "then" expr "else" expr
 ///   lambda    := "fun" ident+ "->" expr
+///   pipeExpr  := orExpr ("|>" orExpr)*          -- left-associative
 ///   orExpr    := andExpr ("||" andExpr)*
 ///   andExpr   := cmpExpr ("&&" cmpExpr)*
 ///   cmpExpr   := consExpr (("==" | "!=" | "<=" | ">=" | "<" | ">") consExpr)?
@@ -15,7 +16,8 @@
 ///   powExpr   := unary ("^" powExpr)?          -- right-associative
 ///   unary     := ("-" | "not") unary | postfix
 ///   postfix   := atom ("(" args ")" | "[" expr "]")*
-///   atom      := number | bool | ident | "(" expr ")" | "[" args "]"
+///   atom      := number | bool | ident | "(" exprList ")" | "[" args "]"
+///   exprList  := ε | expr | expr "," expr+
 module Djehuti.DjeLab.Dsl.Parser
 
 open FParsec
@@ -59,8 +61,13 @@ let private argList: P<Expr list> =
 let private vectorLit: P<Expr> =
     between (strWs "[") (strWs "]") argList |>> VectorLit
 
-let private parenOrGroup: P<Expr> =
-    between (strWs "(") (strWs ")") exprRef
+/// Parenthesized expr or tuple: (a), (a, b), (a, b, c). Tuples have 2+ elements.
+let private parenOrTuple: P<Expr> =
+    between (strWs "(") (strWs ")")
+        (attempt (sepBy1 exprRef (strWs ","))
+         |>> function
+             | [ single ] -> single  // (a) is just a, not a 1-tuple
+             | many -> TupleLit many)
 
 let private atom: P<Expr> =
     choice
@@ -68,7 +75,7 @@ let private atom: P<Expr> =
           stringLit
           boolLit
           vectorLit
-          parenOrGroup
+          parenOrTuple
           identifier |>> Var ]
 
 /// Postfix: call `f(a, b)` and index `v[i]`, left-associative and chainable
@@ -136,6 +143,9 @@ let private andExpr: P<Expr> =
 let private orExpr: P<Expr> =
     chainl1 andExpr (strWs "||" >>% fun l r -> BinaryOp(Or, l, r))
 
+let private pipeExpr: P<Expr> =
+    chainl1 orExpr (strWs "|>" >>% fun l r -> Pipe(l, r))
+
 let private letExpr: P<Expr> =
     strWs "let"
     >>. opt (strWs "rec")
@@ -177,7 +187,7 @@ do
             [ letExpr
               ifExpr
               lambdaExpr
-              orExpr ]
+              pipeExpr ]
 
 let private program: P<Expr> = ws >>. exprRef .>> ws .>> eof
 

@@ -19,6 +19,8 @@ type Value =
     | VBool of bool
     | VString of string
     | VVector of Value[]
+    /// Tuple: fixed-width, distinct from vectors. Used for multi-return values.
+    | VTuple of Value[]
     /// The environment is a `ref` (not a plain `Env`) so `LetRec` can tie the
     /// recursive knot: it creates the closure, then mutates this same cell
     /// to include the closure's own name. `Map` itself is immutable --
@@ -39,6 +41,7 @@ let rec private describe (value: Value) : string =
     | VBool b -> string b
     | VString s -> $"\"{s}\""
     | VVector items -> "[" + String.Join(", ", items |> Array.map describe) + "]"
+    | VTuple items -> "(" + String.Join(", ", items |> Array.map describe) + ")"
     | VClosure(parameters, _, _) -> $"""<function/{parameters.Length}>"""
     | VBuiltin(name, _, _) -> $"<builtin:{name}>"
     | VRender(renderType, _) -> $"<render:{renderType}>"
@@ -49,6 +52,7 @@ and private valueToString (value: Value) : string =
     | VBool b -> string b
     | VString s -> s
     | VVector items -> "[" + String.Join(", ", items |> Array.map valueToString) + "]"
+    | VTuple items -> "(" + String.Join(", ", items |> Array.map valueToString) + ")"
     | VClosure(parameters, _, _) -> $"""<function/{parameters.Length}>"""
     | VBuiltin(name, _, _) -> $"<builtin:{name}>"
     | VRender(renderType, _) -> $"<render:{renderType}>"
@@ -204,6 +208,45 @@ let makeBuiltinEnv (onEmit: (Value -> unit) option) (parameters: Map<string, Val
                           | Error e -> Error e
                   loop 0 0.0)
           | args -> Error $"sum: expected 1 argument, got {args.Length}")
+      "exists", VBuiltin("exists", 2, fun _ -> Error "exists: handled by applyCallable")
+      "forall", VBuiltin("forall", 2, fun _ -> Error "forall: handled by applyCallable")
+      "find", VBuiltin("find", 2, fun _ -> Error "find: handled by applyCallable")
+      "partition", VBuiltin("partition", 2, fun _ -> Error "partition: handled by applyCallable")
+      "zip", VBuiltin("zip", 2, function
+          | [ a; b ] ->
+              match asVector "zip" a, asVector "zip" b with
+              | Ok xs, Ok ys ->
+                  let len = min xs.Length ys.Length
+                  let pairs = Array.init len (fun i -> VTuple([| xs.[i]; ys.[i] |]))
+                  Ok(VVector pairs)
+              | Error e, _ | _, Error e -> Error e
+          | args -> Error $"zip: expected 2 arguments, got {args.Length}")
+      "chars", VBuiltin("chars", 1, function
+          | [ s ] ->
+              asString "chars" s
+              |> Result.map (fun str -> VVector(str.ToCharArray() |> Array.map (fun c -> VString(string c))))
+          | args -> Error $"chars: expected 1 argument, got {args.Length}")
+      "length", VBuiltin("length", 1, function
+          | [ s ] ->
+              asString "length" s
+              |> Result.map (fun str -> VNumber(float str.Length))
+          | args -> Error $"length: expected 1 argument, got {args.Length}")
+      "split", VBuiltin("split", 2, function
+          | [ s; sep ] ->
+              match asString "split" s, asString "split" sep with
+              | Ok str, Ok separator ->
+                  let parts = str.Split(separator) |> Array.map (fun part -> VString part)
+                  Ok(VVector parts)
+              | Error e, _ | _, Error e -> Error e
+          | args -> Error $"split: expected 2 arguments, got {args.Length}")
+      "join", VBuiltin("join", 2, function
+          | [ v; sep ] ->
+              match asVector "join" v, asString "join" sep with
+              | Ok items, Ok separator ->
+                  let strs = items |> Array.map valueToString
+                  Ok(VString(String.concat separator strs))
+              | Error e, _ | _, Error e -> Error e
+          | args -> Error $"join: expected 2 arguments, got {args.Length}")
       // map/filter/fold are registered here so lookup succeeds, but their
       // real implementations live in `applyCallable` -- they call back into
       // the evaluator to apply a user's closure per element, which a plain
@@ -285,15 +328,29 @@ and private evalWith (env: Env) (expr: Expr) : Step =
     | VectorLit items ->
         evalList env items [] (fun values -> Done(Ok(VVector(List.toArray values))))
 
+    | TupleLit items ->
+        evalList env items [] (fun values -> Done(Ok(VTuple(List.toArray values))))
+
+    | Pipe(left, right) ->
+        // `left |> right` means `right(left)` — evaluate left, then apply right (as a function) to it
+        bindStep (evalWith env left) (fun leftValue ->
+            bindStep (evalWith env right) (fun rightFn ->
+                applyCallable rightFn [ leftValue ]))
+
     | Index(vecExpr, idxExpr) ->
         bindStep (evalWith env vecExpr) (fun vecVal ->
             bindStep (evalWith env idxExpr) (fun idxVal ->
-                match asVector "index" vecVal, asNumber "index" idxVal with
-                | Ok items, Ok idx ->
+                match vecVal, asNumber "index" idxVal with
+                | VVector items, Ok idx ->
                     let i = int idx
                     if i >= 0 && i < items.Length then Done(Ok items.[i])
                     else Done(Error $"Index {i} out of range (vector has {items.Length} elements)")
-                | Error e, _ | _, Error e -> Done(Error e)))
+                | VTuple items, Ok idx ->
+                    let i = int idx
+                    if i >= 0 && i < items.Length then Done(Ok items.[i])
+                    else Done(Error $"Index {i} out of range (tuple has {items.Length} elements)")
+                | other, Error e -> Done(Error e)
+                | other, _ -> Done(Error $"Cannot index {describe other} — it's not a vector or tuple")))
 
     | UnaryOp(Neg, e) ->
         bindStep (evalWith env e) (fun value ->
@@ -405,6 +462,56 @@ and private applyCallable (callee: Value) (args: Value list) : Step =
               | Error e -> Done(Error e)
               | Ok items -> foldVector fn args.[1] items)
          | a, _ -> Done(Error $"fold: expected a function and a vector (plus an initial value), got {describe a} and {describe args.[2]}"))
+    // exists(fn, vector) — true if any element matches predicate
+    | VBuiltin("exists", 2, _) when args.Length = 2 ->
+        (match sortVectorAndFn "exists" args.[0] args.[1] with
+         | Error e -> Done(Error e)
+         | Ok(items, fn) ->
+             let rec loop i =
+                 if i >= items.Length then Done(Ok(VBool false))
+                 else bindStep (applyCallable fn [ items.[i] ]) (function
+                     | VBool true -> Done(Ok(VBool true))
+                     | VBool false -> More(fun () -> loop (i + 1))
+                     | other -> Done(Error $"exists: predicate must return bool, got {describe other}"))
+             loop 0)
+    // forall(fn, vector) — true if all elements match predicate
+    | VBuiltin("forall", 2, _) when args.Length = 2 ->
+        (match sortVectorAndFn "forall" args.[0] args.[1] with
+         | Error e -> Done(Error e)
+         | Ok(items, fn) ->
+             let rec loop i =
+                 if i >= items.Length then Done(Ok(VBool true))
+                 else bindStep (applyCallable fn [ items.[i] ]) (function
+                     | VBool false -> Done(Ok(VBool false))
+                     | VBool true -> More(fun () -> loop (i + 1))
+                     | other -> Done(Error $"forall: predicate must return bool, got {describe other}"))
+             loop 0)
+    // find(fn, vector) — returns first matching element or error
+    | VBuiltin("find", 2, _) when args.Length = 2 ->
+        (match sortVectorAndFn "find" args.[0] args.[1] with
+         | Error e -> Done(Error e)
+         | Ok(items, fn) ->
+             let rec loop i =
+                 if i >= items.Length then Done(Error "find: no element matched the predicate")
+                 else bindStep (applyCallable fn [ items.[i] ]) (function
+                     | VBool true -> Done(Ok items.[i])
+                     | VBool false -> More(fun () -> loop (i + 1))
+                     | other -> Done(Error $"find: predicate must return bool, got {describe other}"))
+             loop 0)
+    // partition(fn, vector) — returns ([true-elems], [false-elems]) as a 2-tuple
+    | VBuiltin("partition", 2, _) when args.Length = 2 ->
+        (match sortVectorAndFn "partition" args.[0] args.[1] with
+         | Error e -> Done(Error e)
+         | Ok(items, fn) ->
+             let rec loop i trues falses =
+                 if i >= items.Length then
+                     Done(Ok(VTuple([| VVector(List.rev trues |> List.toArray); VVector(List.rev falses |> List.toArray) |])))
+                 else
+                     bindStep (applyCallable fn [ items.[i] ]) (function
+                         | VBool true -> More(fun () -> loop (i + 1) (items.[i] :: trues) falses)
+                         | VBool false -> More(fun () -> loop (i + 1) trues (items.[i] :: falses))
+                         | other -> Done(Error $"partition: predicate must return bool, got {describe other}"))
+             loop 0 [] [])
     | VBuiltin(name, arity, fn) ->
         if args.Length <> arity then
             Done(Error $"{name}: expected {arity} argument(s), got {args.Length}")
@@ -441,6 +548,19 @@ and private valueEquals (a: Value) (b: Value) : Result<bool, string> =
     | VNumber x, VNumber y -> Ok(x = y)
     | VBool x, VBool y -> Ok(x = y)
     | VVector xs, VVector ys ->
+        if xs.Length <> ys.Length then
+            Ok false
+        else
+            let rec loop i =
+                if i >= xs.Length then
+                    Ok true
+                else
+                    match valueEquals xs.[i] ys.[i] with
+                    | Ok true -> loop (i + 1)
+                    | Ok false -> Ok false
+                    | Error e -> Error e
+            loop 0
+    | VTuple xs, VTuple ys ->
         if xs.Length <> ys.Length then
             Ok false
         else
@@ -570,6 +690,16 @@ let rec toJson (value: Value) : Result<string, string> =
     | VBool b -> Ok(if b then "true" else "false")
     | VString s -> Ok(JsonSerializer.Serialize s)  // Use JsonSerializer to properly escape string
     | VVector items ->
+        let rec collect acc =
+            function
+            | [] -> Ok(List.rev acc)
+            | x :: rest ->
+                match toJson x with
+                | Ok j -> collect (j :: acc) rest
+                | Error e -> Error e
+        items |> Array.toList |> collect [] |> Result.map (fun parts -> "[" + String.Join(",", parts) + "]")
+    | VTuple items ->
+        // Tuples serialize as arrays in JSON (same as vectors, distinction is semantic only)
         let rec collect acc =
             function
             | [] -> Ok(List.rev acc)
