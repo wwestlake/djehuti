@@ -310,6 +310,10 @@ a {
     width: 100%;
 }
 
+.arch-row-active td {
+    background: rgba(79, 140, 255, 0.1);
+}
+
 #blazor-error-ui {
     background: lightyellow;
     bottom: 0;

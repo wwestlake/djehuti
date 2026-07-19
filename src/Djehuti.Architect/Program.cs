@@ -10,5 +10,6 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 builder.Services.AddScoped<AuthState>();
 builder.Services.AddScoped<ArchitectApiClient>();
+builder.Services.AddScoped<LocalProjectStore>();
 
 await builder.Build().RunAsync();
