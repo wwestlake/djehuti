@@ -332,34 +332,62 @@ public sealed class AiChatClient
 
     private async Task<string> SendAsync(string apiKey, string model, List<object> input, string systemPrompt, string? additionalInstructions, CancellationToken ct)
     {
-        var body = new
-        {
-            model,
-            instructions = string.IsNullOrWhiteSpace(additionalInstructions)
-                ? systemPrompt
-                : $"{systemPrompt}\n\n{additionalInstructions}",
-            input,
-            tools = Tools,
-            store = false
-        };
+        const int maxRetries = 3;
+        int retryCount = 0;
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint)
+        while (true)
         {
-            Content = JsonContent.Create(body)
-        };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            try
+            {
+                var body = new
+                {
+                    model,
+                    instructions = string.IsNullOrWhiteSpace(additionalInstructions)
+                        ? systemPrompt
+                        : $"{systemPrompt}\n\n{additionalInstructions}",
+                    input,
+                    tools = Tools,
+                    store = false
+                };
 
-        using var response = await _http.SendAsync(request, ct);
-        var responseText = await response.Content.ReadAsStringAsync(ct);
+                using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint)
+                {
+                    Content = JsonContent.Create(body)
+                };
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var message = TryExtractErrorMessage(responseText)
-                ?? $"OpenAI request failed with HTTP {(int)response.StatusCode}.";
-            throw new InvalidOperationException(message);
+                using var response = await _http.SendAsync(request, ct);
+                var responseText = await response.Content.ReadAsStringAsync(ct);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var message = TryExtractErrorMessage(responseText)
+                        ?? $"OpenAI request failed with HTTP {(int)response.StatusCode}.";
+
+                    // Detect rate limit error (429) and retry with backoff
+                    if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests && retryCount < maxRetries)
+                    {
+                        retryCount++;
+                        var backoffMs = (int)(Math.Pow(2, retryCount) * 1000); // exponential backoff: 2s, 4s, 8s
+                        await Task.Delay(backoffMs, ct);
+                        continue; // retry the request
+                    }
+
+                    throw new InvalidOperationException(message);
+                }
+
+                return responseText;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (InvalidOperationException) when (retryCount > 0)
+            {
+                // Already retried, don't retry again on non-rate-limit errors
+                throw;
+            }
         }
-
-        return responseText;
     }
 
     private sealed record FunctionCall(string Id, string CallId, string Name, string ArgumentsJson);
