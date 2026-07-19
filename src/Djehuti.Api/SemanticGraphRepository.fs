@@ -5,6 +5,7 @@ open System.Data.Common
 open System.Globalization
 open System.Security.Cryptography
 open System.Text
+open System.Text.Json
 open Djehuti.Core
 open Npgsql
 open Database
@@ -2788,7 +2789,7 @@ let selectSemanticEvidence (question: string) (sourceType: string option) (limit
     // covers questions whose tokens miss the co-occurrence graph; it is
     // empty when pgvector is unavailable, leaving graph-only behavior.
     let graphHits = searchChunks question sourceType None limit
-    let vectorHits = vectorSearchChunks question sourceType limit
+    let vectorHits = vectorSearchChunks question sourceType None limit
     blendEvidenceHits graphHits vectorHits limit
     |> List.mapi (fun index hit ->
         { Label = $"semantic {index + 1} · {semanticEvidenceLabel hit}"
