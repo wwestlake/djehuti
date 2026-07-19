@@ -312,3 +312,9 @@ let ``head and tail of empty vector report errors`` () =
         match run expr with
         | Error e -> Assert.Contains("empty", e)
         | Ok v -> failwith $"expected an error, got {v}"
+
+[<Fact>]
+let ``chained indexing (2D vectors)`` () =
+    // Matrix: [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+    // Access element at row 1, col 2 (should be 6)
+    Assert.Equal(6.0, evalNumber "let m = [[1, 2, 3], [4, 5, 6], [7, 8, 9]] in m[1][2]")

@@ -1915,6 +1915,7 @@ let private readChunkHit (reader: DbDataReader) (queryEmbedding: float32 array) 
 let private searchChunksDetailed
     (query: string)
     (sourceType: string option)
+    (userId: Guid option)
     (limit: int)
     (recovery: SemanticRecoveryStatus) =
     let tokens =
@@ -1961,6 +1962,7 @@ let private searchChunksDetailed
                    LEFT JOIN neighbor_nodes nn ON nn.node_id = scn.node_id
                    WHERE c.embedding_values IS NOT NULL
                      AND (@sourceType::text IS NULL OR d.source_type = @sourceType::text)
+                     AND (@userId::uuid IS NULL OR d.user_id = @userId::uuid)
                      AND (qn.id IS NOT NULL OR nn.node_id IS NOT NULL)
                    GROUP BY d.source_type, d.source_key, d.title, d.updated_at, c.chunk_position, c.content, c.embedding_values
                    ORDER BY matched_token_count DESC, matched_weight DESC, d.updated_at DESC, c.chunk_position ASC
@@ -1968,6 +1970,7 @@ let private searchChunksDetailed
                 conn)
             cmd.Parameters.AddWithValue("tokens", tokens |> List.toArray) |> ignore
             cmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+            cmd.Parameters.AddWithValue("userId", userId |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
             cmd.Parameters.AddWithValue("candidateLimit", Math.Max(limit * 10, 50)) |> ignore
 
             use reader = cmd.ExecuteReader()
@@ -1990,12 +1993,14 @@ let private searchChunksDetailed
                     AND (cardinality(@tokens) = 0 OR t.token = ANY(@tokens))
                    WHERE c.embedding_values IS NOT NULL
                      AND (@sourceType::text IS NULL OR d.source_type = @sourceType::text)
+                     AND (@userId::uuid IS NULL OR d.user_id = @userId::uuid)
                    GROUP BY d.source_type, d.source_key, d.title, d.updated_at, c.chunk_position, c.content, c.embedding_values
                    ORDER BY matched_token_count DESC, matched_weight DESC, d.updated_at DESC, c.chunk_position ASC
                    LIMIT @candidateLimit""",
                 conn)
             fallbackCmd.Parameters.AddWithValue("tokens", tokens |> List.toArray) |> ignore
             fallbackCmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+            fallbackCmd.Parameters.AddWithValue("userId", userId |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
             fallbackCmd.Parameters.AddWithValue("candidateLimit", Math.Max(limit * 10, 50)) |> ignore
 
             use fallbackReader = fallbackCmd.ExecuteReader()
@@ -2020,6 +2025,7 @@ let private searchChunksDetailed
                JOIN semantic_documents d ON d.id = c.document_id
                WHERE c.embedding IS NOT NULL
                  AND (@sourceType::text IS NULL OR d.source_type = @sourceType::text)
+                 AND (@userId::uuid IS NULL OR d.user_id = @userId::uuid)
                ORDER BY c.embedding <=> CAST(@queryVector AS vector) ASC
                LIMIT @candidateLimit"""
         else
@@ -2035,10 +2041,12 @@ let private searchChunksDetailed
                JOIN semantic_documents d ON d.id = c.document_id
                WHERE c.embedding_values IS NOT NULL
                  AND (@sourceType::text IS NULL OR d.source_type = @sourceType::text)
+                 AND (@userId::uuid IS NULL OR d.user_id = @userId::uuid)
                ORDER BY c.embedded_at DESC NULLS LAST, d.updated_at DESC, c.chunk_position ASC
                LIMIT @candidateLimit"""
     use isolatedCmd = new NpgsqlCommand(isolatedSql, conn)
     isolatedCmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+    isolatedCmd.Parameters.AddWithValue("userId", userId |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
     isolatedCmd.Parameters.AddWithValue("candidateLimit", isolatedCandidateLimit) |> ignore
     if pgvectorAvailable.Value then
         isolatedCmd.Parameters.AddWithValue("queryVector", vectorLiteral queryEmbedding) |> ignore
@@ -2072,7 +2080,7 @@ let private searchChunksDetailed
 
     tokens, queryEmbedding, hits
 
-let searchChunks (query: string) (sourceType: string option) (limit: int) =
+let searchChunks (query: string) (sourceType: string option) (userId: Guid option) (limit: int) =
     let stableRecovery =
         { Triggered = false
           Reason = "stable primary path"
@@ -2080,14 +2088,14 @@ let searchChunks (query: string) (sourceType: string option) (limit: int) =
           CandidateLimit = Math.Max(limit * 8, 40)
           ResultLimit = Math.Max(limit / 2, 3)
           TriggerScore = 0.0 }
-    let _, _, hits = searchChunksDetailed query sourceType limit stableRecovery
+    let _, _, hits = searchChunksDetailed query sourceType userId limit stableRecovery
     hits
 
 // Pure vector nearest-neighbor channel over the HNSW index. Unlike
 // searchChunksDetailed this ignores the token co-occurrence graph entirely,
 // so it still surfaces evidence when a query's tokens miss the graph.
 // Returns [] when pgvector is unavailable — callers blend, never depend.
-let vectorSearchChunks (query: string) (sourceType: string option) (limit: int) : SemanticChunkHit list =
+let vectorSearchChunks (query: string) (sourceType: string option) (userId: Guid option) (limit: int) : SemanticChunkHit list =
     if not pgvectorAvailable.Value then
         []
     else
@@ -2106,10 +2114,12 @@ let vectorSearchChunks (query: string) (sourceType: string option) (limit: int) 
                JOIN semantic_documents d ON d.id = c.document_id
                WHERE c.embedding IS NOT NULL
                  AND (@sourceType::text IS NULL OR d.source_type = @sourceType::text)
+                 AND (@userId::uuid IS NULL OR d.user_id = @userId::uuid)
                ORDER BY c.embedding <=> CAST(@queryVector AS vector) ASC
                LIMIT @limit""",
             conn)
         cmd.Parameters.AddWithValue("sourceType", sourceType |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
+        cmd.Parameters.AddWithValue("userId", userId |> Option.map box |> Option.defaultValue (box DBNull.Value)) |> ignore
         cmd.Parameters.AddWithValue("queryVector", vectorLiteral queryEmbedding) |> ignore
         cmd.Parameters.AddWithValue("limit", Math.Max(limit, 1)) |> ignore
 
@@ -2453,7 +2463,7 @@ let executeTrackedSearch
                 let curvature = summarizeCurvatureFromEmbeddings recentEmbeddings queryEmbedding
                 let drift = driftFromPreviousEmbedding previousEmbedding queryEmbedding
                 let recovery = summarizeRecoveryStatus limit drift curvature
-                let tokens, _, initialHits = searchChunksDetailed query sourceType limit recovery
+                let tokens, _, initialHits = searchChunksDetailed query sourceType None limit recovery
                 let hits = applyCurvatureWeighting curvature initialHits
                 let metrics = summarizeSemanticQueryTurn tokens hits previousEmbedding queryEmbedding
                 let insertedTurn = insertQueryTurn conn txn sessionIdValue nextTurnIndex query sourceType queryEmbedding metrics
@@ -2473,7 +2483,7 @@ let executeTrackedSearch
                 let curvature = summarizeCurvatureFromEmbeddings recentEmbeddings queryEmbedding
                 let drift = driftFromPreviousEmbedding previousEmbedding queryEmbedding
                 let recovery = summarizeRecoveryStatus limit drift curvature
-                let tokens, _, initialHits = searchChunksDetailed query sourceType limit recovery
+                let tokens, _, initialHits = searchChunksDetailed query sourceType None limit recovery
                 let hits = applyCurvatureWeighting curvature initialHits
                 let metrics = summarizeSemanticQueryTurn tokens hits previousEmbedding queryEmbedding
                 let previewTurn =
@@ -2590,12 +2600,12 @@ let compareSearchModes
         (querySourceType: string option)
         (previousEmbedding: float32 array option)
         (recentEmbeddings: float32 array list) =
-        let baselineHits = searchChunks queryText querySourceType limit
+        let baselineHits = searchChunks queryText querySourceType None limit
         let queryEmbedding, _ = SemanticEmbeddings.embed queryText
         let curvature = summarizeCurvatureFromEmbeddings recentEmbeddings queryEmbedding
         let drift = driftFromPreviousEmbedding previousEmbedding queryEmbedding
         let recovery = summarizeRecoveryStatus limit drift curvature
-        let _, _, initialHits = searchChunksDetailed queryText querySourceType limit recovery
+        let _, _, initialHits = searchChunksDetailed queryText querySourceType None limit recovery
         let trajectoryHits =
             applyCurvatureWeighting curvature initialHits
             |> List.truncate limit
@@ -2668,12 +2678,12 @@ let evaluateSearchSession
         (querySourceType: string option)
         (previousEmbedding: float32 array option)
         (recentEmbeddings: float32 array list) =
-        let baselineHits = searchChunks queryText querySourceType limit
+        let baselineHits = searchChunks queryText querySourceType None limit
         let queryEmbedding, _ = SemanticEmbeddings.embed queryText
         let curvature = summarizeCurvatureFromEmbeddings recentEmbeddings queryEmbedding
         let drift = driftFromPreviousEmbedding previousEmbedding queryEmbedding
         let recovery = summarizeRecoveryStatus limit drift curvature
-        let _, _, initialHits = searchChunksDetailed queryText querySourceType limit recovery
+        let _, _, initialHits = searchChunksDetailed queryText querySourceType None limit recovery
         let trajectoryHits =
             applyCurvatureWeighting curvature initialHits
             |> List.truncate limit
@@ -2777,7 +2787,7 @@ let selectSemanticEvidence (question: string) (sourceType: string option) (limit
     // nearest-neighbor sweep, blended and deduplicated. The vector channel
     // covers questions whose tokens miss the co-occurrence graph; it is
     // empty when pgvector is unavailable, leaving graph-only behavior.
-    let graphHits = searchChunks question sourceType limit
+    let graphHits = searchChunks question sourceType None limit
     let vectorHits = vectorSearchChunks question sourceType limit
     blendEvidenceHits graphHits vectorHits limit
     |> List.mapi (fun index hit ->
@@ -2864,3 +2874,72 @@ let listSemanticAdminActions (limit: int) =
               ProposalCount = reader.GetInt32(9)
               DetailsJson = if reader.IsDBNull(10) then "{}" else reader.GetString(10)
               CreatedAt = reader.GetFieldValue<DateTimeOffset>(11) } ]
+
+// App Context Management - Allow apps to query/update instructions in RAG
+let getAppContextMetadata (appName: string) : {| version: string; checksum: string; lastUpdated: System.DateTimeOffset |} option =
+    use conn = openConnection ()
+    use cmd =
+        new NpgsqlCommand(
+            """SELECT metadata_json->>'version' as version,
+                      metadata_json->>'checksum' as checksum,
+                      updated_at
+               FROM semantic_documents
+               WHERE source_type = @sourceType
+               ORDER BY updated_at DESC
+               LIMIT 1""",
+            conn)
+    cmd.Parameters.AddWithValue("sourceType", $"app-{appName}") |> ignore
+
+    use reader = cmd.ExecuteReader()
+    if reader.Read() then
+        Some
+            {| version = if reader.IsDBNull(0) then "1.0" else reader.GetString(0)
+               checksum = if reader.IsDBNull(1) then "" else reader.GetString(1)
+               lastUpdated = reader.GetFieldValue<System.DateTimeOffset>(2) |}
+    else
+        None
+
+let upsertAppContext
+    (appName: string)
+    (userId: Guid)
+    (version: string)
+    (instructions: string)
+    (examples: string list)
+    (checksum: string)
+    : bool =
+    use conn = openConnection ()
+    try
+        let metadata =
+            JsonSerializer.Serialize(
+                {| app_name = appName
+                   version = version
+                   checksum = checksum
+                   example_count = examples.Length |}
+            )
+
+        let examplesText = String.concat "\n\n" examples
+        let content =
+            $"# {appName} Instructions\n\n{instructions}\n\n## Examples\n{examplesText}"
+
+        let contentHash = sha256 content
+
+        use upsertCmd =
+            new NpgsqlCommand(
+                """INSERT INTO semantic_documents (source_type, source_key, title, content_hash, metadata_json, user_id)
+                   VALUES (@sourceType, @sourceKey, @title, @contentHash, @metadata, @userId)
+                   ON CONFLICT (source_type, source_key) DO UPDATE SET
+                     metadata_json = EXCLUDED.metadata_json,
+                     updated_at = now()""",
+                conn)
+
+        upsertCmd.Parameters.AddWithValue("sourceType", $"app-{appName}") |> ignore
+        upsertCmd.Parameters.AddWithValue("sourceKey", $"instructions-v{version}") |> ignore
+        upsertCmd.Parameters.AddWithValue("title", $"{appName} System Instructions") |> ignore
+        upsertCmd.Parameters.AddWithValue("contentHash", contentHash) |> ignore
+        upsertCmd.Parameters.AddWithValue("metadata", metadata) |> ignore
+        upsertCmd.Parameters.AddWithValue("userId", userId) |> ignore
+
+        upsertCmd.ExecuteNonQuery() |> ignore
+        true
+    with _ ->
+        false
