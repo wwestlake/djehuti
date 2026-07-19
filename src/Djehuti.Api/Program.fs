@@ -1729,6 +1729,108 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // ── Djehuti Architect ────────────────────────────────────────────────────
+    // Saved architecture models: one opaque JSON blob per model (see the
+    // migration-79 comment in Database.fs for why), quota-limited by Patreon
+    // tier the same way DjeLab's file storage is (ArchitectRepository.
+    // maxSavedModelsForTier). Available to every signed-in tier including
+    // Free -- the limit just scales down.
+
+    app.MapGet(
+        "/api/architect/models",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        use conn = Database.openConnection()
+                        let models = ArchitectRepository.listForUser conn userId
+                        let tierId = (PatreonService.getTierLimits userId) |> Option.bind (fun t -> t.tierId)
+                        let max = ArchitectRepository.maxSavedModelsForTier tierId
+                        return Results.Ok({| models = models; count = models.Length; max = max |})
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapGet(
+        "/api/architect/models/{id}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid model id")
+                | true, modelId ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            match ArchitectRepository.getById conn userId modelId with
+                            | Some record -> return Results.Ok(record)
+                            | None -> return Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/architect/models",
+        Func<HttpContext, {| name: string; modelJson: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        use conn = Database.openConnection()
+                        let tierId = (PatreonService.getTierLimits userId) |> Option.bind (fun t -> t.tierId)
+                        match ArchitectRepository.create conn userId tierId body.name body.modelJson with
+                        | Ok record -> return Results.Ok(record)
+                        | Error msg -> return Results.BadRequest(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPut(
+        "/api/architect/models/{id}",
+        Func<string, HttpContext, {| name: string; modelJson: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid model id")
+                | true, modelId ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            match ArchitectRepository.update conn userId modelId body.name body.modelJson with
+                            | Ok record -> return Results.Ok(record)
+                            | Error msg -> return Results.BadRequest(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/architect/models/{id}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid model id")
+                | true, modelId ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            let deleted = ArchitectRepository.delete conn userId modelId
+                            return if deleted then Results.Ok({| success = true |}) else Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     // Backs the AI's search_math_references tool call (DjeLabSystemPrompt /
     // AiChatClient) -- deliberately NOT the same endpoint as
     // /api/admin/semantic/search, which is admin-gated and carries session/

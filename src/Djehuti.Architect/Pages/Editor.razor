@@ -1,0 +1,267 @@
+@page "/models/new"
+@page "/models/{Id}"
+@inject AuthState Auth
+@inject ArchitectApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>@(_model.Name is { Length: > 0 } n ? n : "New model") - Djehuti Architect</PageTitle>
+
+<div class="arch-page arch-page-wide">
+    @if (Auth.Loading)
+    {
+        <p class="arch-status">Checking sign-in status...</p>
+    }
+    else if (!Auth.IsSignedIn)
+    {
+        <p class="arch-status">Sign in to build and save architecture models. You can still try the sample below.</p>
+        <MermaidDiagram DiagramSource="@_diagramSource" />
+    }
+    else
+    {
+        <div class="arch-editor-header">
+            <input class="arch-input arch-model-name" placeholder="Model name" @bind="_model.Name" @bind:event="oninput" />
+            <div class="arch-editor-actions">
+                <button class="arch-btn arch-btn-ghost" type="button" @onclick="LoadSample">Load sample</button>
+                <button class="arch-btn arch-btn-primary" type="button" @onclick="Save" disabled="@_saving">@(_saving ? "Saving..." : "Save")</button>
+            </div>
+        </div>
+
+        @if (_error is not null)
+        {
+            <p class="arch-error">@_error</p>
+        }
+
+        <textarea class="arch-input arch-description" placeholder="Description" @bind="_model.Description" @bind:event="oninput"></textarea>
+
+        <section class="arch-section">
+            <div class="arch-section-header">
+                <h2>Components</h2>
+                <button class="arch-btn arch-btn-small" type="button" @onclick="AddComponent">+ Add component</button>
+            </div>
+            <table class="arch-table">
+                <thead>
+                    <tr>
+                        <th>Id</th><th>Name</th><th>Kind</th><th>Technology</th><th>Description</th><th>Parent id</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in _model.Components)
+                    {
+                        <tr>
+                            <td><input class="arch-input" @bind="c.Id" @bind:event="oninput" /></td>
+                            <td><input class="arch-input" @bind="c.Name" @bind:event="oninput" /></td>
+                            <td>
+                                <select class="arch-input" @bind="c.Kind">
+                                    @foreach (var k in Enum.GetValues<ComponentKind>())
+                                    {
+                                        <option value="@k">@k</option>
+                                    }
+                                </select>
+                            </td>
+                            <td><input class="arch-input" @bind="c.Technology" @bind:event="oninput" /></td>
+                            <td><input class="arch-input" @bind="c.Description" @bind:event="oninput" /></td>
+                            <td><input class="arch-input" @bind="c.ParentId" @bind:event="oninput" /></td>
+                            <td><button class="arch-btn arch-btn-danger arch-btn-small" type="button" @onclick="() => RemoveComponent(c)">Remove</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </section>
+
+        <section class="arch-section">
+            <div class="arch-section-header">
+                <h2>Connections</h2>
+                <button class="arch-btn arch-btn-small" type="button" @onclick="AddConnection">+ Add connection</button>
+            </div>
+            <table class="arch-table">
+                <thead>
+                    <tr>
+                        <th>Id</th><th>From</th><th>To</th><th>Kind</th><th>Protocol</th><th>Description</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var conn in _model.Connections)
+                    {
+                        <tr>
+                            <td><input class="arch-input" @bind="conn.Id" @bind:event="oninput" /></td>
+                            <td>
+                                <select class="arch-input" @bind="conn.FromComponentId">
+                                    @foreach (var c in _model.Components)
+                                    {
+                                        <option value="@c.Id">@c.Id</option>
+                                    }
+                                </select>
+                            </td>
+                            <td>
+                                <select class="arch-input" @bind="conn.ToComponentId">
+                                    @foreach (var c in _model.Components)
+                                    {
+                                        <option value="@c.Id">@c.Id</option>
+                                    }
+                                </select>
+                            </td>
+                            <td>
+                                <select class="arch-input" @bind="conn.Kind">
+                                    @foreach (var k in Enum.GetValues<ConnectionKind>())
+                                    {
+                                        <option value="@k">@k</option>
+                                    }
+                                </select>
+                            </td>
+                            <td><input class="arch-input" @bind="conn.Protocol" @bind:event="oninput" /></td>
+                            <td><input class="arch-input" @bind="conn.Description" @bind:event="oninput" /></td>
+                            <td><button class="arch-btn arch-btn-danger arch-btn-small" type="button" @onclick="() => RemoveConnection(conn)">Remove</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </section>
+
+        <section class="arch-section">
+            <div class="arch-section-header">
+                <h2>Deployment nodes</h2>
+                <button class="arch-btn arch-btn-small" type="button" @onclick="AddDeploymentNode">+ Add node</button>
+            </div>
+            <p class="arch-hint">Which components run on each node isn't editable here yet -- coming with the deployment-diagram view.</p>
+            <table class="arch-table">
+                <thead>
+                    <tr>
+                        <th>Id</th><th>Name</th><th>Environment</th><th>Technology</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var n in _model.DeploymentNodes)
+                    {
+                        <tr>
+                            <td><input class="arch-input" @bind="n.Id" @bind:event="oninput" /></td>
+                            <td><input class="arch-input" @bind="n.Name" @bind:event="oninput" /></td>
+                            <td><input class="arch-input" @bind="n.Environment" @bind:event="oninput" /></td>
+                            <td><input class="arch-input" @bind="n.Technology" @bind:event="oninput" /></td>
+                            <td><button class="arch-btn arch-btn-danger arch-btn-small" type="button" @onclick="() => RemoveDeploymentNode(n)">Remove</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </section>
+
+        <section class="arch-section">
+            <h2>Diagram</h2>
+            <MermaidDiagram DiagramSource="@_diagramSource" />
+        </section>
+    }
+</div>
+
+@code {
+    [Parameter] public string? Id { get; set; }
+
+    private ArchitectureModel _model = new() { Name = "" };
+    private string _diagramSource = "";
+    private bool _saving;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.EnsureLoadedAsync();
+
+        if (!string.IsNullOrEmpty(Id) && Id != "new")
+        {
+            var record = await Api.GetAsync(Id);
+            if (record?.DeserializeModel() is { } loaded)
+            {
+                _model = loaded;
+            }
+        }
+
+        Regenerate();
+    }
+
+    private void Regenerate()
+    {
+        // An empty C4Container block is invalid Mermaid syntax (it needs at
+        // least one element) -- skip rendering until there's something to draw,
+        // rather than showing mermaid.js's parse-error output for a blank model.
+        if (_model.Components.Count == 0)
+        {
+            _diagramSource = "";
+            return;
+        }
+        try { _diagramSource = MermaidGenerator.GenerateContainerDiagram(_model); }
+        catch { _diagramSource = ""; }
+    }
+
+    private void LoadSample()
+    {
+        _model = SampleModels.DjehutiOverview();
+        Regenerate();
+    }
+
+    private void AddComponent()
+    {
+        _model.Components.Add(new ArchitectureComponent { Id = $"component-{_model.Components.Count + 1}", Name = "New component" });
+        Regenerate();
+    }
+
+    private void RemoveComponent(ArchitectureComponent c)
+    {
+        _model.Components.Remove(c);
+        Regenerate();
+    }
+
+    private void AddConnection()
+    {
+        var first = _model.Components.FirstOrDefault()?.Id ?? "";
+        _model.Connections.Add(new ArchitectureConnection { Id = $"conn-{_model.Connections.Count + 1}", FromComponentId = first, ToComponentId = first });
+        Regenerate();
+    }
+
+    private void RemoveConnection(ArchitectureConnection c)
+    {
+        _model.Connections.Remove(c);
+        Regenerate();
+    }
+
+    private void AddDeploymentNode()
+    {
+        _model.DeploymentNodes.Add(new DeploymentNode { Id = $"node-{_model.DeploymentNodes.Count + 1}", Name = "New node" });
+        Regenerate();
+    }
+
+    private void RemoveDeploymentNode(DeploymentNode n)
+    {
+        _model.DeploymentNodes.Remove(n);
+        Regenerate();
+    }
+
+    private async Task Save()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_model.Name))
+        {
+            _error = "Give the model a name before saving.";
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            _model.GeneratedAt = DateTimeOffset.UtcNow;
+            var isNew = string.IsNullOrEmpty(Id) || Id == "new";
+            var (record, error) = isNew
+                ? await Api.CreateAsync(_model.Name, _model)
+                : await Api.UpdateAsync(Id!, _model.Name, _model);
+
+            if (record is not null)
+            {
+                Nav.NavigateTo($"/models/{record.Id}", replace: true);
+            }
+            else
+            {
+                _error = error ?? "Could not save the model.";
+            }
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

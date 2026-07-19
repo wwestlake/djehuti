@@ -4294,6 +4294,27 @@ let private migrations : (int * string) list =
         """
         *)
         // (end of migration 72 - commented out above)
+
+        // Djehuti Architect: one JSON blob per saved model, not a normalized
+        // components/connections/deployment-nodes schema -- the model shape
+        // is still evolving (see the wiki's open questions on class-diagram
+        // detail), so storing ArchitectureModel's own JSON verbatim avoids a
+        // second schema that has to be kept in lockstep with the C# one.
+        // Re-evaluate if/when cross-model queries (e.g. "find all models
+        // using component X") are actually needed.
+        79, """
+        CREATE TABLE IF NOT EXISTS architect_models (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name        TEXT NOT NULL,
+            model_json  JSONB NOT NULL,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_architect_models_user ON architect_models (user_id, updated_at DESC);
+
+        GRANT ALL ON TABLE architect_models TO djehuti;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
