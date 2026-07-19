@@ -1,0 +1,84 @@
+@page "/models"
+@inject AuthState Auth
+@inject ArchitectApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>My Models - Djehuti Architect</PageTitle>
+
+<div class="arch-page arch-page-wide">
+    <h1>My Models</h1>
+
+    @if (Auth.Loading)
+    {
+        <p class="arch-status">Checking sign-in status...</p>
+    }
+    else if (!Auth.IsSignedIn)
+    {
+        <p class="arch-status">Sign in to save and manage your own architecture models.</p>
+    }
+    else if (_list is null)
+    {
+        <p class="arch-status">Loading...</p>
+    }
+    else
+    {
+        <div class="arch-editor-header">
+            <p class="arch-subtitle">@_list.Count of @_list.Max saved models used.</p>
+            <button class="arch-btn arch-btn-primary" type="button" @onclick="CreateNew" disabled="@(_list.Count >= _list.Max)">+ New model</button>
+        </div>
+
+        @if (_list.Count >= _list.Max)
+        {
+            <p class="arch-status">You've reached your saved-model limit for your current tier. Upgrade on Patreon for more.</p>
+        }
+
+        @if (_list.Models.Count == 0)
+        {
+            <p class="arch-status">No saved models yet.</p>
+        }
+        else
+        {
+            <table class="arch-table">
+                <thead><tr><th>Name</th><th>Last updated</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var m in _list.Models)
+                    {
+                        <tr>
+                            <td><a href="@($"/models/{m.Id}")">@m.Name</a></td>
+                            <td>@m.UpdatedAt.ToLocalTime().ToString("g")</td>
+                            <td><button class="arch-btn arch-btn-danger arch-btn-small" type="button" @onclick="() => Delete(m.Id)">Delete</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    }
+</div>
+
+@code {
+    private ModelListResponse? _list;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.EnsureLoadedAsync();
+        if (Auth.IsSignedIn)
+        {
+            await Refresh();
+        }
+    }
+
+    private async Task Refresh()
+    {
+        _list = await Api.ListAsync();
+    }
+
+    private void CreateNew() => Nav.NavigateTo("/models/new");
+
+    private async Task Delete(string id)
+    {
+        if (await Api.DeleteAsync(id))
+        {
+            await Refresh();
+        }
+    }
+}
