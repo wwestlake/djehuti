@@ -1,6 +1,8 @@
 @page "/ai-setup"
 @inject AiConfigStore ConfigStore
 @using Djehuti.Teacher.Services
+@using System.Text.Json
+@using System.Linq
 
 <PageTitle>AI Setup — Djehuti Teacher</PageTitle>
 
@@ -20,7 +22,7 @@
         else
         {
             <label class="teacher-settings-label" for="provider">AI Provider</label>
-            <select id="provider" class="teacher-settings-input" @bind="_provider">
+            <select id="provider" class="teacher-settings-input" @bind="_provider" @onchange="OnProviderChanged">
                 <option value="openai">OpenAI (gpt-4o-mini, gpt-4o)</option>
                 <option value="anthropic">Anthropic Claude (claude-opus-4-1, claude-sonnet-4-5)</option>
                 <option value="google_gemini">Google Gemini (gemini-2.0-flash, gemini-1.5-pro)</option>
@@ -34,20 +36,58 @@
                        type="@(_showKey ? "text" : "password")"
                        autocomplete="off"
                        placeholder="Your API key"
-                       @bind="_apiKey"
-                       @bind:event="oninput" />
+                       @onchange="OnApiKeyChanged" />
                 <button type="button" class="teacher-settings-toggle" @onclick="() => _showKey = !_showKey">
                     @(_showKey ? "Hide" : "Show")
                 </button>
             </div>
 
             <label class="teacher-settings-label" for="model">Model</label>
-            <input id="model"
-                   class="teacher-settings-input"
-                   type="text"
-                   placeholder="@AiConfigStore.DefaultModel"
-                   @bind="_model"
-                   @bind:event="oninput" />
+            @if (_provider == "openai" && !string.IsNullOrWhiteSpace(_apiKey))
+            {
+                @if (_loadingModels)
+                {
+                    <p class="teacher-muted">Loading models…</p>
+                }
+                else if (_modelError is not null)
+                {
+                    <div class="teacher-settings-error">@_modelError</div>
+                    <input id="model"
+                           class="teacher-settings-input"
+                           type="text"
+                           placeholder="@AiConfigStore.DefaultModel"
+                           @bind="_model"
+                           @bind:event="oninput" />
+                }
+                else if (_availableModels.Count > 0)
+                {
+                    <select id="model" class="teacher-settings-input" @bind="_model">
+                        <option value="">-- Select a model --</option>
+                        @foreach (var m in _availableModels)
+                        {
+                            <option value="@m">@m</option>
+                        }
+                    </select>
+                }
+                else
+                {
+                    <input id="model"
+                           class="teacher-settings-input"
+                           type="text"
+                           placeholder="@AiConfigStore.DefaultModel"
+                           @bind="_model"
+                           @bind:event="oninput" />
+                }
+            }
+            else
+            {
+                <input id="model"
+                       class="teacher-settings-input"
+                       type="text"
+                       placeholder="@AiConfigStore.DefaultModel"
+                       @bind="_model"
+                       @bind:event="oninput" />
+            }
 
             <div class="teacher-settings-actions">
                 <button type="button" class="teacher-cta" @onclick="Save" disabled="@_saving">
@@ -75,10 +115,13 @@
     private bool _loading = true;
     private bool _saving;
     private bool _showKey;
+    private bool _loadingModels;
     private string _apiKey = "";
     private string _model = "";
     private string _provider = "openai";
     private string? _savedMessage;
+    private string? _modelError;
+    private List<string> _availableModels = [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -94,6 +137,11 @@
             _ => "openai",
         };
         _loading = false;
+
+        if (_provider == "openai" && !string.IsNullOrWhiteSpace(_apiKey))
+        {
+            await FetchOpenAiModels();
+        }
     }
 
     private ApiProvider ParseProvider(string value) => value switch
@@ -104,6 +152,74 @@
         "mistral" => ApiProvider.Mistral,
         _ => ApiProvider.OpenAi,
     };
+
+    private Task OnProviderChanged(ChangeEventArgs e)
+    {
+        _provider = e.Value?.ToString() ?? "openai";
+        _availableModels.Clear();
+        _modelError = null;
+        return Task.CompletedTask;
+    }
+
+    private async Task OnApiKeyChanged(ChangeEventArgs e)
+    {
+        _apiKey = e.Value?.ToString() ?? "";
+        if (_provider == "openai" && !string.IsNullOrWhiteSpace(_apiKey))
+        {
+            await FetchOpenAiModels();
+        }
+        else
+        {
+            _availableModels.Clear();
+            _modelError = null;
+        }
+    }
+
+    private async Task FetchOpenAiModels()
+    {
+        _loadingModels = true;
+        _modelError = null;
+        _availableModels.Clear();
+
+        try
+        {
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
+            var response = await http.GetAsync("https://api.openai.com/v1/models");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _modelError = response.StatusCode == System.Net.HttpStatusCode.Unauthorized
+                    ? "Invalid API key."
+                    : $"Failed to fetch models (HTTP {(int)response.StatusCode}).";
+                return;
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("data", out var data) && data.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                var models = data.EnumerateArray()
+                    .Where(m => m.TryGetProperty("id", out var id) && id.ValueKind == System.Text.Json.JsonValueKind.String)
+                    .Select(m => m.GetProperty("id").GetString() ?? "")
+                    .Where(id => !string.IsNullOrEmpty(id) && id.Contains("gpt"))
+                    .OrderByDescending(id => id)
+                    .ToList();
+
+                _availableModels = models;
+            }
+        }
+        catch (Exception ex)
+        {
+            _modelError = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _loadingModels = false;
+        }
+    }
 
     private async Task Save()
     {
