@@ -38,7 +38,6 @@
     <Compile Include="MudAdminRepository.fs" />
     <Compile Include="SemanticEmbeddings.fs" />
     <Compile Include="SemanticGraphRepository.fs" />
-    <Compile Include="RagApi.fs" />
     <Compile Include="WorkerResilience.fs" />
     <Compile Include="SemanticIngestionWorker.fs" />
     <Compile Include="SponsorsRepository.fs" />
