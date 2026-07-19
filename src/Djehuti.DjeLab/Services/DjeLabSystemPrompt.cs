@@ -49,7 +49,8 @@ public static class DjeLabSystemPrompt
         lambda    = "fun" ident+ "->" expr
         orExpr    = andExpr ("||" andExpr)*
         andExpr   = cmpExpr ("&&" cmpExpr)*
-        cmpExpr   = addExpr (("==" | "!=" | "<=" | ">=" | "<" | ">") addExpr)?
+        cmpExpr   = consExpr (("==" | "!=" | "<=" | ">=" | "<" | ">") consExpr)?
+        consExpr  = addExpr (("::" | "@") consExpr)?   -- right-associative
         addExpr   = mulExpr (("+" | "-") mulExpr)*
         mulExpr   = powExpr (("*" | "/" | "%") powExpr)*
         powExpr   = unary ("^" powExpr)?
@@ -59,8 +60,14 @@ public static class DjeLabSystemPrompt
         args      = expr ("," expr)*
 
         Reserved words: let, rec, in, if, then, else, fun, true, false, not
-        Operators: + - * / % ^ == != < <= > >= && ||
+        Operators: + - * / % ^ == != < <= > >= && || :: @
         ```
+
+        **F#-style list operators work**: `x :: xs` prepends x to vector xs (right-
+        associative, so `1 :: 2 :: [3]` is `[1, 2, 3]`); `xs @ ys` concatenates two
+        vectors. Both sit between comparison and `+`/`-` in precedence, so
+        `n + 1 :: acc` means `(n + 1) :: acc`. Note `^` is POWER here, not string
+        concatenation (use `+` to concatenate strings).
 
         It has:
         - **Data types**: Numbers, booleans, strings, vectors (lists)
