@@ -2605,7 +2605,7 @@ let compareSearchModes
         let curvature = summarizeCurvatureFromEmbeddings recentEmbeddings queryEmbedding
         let drift = driftFromPreviousEmbedding previousEmbedding queryEmbedding
         let recovery = summarizeRecoveryStatus limit drift curvature
-        let _, _, initialHits = searchChunksDetailed queryText querySourceType limit recovery
+        let _, _, initialHits = searchChunksDetailed queryText querySourceType None limit recovery
         let trajectoryHits =
             applyCurvatureWeighting curvature initialHits
             |> List.truncate limit
@@ -2683,7 +2683,7 @@ let evaluateSearchSession
         let curvature = summarizeCurvatureFromEmbeddings recentEmbeddings queryEmbedding
         let drift = driftFromPreviousEmbedding previousEmbedding queryEmbedding
         let recovery = summarizeRecoveryStatus limit drift curvature
-        let _, _, initialHits = searchChunksDetailed queryText querySourceType limit recovery
+        let _, _, initialHits = searchChunksDetailed queryText querySourceType None limit recovery
         let trajectoryHits =
             applyCurvatureWeighting curvature initialHits
             |> List.truncate limit
