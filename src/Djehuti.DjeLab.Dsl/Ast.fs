@@ -23,6 +23,13 @@ type BinOp =
     | Gte
     | And
     | Or
+    /// F#-style list cons: `x :: xs` prepends x to vector xs. Added because
+    /// AI-generated code (the language's primary author) writes ML-family
+    /// list idioms instinctively -- supporting them beats prompting against
+    /// them.
+    | Cons
+    /// F#-style list append: `xs @ ys` concatenates two vectors.
+    | Append
 
 type UnOp =
     | Neg
