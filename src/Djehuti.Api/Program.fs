@@ -9,6 +9,7 @@ open Microsoft.AspNetCore.Hosting
 open Microsoft.AspNetCore.Http
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
+open Npgsql
 open Djehuti.Api
 open Djehuti.Core
 
