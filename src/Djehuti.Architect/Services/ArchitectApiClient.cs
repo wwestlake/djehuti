@@ -1,80 +1,111 @@
 using System.Net.Http.Json;
-using System.Text.Json;
-using Djehuti.Architect.Models;
 
 namespace Djehuti.Architect.Services;
 
-public sealed class ModelSummary
+public sealed class ProjectSummary
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public DateTime UpdatedAt { get; set; }
 }
 
-public sealed class ModelListResponse
+public sealed class ProjectListResponse
 {
-    public List<ModelSummary> Models { get; set; } = [];
-    public int Count { get; set; }
-    public int Max { get; set; }
+    public List<ProjectSummary> Projects { get; set; } = [];
+    public bool IsPaidTier { get; set; }
 }
 
-public sealed class ModelRecord
+public sealed class ProjectRecord
 {
     public string Id { get; set; } = "";
     public string UserId { get; set; } = "";
     public string Name { get; set; } = "";
-    public string ModelJson { get; set; } = "";
+    public string? Description { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+}
 
-    public ArchitectureModel? DeserializeModel() =>
-        JsonSerializer.Deserialize<ArchitectureModel>(ModelJson, Services.ModelJson.Options);
+public sealed class FileEntry
+{
+    public string Id { get; set; } = "";
+    public bool IsFolder { get; set; }
+    public string Path { get; set; } = "";
+    public string ParentPath { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string? ContentType { get; set; }
+    public long? SizeBytes { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+public sealed class FileContentResponse
+{
+    public FileEntry Entry { get; set; } = new();
+    public string Content { get; set; } = "";
 }
 
 /// <summary>
-/// Thin wrapper over /api/architect/models -- one saved model per row,
-/// stored as an opaque JSON blob server-side (see the migration-79 comment
-/// in Database.fs). Errors surface as a plain message string rather than a
-/// thrown exception, since "you've hit your saved-model limit" is an
-/// expected, user-facing outcome, not a bug.
+/// Thin wrapper over /api/architect/projects -- cloud (paid-tier) storage
+/// only. Free-tier "local projects" never call this client at all; that flow
+/// lives entirely in ProjectWorkspace.razor's in-memory state plus browser
+/// download/upload.
 /// </summary>
 public sealed class ArchitectApiClient(HttpClient http)
 {
-    public async Task<ModelListResponse?> ListAsync()
+    public async Task<ProjectListResponse?> ListProjectsAsync()
     {
-        var response = await http.GetAsync("/djehuti/api/architect/models");
+        var response = await http.GetAsync("/djehuti/api/architect/projects");
         if (!response.IsSuccessStatusCode) return null;
-        return await response.Content.ReadFromJsonAsync<ModelListResponse>();
+        return await response.Content.ReadFromJsonAsync<ProjectListResponse>();
     }
 
-    public async Task<ModelRecord?> GetAsync(string id)
+    public async Task<(ProjectRecord? record, string? error)> CreateProjectAsync(string name, string? description)
     {
-        var response = await http.GetAsync($"/djehuti/api/architect/models/{id}");
-        if (!response.IsSuccessStatusCode) return null;
-        return await response.Content.ReadFromJsonAsync<ModelRecord>();
-    }
-
-    public async Task<(ModelRecord? record, string? error)> CreateAsync(string name, ArchitectureModel model)
-    {
-        var json = JsonSerializer.Serialize(model, Services.ModelJson.Options);
-        var response = await http.PostAsJsonAsync("/djehuti/api/architect/models", new { name, modelJson = json });
+        var response = await http.PostAsJsonAsync("/djehuti/api/architect/projects", new { name, description });
         if (response.IsSuccessStatusCode)
-            return (await response.Content.ReadFromJsonAsync<ModelRecord>(), null);
+            return (await response.Content.ReadFromJsonAsync<ProjectRecord>(), null);
         return (null, await response.Content.ReadAsStringAsync());
     }
 
-    public async Task<(ModelRecord? record, string? error)> UpdateAsync(string id, string name, ArchitectureModel model)
+    public async Task<bool> DeleteProjectAsync(string id)
     {
-        var json = JsonSerializer.Serialize(model, Services.ModelJson.Options);
-        var response = await http.PutAsJsonAsync($"/djehuti/api/architect/models/{id}", new { name, modelJson = json });
+        var response = await http.DeleteAsync($"/djehuti/api/architect/projects/{id}");
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<List<FileEntry>?> ListTreeAsync(string projectId, string parentPath)
+    {
+        var response = await http.GetAsync($"/djehuti/api/architect/projects/{projectId}/tree?path={Uri.EscapeDataString(parentPath)}");
+        if (!response.IsSuccessStatusCode) return null;
+        return await response.Content.ReadFromJsonAsync<List<FileEntry>>();
+    }
+
+    public async Task<(FileEntry? entry, string? error)> CreateFolderAsync(string projectId, string parentPath, string name)
+    {
+        var response = await http.PostAsJsonAsync($"/djehuti/api/architect/projects/{projectId}/folder", new { parentPath, name });
         if (response.IsSuccessStatusCode)
-            return (await response.Content.ReadFromJsonAsync<ModelRecord>(), null);
+            return (await response.Content.ReadFromJsonAsync<FileEntry>(), null);
         return (null, await response.Content.ReadAsStringAsync());
     }
 
-    public async Task<bool> DeleteAsync(string id)
+    public async Task<(FileEntry? entry, string? error)> SaveFileAsync(string projectId, string parentPath, string name, string contentType, string content)
     {
-        var response = await http.DeleteAsync($"/djehuti/api/architect/models/{id}");
+        var response = await http.PostAsJsonAsync($"/djehuti/api/architect/projects/{projectId}/files", new { parentPath, name, contentType, content });
+        if (response.IsSuccessStatusCode)
+            return (await response.Content.ReadFromJsonAsync<FileEntry>(), null);
+        return (null, await response.Content.ReadAsStringAsync());
+    }
+
+    public async Task<FileContentResponse?> GetFileContentAsync(string projectId, string fileId)
+    {
+        var response = await http.GetAsync($"/djehuti/api/architect/projects/{projectId}/files/{fileId}");
+        if (!response.IsSuccessStatusCode) return null;
+        return await response.Content.ReadFromJsonAsync<FileContentResponse>();
+    }
+
+    public async Task<bool> DeleteEntryAsync(string projectId, string fileId)
+    {
+        var response = await http.DeleteAsync($"/djehuti/api/architect/projects/{projectId}/files/{fileId}");
         return response.IsSuccessStatusCode;
     }
 }

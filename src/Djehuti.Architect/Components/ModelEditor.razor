@@ -1,0 +1,185 @@
+@namespace Djehuti.Architect.Components
+
+<textarea class="arch-input arch-description" placeholder="Description" @bind="Model.Description" @bind:event="oninput" @bind:after="NotifyChanged"></textarea>
+
+<section class="arch-section">
+    <div class="arch-section-header">
+        <h2>Components</h2>
+        <button class="arch-btn arch-btn-small" type="button" @onclick="AddComponent">+ Add component</button>
+    </div>
+    <table class="arch-table">
+        <thead>
+            <tr>
+                <th>Id</th><th>Name</th><th>Kind</th><th>Technology</th><th>Description</th><th>Parent id</th><th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var c in Model.Components)
+            {
+                <tr>
+                    <td><input class="arch-input" @bind="c.Id" @bind:event="oninput" @bind:after="NotifyChanged" /></td>
+                    <td><input class="arch-input" @bind="c.Name" @bind:event="oninput" @bind:after="NotifyChanged" /></td>
+                    <td>
+                        <select class="arch-input" @bind="c.Kind" @bind:after="NotifyChanged">
+                            @foreach (var k in Enum.GetValues<ComponentKind>())
+                            {
+                                <option value="@k">@k</option>
+                            }
+                        </select>
+                    </td>
+                    <td><input class="arch-input" @bind="c.Technology" @bind:event="oninput" @bind:after="NotifyChanged" /></td>
+                    <td><input class="arch-input" @bind="c.Description" @bind:event="oninput" @bind:after="NotifyChanged" /></td>
+                    <td><input class="arch-input" @bind="c.ParentId" @bind:event="oninput" @bind:after="NotifyChanged" /></td>
+                    <td><button class="arch-btn arch-btn-danger arch-btn-small" type="button" @onclick="() => RemoveComponent(c)">Remove</button></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</section>
+
+<section class="arch-section">
+    <div class="arch-section-header">
+        <h2>Connections</h2>
+        <button class="arch-btn arch-btn-small" type="button" @onclick="AddConnection">+ Add connection</button>
+    </div>
+    <table class="arch-table">
+        <thead>
+            <tr>
+                <th>Id</th><th>From</th><th>To</th><th>Kind</th><th>Protocol</th><th>Description</th><th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var conn in Model.Connections)
+            {
+                <tr>
+                    <td><input class="arch-input" @bind="conn.Id" @bind:event="oninput" @bind:after="NotifyChanged" /></td>
+                    <td>
+                        <select class="arch-input" @bind="conn.FromComponentId" @bind:after="NotifyChanged">
+                            @foreach (var c in Model.Components)
+                            {
+                                <option value="@c.Id">@c.Id</option>
+                            }
+                        </select>
+                    </td>
+                    <td>
+                        <select class="arch-input" @bind="conn.ToComponentId" @bind:after="NotifyChanged">
+                            @foreach (var c in Model.Components)
+                            {
+                                <option value="@c.Id">@c.Id</option>
+                            }
+                        </select>
+                    </td>
+                    <td>
+                        <select class="arch-input" @bind="conn.Kind" @bind:after="NotifyChanged">
+                            @foreach (var k in Enum.GetValues<ConnectionKind>())
+                            {
+                                <option value="@k">@k</option>
+                            }
+                        </select>
+                    </td>
+                    <td><input class="arch-input" @bind="conn.Protocol" @bind:event="oninput" @bind:after="NotifyChanged" /></td>
+                    <td><input class="arch-input" @bind="conn.Description" @bind:event="oninput" @bind:after="NotifyChanged" /></td>
+                    <td><button class="arch-btn arch-btn-danger arch-btn-small" type="button" @onclick="() => RemoveConnection(conn)">Remove</button></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</section>
+
+<section class="arch-section">
+    <div class="arch-section-header">
+        <h2>Deployment nodes</h2>
+        <button class="arch-btn arch-btn-small" type="button" @onclick="AddDeploymentNode">+ Add node</button>
+    </div>
+    <p class="arch-hint">Which components run on each node isn't editable here yet -- coming with the deployment-diagram view.</p>
+    <table class="arch-table">
+        <thead>
+            <tr>
+                <th>Id</th><th>Name</th><th>Environment</th><th>Technology</th><th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var n in Model.DeploymentNodes)
+            {
+                <tr>
+                    <td><input class="arch-input" @bind="n.Id" @bind:event="oninput" @bind:after="NotifyChanged" /></td>
+                    <td><input class="arch-input" @bind="n.Name" @bind:event="oninput" @bind:after="NotifyChanged" /></td>
+                    <td><input class="arch-input" @bind="n.Environment" @bind:event="oninput" @bind:after="NotifyChanged" /></td>
+                    <td><input class="arch-input" @bind="n.Technology" @bind:event="oninput" @bind:after="NotifyChanged" /></td>
+                    <td><button class="arch-btn arch-btn-danger arch-btn-small" type="button" @onclick="() => RemoveDeploymentNode(n)">Remove</button></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</section>
+
+<section class="arch-section">
+    <h2>Diagram</h2>
+    <MermaidDiagram DiagramSource="@_diagramSource" />
+</section>
+
+@code {
+    [Parameter, EditorRequired] public ArchitectureModel Model { get; set; } = null!;
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private string _diagramSource = "";
+
+    protected override void OnParametersSet() => Regenerate();
+
+    private async Task NotifyChanged()
+    {
+        Regenerate();
+        await OnChanged.InvokeAsync();
+    }
+
+    private void Regenerate()
+    {
+        // An empty C4Container block is invalid Mermaid syntax (it needs at
+        // least one element) -- skip rendering until there's something to draw,
+        // rather than showing mermaid.js's parse-error output for a blank model.
+        if (Model.Components.Count == 0)
+        {
+            _diagramSource = "";
+            return;
+        }
+        try { _diagramSource = MermaidGenerator.GenerateContainerDiagram(Model); }
+        catch { _diagramSource = ""; }
+    }
+
+    private async Task AddComponent()
+    {
+        Model.Components.Add(new ArchitectureComponent { Id = $"component-{Model.Components.Count + 1}", Name = "New component" });
+        await NotifyChanged();
+    }
+
+    private async Task RemoveComponent(ArchitectureComponent c)
+    {
+        Model.Components.Remove(c);
+        await NotifyChanged();
+    }
+
+    private async Task AddConnection()
+    {
+        var first = Model.Components.FirstOrDefault()?.Id ?? "";
+        Model.Connections.Add(new ArchitectureConnection { Id = $"conn-{Model.Connections.Count + 1}", FromComponentId = first, ToComponentId = first });
+        await NotifyChanged();
+    }
+
+    private async Task RemoveConnection(ArchitectureConnection c)
+    {
+        Model.Connections.Remove(c);
+        await NotifyChanged();
+    }
+
+    private async Task AddDeploymentNode()
+    {
+        Model.DeploymentNodes.Add(new DeploymentNode { Id = $"node-{Model.DeploymentNodes.Count + 1}", Name = "New node" });
+        await NotifyChanged();
+    }
+
+    private async Task RemoveDeploymentNode(DeploymentNode n)
+    {
+        Model.DeploymentNodes.Remove(n);
+        await NotifyChanged();
+    }
+}
