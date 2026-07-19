@@ -22,7 +22,7 @@
         else
         {
             <label class="teacher-settings-label" for="provider">AI Provider</label>
-            <select id="provider" class="teacher-settings-input" @bind="_provider" @onchange="OnProviderChanged">
+            <select id="provider" class="teacher-settings-input" @bind="_provider">
                 <option value="openai">OpenAI (gpt-4o-mini, gpt-4o)</option>
                 <option value="anthropic">Anthropic Claude (claude-opus-4-1, claude-sonnet-4-5)</option>
                 <option value="google_gemini">Google Gemini (gemini-2.0-flash, gemini-1.5-pro)</option>
