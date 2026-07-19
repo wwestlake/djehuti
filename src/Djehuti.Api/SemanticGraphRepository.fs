@@ -2874,3 +2874,72 @@ let listSemanticAdminActions (limit: int) =
               ProposalCount = reader.GetInt32(9)
               DetailsJson = if reader.IsDBNull(10) then "{}" else reader.GetString(10)
               CreatedAt = reader.GetFieldValue<DateTimeOffset>(11) } ]
+
+// App Context Management - Allow apps to query/update instructions in RAG
+let getAppContextMetadata (appName: string) : {| version: string; checksum: string; lastUpdated: System.DateTimeOffset |} option =
+    use conn = openConnection ()
+    use cmd =
+        new NpgsqlCommand(
+            """SELECT metadata_json->>'version' as version,
+                      metadata_json->>'checksum' as checksum,
+                      updated_at
+               FROM semantic_documents
+               WHERE source_type = @sourceType
+               ORDER BY updated_at DESC
+               LIMIT 1""",
+            conn)
+    cmd.Parameters.AddWithValue("sourceType", $"app-{appName}") |> ignore
+
+    use reader = cmd.ExecuteReader()
+    if reader.Read() then
+        Some
+            {| version = if reader.IsDBNull(0) then "1.0" else reader.GetString(0)
+               checksum = if reader.IsDBNull(1) then "" else reader.GetString(1)
+               lastUpdated = reader.GetFieldValue<System.DateTimeOffset>(2) |}
+    else
+        None
+
+let upsertAppContext
+    (appName: string)
+    (userId: Guid)
+    (version: string)
+    (instructions: string)
+    (examples: string list)
+    (checksum: string)
+    : bool =
+    use conn = openConnection ()
+    try
+        let metadata =
+            JsonSerializer.Serialize(
+                {| app_name = appName
+                   version = version
+                   checksum = checksum
+                   example_count = examples.Length |}
+            )
+
+        let examplesText = String.concat "\n\n" examples
+        let content =
+            $"# {appName} Instructions\n\n{instructions}\n\n## Examples\n{examplesText}"
+
+        let contentHash = sha256 content
+
+        use upsertCmd =
+            new NpgsqlCommand(
+                """INSERT INTO semantic_documents (source_type, source_key, title, content_hash, metadata_json, user_id)
+                   VALUES (@sourceType, @sourceKey, @title, @contentHash, @metadata, @userId)
+                   ON CONFLICT (source_type, source_key) DO UPDATE SET
+                     metadata_json = EXCLUDED.metadata_json,
+                     updated_at = now()""",
+                conn)
+
+        upsertCmd.Parameters.AddWithValue("sourceType", $"app-{appName}") |> ignore
+        upsertCmd.Parameters.AddWithValue("sourceKey", $"instructions-v{version}") |> ignore
+        upsertCmd.Parameters.AddWithValue("title", $"{appName} System Instructions") |> ignore
+        upsertCmd.Parameters.AddWithValue("contentHash", contentHash) |> ignore
+        upsertCmd.Parameters.AddWithValue("metadata", metadata) |> ignore
+        upsertCmd.Parameters.AddWithValue("userId", userId) |> ignore
+
+        upsertCmd.ExecuteNonQuery() |> ignore
+        true
+    with _ ->
+        false
