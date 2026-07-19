@@ -208,6 +208,45 @@ let makeBuiltinEnv (onEmit: (Value -> unit) option) (parameters: Map<string, Val
                           | Error e -> Error e
                   loop 0 0.0)
           | args -> Error $"sum: expected 1 argument, got {args.Length}")
+      "exists", VBuiltin("exists", 2, fun _ -> Error "exists: handled by applyCallable")
+      "forall", VBuiltin("forall", 2, fun _ -> Error "forall: handled by applyCallable")
+      "find", VBuiltin("find", 2, fun _ -> Error "find: handled by applyCallable")
+      "partition", VBuiltin("partition", 2, fun _ -> Error "partition: handled by applyCallable")
+      "zip", VBuiltin("zip", 2, function
+          | [ a; b ] ->
+              match asVector "zip" a, asVector "zip" b with
+              | Ok xs, Ok ys ->
+                  let len = min xs.Length ys.Length
+                  let pairs = Array.init len (fun i -> VTuple([| xs.[i]; ys.[i] |]))
+                  Ok(VVector pairs)
+              | Error e, _ | _, Error e -> Error e
+          | args -> Error $"zip: expected 2 arguments, got {args.Length}")
+      "chars", VBuiltin("chars", 1, function
+          | [ s ] ->
+              asString "chars" s
+              |> Result.map (fun str -> VVector(str.ToCharArray() |> Array.map (fun c -> VString(string c))))
+          | args -> Error $"chars: expected 1 argument, got {args.Length}")
+      "length", VBuiltin("length", 1, function
+          | [ s ] ->
+              asString "length" s
+              |> Result.map (fun str -> VNumber(float str.Length))
+          | args -> Error $"length: expected 1 argument, got {args.Length}")
+      "split", VBuiltin("split", 2, function
+          | [ s; sep ] ->
+              match asString "split" s, asString "split" sep with
+              | Ok str, Ok separator ->
+                  let parts = str.Split(separator) |> Array.map (fun part -> VString part)
+                  Ok(VVector parts)
+              | Error e, _ | _, Error e -> Error e
+          | args -> Error $"split: expected 2 arguments, got {args.Length}")
+      "join", VBuiltin("join", 2, function
+          | [ v; sep ] ->
+              match asVector "join" v, asString "join" sep with
+              | Ok items, Ok separator ->
+                  let strs = items |> Array.map valueToString
+                  Ok(VString(String.concat separator strs))
+              | Error e, _ | _, Error e -> Error e
+          | args -> Error $"join: expected 2 arguments, got {args.Length}")
       // map/filter/fold are registered here so lookup succeeds, but their
       // real implementations live in `applyCallable` -- they call back into
       // the evaluator to apply a user's closure per element, which a plain
@@ -423,6 +462,56 @@ and private applyCallable (callee: Value) (args: Value list) : Step =
               | Error e -> Done(Error e)
               | Ok items -> foldVector fn args.[1] items)
          | a, _ -> Done(Error $"fold: expected a function and a vector (plus an initial value), got {describe a} and {describe args.[2]}"))
+    // exists(fn, vector) — true if any element matches predicate
+    | VBuiltin("exists", 2, _) when args.Length = 2 ->
+        (match sortVectorAndFn "exists" args.[0] args.[1] with
+         | Error e -> Done(Error e)
+         | Ok(items, fn) ->
+             let rec loop i =
+                 if i >= items.Length then Done(Ok(VBool false))
+                 else bindStep (applyCallable fn [ items.[i] ]) (function
+                     | VBool true -> Done(Ok(VBool true))
+                     | VBool false -> More(fun () -> loop (i + 1))
+                     | other -> Done(Error $"exists: predicate must return bool, got {describe other}"))
+             loop 0)
+    // forall(fn, vector) — true if all elements match predicate
+    | VBuiltin("forall", 2, _) when args.Length = 2 ->
+        (match sortVectorAndFn "forall" args.[0] args.[1] with
+         | Error e -> Done(Error e)
+         | Ok(items, fn) ->
+             let rec loop i =
+                 if i >= items.Length then Done(Ok(VBool true))
+                 else bindStep (applyCallable fn [ items.[i] ]) (function
+                     | VBool false -> Done(Ok(VBool false))
+                     | VBool true -> More(fun () -> loop (i + 1))
+                     | other -> Done(Error $"forall: predicate must return bool, got {describe other}"))
+             loop 0)
+    // find(fn, vector) — returns first matching element or error
+    | VBuiltin("find", 2, _) when args.Length = 2 ->
+        (match sortVectorAndFn "find" args.[0] args.[1] with
+         | Error e -> Done(Error e)
+         | Ok(items, fn) ->
+             let rec loop i =
+                 if i >= items.Length then Done(Error "find: no element matched the predicate")
+                 else bindStep (applyCallable fn [ items.[i] ]) (function
+                     | VBool true -> Done(Ok items.[i])
+                     | VBool false -> More(fun () -> loop (i + 1))
+                     | other -> Done(Error $"find: predicate must return bool, got {describe other}"))
+             loop 0)
+    // partition(fn, vector) — returns ([true-elems], [false-elems]) as a 2-tuple
+    | VBuiltin("partition", 2, _) when args.Length = 2 ->
+        (match sortVectorAndFn "partition" args.[0] args.[1] with
+         | Error e -> Done(Error e)
+         | Ok(items, fn) ->
+             let rec loop i trues falses =
+                 if i >= items.Length then
+                     Done(Ok(VTuple([| VVector(List.rev trues |> List.toArray); VVector(List.rev falses |> List.toArray) |])))
+                 else
+                     bindStep (applyCallable fn [ items.[i] ]) (function
+                         | VBool true -> More(fun () -> loop (i + 1) (items.[i] :: trues) falses)
+                         | VBool false -> More(fun () -> loop (i + 1) trues (items.[i] :: falses))
+                         | other -> Done(Error $"partition: predicate must return bool, got {describe other}"))
+             loop 0 [] [])
     | VBuiltin(name, arity, fn) ->
         if args.Length <> arity then
             Done(Error $"{name}: expected {arity} argument(s), got {args.Length}")
