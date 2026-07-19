@@ -41,6 +41,8 @@ type Expr =
     | String of string
     | Var of string
     | VectorLit of Expr list
+    /// Tuple literal: (a, b, c). Distinct from vectors; tuples are fixed-width.
+    | TupleLit of Expr list
     | Index of Expr * Expr
     | UnaryOp of UnOp * Expr
     | BinaryOp of BinOp * Expr * Expr
@@ -52,3 +54,6 @@ type Expr =
     | LetRec of name: string * parameters: string list * funcBody: Expr * body: Expr
     | Lambda of parameters: string list * body: Expr
     | Call of callee: Expr * args: Expr list
+    /// Pipe operator: `left |> right` means `right(left)`. Low precedence,
+    /// allows composition: `data |> filter(pred) |> map(f)`.
+    | Pipe of left: Expr * right: Expr
