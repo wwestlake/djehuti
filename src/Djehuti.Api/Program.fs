@@ -1729,6 +1729,170 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // ── Djehuti Architect ────────────────────────────────────────────────────
+    // A project is a container (like a repo/folder for a software project);
+    // the model itself is the files stored inside it. Cloud projects
+    // (server-persisted, S3-backed file content) are paid-tier only --
+    // ArchitectProjectRepository.isPaidTier gates project creation; free-tier
+    // users work entirely client-side and download/reopen a local file
+    // instead of calling this API at all.
+
+    app.MapGet(
+        "/api/architect/projects",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        use conn = Database.openConnection()
+                        let projects = ArchitectProjectRepository.listProjects conn userId
+                        return Results.Ok({| projects = projects; isPaidTier = ArchitectProjectRepository.isPaidTier userId |})
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/architect/projects",
+        Func<HttpContext, {| name: string; description: string option |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        use conn = Database.openConnection()
+                        match ArchitectProjectRepository.createProject conn userId body.name body.description with
+                        | Ok record -> return Results.Ok(record)
+                        | Error msg -> return Results.BadRequest(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/architect/projects/{id}",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid project id")
+                | true, projectId ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            let deleted = ArchitectProjectRepository.deleteProject conn userId projectId
+                            return if deleted then Results.Ok({| success = true |}) else Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapGet(
+        "/api/architect/projects/{id}/tree",
+        Func<string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id ctx ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid project id")
+                | true, projectId ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            let path = let v = string ctx.Request.Query.["path"] in if String.IsNullOrWhiteSpace v then "/" else v
+                            match ArchitectProjectRepository.listFolder conn userId projectId path with
+                            | Some entries -> return Results.Ok(entries)
+                            | None -> return Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/architect/projects/{id}/folder",
+        Func<string, HttpContext, {| parentPath: string; name: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid project id")
+                | true, projectId ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            match ArchitectProjectRepository.createFolder conn userId projectId body.parentPath body.name with
+                            | Ok entry -> return Results.Ok(entry)
+                            | Error msg -> return Results.BadRequest(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/architect/projects/{id}/files",
+        Func<string, HttpContext, {| parentPath: string; name: string; contentType: string; content: string |}, System.Threading.Tasks.Task<IResult>>(fun id ctx body ->
+            async {
+                match Guid.TryParse(id) with
+                | false, _ -> return Results.BadRequest("Invalid project id")
+                | true, projectId ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            let ct = if String.IsNullOrWhiteSpace body.contentType then "application/json" else body.contentType
+                            match ArchitectProjectRepository.saveFile conn userId projectId body.parentPath body.name ct body.content with
+                            | Ok entry -> return Results.Ok(entry)
+                            | Error msg -> return Results.BadRequest(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapGet(
+        "/api/architect/projects/{id}/files/{fileId}",
+        Func<string, string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id fileId ctx ->
+            async {
+                match Guid.TryParse(id), Guid.TryParse(fileId) with
+                | (false, _), _ -> return Results.BadRequest("Invalid project id")
+                | _, (false, _) -> return Results.BadRequest("Invalid file id")
+                | (true, projectId), (true, fid) ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            match ArchitectProjectRepository.getFileContent conn userId projectId fid with
+                            | Some (entry, content) -> return Results.Ok({| entry = entry; content = content |})
+                            | None -> return Results.NotFound()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapDelete(
+        "/api/architect/projects/{id}/files/{fileId}",
+        Func<string, string, HttpContext, System.Threading.Tasks.Task<IResult>>(fun id fileId ctx ->
+            async {
+                match Guid.TryParse(id), Guid.TryParse(fileId) with
+                | (false, _), _ -> return Results.BadRequest("Invalid project id")
+                | _, (false, _) -> return Results.BadRequest("Invalid file id")
+                | (true, projectId), (true, fid) ->
+                    match tryGetAuthClaims ctx with
+                    | None -> return Results.Unauthorized()
+                    | Some claims ->
+                        match Guid.TryParse(claims.UserId) with
+                        | false, _ -> return Results.Unauthorized()
+                        | true, userId ->
+                            use conn = Database.openConnection()
+                            match ArchitectProjectRepository.deleteEntry conn userId projectId fid with
+                            | Ok () -> return Results.Ok({| success = true |})
+                            | Error msg -> return Results.BadRequest(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     // Backs the AI's search_math_references tool call (DjeLabSystemPrompt /
     // AiChatClient) -- deliberately NOT the same endpoint as
     // /api/admin/semantic/search, which is admin-gated and carries session/

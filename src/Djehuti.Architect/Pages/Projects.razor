@@ -1,0 +1,129 @@
+@page "/projects"
+@inject AuthState Auth
+@inject ArchitectApiClient Api
+@inject LocalProjectStore LocalStore
+@inject NavigationManager Nav
+
+<PageTitle>Projects - Djehuti Architect</PageTitle>
+
+<div class="arch-page arch-page-wide">
+    <h1>Projects</h1>
+    <p class="arch-subtitle">A project is a container for the files that make up a system's model -- like a folder for a software project's source.</p>
+
+    @if (Auth.Loading)
+    {
+        <p class="arch-status">Checking sign-in status...</p>
+    }
+    else if (!Auth.IsSignedIn)
+    {
+        <p class="arch-status">Sign in to create a project.</p>
+    }
+    else if (_list is null)
+    {
+        <p class="arch-status">Loading...</p>
+    }
+    else if (!_list.IsPaidTier)
+    {
+        <p class="arch-status">
+            Cloud projects (saved to our servers, backed by S3) need a paid Patreon tier.
+            On the Free tier you can still build a project -- it just lives in this browser tab
+            until you download it, and you reopen it later from that downloaded file.
+        </p>
+        <button class="arch-btn arch-btn-primary" type="button" @onclick="StartLocalProject">Start a local project</button>
+        <div class="arch-editor-header" style="margin-top:1rem">
+            <label class="arch-btn arch-btn-ghost">
+                Open a local project file
+                <InputFile OnChange="OpenLocalProjectFile" style="display:none" />
+            </label>
+        </div>
+    }
+    else
+    {
+        <div class="arch-editor-header">
+            <input class="arch-input" placeholder="New project name" @bind="_newProjectName" />
+            <button class="arch-btn arch-btn-primary" type="button" @onclick="CreateProject">+ New project</button>
+        </div>
+
+        @if (_error is not null)
+        {
+            <p class="arch-error">@_error</p>
+        }
+
+        @if (_list.Projects.Count == 0)
+        {
+            <p class="arch-status">No projects yet.</p>
+        }
+        else
+        {
+            <table class="arch-table">
+                <thead><tr><th>Name</th><th>Last updated</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var p in _list.Projects)
+                    {
+                        <tr>
+                            <td><a href="@($"/projects/{p.Id}")">@p.Name</a></td>
+                            <td>@p.UpdatedAt.ToLocalTime().ToString("g")</td>
+                            <td><button class="arch-btn arch-btn-danger arch-btn-small" type="button" @onclick="() => Delete(p.Id)">Delete</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    }
+</div>
+
+@code {
+    private ProjectListResponse? _list;
+    private string _newProjectName = "";
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.EnsureLoadedAsync();
+        if (Auth.IsSignedIn)
+        {
+            await Refresh();
+        }
+    }
+
+    private async Task Refresh()
+    {
+        _list = await Api.ListProjectsAsync();
+    }
+
+    private async Task CreateProject()
+    {
+        _error = null;
+        var (record, error) = await Api.CreateProjectAsync(_newProjectName, null);
+        if (record is not null)
+        {
+            Nav.NavigateTo($"/projects/{record.Id}");
+        }
+        else
+        {
+            _error = error ?? "Could not create the project.";
+        }
+    }
+
+    private async Task Delete(string id)
+    {
+        if (await Api.DeleteProjectAsync(id))
+        {
+            await Refresh();
+        }
+    }
+
+    private void StartLocalProject()
+    {
+        LocalStore.NewProject("Local project");
+        Nav.NavigateTo("/projects/local");
+    }
+
+    private async Task OpenLocalProjectFile(Microsoft.AspNetCore.Components.Forms.InputFileChangeEventArgs e)
+    {
+        using var reader = new StreamReader(e.File.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024));
+        var json = await reader.ReadToEndAsync();
+        LocalStore.LoadFromJson(json);
+        Nav.NavigateTo("/projects/local");
+    }
+}

@@ -1,0 +1,206 @@
+@page "/projects/{Id}"
+@using System.Text.Json
+@inject AuthState Auth
+@inject ArchitectApiClient Api
+@inject LocalProjectStore LocalStore
+
+<PageTitle>@_projectName - Djehuti Architect</PageTitle>
+
+<div class="arch-page arch-page-wide">
+    @if (Auth.Loading)
+    {
+        <p class="arch-status">Checking sign-in status...</p>
+    }
+    else if (!Auth.IsSignedIn)
+    {
+        <p class="arch-status">Sign in to work on a project, including a local one.</p>
+    }
+    else
+    {
+        @if (IsLocal)
+        {
+            <div class="arch-editor-header">
+                <h1>@_projectName <span class="arch-hint">(local -- not saved to our servers)</span></h1>
+                <button class="arch-btn arch-btn-ghost" type="button" @onclick="DownloadProject">Download project</button>
+            </div>
+        }
+        else
+        {
+            <h1>@_projectName</h1>
+        }
+
+        @if (_error is not null)
+        {
+            <p class="arch-error">@_error</p>
+        }
+
+        <div class="arch-editor-header">
+            <input class="arch-input" placeholder="New model file name (e.g. overview.json)" @bind="_newFileName" />
+            <button class="arch-btn arch-btn-small" type="button" @onclick="CreateFile">+ New model file</button>
+        </div>
+
+        <table class="arch-table">
+            <thead><tr><th>Name</th><th>Last updated</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var f in _files)
+                {
+                    <tr class="@(f.Id == _openFileId ? "arch-row-active" : "")">
+                        <td><a href="javascript:void(0)" @onclick="() => OpenFile(f)">@f.Name</a></td>
+                        <td>@f.UpdatedAt.ToLocalTime().ToString("g")</td>
+                        <td><button class="arch-btn arch-btn-danger arch-btn-small" type="button" @onclick="() => DeleteFile(f)">Delete</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        @if (_openModel is not null)
+        {
+            <section class="arch-section">
+                <div class="arch-editor-header">
+                    <input class="arch-input arch-model-name" @bind="_openModel.Name" @bind:event="oninput" placeholder="Model name" />
+                    <button class="arch-btn arch-btn-primary" type="button" @onclick="SaveOpenFile" disabled="@_saving">@(_saving ? "Saving..." : "Save")</button>
+                </div>
+                <ModelEditor Model="_openModel" />
+            </section>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+
+    private bool IsLocal => Id == "local";
+    private string _projectName = "";
+    private List<FileEntry> _files = [];
+    private string _newFileName = "model.json";
+    private string? _openFileId;
+    private ArchitectureModel? _openModel;
+    private bool _saving;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.EnsureLoadedAsync();
+        if (Auth.IsSignedIn)
+        {
+            await Refresh();
+        }
+    }
+
+    private async Task Refresh()
+    {
+        if (IsLocal)
+        {
+            _projectName = LocalStore.Project.Name;
+            _files = LocalStore.Project.Files
+                .Select(f => new FileEntry { Id = f.Id, Name = f.Name, UpdatedAt = f.UpdatedAt, IsFolder = false })
+                .ToList();
+        }
+        else
+        {
+            var tree = await Api.ListTreeAsync(Id, "/");
+            _files = tree ?? [];
+            _projectName = "Project";
+        }
+    }
+
+    private async Task CreateFile()
+    {
+        _error = null;
+        var name = string.IsNullOrWhiteSpace(_newFileName) ? "model.json" : _newFileName.Trim();
+        var emptyModel = new ArchitectureModel { Name = name.Replace(".json", "") };
+        var json = JsonSerializer.Serialize(emptyModel, Services.ModelJson.Options);
+
+        if (IsLocal)
+        {
+            var file = LocalStore.CreateFile(name);
+            file.Content = json;
+            await Refresh();
+        }
+        else
+        {
+            var (entry, error) = await Api.SaveFileAsync(Id, "/", name, "application/json", json);
+            if (entry is not null)
+            {
+                await Refresh();
+            }
+            else
+            {
+                _error = error ?? "Could not create the file.";
+            }
+        }
+    }
+
+    private async Task OpenFile(FileEntry f)
+    {
+        _error = null;
+        _openFileId = f.Id;
+        if (IsLocal)
+        {
+            var file = LocalStore.Project.Files.FirstOrDefault(x => x.Id == f.Id);
+            _openModel = string.IsNullOrWhiteSpace(file?.Content)
+                ? new ArchitectureModel { Name = f.Name }
+                : JsonSerializer.Deserialize<ArchitectureModel>(file!.Content, Services.ModelJson.Options);
+        }
+        else
+        {
+            var content = await Api.GetFileContentAsync(Id, f.Id);
+            _openModel = content is null
+                ? new ArchitectureModel { Name = f.Name }
+                : JsonSerializer.Deserialize<ArchitectureModel>(content.Content, Services.ModelJson.Options);
+        }
+    }
+
+    private async Task SaveOpenFile()
+    {
+        if (_openModel is null || _openFileId is null) return;
+        _saving = true;
+        try
+        {
+            var name = _files.FirstOrDefault(f => f.Id == _openFileId)?.Name ?? "model.json";
+            var json = JsonSerializer.Serialize(_openModel, Services.ModelJson.Options);
+
+            if (IsLocal)
+            {
+                LocalStore.SaveFile(_openFileId, json);
+                await Refresh();
+            }
+            else
+            {
+                var (entry, error) = await Api.SaveFileAsync(Id, "/", name, "application/json", json);
+                if (entry is null)
+                {
+                    _error = error ?? "Could not save the file.";
+                }
+                else
+                {
+                    await Refresh();
+                }
+            }
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task DeleteFile(FileEntry f)
+    {
+        if (IsLocal)
+        {
+            LocalStore.DeleteFile(f.Id);
+        }
+        else
+        {
+            await Api.DeleteEntryAsync(Id, f.Id);
+        }
+        if (_openFileId == f.Id)
+        {
+            _openFileId = null;
+            _openModel = null;
+        }
+        await Refresh();
+    }
+
+    private async Task DownloadProject() => await LocalStore.DownloadAsync();
+}

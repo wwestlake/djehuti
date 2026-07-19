@@ -107,6 +107,213 @@ a {
     font-size: 0.9rem;
 }
 
+.arch-topbar-spacer {
+    flex: 1;
+}
+
+/* ── Auth corner ─────────────────────────────────────────────────────────── */
+
+.arch-auth-corner {
+    position: relative;
+}
+
+.arch-auth-signin {
+    color: var(--arch-accent);
+    font-weight: 600;
+}
+
+.arch-auth-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: none;
+    border: 1px solid var(--arch-border);
+    border-radius: 999px;
+    padding: 0.3rem 0.75rem 0.3rem 0.3rem;
+    color: var(--arch-text);
+    cursor: pointer;
+}
+
+.arch-auth-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    background: var(--arch-accent);
+    color: #fff;
+    font-size: 0.8rem;
+}
+
+.arch-auth-menu-backdrop {
+    position: fixed;
+    inset: 0;
+}
+
+.arch-auth-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.5rem);
+    background: var(--arch-panel);
+    border: 1px solid var(--arch-border);
+    border-radius: 0.5rem;
+    min-width: 12rem;
+    overflow: hidden;
+    z-index: 10;
+}
+
+.arch-auth-menu-header {
+    padding: 0.6rem 0.9rem;
+    color: var(--arch-muted);
+    font-size: 0.85rem;
+    border-bottom: 1px solid var(--arch-border);
+}
+
+.arch-auth-menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.6rem 0.9rem;
+    background: none;
+    border: none;
+    color: var(--arch-text);
+    cursor: pointer;
+}
+
+.arch-auth-menu-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.arch-auth-menu-danger {
+    color: #ff6b6b;
+}
+
+/* ── Forms / editor ──────────────────────────────────────────────────────── */
+
+.arch-editor-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.arch-editor-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.arch-model-name {
+    font-size: 1.4rem;
+    font-weight: 600;
+    flex: 1;
+}
+
+.arch-description {
+    width: 100%;
+    margin-top: 1rem;
+    min-height: 3rem;
+    resize: vertical;
+}
+
+.arch-input {
+    background: var(--arch-panel);
+    border: 1px solid var(--arch-border);
+    border-radius: 0.4rem;
+    color: var(--arch-text);
+    padding: 0.4rem 0.6rem;
+    font-size: 0.9rem;
+}
+
+.arch-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 0.4rem;
+    border: 1px solid var(--arch-border);
+    background: var(--arch-panel);
+    color: var(--arch-text);
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    text-decoration: none;
+}
+
+.arch-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.arch-btn-primary {
+    background: var(--arch-accent);
+    border-color: var(--arch-accent);
+    color: #fff;
+}
+
+.arch-btn-ghost {
+    background: none;
+}
+
+.arch-btn-danger {
+    color: #ff6b6b;
+    border-color: #5a2a2a;
+}
+
+.arch-btn-small {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.8rem;
+}
+
+.arch-error {
+    color: #ff6b6b;
+    padding: 0.6rem 0;
+}
+
+.arch-hint {
+    color: var(--arch-muted);
+    font-size: 0.85rem;
+    margin: 0.25rem 0 0.75rem;
+}
+
+.arch-section {
+    margin-top: 2.5rem;
+}
+
+.arch-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.arch-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    font-size: 0.9rem;
+}
+
+.arch-table th {
+    text-align: left;
+    color: var(--arch-muted);
+    font-weight: 500;
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid var(--arch-border);
+}
+
+.arch-table td {
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid var(--arch-border);
+}
+
+.arch-table td .arch-input {
+    width: 100%;
+}
+
+.arch-row-active td {
+    background: rgba(79, 140, 255, 0.1);
+}
+
 #blazor-error-ui {
     background: lightyellow;
     bottom: 0;

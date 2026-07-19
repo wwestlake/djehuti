@@ -222,3 +222,93 @@ let ``preflight accepts clean Spinoza and rejects file I O`` () =
     let badReport = validate "let data = readCSV(\"sample.csv\") in data"
     Assert.False(badReport.CanRun)
     Assert.Contains(badReport.Issues, fun issue -> issue.Message.Contains("cannot read files", StringComparison.OrdinalIgnoreCase))
+
+// ── F#-style list operations (:: @ map/filter/fold/head/tail/rev/sum) ──────
+// Added because AI-generated Spinoza (the language's primary author) writes
+// ML-family list idioms instinctively; these tests pin the exact syntax the
+// CERN-data session kept failing on.
+
+let private evalVector (source: string) =
+    match evalOk source with
+    | VVector items -> items |> Array.map (function VNumber n -> n | other -> failwith $"expected numbers, got {other}")
+    | other -> failwith $"expected a vector, got {other}"
+
+[<Fact>]
+let ``cons prepends an element to a vector`` () =
+    Assert.Equal<float[]>([| 1.0; 2.0; 3.0 |], evalVector "1 :: [2, 3]")
+
+[<Fact>]
+let ``cons is right-associative`` () =
+    Assert.Equal<float[]>([| 1.0; 2.0; 3.0 |], evalVector "1 :: 2 :: [3]")
+
+[<Fact>]
+let ``cons binds looser than addition`` () =
+    // n + 1 :: xs must mean (n + 1) :: xs
+    Assert.Equal<float[]>([| 3.0; 9.0 |], evalVector "1 + 2 :: [9]")
+
+[<Fact>]
+let ``append concatenates two vectors`` () =
+    Assert.Equal<float[]>([| 1.0; 2.0; 3.0; 4.0 |], evalVector "[1, 2] @ [3, 4]")
+
+[<Fact>]
+let ``cons onto a non-vector reports a helpful error`` () =
+    match Djehuti.DjeLab.Dsl.Parser.parse "1 :: 2" with
+    | Error e -> failwith $"parse error: {e}"
+    | Ok expr ->
+        match run expr with
+        | Error e -> Assert.Contains("right side must be a vector", e)
+        | Ok v -> failwith $"expected an error, got {v}"
+
+[<Fact>]
+let ``cons works inside a recursive accumulator loop`` () =
+    // The exact shape Seshat generated for the CERN data session:
+    // walking rows and consing onto an accumulator.
+    let source =
+        """
+        let rec collect i acc =
+          if i >= 5 then acc
+          else collect(i + 1, i * i :: acc)
+        in rev(collect(0, []))
+        """
+    Assert.Equal<float[]>([| 0.0; 1.0; 4.0; 9.0; 16.0 |], evalVector source)
+
+[<Fact>]
+let ``map applies a lambda over a vector in either argument order`` () =
+    Assert.Equal<float[]>([| 1.0; 4.0; 9.0 |], evalVector "map([1, 2, 3], fun x -> x * x)")
+    Assert.Equal<float[]>([| 1.0; 4.0; 9.0 |], evalVector "map(fun x -> x * x, [1, 2, 3])")
+
+[<Fact>]
+let ``map works with a recursive let rec function`` () =
+    // The old dead-code implementation of map could not handle closures that
+    // recurse (it bailed on any More step); this pins the fix.
+    let source =
+        """
+        let rec fact n = if n <= 1 then 1 else n * fact(n - 1) in
+        map([3, 4, 5], fact)
+        """
+    Assert.Equal<float[]>([| 6.0; 24.0; 120.0 |], evalVector source)
+
+[<Fact>]
+let ``filter keeps matching elements`` () =
+    Assert.Equal<float[]>([| 2.0; 4.0 |], evalVector "filter([1, 2, 3, 4], fun x -> x % 2 == 0)")
+
+[<Fact>]
+let ``fold accumulates in F# argument order`` () =
+    Assert.Equal(10.0, evalNumber "fold(fun acc x -> acc + x, 0, [1, 2, 3, 4])")
+    Assert.Equal(10.0, evalNumber "fold([1, 2, 3, 4], 0, fun acc x -> acc + x)")
+
+[<Fact>]
+let ``head tail rev sum work`` () =
+    Assert.Equal(1.0, evalNumber "head([1, 2, 3])")
+    Assert.Equal<float[]>([| 2.0; 3.0 |], evalVector "tail([1, 2, 3])")
+    Assert.Equal<float[]>([| 3.0; 2.0; 1.0 |], evalVector "rev([1, 2, 3])")
+    Assert.Equal(6.0, evalNumber "sum([1, 2, 3])")
+
+[<Fact>]
+let ``head and tail of empty vector report errors`` () =
+    match Djehuti.DjeLab.Dsl.Parser.parse "head([])" with
+    | Error e -> failwith $"parse error: {e}"
+    | Ok expr ->
+        match run expr with
+        | Error e -> Assert.Contains("empty", e)
+        | Ok v -> failwith $"expected an error, got {v}"

@@ -4294,6 +4294,73 @@ let private migrations : (int * string) list =
         """
         *)
         // (end of migration 72 - commented out above)
+
+        // Djehuti Architect: one JSON blob per saved model, not a normalized
+        // components/connections/deployment-nodes schema -- the model shape
+        // is still evolving (see the wiki's open questions on class-diagram
+        // detail), so storing ArchitectureModel's own JSON verbatim avoids a
+        // second schema that has to be kept in lockstep with the C# one.
+        // Re-evaluate if/when cross-model queries (e.g. "find all models
+        // using component X") are actually needed.
+        79, """
+        CREATE TABLE IF NOT EXISTS architect_models (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name        TEXT NOT NULL,
+            model_json  JSONB NOT NULL,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_architect_models_user ON architect_models (user_id, updated_at DESC);
+
+        GRANT ALL ON TABLE architect_models TO djehuti;
+        """
+
+        // Superseded by the project/file-tree model below: a "project" is the
+        // container (like a repo/folder for a software project), and the
+        // model itself is the files stored inside it, not one flat JSON blob.
+        // architect_models never shipped past migration 79 in production (no
+        // user data), so dropping it here instead of migrating its rows is
+        // safe. File content only exists in S3 for paid tiers -- s3_key is
+        // nullable because a free-tier user's project can still have folder
+        // structure recorded... except free tier gets no server-side project
+        // at all (client-side only, download/reopen a local file) per
+        // ArchitectProjectRepository.isPaidTier, so in practice every row in
+        // this table belongs to a paid-tier user and always has an s3_key
+        // once it's a file (folders don't need one). Kept nullable rather
+        // than NOT NULL so a folder-only row isn't forced to fake one.
+        80, """
+        DROP TABLE IF EXISTS architect_models;
+
+        CREATE TABLE IF NOT EXISTS architect_projects (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name        TEXT NOT NULL,
+            description TEXT,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_architect_projects_user ON architect_projects (user_id, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS architect_files (
+            id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            project_id   UUID NOT NULL REFERENCES architect_projects(id) ON DELETE CASCADE,
+            is_folder    BOOLEAN NOT NULL DEFAULT FALSE,
+            path         TEXT NOT NULL,
+            parent_path  TEXT NOT NULL,
+            name         TEXT NOT NULL,
+            content_type TEXT,
+            s3_key       TEXT,
+            size_bytes   BIGINT,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (project_id, path)
+        );
+        CREATE INDEX IF NOT EXISTS idx_architect_files_project_parent ON architect_files (project_id, parent_path);
+
+        GRANT ALL ON TABLE architect_projects TO djehuti;
+        GRANT ALL ON TABLE architect_files TO djehuti;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

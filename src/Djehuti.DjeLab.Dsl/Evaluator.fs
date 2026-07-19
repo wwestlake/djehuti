@@ -175,6 +175,42 @@ let makeBuiltinEnv (onEmit: (Value -> unit) option) (parameters: Map<string, Val
       "len", VBuiltin("len", 1, function
           | [ v ] -> asVector "len" v |> Result.map (fun items -> VNumber(float items.Length))
           | args -> Error $"len: expected 1 argument, got {args.Length}")
+      "head", VBuiltin("head", 1, function
+          | [ v ] ->
+              asVector "head" v
+              |> Result.bind (fun items ->
+                  if items.Length = 0 then Error "head: vector is empty"
+                  else Ok items.[0])
+          | args -> Error $"head: expected 1 argument, got {args.Length}")
+      "tail", VBuiltin("tail", 1, function
+          | [ v ] ->
+              asVector "tail" v
+              |> Result.bind (fun items ->
+                  if items.Length = 0 then Error "tail: vector is empty"
+                  else Ok(VVector(items.[1..])))
+          | args -> Error $"tail: expected 1 argument, got {args.Length}")
+      "rev", VBuiltin("rev", 1, function
+          | [ v ] -> asVector "rev" v |> Result.map (fun items -> VVector(Array.rev items))
+          | args -> Error $"rev: expected 1 argument, got {args.Length}")
+      "sum", VBuiltin("sum", 1, function
+          | [ v ] ->
+              asVector "sum" v
+              |> Result.bind (fun items ->
+                  let rec loop i acc =
+                      if i >= items.Length then Ok(VNumber acc)
+                      else
+                          match asNumber "sum" items.[i] with
+                          | Ok n -> loop (i + 1) (acc + n)
+                          | Error e -> Error e
+                  loop 0 0.0)
+          | args -> Error $"sum: expected 1 argument, got {args.Length}")
+      // map/filter/fold are registered here so lookup succeeds, but their
+      // real implementations live in `applyCallable` -- they call back into
+      // the evaluator to apply a user's closure per element, which a plain
+      // (Value list -> Result<Value, string>) builtin function cannot do.
+      "map", VBuiltin("map", 2, fun _ -> Error "map: handled by applyCallable")
+      "filter", VBuiltin("filter", 2, fun _ -> Error "filter: handled by applyCallable")
+      "fold", VBuiltin("fold", 3, fun _ -> Error "fold: handled by applyCallable")
       "emit", VBuiltin("emit", 1, function
           | [ v ] ->
               onEmit |> Option.iter (fun f -> f v)
@@ -329,49 +365,46 @@ and private evalWith (env: Env) (expr: Expr) : Step =
 
 and private applyCallable (callee: Value) (args: Value list) : Step =
     match callee with
-    // Special handling for map and filter that need evalWith access
+    // map/filter/fold need to apply a user closure per element, which means
+    // re-entering the evaluator -- so they're implemented here (in CPS, via
+    // bindStep, so closures that recurse or call other let recs work) rather
+    // than as plain builtin functions. Since this code is mostly written by
+    // an AI, both argument orders are accepted -- map(vector, fn) and
+    // map(fn, vector) -- disambiguated by which argument is the callable.
     | VBuiltin("map", 2, _) when args.Length = 2 ->
-        (match asVector "map" args.[0] with
+        (match sortVectorAndFn "map" args.[0] args.[1] with
          | Error e -> Done(Error e)
-         | Ok items ->
-             let fnVal = args.[1]
-             let results = Array.map (fun item ->
-                 match fnVal with
-                 | VClosure(params, body, envCell) when params.Length = 1 ->
-                     let callEnv = Map.add params.[0] item !envCell
-                     (match evalWith callEnv body with
-                      | Done(Ok v) -> Some v
-                      | Done(Error _) -> None
-                      | More _ -> None)
-                 | VBuiltin(_, 1, fn) ->
-                     (match fn [item] with
-                      | Ok v -> Some v
-                      | Error _ -> None)
-                 | _ -> None) items
-             if Array.forall Option.isSome results then
-                 Done(Ok(VVector(Array.map Option.get results)))
-             else
-                 Done(Error "map: function application failed"))
+         | Ok(items, fn) ->
+             let rec loop i acc =
+                 if i >= Array.length items then Done(Ok(VVector(List.rev acc |> List.toArray)))
+                 else bindStep (applyCallable fn [ items.[i] ]) (fun v -> loop (i + 1) (v :: acc))
+             loop 0 [])
     | VBuiltin("filter", 2, _) when args.Length = 2 ->
-        (match asVector "filter" args.[0] with
+        (match sortVectorAndFn "filter" args.[0] args.[1] with
          | Error e -> Done(Error e)
-         | Ok items ->
-             let fnVal = args.[1]
-             let filtered = Array.choose (fun item ->
-                 match fnVal with
-                 | VClosure(params, body, envCell) when params.Length = 1 ->
-                     let callEnv = Map.add params.[0] item !envCell
-                     (match evalWith callEnv body with
-                      | Done(Ok(VBool true)) -> Some item
-                      | Done(Ok(VBool false)) -> None
-                      | _ -> None)
-                 | VBuiltin(_, 1, fn) ->
-                     (match fn [item] with
-                      | Ok(VBool true) -> Some item
-                      | Ok(VBool false) -> None
-                      | _ -> None)
-                 | _ -> None) items
-             Done(Ok(VVector(filtered))))
+         | Ok(items, fn) ->
+             let rec loop i acc =
+                 if i >= Array.length items then Done(Ok(VVector(List.rev acc |> List.toArray)))
+                 else
+                     bindStep (applyCallable fn [ items.[i] ]) (fun keep ->
+                         match keep with
+                         | VBool true -> loop (i + 1) (items.[i] :: acc)
+                         | VBool false -> loop (i + 1) acc
+                         | other -> Done(Error $"filter: predicate must return a bool, got {describe other}"))
+             loop 0 [])
+    // fold(fn, init, vector) in the F# argument order, or fold(vector, init, fn);
+    // the folder is called as fn(accumulator, element).
+    | VBuiltin("fold", 3, _) when args.Length = 3 ->
+        (match args.[0], args.[2] with
+         | (VClosure _ | VBuiltin _) as fn, other ->
+             (match asVector "fold" other with
+              | Error e -> Done(Error e)
+              | Ok items -> foldVector fn args.[1] items)
+         | other, ((VClosure _ | VBuiltin _) as fn) ->
+             (match asVector "fold" other with
+              | Error e -> Done(Error e)
+              | Ok items -> foldVector fn args.[1] items)
+         | a, _ -> Done(Error $"fold: expected a function and a vector (plus an initial value), got {describe a} and {describe args.[2]}"))
     | VBuiltin(name, arity, fn) ->
         if args.Length <> arity then
             Done(Error $"{name}: expected {arity} argument(s), got {args.Length}")
@@ -384,6 +417,20 @@ and private applyCallable (callee: Value) (args: Value list) : Step =
             let callEnv = List.zip parameters args |> List.fold (fun e (p, v) -> Map.add p v e) closureEnvCell.Value
             evalWith callEnv body
     | other -> Done(Error $"{describe other} is not callable")
+
+/// Accepts a (vector, fn) argument pair in either order -- AI-written code
+/// uses both `map(v, f)` and `map(f, v)` -- keyed off which one is callable.
+and private sortVectorAndFn (context: string) (a: Value) (b: Value) : Result<Value[] * Value, string> =
+    match a, b with
+    | (VClosure _ | VBuiltin _) as fn, other -> asVector context other |> Result.map (fun items -> items, fn)
+    | other, ((VClosure _ | VBuiltin _) as fn) -> asVector context other |> Result.map (fun items -> items, fn)
+    | _ -> Error $"{context}: expected a vector and a function, got {describe a} and {describe b}"
+
+and private foldVector (fn: Value) (init: Value) (items: Value[]) : Step =
+    let rec loop i acc =
+        if i >= items.Length then Done(Ok acc)
+        else bindStep (applyCallable fn [ acc; items.[i] ]) (fun next -> loop (i + 1) next)
+    loop 0 init
 
 /// `Value` can't derive structural equality (it embeds functions via
 /// `VClosure`/`VBuiltin`), so `==`/`!=` get their own recursive comparison:
@@ -433,6 +480,15 @@ and private evalBinaryOp (op: BinOp) (left: Value) (right: Value) : Result<Value
     | Gte -> numOp (fun l r -> VBool(l >= r))
     | Eq -> valueEquals left right |> Result.map VBool
     | Neq -> valueEquals left right |> Result.map (fun b -> VBool(not b))
+    | Cons ->
+        match right with
+        | VVector items -> Ok(VVector(Array.append [| left |] items))
+        | other -> Error $"::: right side must be a vector, got {describe other} (did you mean [{describe left}] or {describe left} :: [...]?)"
+    | Append ->
+        match left, right with
+        | VVector l, VVector r -> Ok(VVector(Array.append l r))
+        | VVector _, other -> Error $"@: right side must be a vector, got {describe other}"
+        | other, _ -> Error $"@: left side must be a vector, got {describe other} (use :: to prepend a single element)"
     | And | Or -> Error "unreachable: short-circuit ops handled before evalBinaryOp"
 
 let rec fromJson (element: JsonElement) : Result<Value, string> =

@@ -8,7 +8,8 @@
 ///   lambda    := "fun" ident+ "->" expr
 ///   orExpr    := andExpr ("||" andExpr)*
 ///   andExpr   := cmpExpr ("&&" cmpExpr)*
-///   cmpExpr   := addExpr (("==" | "!=" | "<=" | ">=" | "<" | ">") addExpr)?
+///   cmpExpr   := consExpr (("==" | "!=" | "<=" | ">=" | "<" | ">") consExpr)?
+///   consExpr  := addExpr (("::" | "@") consExpr)?  -- right-associative
 ///   addExpr   := mulExpr (("+" | "-") mulExpr)*
 ///   mulExpr   := powExpr (("*" | "/" | "%") powExpr)*
 ///   powExpr   := unary ("^" powExpr)?          -- right-associative
@@ -101,6 +102,20 @@ let private addExpr: P<Expr> =
     let op = choice [ strWs "+" >>% Add; strWs "-" >>% Sub ]
     chainl1 mulExpr (op |>> fun o l r -> BinaryOp(o, l, r))
 
+// F#-style list operators, right-associative so `1 :: 2 :: rest` builds the
+// way ML-family code expects. Sits between additive and comparison (close to
+// F#'s own table), so `n + 1 :: xs` means `(n + 1) :: xs` and
+// `x :: xs == ys` means `(x :: xs) == ys`.
+let private consExprRef, consExprRefImpl = createParserForwardedToRef<Expr, unit> ()
+
+do
+    consExprRefImpl.Value <-
+        let op = choice [ strWs "::" >>% Cons; strWs "@" >>% Append ]
+        addExpr .>>. opt (op .>>. consExprRef)
+        |>> function
+            | left, Some(o, right) -> BinaryOp(o, left, right)
+            | left, None -> left
+
 let private cmpExpr: P<Expr> =
     let op =
         choice
@@ -110,7 +125,7 @@ let private cmpExpr: P<Expr> =
               attempt (strWs ">=") >>% Gte
               strWs "<" >>% Lt
               strWs ">" >>% Gt ]
-    addExpr .>>. opt (op .>>. addExpr)
+    consExprRef .>>. opt (op .>>. consExprRef)
     |>> function
         | left, Some(o, right) -> BinaryOp(o, left, right)
         | left, None -> left
