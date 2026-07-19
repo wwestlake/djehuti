@@ -19,6 +19,8 @@ type Value =
     | VBool of bool
     | VString of string
     | VVector of Value[]
+    /// Tuple: fixed-width, distinct from vectors. Used for multi-return values.
+    | VTuple of Value[]
     /// The environment is a `ref` (not a plain `Env`) so `LetRec` can tie the
     /// recursive knot: it creates the closure, then mutates this same cell
     /// to include the closure's own name. `Map` itself is immutable --
@@ -39,6 +41,7 @@ let rec private describe (value: Value) : string =
     | VBool b -> string b
     | VString s -> $"\"{s}\""
     | VVector items -> "[" + String.Join(", ", items |> Array.map describe) + "]"
+    | VTuple items -> "(" + String.Join(", ", items |> Array.map describe) + ")"
     | VClosure(parameters, _, _) -> $"""<function/{parameters.Length}>"""
     | VBuiltin(name, _, _) -> $"<builtin:{name}>"
     | VRender(renderType, _) -> $"<render:{renderType}>"
@@ -49,6 +52,7 @@ and private valueToString (value: Value) : string =
     | VBool b -> string b
     | VString s -> s
     | VVector items -> "[" + String.Join(", ", items |> Array.map valueToString) + "]"
+    | VTuple items -> "(" + String.Join(", ", items |> Array.map valueToString) + ")"
     | VClosure(parameters, _, _) -> $"""<function/{parameters.Length}>"""
     | VBuiltin(name, _, _) -> $"<builtin:{name}>"
     | VRender(renderType, _) -> $"<render:{renderType}>"
@@ -285,15 +289,29 @@ and private evalWith (env: Env) (expr: Expr) : Step =
     | VectorLit items ->
         evalList env items [] (fun values -> Done(Ok(VVector(List.toArray values))))
 
+    | TupleLit items ->
+        evalList env items [] (fun values -> Done(Ok(VTuple(List.toArray values))))
+
+    | Pipe(left, right) ->
+        // `left |> right` means `right(left)` — evaluate left, then apply right (as a function) to it
+        bindStep (evalWith env left) (fun leftValue ->
+            bindStep (evalWith env right) (fun rightFn ->
+                applyCallable rightFn [ leftValue ]))
+
     | Index(vecExpr, idxExpr) ->
         bindStep (evalWith env vecExpr) (fun vecVal ->
             bindStep (evalWith env idxExpr) (fun idxVal ->
-                match asVector "index" vecVal, asNumber "index" idxVal with
-                | Ok items, Ok idx ->
+                match vecVal, asNumber "index" idxVal with
+                | VVector items, Ok idx ->
                     let i = int idx
                     if i >= 0 && i < items.Length then Done(Ok items.[i])
                     else Done(Error $"Index {i} out of range (vector has {items.Length} elements)")
-                | Error e, _ | _, Error e -> Done(Error e)))
+                | VTuple items, Ok idx ->
+                    let i = int idx
+                    if i >= 0 && i < items.Length then Done(Ok items.[i])
+                    else Done(Error $"Index {i} out of range (tuple has {items.Length} elements)")
+                | other, Error e -> Done(Error e)
+                | other, _ -> Done(Error $"Cannot index {describe other} — it's not a vector or tuple")))
 
     | UnaryOp(Neg, e) ->
         bindStep (evalWith env e) (fun value ->
@@ -453,6 +471,19 @@ and private valueEquals (a: Value) (b: Value) : Result<bool, string> =
                     | Ok false -> Ok false
                     | Error e -> Error e
             loop 0
+    | VTuple xs, VTuple ys ->
+        if xs.Length <> ys.Length then
+            Ok false
+        else
+            let rec loop i =
+                if i >= xs.Length then
+                    Ok true
+                else
+                    match valueEquals xs.[i] ys.[i] with
+                    | Ok true -> loop (i + 1)
+                    | Ok false -> Ok false
+                    | Error e -> Error e
+            loop 0
     | (VClosure _ | VBuiltin _), _
     | _, (VClosure _ | VBuiltin _) -> Error "functions cannot be compared for equality"
     | _ -> Ok false
@@ -570,6 +601,16 @@ let rec toJson (value: Value) : Result<string, string> =
     | VBool b -> Ok(if b then "true" else "false")
     | VString s -> Ok(JsonSerializer.Serialize s)  // Use JsonSerializer to properly escape string
     | VVector items ->
+        let rec collect acc =
+            function
+            | [] -> Ok(List.rev acc)
+            | x :: rest ->
+                match toJson x with
+                | Ok j -> collect (j :: acc) rest
+                | Error e -> Error e
+        items |> Array.toList |> collect [] |> Result.map (fun parts -> "[" + String.Join(",", parts) + "]")
+    | VTuple items ->
+        // Tuples serialize as arrays in JSON (same as vectors, distinction is semantic only)
         let rec collect acc =
             function
             | [] -> Ok(List.rev acc)
