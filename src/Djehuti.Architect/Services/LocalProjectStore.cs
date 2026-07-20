@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
+using Djehuti.Architect.Models;
 
 namespace Djehuti.Architect.Services;
 
@@ -55,17 +56,72 @@ public sealed class LocalProjectStore(IJSRuntime js, NavigationManager nav)
         }
     }
 
-    public async Task DownloadAsync()
+    public async Task DownloadAsJsonAsync()
     {
         var json = JsonSerializer.Serialize(Project, new JsonSerializerOptions { WriteIndented = true });
-        var filename = $"{Project.Name.Replace(' ', '-')}.djarch.json";
+        var filename = $"{Project.Name.Replace(' ', '-')}.json";
         await using var module = await js.InvokeAsync<IJSObjectReference>("import", new Uri(new Uri(nav.BaseUri), "js/file-interop.js").ToString());
         await module.InvokeVoidAsync("downloadTextFile", filename, json, "application/json");
     }
+
+    public async Task DownloadAsDaprojAsync()
+    {
+        // Convert LocalFile objects to ArchitectureModels
+        var models = new Dictionary<string, ArchitectureModel>();
+        foreach (var file in Project.Files)
+        {
+            try
+            {
+                var model = JsonSerializer.Deserialize<ArchitectureModel>(file.Content);
+                if (model != null)
+                {
+                    models[file.Name] = model;
+                }
+            }
+            catch
+            {
+                // Skip files that aren't valid architecture models
+            }
+        }
+
+        var metadata = new ProjectFileService.ProjectMetadata
+        {
+            Name = Project.Name,
+            Version = "1.0",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        var zipData = ProjectFileService.CreateProjectArchive(metadata, models);
+        var filename = $"{Project.Name.Replace(' ', '-')}.daproj";
+
+        await using var module = await js.InvokeAsync<IJSObjectReference>("import", new Uri(new Uri(nav.BaseUri), "js/file-interop.js").ToString());
+        await module.InvokeVoidAsync("downloadBinaryFile", filename, zipData);
+    }
+
+    public async Task DownloadAsync() => await DownloadAsDaprojAsync();
 
     public void LoadFromJson(string json)
     {
         var loaded = JsonSerializer.Deserialize<LocalProjectBundle>(json);
         if (loaded is not null) Project = loaded;
+    }
+
+    public void LoadFromDaproj(byte[] zipData)
+    {
+        var archive = ProjectFileService.ExtractProjectArchive(zipData);
+        Project = new LocalProjectBundle
+        {
+            Name = archive.Metadata.Name,
+            Files = archive.Models.Select(kvp =>
+                new LocalFile
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Name = kvp.Key,
+                    Content = JsonSerializer.Serialize(kvp.Value, new JsonSerializerOptions { WriteIndented = true }),
+                    UpdatedAt = DateTime.UtcNow
+                }
+            ).ToList()
+        };
     }
 }
