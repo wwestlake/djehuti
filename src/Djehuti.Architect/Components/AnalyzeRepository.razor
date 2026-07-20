@@ -1,7 +1,11 @@
+@page "/analyze-github"
 @using System.Net.Http
 @using System.Text.Json
+@using Djehuti.Architect.Services
 @inject HttpClient Http
 @inject NavigationManager Nav
+@inject AiModelGenerator AiGenerator
+@inject LocalProjectStore LocalStore
 
 <div class="arch-page arch-page-wide">
     <h1>Analyze Repository</h1>
@@ -36,6 +40,27 @@
         <div class="arch-panel" style="margin-top: 2rem;">
             <h2>Repository: @_repoInfo.repoName</h2>
             <p class="arch-status">@_repoInfo.message</p>
+
+            @if (_generatedModel is not null)
+            {
+                <p class="arch-status" style="color: #4CAF50;">✓ Architecture model generated successfully</p>
+                <p>
+                    <button class="arch-btn arch-btn-primary" type="button" @onclick="CreateProjectFromModel" disabled="@_loading">
+                        @if (_loading) { <span>Creating project...</span> }
+                        else { <span>Create Project from Model</span> }
+                    </button>
+                </p>
+            }
+            else
+            {
+                <p>
+                    <button class="arch-btn arch-btn-primary" type="button" @onclick="GenerateModel" disabled="@_loading">
+                        @if (_loading) { <span>Generating model...</span> }
+                        else { <span>Generate Architecture Model with AI</span> }
+                    </button>
+                </p>
+            }
+
             <p style="margin-top: 1rem;">
                 <button class="arch-btn arch-btn-secondary" type="button" @onclick="GoBack">Back</button>
             </p>
@@ -92,5 +117,57 @@
         }
     }
 
-    private void GoBack() => Nav.NavigateTo("/projects");
+    private ArchitectureModel? _generatedModel;
+
+    private async Task GenerateModel()
+    {
+        if (_repoInfo is null)
+        {
+            _error = "No repository data available.";
+            return;
+        }
+
+        _loading = true;
+        _error = null;
+        try
+        {
+            var repoName = _repoInfo.repoName ?? "Unknown";
+            _generatedModel = await AiGenerator.GenerateFromRepositoryAsync(
+                repoName,
+                _githubUrl,
+                new Dictionary<string, object>()
+            );
+
+            if (_generatedModel is null)
+            {
+                _error = "Failed to generate architecture model. Try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Error generating model: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void CreateProjectFromModel()
+    {
+        if (_generatedModel is null)
+        {
+            _error = "No model generated yet.";
+            return;
+        }
+
+        LocalStore.NewProject(_generatedModel.Name);
+        var file = LocalStore.CreateFile("generated-model");
+        var json = JsonSerializer.Serialize(_generatedModel, new JsonSerializerOptions { WriteIndented = true });
+        LocalStore.SaveFile(file.Id, json);
+
+        Nav.NavigateTo("projects/local");
+    }
+
+    private void GoBack() => Nav.NavigateTo("projects");
 }

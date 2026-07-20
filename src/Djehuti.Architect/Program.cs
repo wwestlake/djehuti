@@ -11,5 +11,6 @@ builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.
 builder.Services.AddScoped<AuthState>();
 builder.Services.AddScoped<ArchitectApiClient>();
 builder.Services.AddScoped<LocalProjectStore>();
+builder.Services.AddScoped<AiModelGenerator>();
 
 await builder.Build().RunAsync();

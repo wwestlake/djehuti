@@ -29,7 +29,10 @@
             On the Free tier you can still build a project -- it just lives in this browser tab
             until you download it, and you reopen it later from that downloaded file.
         </p>
-        <button class="arch-btn arch-btn-primary" type="button" @onclick="StartLocalProject">Start a local project</button>
+        <div class="arch-editor-header">
+            <button class="arch-btn arch-btn-primary" type="button" @onclick="StartLocalProject">Start a local project</button>
+            <button class="arch-btn arch-btn-secondary" type="button" @onclick="() => Nav.NavigateTo('analyze-github')">Analyze GitHub Repository</button>
+        </div>
         <div class="arch-editor-header" style="margin-top:1rem">
             <label class="arch-btn arch-btn-ghost">
                 Open a local project file
