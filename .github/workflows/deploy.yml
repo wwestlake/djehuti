@@ -85,6 +85,14 @@ jobs:
           # Served at lagdaemon.com/learn/ -- same base-href rewrite pattern as DjeLab.
           sed -i 's#<base href="/" />#<base href="/learn/" />#' artifacts/teacher/wwwroot/index.html
 
+      - name: Publish Djehuti Architect
+        run: |
+          dotnet publish src/Djehuti.Architect/Djehuti.Architect.csproj \
+            -c Release \
+            -o artifacts/architect
+          # Served at lagdaemon.com/architect/
+          sed -i 's#<base href="/" />#<base href="/architect/" />#' artifacts/architect/wwwroot/index.html
+
       # ── Deploy to server ─────────────────────────────────────────────────────
       - name: Set up SSH key
         run: |
@@ -107,7 +115,8 @@ jobs:
           # --exclude=mud preserves the standalone MUD app served at /mud/.
           # --exclude=math preserves the standalone DjeLab app served at /math/.
           # --exclude=learn preserves the standalone Djehuti Teacher app served at /learn/.
-          rsync -az --delete --exclude=djehuti --exclude=mud --exclude=math --exclude=learn \
+          # --exclude=architect preserves the standalone Djehuti Architect app served at /architect/.
+          rsync -az --delete --exclude=djehuti --exclude=mud --exclude=math --exclude=learn --exclude=architect \
             -e "ssh -i ~/.ssh/deploy_key" \
             src/Lagdaemon.Web/dist/ \
             ubuntu@${{ secrets.DEPLOY_HOST }}:/var/www/lagdaemon/
@@ -132,6 +141,13 @@ jobs:
             -e "ssh -i ~/.ssh/deploy_key" \
             artifacts/teacher/wwwroot/ \
             ubuntu@${{ secrets.DEPLOY_HOST }}:/var/www/lagdaemon/learn/
+
+      - name: Sync Djehuti Architect app
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            artifacts/architect/wwwroot/ \
+            ubuntu@${{ secrets.DEPLOY_HOST }}:/var/www/lagdaemon/architect/
 
       - name: Sync API
         run: |
