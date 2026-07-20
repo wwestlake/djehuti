@@ -10,6 +10,7 @@
 @inject HttpClient Http
 @inject WorkspaceActions Actions
 @inject WebLlmClient WebLlm
+@inject RagApiClient RagClient
 
 <div class="chat-pane">
     @if (_loading)
@@ -217,6 +218,22 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && _isSeshatPane)
+        {
+            // Register Seshat with LiteSemRAG on first render so it can use user-scoped semantic search
+            try
+            {
+                await RagClient.RegisterAppContextAsync("DjeLab",
+                    version: "1.0",
+                    instructions: "Seshat is the BYOK math professor assistant for DjeLab. It provides deep mathematical reasoning, code review, and Socratic tutoring for Spinoza DSL programs.",
+                    examples: new List<string> { "Explain Spinoza syntax", "Review this recursion pattern", "Debug the simulation", "Suggest performance improvements" },
+                    checksum: "seshat-1.0");
+            }
+            catch
+            {
+                // Non-fatal: if registration fails, semantic search still works, just without app context
+            }
+        }
         await TryInvokeJsAsync("renderMath", _messagesRef);
         await TryInvokeJsAsync("scrollToBottom", _messagesRef);
     }
@@ -373,20 +390,21 @@
         var query = args.RootElement.TryGetProperty("query", out var q) ? q.GetString() ?? "" : "";
         if (string.IsNullOrWhiteSpace(query)) return ToolResult.Error("No query provided.");
 
-        var response = await Http.GetAsync($"/djehuti/api/djelab/search-references?q={Uri.EscapeDataString(query)}", ct);
-        if (!response.IsSuccessStatusCode) return ToolResult.Error($"Search failed with HTTP {(int)response.StatusCode}.");
-
-        using var results = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        if (results.RootElement.ValueKind != JsonValueKind.Array || results.RootElement.GetArrayLength() == 0)
-            return ToolResult.Error("No matching reference material found.");
-
-        var parts = results.RootElement.EnumerateArray().Select(hit =>
+        // Use user-scoped semantic context via RagApiClient for app-aware search
+        try
         {
-            var title = hit.TryGetProperty("title", out var t) ? t.GetString() : "";
-            var content = hit.TryGetProperty("content", out var c) ? c.GetString() : "";
-            return $"## {title}\n{content}";
-        });
-        return ToolResult.Ok(string.Join("\n\n", parts));
+            var results = await RagClient.GetContextAsync(query, appName: "DjeLab", limit: 5, cancellationToken: ct);
+            if (results.Chunks.Count == 0)
+                return ToolResult.Error("No matching reference material found.");
+
+            var parts = results.Chunks.Select(chunk =>
+                $"## {chunk.Title}\n{chunk.Content}");
+            return ToolResult.Ok(string.Join("\n\n", parts));
+        }
+        catch (Exception ex)
+        {
+            return ToolResult.Error($"Semantic search failed: {ex.Message}");
+        }
     }
 
     private async Task<string> BuildTurnContextAsync(string userMessage, IReadOnlyList<ChatTurn> history, CancellationToken ct)
