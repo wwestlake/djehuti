@@ -5,15 +5,17 @@ namespace Djehuti.Core;
 
 /// <summary>
 /// Generalized project file handling for all Djehuti apps.
-/// Standard format: .dapp (Djehuti App Project) ZIP files with metadata and artifacts.
+/// Standard format: .dapp (Djehuti App Project) ZIP files with manifest and arbitrary structure.
 /// Usable by: Architect, DjeLab, Teacher, Dashboard, and any future apps.
+/// Each app defines its own folder structure; manifest describes the contents.
 /// </summary>
 public sealed class ProjectFileService
 {
     /// <summary>
-    /// Metadata for any Djehuti app project.
+    /// Manifest describing project contents and structure.
+    /// Tells readers how to interpret the folders inside the ZIP.
     /// </summary>
-    public sealed class ProjectMetadata
+    public sealed class ProjectManifest
     {
         public string AppName { get; set; } = ""; // "Architect", "DjeLab", "Teacher", etc.
         public string ProjectName { get; set; } = "";
@@ -21,58 +23,80 @@ public sealed class ProjectFileService
         public string Version { get; set; } = "1.0";
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
-        public Dictionary<string, string> Tags { get; set; } = new(); // Custom metadata per app
+
+        /// <summary>
+        /// Describes folder structure and purpose.
+        /// Example: { "models": "Architecture model JSON files", "diagrams": "SVG outputs", "exports": "Structurizr/PlantUML exports" }
+        /// </summary>
+        public Dictionary<string, string> FolderStructure { get; set; } = new();
+
+        /// <summary>
+        /// Custom metadata per app (tags, settings, etc.)
+        /// </summary>
+        public Dictionary<string, object> Metadata { get; set; } = new();
     }
 
     /// <summary>
-    /// Generic project archive structure.
+    /// Generic project archive - manifest + arbitrary folder structure.
+    /// Apps define their own internal organization.
     /// </summary>
     public sealed class ProjectArchive
     {
-        public ProjectMetadata Metadata { get; set; } = new();
-        public Dictionary<string, string> Files { get; set; } = new(); // filename -> JSON content
-        public Dictionary<string, byte[]> Artifacts { get; set; } = new(); // path -> binary (diagrams, exports, etc.)
+        public ProjectManifest Manifest { get; set; } = new();
+        public Dictionary<string, byte[]> Contents { get; set; } = new(); // path -> content (any folder structure)
     }
 
     /// <summary>
-    /// Create a .dapp ZIP project file.
+    /// Create a .dapp ZIP project file with arbitrary folder structure.
+    /// Manifest auto-generates from folder structure; always in sync with contents.
     /// </summary>
     public static byte[] CreateProjectArchive(
-        ProjectMetadata metadata,
-        Dictionary<string, string> files,
-        Dictionary<string, byte[]>? artifacts = null)
+        string appName,
+        string projectName,
+        Dictionary<string, byte[]> contents,
+        string? description = null,
+        Dictionary<string, object>? metadata = null,
+        Dictionary<string, string>? folderDescriptions = null)
     {
+        // Auto-generate folder structure from contents
+        var folders = contents.Keys
+            .Select(path => path.Split('/')[0])
+            .Distinct()
+            .ToHashSet();
+
+        var manifest = new ProjectManifest
+        {
+            AppName = appName,
+            ProjectName = projectName,
+            Description = description,
+            Version = "1.0",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            FolderStructure = folders.ToDictionary(
+                f => f,
+                f => folderDescriptions?.ContainsKey(f) == true ? folderDescriptions[f] : $"{f}/ folder"
+            ),
+            Metadata = metadata ?? new()
+        };
+
         using var ms = new MemoryStream();
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
         {
-            // Write metadata.json
-            var metadataJson = JsonSerializer.Serialize(metadata, new JsonSerializerOptions { WriteIndented = true });
-            var metadataEntry = zip.CreateEntry("metadata.json");
-            using (var writer = new StreamWriter(metadataEntry.Open()))
+            // Write auto-generated manifest.json
+            var manifestJson = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
+            var manifestEntry = zip.CreateEntry("manifest.json");
+            using (var writer = new StreamWriter(manifestEntry.Open()))
             {
-                writer.Write(metadataJson);
+                writer.Write(manifestJson);
             }
 
-            // Write files/ folder (JSON content)
-            foreach (var (fileName, fileContent) in files)
+            // Write all contents with arbitrary folder structure
+            foreach (var (path, data) in contents)
             {
-                var fileEntry = zip.CreateEntry($"files/{fileName}");
-                using (var writer = new StreamWriter(fileEntry.Open()))
+                var entry = zip.CreateEntry(path);
+                using (var stream = entry.Open())
                 {
-                    writer.Write(fileContent);
-                }
-            }
-
-            // Write artifacts/ folder (generated outputs: diagrams, exports, docs, etc.)
-            if (artifacts != null)
-            {
-                foreach (var (artifactPath, artifactData) in artifacts)
-                {
-                    var artifactEntry = zip.CreateEntry($"artifacts/{artifactPath}");
-                    using (var stream = artifactEntry.Open())
-                    {
-                        stream.Write(artifactData, 0, artifactData.Length);
-                    }
+                    stream.Write(data, 0, data.Length);
                 }
             }
         }
@@ -81,7 +105,8 @@ public sealed class ProjectFileService
     }
 
     /// <summary>
-    /// Extract a .dapp ZIP project file.
+    /// Extract a .dapp ZIP project file with arbitrary folder structure.
+    /// Reads manifest to understand contents; loads all files as-is.
     /// </summary>
     public static ProjectArchive ExtractProjectArchive(byte[] fileContent)
     {
@@ -90,39 +115,26 @@ public sealed class ProjectFileService
         using (var ms = new MemoryStream(fileContent))
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Read))
         {
-            // Read metadata.json
-            var metadataEntry = zip.GetEntry("metadata.json");
-            if (metadataEntry != null)
+            // Read manifest.json (describes the project structure)
+            var manifestEntry = zip.GetEntry("manifest.json");
+            if (manifestEntry != null)
             {
-                using (var reader = new StreamReader(metadataEntry.Open()))
+                using (var reader = new StreamReader(manifestEntry.Open()))
                 {
                     var json = reader.ReadToEnd();
-                    archive.Metadata = JsonSerializer.Deserialize<ProjectMetadata>(json) ?? new();
+                    archive.Manifest = JsonSerializer.Deserialize<ProjectManifest>(json) ?? new();
                 }
             }
 
-            // Read files/ folder (JSON content)
-            var fileEntries = zip.Entries.Where(e => e.FullName.StartsWith("files/") && !e.Name.EndsWith("/"));
-            foreach (var entry in fileEntries)
-            {
-                using (var reader = new StreamReader(entry.Open()))
-                {
-                    var content = reader.ReadToEnd();
-                    var fileName = entry.FullName.Replace("files/", "");
-                    archive.Files[fileName] = content;
-                }
-            }
-
-            // Read artifacts/ folder (binary content)
-            var artifactEntries = zip.Entries.Where(e => e.FullName.StartsWith("artifacts/") && !e.Name.EndsWith("/"));
-            foreach (var entry in artifactEntries)
+            // Read all contents (arbitrary folder structure defined by app)
+            var contentEntries = zip.Entries.Where(e => !e.Name.EndsWith("/") && e.FullName != "manifest.json");
+            foreach (var entry in contentEntries)
             {
                 using (var stream = entry.Open())
                 {
                     var data = new byte[entry.Length];
                     stream.Read(data, 0, (int)entry.Length);
-                    var artifactPath = entry.FullName.Replace("artifacts/", "");
-                    archive.Artifacts[artifactPath] = data;
+                    archive.Contents[entry.FullName] = data;
                 }
             }
         }
@@ -155,25 +167,23 @@ public sealed class ProjectFileService
     }
 
     /// <summary>
-    /// Save project to S3 (requires S3 credentials configured).
+    /// Save project to S3 (requires S3 credentials configured in environment).
+    /// Placeholder for integration with S3 client via DI.
     /// </summary>
     public static async Task SaveToS3Async(
-        string s3Client,
         string bucketName,
         string key,
         byte[] projectData,
         CancellationToken ct = default)
     {
-        // This will be implemented when S3 client is available in the service
-        // For now, provides the interface that apps will use
         throw new NotImplementedException("S3 save will be implemented via DI S3 client");
     }
 
     /// <summary>
-    /// Load project from S3 (requires S3 credentials configured).
+    /// Load project from S3 (requires S3 credentials configured in environment).
+    /// Placeholder for integration with S3 client via DI.
     /// </summary>
     public static async Task<byte[]> LoadFromS3Async(
-        string s3Client,
         string bucketName,
         string key,
         CancellationToken ct = default)
