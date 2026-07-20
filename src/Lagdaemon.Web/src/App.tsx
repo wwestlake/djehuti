@@ -105,6 +105,7 @@ function Nav({ onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
       <button className={`nav-community-link${active('/announcements') ? ' active' : ''}`} onClick={() => go('/announcements')}>Announcements</button>
       <NavGroup label="Tools" onNavigate={() => setDrawerOpen(false)}>
         <a className="nav-community-link" href="/learn/">Learn</a>
+        <a className="nav-community-link" href="/architect/">Architect</a>
         <button className={`nav-community-link${active('/papers') ? ' active' : ''}`} onClick={() => go('/papers')}>Papers</button>
         <button className={`nav-community-link${active('/downloads') ? ' active' : ''}`} onClick={() => go('/downloads')}>Downloads</button>
         {user?.roles?.includes('system:engineer') && (
