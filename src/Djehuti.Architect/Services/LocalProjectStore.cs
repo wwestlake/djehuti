@@ -84,15 +84,12 @@ public sealed class LocalProjectStore(IJSRuntime js, NavigationManager nav)
             }
         }
 
-        var metadata = new ProjectFileService.ProjectMetadata
-        {
-            Name = Project.Name,
-            Version = "1.0",
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        var zipData = ProjectFileService.CreateProjectArchive(metadata, models);
+        var zipData = ProjectFileService.CreateProjectArchive(
+            projectName: Project.Name,
+            description: null,
+            models: models,
+            artifacts: null
+        );
         var filename = $"{Project.Name.Replace(' ', '-')}.daproj";
 
         await using var module = await js.InvokeAsync<IJSObjectReference>("import", new Uri(new Uri(nav.BaseUri), "js/file-interop.js").ToString());
@@ -109,11 +106,11 @@ public sealed class LocalProjectStore(IJSRuntime js, NavigationManager nav)
 
     public void LoadFromDaproj(byte[] zipData)
     {
-        var archive = ProjectFileService.ExtractProjectArchive(zipData);
+        var (models, artifacts) = ProjectFileService.ExtractProjectArchive(zipData);
         Project = new LocalProjectBundle
         {
-            Name = archive.Metadata.Name,
-            Files = archive.Models.Select(kvp =>
+            Name = "Loaded project",
+            Files = models.Select(kvp =>
                 new LocalFile
                 {
                     Id = Guid.NewGuid().ToString("N"),
