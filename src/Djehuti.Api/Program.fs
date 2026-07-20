@@ -1913,7 +1913,7 @@ let main args =
                 if String.IsNullOrWhiteSpace query then
                     Results.BadRequest("q is required")
                 else
-                    let hits = SemanticGraphRepository.searchChunks query (Some "djelab-dsl-reference") 5
+                    let hits = SemanticGraphRepository.searchChunks query (Some "djelab-dsl-reference") None 5
                     let results =
                         hits
                         |> List.map (fun h -> {| title = h.Title; content = h.Content; similarity = h.Similarity |})
