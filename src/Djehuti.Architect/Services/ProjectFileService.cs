@@ -23,12 +23,14 @@ public sealed class ProjectFileService
     {
         public ProjectMetadata Metadata { get; set; } = new();
         public Dictionary<string, ArchitectureModel> Models { get; set; } = new();
+        public Dictionary<string, byte[]> Artifacts { get; set; } = new(); // diagrams, docs, exports
     }
 
     /// <summary>
-    /// Create a .daproj ZIP from a project with its models.
+    /// Create a .daproj ZIP from a project with its models and artifacts.
+    /// Structure: project.json, models/, artifacts/
     /// </summary>
-    public static byte[] CreateProjectArchive(ProjectMetadata metadata, Dictionary<string, ArchitectureModel> models)
+    public static byte[] CreateProjectArchive(ProjectMetadata metadata, Dictionary<string, ArchitectureModel> models, Dictionary<string, byte[]>? artifacts = null)
     {
         using var ms = new MemoryStream();
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
@@ -51,13 +53,26 @@ public sealed class ProjectFileService
                     writer.Write(modelJson);
                 }
             }
+
+            // Write artifacts/ folder (diagrams, exports, docs)
+            if (artifacts != null)
+            {
+                foreach (var (artifactName, artifactData) in artifacts)
+                {
+                    var artifactEntry = zip.CreateEntry($"artifacts/{artifactName}");
+                    using (var stream = artifactEntry.Open())
+                    {
+                        stream.Write(artifactData, 0, artifactData.Length);
+                    }
+                }
+            }
         }
 
         return ms.ToArray();
     }
 
     /// <summary>
-    /// Extract a .daproj or .datpt ZIP file.
+    /// Extract a .daproj or .datpt ZIP file (models + artifacts).
     /// </summary>
     public static ProjectArchive ExtractProjectArchive(byte[] fileContent)
     {
@@ -92,6 +107,19 @@ public sealed class ProjectFileService
                     }
                 }
             }
+
+            // Read artifacts/ folder (diagrams, exports, docs)
+            var artifactEntries = zip.Entries.Where(e => e.FullName.StartsWith("artifacts/") && !e.Name.EndsWith("/"));
+            foreach (var entry in artifactEntries)
+            {
+                using (var stream = entry.Open())
+                {
+                    var data = new byte[entry.Length];
+                    stream.Read(data, 0, (int)entry.Length);
+                    var artifactPath = entry.FullName.Replace("artifacts/", "");
+                    archive.Artifacts[artifactPath] = data;
+                }
+            }
         }
 
         return archive;
@@ -99,11 +127,11 @@ public sealed class ProjectFileService
 
     /// <summary>
     /// Create a template (.datpt) from a project archive.
+    /// Same format as .daproj, just different file extension when saved.
     /// </summary>
-    public static byte[] CreateTemplateArchive(ProjectMetadata metadata, Dictionary<string, ArchitectureModel> models)
+    public static byte[] CreateTemplateArchive(ProjectMetadata metadata, Dictionary<string, ArchitectureModel> models, Dictionary<string, byte[]>? artifacts = null)
     {
-        // Same format as .daproj, just different file extension
-        return CreateProjectArchive(metadata, models);
+        return CreateProjectArchive(metadata, models, artifacts);
     }
 
     /// <summary>
