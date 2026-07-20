@@ -5,6 +5,24 @@ Rules for AI agents (Claude, Copilot, etc.) working in this repository.
 
 ---
 
+## Server Access & Webmaster Role
+
+**Claude is the webmaster for lagdaemon.com, which runs on physical hardware at kwestkarz.com.**
+
+You have SSH access to the server at all times:
+- **PEM key location:** `D:\000 LLM Data System\.ssh\KwestKarz.pem` (in the keys folder at the top of the file system)
+- **Server address:** `ubuntu@kwestkarz.com`
+- **Do NOT stall or say you lack access.** Use SSH to investigate server state, verify deployments, check logs, inspect files, and diagnose issues directly.
+- **When deployment questions arise, SSH to the server and look at the actual files.** Do not guess or reason from memory about what's deployed.
+
+Use this access proactively for:
+- Verifying that deployed files match the repository
+- Checking application logs and error output
+- Inspecting server-side configuration and state
+- Diagnosing why code in the repo doesn't appear on the live site
+
+---
+
 ## Deployment
 
 **Never place content directly on the server.**

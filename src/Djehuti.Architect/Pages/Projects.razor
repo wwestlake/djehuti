@@ -61,7 +61,7 @@
                     @foreach (var p in _list.Projects)
                     {
                         <tr>
-                            <td><a href="@($"/projects/{p.Id}")">@p.Name</a></td>
+                            <td><a href="@($"projects/{p.Id}")">@p.Name</a></td>
                             <td>@p.UpdatedAt.ToLocalTime().ToString("g")</td>
                             <td><button class="arch-btn arch-btn-danger arch-btn-small" type="button" @onclick="() => Delete(p.Id)">Delete</button></td>
                         </tr>
@@ -116,7 +116,7 @@
     private void StartLocalProject()
     {
         LocalStore.NewProject("Local project");
-        Nav.NavigateTo("/projects/local");
+        Nav.NavigateTo("projects/local");
     }
 
     private async Task OpenLocalProjectFile(Microsoft.AspNetCore.Components.Forms.InputFileChangeEventArgs e)
@@ -124,6 +124,6 @@
         using var reader = new StreamReader(e.File.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024));
         var json = await reader.ReadToEndAsync();
         LocalStore.LoadFromJson(json);
-        Nav.NavigateTo("/projects/local");
+        Nav.NavigateTo("projects/local");
     }
 }

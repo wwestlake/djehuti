@@ -1894,6 +1894,91 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    app.MapPost(
+        "/api/architect/analyze-github",
+        Func<HttpContext, {| url: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some _ ->
+                    try
+                        let githubUrl = body.url.Trim()
+                        if String.IsNullOrWhiteSpace githubUrl then
+                            return Results.BadRequest("GitHub URL is required")
+                        else
+                            let repoName =
+                                githubUrl.TrimEnd('/')
+                                |> fun s -> s.Split('/') |> Array.last
+                                |> fun s -> s.Replace(".git", "")
+
+                            let tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"architect-{System.Guid.NewGuid()}")
+                            System.IO.Directory.CreateDirectory(tempDir) |> ignore
+
+                            let proc = System.Diagnostics.ProcessStartInfo(
+                                FileName = "git",
+                                Arguments = $"clone --depth 1 {githubUrl} {tempDir}",
+                                UseShellExecute = false,
+                                RedirectStandardOutput = true,
+                                RedirectStandardError = true,
+                                CreateNoWindow = true
+                            )
+
+                            let p = System.Diagnostics.Process.Start(proc)
+                            let! _ = p.WaitForExitAsync() |> Async.AwaitTask
+
+                            if p.ExitCode <> 0 then
+                                System.IO.Directory.Delete(tempDir, true)
+                                return Results.BadRequest("Failed to clone repository. Check the URL and try again.")
+                            else
+                                let rec scanFiles (dir: string) (maxDepth: int) : obj list =
+                                    if maxDepth <= 0 then []
+                                    else
+                                        try
+                                            System.IO.Directory.GetFiles(dir)
+                                            |> Array.filter (fun f ->
+                                                let name = System.IO.Path.GetFileName(f).ToLower()
+                                                not (name.StartsWith(".") || name = "package-lock.json"))
+                                            |> Array.map (fun f ->
+                                                {|
+                                                    type_ = "file"
+                                                    name = System.IO.Path.GetFileName(f)
+                                                    path = f.Replace(tempDir, "").Replace("\\", "/")
+                                                |} :> obj)
+                                            |> Array.toList
+                                        with _ -> []
+
+                                let rec scanDirs (dir: string) (depth: int) : obj list =
+                                    if depth <= 0 then []
+                                    else
+                                        try
+                                            System.IO.Directory.GetDirectories(dir)
+                                            |> Array.filter (fun d ->
+                                                let name = System.IO.Path.GetFileName(d).ToLower()
+                                                not (name.StartsWith(".") || name = "node_modules" || name = ".git"))
+                                            |> Array.map (fun d ->
+                                                {|
+                                                    type_ = "directory"
+                                                    name = System.IO.Path.GetFileName(d)
+                                                    path = d.Replace(tempDir, "").Replace("\\", "/")
+                                                    children = scanDirs d (depth - 1) @ scanFiles d (depth - 1)
+                                                |} :> obj)
+                                            |> Array.toList
+                                        with _ -> []
+
+                                let structure = {|
+                                    repoName = repoName
+                                    url = githubUrl
+                                    files = scanDirs tempDir 3 @ scanFiles tempDir 3
+                                    message = "Repository structure scanned. Exclude folders like node_modules, .git, and check file counts."
+                                |}
+
+                                System.IO.Directory.Delete(tempDir, true)
+                                return Results.Ok(structure)
+                    with ex ->
+                        return Results.BadRequest($"Error: {ex.Message}")
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     // Backs the AI's search_math_references tool call (DjeLabSystemPrompt /
     // AiChatClient) -- deliberately NOT the same endpoint as
     // /api/admin/semantic/search, which is admin-gated and carries session/

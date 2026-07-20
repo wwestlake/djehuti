@@ -1,0 +1,96 @@
+@using System.Net.Http
+@using System.Text.Json
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<div class="arch-page arch-page-wide">
+    <h1>Analyze Repository</h1>
+    <p class="arch-subtitle">Paste a GitHub repository URL to analyze its structure and generate an architecture model.</p>
+
+    <div class="arch-editor-header">
+        <input
+            class="arch-input"
+            placeholder="https://github.com/username/repository"
+            @bind="_githubUrl"
+            @onkeydown="OnKeyDown"
+        />
+        <button class="arch-btn arch-btn-primary" type="button" @onclick="AnalyzeGitHub" disabled="@_loading">
+            @if (_loading)
+            {
+                <span>Analyzing...</span>
+            }
+            else
+            {
+                <span>Analyze</span>
+            }
+        </button>
+    </div>
+
+    @if (_error is not null)
+    {
+        <p class="arch-error">@_error</p>
+    }
+
+    @if (_repoInfo is not null)
+    {
+        <div class="arch-panel" style="margin-top: 2rem;">
+            <h2>Repository: @_repoInfo.repoName</h2>
+            <p class="arch-status">@_repoInfo.message</p>
+            <p style="margin-top: 1rem;">
+                <button class="arch-btn arch-btn-secondary" type="button" @onclick="GoBack">Back</button>
+            </p>
+        </div>
+    }
+</div>
+
+@code {
+    private string _githubUrl = "";
+    private bool _loading;
+    private string? _error;
+    private dynamic? _repoInfo;
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await AnalyzeGitHub();
+    }
+
+    private async Task AnalyzeGitHub()
+    {
+        _error = null;
+        _repoInfo = null;
+
+        if (string.IsNullOrWhiteSpace(_githubUrl))
+        {
+            _error = "Please enter a GitHub repository URL.";
+            return;
+        }
+
+        _loading = true;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/djehuti/api/architect/analyze-github");
+            request.Content = new StringContent(JsonSerializer.Serialize(new { url = _githubUrl }), System.Text.Encoding.UTF8, "application/json");
+            var response = await Http.SendAsync(request);
+            var content = await response.Content.ReadAsStringAsync();
+            if (response.IsSuccessStatusCode)
+            {
+                _repoInfo = JsonSerializer.Deserialize<dynamic>(content);
+            }
+            else
+            {
+                _error = content ?? "Failed to analyze repository.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void GoBack() => Nav.NavigateTo("/projects");
+}
