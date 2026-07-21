@@ -7,6 +7,7 @@ open System.Threading.Tasks
 open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.Logging
 open Djehuti.Core
+open Djehuti.Core.Ai
 open Djehuti.Api
 
 let private aiErrorText error =

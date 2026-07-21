@@ -78,7 +78,7 @@ Return valid JSON only, no markdown or explanation.";
     private string DetectPrimaryTechnology(Dictionary<string, object> repoStructure)
     {
         // Simple detection based on file patterns
-        var files = repoStructure.Keys.ToLower().ToString() ?? "";
+        var files = string.Concat(repoStructure.Keys).ToLower();
 
         return files.Contains("package.json") ? "Node.js" :
                files.Contains(".csproj") ? ".NET" :

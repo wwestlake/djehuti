@@ -10,6 +10,7 @@ open System.Text.Json.Serialization
 open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.Logging
 open Djehuti.Core
+open Djehuti.Core.Ai
 open Djehuti.Api
 
 // OpenAI helpers

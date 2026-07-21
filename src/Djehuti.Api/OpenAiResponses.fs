@@ -9,6 +9,7 @@ open System.Text.Json
 open System.Text.Json.Serialization
 open System.Threading.Tasks
 open Djehuti.Core
+open Djehuti.Core.Ai
 
 type OpenAiResponsesOptions =
     { ApiKey: string

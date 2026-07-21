@@ -18,7 +18,6 @@
          a second math engine; see the tech spec wiki page. -->
     <ProjectReference Include="..\Djehuti.DjeLab.Dsl\Djehuti.DjeLab.Dsl.fsproj" />
     <ProjectReference Include="..\Djehuti.Core\Djehuti.Core.fsproj" />
-    <ProjectReference Include="..\Djehuti.Core\Djehuti.Core.csproj" />
   </ItemGroup>
 
 </Project>
