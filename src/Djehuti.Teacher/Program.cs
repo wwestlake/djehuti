@@ -21,6 +21,7 @@ builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.
 builder.Services.AddSingleton<AiConfigStore>();
 builder.Services.AddScoped<MultiProviderConfigStore>();
 builder.Services.AddScoped<TeacherApiClient>();
+builder.Services.AddScoped<ProjectFileService>();
 // API LLM client with multi-provider support
 builder.Services.AddScoped(sp =>
 {

@@ -61,6 +61,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Djehuti.Core\Djehuti.Core.fsproj" />
+    <ProjectReference Include="..\Djehuti.Core\Djehuti.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
