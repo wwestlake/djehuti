@@ -19,6 +19,8 @@ type ReleaseRecord = {
     Assets:      ReleaseAsset list
     PublishedAt: DateTimeOffset option
     CreatedAt:   DateTimeOffset
+    TarballUrl:  string option
+    ZipballUrl:  string option
 }
 
 let private readRelease (r: System.Data.Common.DbDataReader) : ReleaseRecord =
@@ -34,9 +36,11 @@ let private readRelease (r: System.Data.Common.DbDataReader) : ReleaseRecord =
             with _ -> []
         PublishedAt = if r.IsDBNull(7) then None else Some (r.GetFieldValue<DateTimeOffset>(7))
         CreatedAt   = r.GetFieldValue<DateTimeOffset>(8)
+        TarballUrl  = if r.IsDBNull(9) then None else Some (r.GetString(9))
+        ZipballUrl  = if r.IsDBNull(10) then None else Some (r.GetString(10))
     }
 
-let private selectColumns = "id, product_id, tag_name, name, body, prerelease, assets_json, published_at, created_at"
+let private selectColumns = "id, product_id, tag_name, name, body, prerelease, assets_json, published_at, created_at, tarball_url, zipball_url"
 
 let listForProduct (productId: Guid) : ReleaseRecord list =
     use conn = Database.openConnection()
@@ -54,17 +58,22 @@ let listForProduct (productId: Guid) : ReleaseRecord list =
 // Upsert keyed on (product_id, tag_name) -- GitHub's "release edited" and
 // "release published" events both land here, so a re-published/edited
 // release updates the existing row instead of duplicating it.
-let upsert (productId: Guid) (tagName: string) (name: string option) (body: string option) (prerelease: bool) (assets: ReleaseAsset list) (publishedAt: DateTimeOffset option) : unit =
+// tarballUrl/zipballUrl are GitHub's auto-generated source archive links
+// (release.tarball_url / release.zipball_url) -- distinct from `assets`,
+// which only holds artifacts explicitly uploaded to the release (the MSI/ZIP).
+let upsert (productId: Guid) (tagName: string) (name: string option) (body: string option) (prerelease: bool) (assets: ReleaseAsset list) (publishedAt: DateTimeOffset option) (tarballUrl: string option) (zipballUrl: string option) : unit =
     use conn = Database.openConnection()
     use cmd = new NpgsqlCommand("""
-        INSERT INTO product_releases (product_id, tag_name, name, body, prerelease, assets_json, published_at)
-        VALUES (@productId, @tagName, @name, @body, @prerelease, @assets, @publishedAt)
+        INSERT INTO product_releases (product_id, tag_name, name, body, prerelease, assets_json, published_at, tarball_url, zipball_url)
+        VALUES (@productId, @tagName, @name, @body, @prerelease, @assets, @publishedAt, @tarballUrl, @zipballUrl)
         ON CONFLICT (product_id, tag_name) DO UPDATE SET
             name = EXCLUDED.name,
             body = EXCLUDED.body,
             prerelease = EXCLUDED.prerelease,
             assets_json = EXCLUDED.assets_json,
-            published_at = EXCLUDED.published_at
+            published_at = EXCLUDED.published_at,
+            tarball_url = EXCLUDED.tarball_url,
+            zipball_url = EXCLUDED.zipball_url
     """, conn)
     cmd.Parameters.AddWithValue("productId", productId) |> ignore
     cmd.Parameters.AddWithValue("tagName", tagName) |> ignore
@@ -73,6 +82,8 @@ let upsert (productId: Guid) (tagName: string) (name: string option) (body: stri
     cmd.Parameters.AddWithValue("prerelease", prerelease) |> ignore
     cmd.Parameters.AddWithValue("assets", System.Text.Json.JsonSerializer.Serialize(assets)) |> ignore
     cmd.Parameters.AddWithValue("publishedAt", (publishedAt |> Option.map box |> Option.defaultValue (box DBNull.Value))) |> ignore
+    cmd.Parameters.AddWithValue("tarballUrl", (tarballUrl |> Option.map box |> Option.defaultValue (box DBNull.Value))) |> ignore
+    cmd.Parameters.AddWithValue("zipballUrl", (zipballUrl |> Option.map box |> Option.defaultValue (box DBNull.Value))) |> ignore
     cmd.ExecuteNonQuery() |> ignore
 
 let deleteByTag (productId: Guid) (tagName: string) : unit =

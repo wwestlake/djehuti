@@ -6306,7 +6306,12 @@ let main args =
                                                         |> List.ofSeq
                                                     | _ -> []
 
-                                                ProductReleaseRepository.upsert product.Id tagName (getStr "name") (getStr "body") prerelease assets publishedAt
+                                                // GitHub auto-generates these source archive links for every release;
+                                                // they're separate from `assets` (the uploaded MSI/ZIP installers).
+                                                let tarballUrl = getStr "tarball_url"
+                                                let zipballUrl = getStr "zipball_url"
+
+                                                ProductReleaseRepository.upsert product.Id tagName (getStr "name") (getStr "body") prerelease assets publishedAt tarballUrl zipballUrl
                                                 printfn "[GithubReleases] Upserted %s %s (%s), %d assets" product.Slug tagName action (List.length assets)
                                                 return Results.Ok()
                     with ex ->

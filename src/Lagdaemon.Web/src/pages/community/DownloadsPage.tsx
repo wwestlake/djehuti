@@ -30,6 +30,22 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+// Installer first, plain zip second, anything else after -- alphabetical
+// within each group so ordering stays stable release to release.
+function assetRank(name: string): number {
+  const lower = name.toLowerCase()
+  if (lower.endsWith('.msi')) return 0
+  if (lower.endsWith('.zip')) return 1
+  return 2
+}
+
+function sortAssets(assets: ReleaseAsset[]): ReleaseAsset[] {
+  return [...assets].sort((a, b) => {
+    const rankDiff = assetRank(a.name) - assetRank(b.name)
+    return rankDiff !== 0 ? rankDiff : a.name.localeCompare(b.name)
+  })
+}
+
 export default function DownloadsPage() {
   const { user } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
@@ -103,7 +119,7 @@ export default function DownloadsPage() {
                       Requires higher Patreon tier
                     </span>
                   )}
-                  {latest && qualifies && latest.assets.map(a => (
+                  {latest && qualifies && sortAssets(latest.assets).map(a => (
                     <a key={a.name} href={a.url} className="primary-action auth-button" style={{ display: 'inline-block', textDecoration: 'none', width: 'auto', padding: '0.5rem 0.9rem', fontSize: '0.85rem' }}>
                       {a.name} <span style={{ opacity: 0.7 }}>({formatBytes(a.sizeBytes)})</span>
                     </a>

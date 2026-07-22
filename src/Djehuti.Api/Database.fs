@@ -4361,6 +4361,16 @@ let private migrations : (int * string) list =
         GRANT ALL ON TABLE architect_projects TO djehuti;
         GRANT ALL ON TABLE architect_files TO djehuti;
         """
+
+        // GitHub auto-generates a source tarball/zipball per release (tarball_url /
+        // zipball_url on the release object) -- these are separate from the
+        // uploaded release.assets (the MSI/ZIP install artifacts), so they need
+        // their own columns to let the download page link the source alongside
+        // the compiled installer.
+        81, """
+        ALTER TABLE product_releases ADD COLUMN IF NOT EXISTS tarball_url TEXT;
+        ALTER TABLE product_releases ADD COLUMN IF NOT EXISTS zipball_url TEXT;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
