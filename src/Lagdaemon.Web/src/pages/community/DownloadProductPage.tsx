@@ -24,12 +24,30 @@ interface Release {
   prerelease: boolean
   assets: ReleaseAsset[]
   publishedAt: string | null
+  tarballUrl: string | null
+  zipballUrl: string | null
 }
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// Installer first, plain zip second, anything else after -- alphabetical
+// within each group so ordering stays stable release to release.
+function assetRank(name: string): number {
+  const lower = name.toLowerCase()
+  if (lower.endsWith('.msi')) return 0
+  if (lower.endsWith('.zip')) return 1
+  return 2
+}
+
+function sortAssets(assets: ReleaseAsset[]): ReleaseAsset[] {
+  return [...assets].sort((a, b) => {
+    const rankDiff = assetRank(a.name) - assetRank(b.name)
+    return rankDiff !== 0 ? rankDiff : a.name.localeCompare(b.name)
+  })
 }
 
 export default function DownloadProductPage() {
@@ -110,7 +128,7 @@ export default function DownloadProductPage() {
           {latest.publishedAt && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 12px' }}>{new Date(latest.publishedAt).toLocaleDateString()}</p>}
           {latest.body && <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '0.9rem', margin: '0 0 16px' }}>{latest.body}</pre>}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {latest.assets.map(a => (
+            {sortAssets(latest.assets).map(a => (
               qualifies
                 ? <a key={a.name} href={a.url} className="primary-action auth-button" style={{ display: 'inline-block', textDecoration: 'none', width: 'auto', padding: '0.6rem 1rem' }}>
                     {a.name} <span style={{ opacity: 0.7 }}>({formatBytes(a.sizeBytes)})</span>
@@ -120,6 +138,11 @@ export default function DownloadProductPage() {
                   </span>
             ))}
           </div>
+          {latest.tarballUrl && (
+            <p style={{ marginTop: 12, marginBottom: 0, fontSize: '0.8rem' }}>
+              <a href={latest.tarballUrl} style={{ color: 'var(--text-muted)' }}>Source code (tar.gz)</a>
+            </p>
+          )}
         </div>
       )}
 
@@ -140,12 +163,17 @@ export default function DownloadProductPage() {
                 <div style={{ marginTop: 12 }}>
                   {r.body && <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '0.85rem', color: 'var(--text-muted)' }}>{r.body}</pre>}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {r.assets.map(a => (
+                    {sortAssets(r.assets).map(a => (
                       qualifies
                         ? <a key={a.name} href={a.url} style={{ fontSize: '0.85rem' }}>{a.name} ({formatBytes(a.sizeBytes)})</a>
                         : <span key={a.name} style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{a.name} ({formatBytes(a.sizeBytes)})</span>
                     ))}
                   </div>
+                  {r.tarballUrl && (
+                    <p style={{ marginTop: 8, marginBottom: 0, fontSize: '0.8rem' }}>
+                      <a href={r.tarballUrl} style={{ color: 'var(--text-muted)' }}>Source code (tar.gz)</a>
+                    </p>
+                  )}
                 </div>
               )}
             </div>
