@@ -54,6 +54,19 @@ let listForProduct (productId: Guid) : ReleaseRecord list =
 // Upsert keyed on (product_id, tag_name) -- GitHub's "release edited" and
 // "release published" events both land here, so a re-published/edited
 // release updates the existing row instead of duplicating it.
+//
+// One real release publish (create + upload asset 1 + upload asset 2 +
+// finalize) fires a SEPARATE "release" webhook event per API mutation --
+// GitHub doesn't batch these -- and webhook delivery has no ordering
+// guarantee, so djehuti can receive the 1-asset snapshot AFTER the
+// 2-asset one. A plain overwrite is last-write-wins and can silently
+// drop an asset that was already correctly recorded. Since the asset
+// list only grows during that burst (shrinking only happens via the
+// explicit deleteByTag path below, for real delete/unpublish events),
+// keeping whichever snapshot has the most assets -- computed inside the
+// same atomic UPDATE, not a separate read-then-write -- is safe against
+// arrival order without needing to call back to GitHub's API to re-fetch
+// ground truth.
 let upsert (productId: Guid) (tagName: string) (name: string option) (body: string option) (prerelease: bool) (assets: ReleaseAsset list) (publishedAt: DateTimeOffset option) : unit =
     use conn = Database.openConnection()
     use cmd = new NpgsqlCommand("""
@@ -63,7 +76,11 @@ let upsert (productId: Guid) (tagName: string) (name: string option) (body: stri
             name = EXCLUDED.name,
             body = EXCLUDED.body,
             prerelease = EXCLUDED.prerelease,
-            assets_json = EXCLUDED.assets_json,
+            assets_json = CASE
+                WHEN jsonb_array_length(EXCLUDED.assets_json::jsonb) >= jsonb_array_length(product_releases.assets_json::jsonb)
+                THEN EXCLUDED.assets_json
+                ELSE product_releases.assets_json
+            END,
             published_at = EXCLUDED.published_at
     """, conn)
     cmd.Parameters.AddWithValue("productId", productId) |> ignore
