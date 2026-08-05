@@ -5,6 +5,29 @@ Rules for AI agents (Claude, Copilot, etc.) working in this repository.
 
 ---
 
+## Server Access & Webmaster Role
+
+**Infrastructure clarity:**
+- **kwestkarz.com** — the HOST server (physical hardware, owned/operated by kwestkarz)
+- **lagdaemon.com** — the APPLICATION running on that host (our product)
+- **PEM key** — grants SSH access to the kwestkarz.com server, which we use to manage the lagdaemon.com application
+
+**Claude is the webmaster for lagdaemon.com.** With the PEM key, you have full SSH access to the kwestkarz.com server to inspect, verify, and work on lagdaemon.com application files.
+
+You have SSH access to the server at all times:
+- **PEM key location:** `D:\000 LLM Data System\.ssh\KwestKarz.pem` (in the keys folder)
+- **Server address:** `ubuntu@kwestkarz.com`
+- **Do NOT stall or say you lack access.** Use SSH to investigate server state, verify deployments, check logs, inspect files, and diagnose issues directly.
+- **When deployment questions arise, SSH to the kwestkarz.com server and look at the actual lagdaemon.com application files.** Do not guess or reason from memory about what's deployed.
+
+Use this access proactively for:
+- Verifying that deployed lagdaemon.com files match the repository
+- Checking application logs and error output for lagdaemon.com
+- Inspecting server-side configuration and state for lagdaemon.com
+- Diagnosing why code in the repo doesn't appear on the live lagdaemon.com site
+
+---
+
 ## Deployment
 
 **Never place content directly on the server.**
@@ -86,6 +109,8 @@ Use plain, precise language. Avoid slang and informal shorthand. The user has a 
 ## Session Startup
 
 **At the start of every session, read `AGENTS.md` before doing any work.** If the user has not already prompted this, ask them to say "read agents.md" or read it proactively. Do not rely on memory files alone — this file is the authoritative source of project rules and overrides any remembered behavior from prior sessions.
+
+**Repository Map**: For a general map of where things are in this app, see `D:\000 LLM Data System\repository_map.md` (not checked in, for Claude reference only).
 
 ---
 

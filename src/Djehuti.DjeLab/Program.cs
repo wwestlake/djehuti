@@ -14,6 +14,7 @@ builder.Services.AddScoped<ChatHistoryStore>();
 builder.Services.AddScoped<AiChatClient>();
 builder.Services.AddScoped<DjeLabFilesClient>();
 builder.Services.AddScoped<RagApiClient>();
+builder.Services.AddScoped<ProjectFileService>();
 builder.Services.AddSingleton<WorkspaceActions>();
 // Singleton: one model download/engine instance for the whole app session,
 // shared across every ChatPane instance (Ibis panes, tab reopens, etc.)

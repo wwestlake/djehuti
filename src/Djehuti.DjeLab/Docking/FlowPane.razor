@@ -1675,7 +1675,7 @@
 
     private static FilesResult<string> BuildCsvRuntimeData(string path, string content, IReadOnlyList<string> dataColumns)
     {
-        var parsed = CsvText.parse(content);
+        var parsed = SimpleCsvParse(content);
         var headers = parsed.Headers.Select(header => header.Trim()).ToArray();
         var rows = parsed.Rows.Select(row => row.ToArray()).ToArray();
 
@@ -2057,7 +2057,7 @@
 
     private static bool LooksLikeCsv(string content)
     {
-        var parsed = CsvText.parse(content);
+        var parsed = SimpleCsvParse(content);
         return parsed.Headers.Count() >= 2 && parsed.Rows.Count() >= 1;
     }
 
@@ -2220,5 +2220,33 @@
         Actions.ActiveFileContextChanged -= HandleActiveFileContextChanged;
         if (_module != null)
             await _module.DisposeAsync();
+    }
+
+    private class CsvParseResult
+    {
+        public IReadOnlyList<string> Headers { get; set; } = new List<string>();
+        public IReadOnlyList<IReadOnlyList<string>> Rows { get; set; } = new List<List<string>>();
+    }
+
+    private static CsvParseResult SimpleCsvParse(string content)
+    {
+        var lines = content.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+        var result = new CsvParseResult();
+        var headers = new List<string>();
+        var rows = new List<IReadOnlyList<string>>();
+
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            var fields = line.Split(',');
+            if (headers.Count == 0)
+                headers.AddRange(fields);
+            else
+                rows.Add(fields);
+        }
+
+        result.Headers = headers;
+        result.Rows = rows;
+        return result;
     }
 }

@@ -29,7 +29,10 @@
             On the Free tier you can still build a project -- it just lives in this browser tab
             until you download it, and you reopen it later from that downloaded file.
         </p>
-        <button class="arch-btn arch-btn-primary" type="button" @onclick="StartLocalProject">Start a local project</button>
+        <div class="arch-editor-header">
+            <button class="arch-btn arch-btn-primary" type="button" @onclick="StartLocalProject">Start a local project</button>
+            <button class="arch-btn arch-btn-secondary" type="button" @onclick="GoToAnalyzeGitHub">Analyze GitHub Repository</button>
+        </div>
         <div class="arch-editor-header" style="margin-top:1rem">
             <label class="arch-btn arch-btn-ghost">
                 Open a local project file
@@ -61,7 +64,7 @@
                     @foreach (var p in _list.Projects)
                     {
                         <tr>
-                            <td><a href="@($"/projects/{p.Id}")">@p.Name</a></td>
+                            <td><a href="@($"projects/{p.Id}")">@p.Name</a></td>
                             <td>@p.UpdatedAt.ToLocalTime().ToString("g")</td>
                             <td><button class="arch-btn arch-btn-danger arch-btn-small" type="button" @onclick="() => Delete(p.Id)">Delete</button></td>
                         </tr>
@@ -105,6 +108,11 @@
         }
     }
 
+    private void GoToAnalyzeGitHub()
+    {
+        Nav.NavigateTo("analyze-github");
+    }
+
     private async Task Delete(string id)
     {
         if (await Api.DeleteProjectAsync(id))
@@ -116,7 +124,7 @@
     private void StartLocalProject()
     {
         LocalStore.NewProject("Local project");
-        Nav.NavigateTo("/projects/local");
+        Nav.NavigateTo("projects/local");
     }
 
     private async Task OpenLocalProjectFile(Microsoft.AspNetCore.Components.Forms.InputFileChangeEventArgs e)
@@ -124,6 +132,6 @@
         using var reader = new StreamReader(e.File.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024));
         var json = await reader.ReadToEndAsync();
         LocalStore.LoadFromJson(json);
-        Nav.NavigateTo("/projects/local");
+        Nav.NavigateTo("projects/local");
     }
 }

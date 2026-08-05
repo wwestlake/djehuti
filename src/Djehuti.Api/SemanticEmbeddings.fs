@@ -59,7 +59,8 @@ let private ensureFile (path: string) (url: string) =
 
 let private hashEmbedding (text: string) =
     let vector = Array.zeroCreate<float32> EmbeddingDimension
-    let tokens = SemanticPreprocessing.tokenize text
+    // TODO: SemanticPreprocessing module not implemented. Use simple tokenization.
+    let tokens = text.Split([|' '; '\n'; '\r'; '\t'|]) |> List.ofArray
     if List.isEmpty tokens then
         vector
     else

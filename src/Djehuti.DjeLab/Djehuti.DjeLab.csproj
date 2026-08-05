@@ -21,4 +21,8 @@
     <ProjectReference Include="..\Djehuti.Core\Djehuti.Core.fsproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Djehuti.Core\ProjectFileService.cs" Link="Services/ProjectFileService.cs" />
+  </ItemGroup>
+
 </Project>

@@ -1531,6 +1531,83 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // ── Frate (Frust package manager) registry ───────────────────────────────────
+    // Public/unauthenticated: search + download. Authenticated with the
+    // frate/publisher role required: request an upload URL and publish a
+    // version. See D:\000 Tech Research\projects\05_frate\FRATE_SPEC.md
+    // section 6 for the client-side contract this implements.
+
+    app.MapGet(
+        "/api/frate/pods",
+        Func<HttpContext, IResult>(fun ctx ->
+            let q = ctx.Request.Query.["q"].ToString()
+            let query = if String.IsNullOrWhiteSpace q then None else Some q
+            Results.Ok(FratePodRepository.searchPods query))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/frate/pods/{name}/{version}",
+        Func<string, string, IResult>(fun name version ->
+            match FratePodRepository.getVersion name version with
+            | None -> Results.NotFound("No such pod/version")
+            | Some v -> Results.Redirect(FratePodRepository.presignedDownloadUrl v.S3Key 15, false))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/frate/pods/{name}/{version}/upload-url",
+        Func<HttpContext, string, string, System.Threading.Tasks.Task<IResult>>(fun ctx name version ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        let isAdmin = Permissions.isAdmin claims.Role
+                        use conn = Database.openConnection()
+                        let canPublish = isAdmin || Permissions.hasContextRole conn userId Permissions.ModuleFrate Permissions.RolePublisher None
+                        if not canPublish then
+                            return Results.Forbid()
+                        else
+                            match FratePodRepository.requestUploadUrl { Name = name; Version = version; RequesterId = userId; IsAdmin = isAdmin } with
+                            | Ok result -> return Results.Ok(result)
+                            | Error msg -> return Results.BadRequest(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/frate/pods/{name}/{version}",
+        Func<HttpContext, string, string, {| description: string option; exports: string list; dependencies: FratePodRepository.PodDependency list; license: string; s3Key: string; sizeBytes: int64 |}, System.Threading.Tasks.Task<IResult>>(fun ctx name version body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        let isAdmin = Permissions.isAdmin claims.Role
+                        use conn = Database.openConnection()
+                        let canPublish = isAdmin || Permissions.hasContextRole conn userId Permissions.ModuleFrate Permissions.RolePublisher None
+                        if not canPublish then
+                            return Results.Forbid()
+                        else
+                            let req: FratePodRepository.PublishRequest = {
+                                Name = name; Version = version
+                                Description = body.description
+                                Exports = body.exports
+                                Dependencies = body.dependencies
+                                License = body.license
+                                S3Key = body.s3Key
+                                SizeBytes = body.sizeBytes
+                                PublisherId = userId
+                                IsAdmin = isAdmin
+                            }
+                            match FratePodRepository.publish req with
+                            | Ok record -> return Results.Ok(record)
+                            | Error msg -> return Results.Conflict(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     // ── DjeLab Files ──────────────────────────────────────────────────────────
     // S3-backed file manager for DjeLab, quota-limited by Patreon tier
     // (Djehuti.Api/DjeLabFilesRepository.fs). Available to every tier
@@ -1891,6 +1968,91 @@ let main args =
                             match ArchitectProjectRepository.deleteEntry conn userId projectId fid with
                             | Ok () -> return Results.Ok({| success = true |})
                             | Error msg -> return Results.BadRequest(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/architect/analyze-github",
+        Func<HttpContext, {| url: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some _ ->
+                    try
+                        let githubUrl = body.url.Trim()
+                        if String.IsNullOrWhiteSpace githubUrl then
+                            return Results.BadRequest("GitHub URL is required")
+                        else
+                            let repoName =
+                                githubUrl.TrimEnd('/')
+                                |> fun s -> s.Split('/') |> Array.last
+                                |> fun s -> s.Replace(".git", "")
+
+                            let tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"architect-{System.Guid.NewGuid()}")
+                            System.IO.Directory.CreateDirectory(tempDir) |> ignore
+
+                            let proc = System.Diagnostics.ProcessStartInfo(
+                                FileName = "git",
+                                Arguments = $"clone --depth 1 {githubUrl} {tempDir}",
+                                UseShellExecute = false,
+                                RedirectStandardOutput = true,
+                                RedirectStandardError = true,
+                                CreateNoWindow = true
+                            )
+
+                            let p = System.Diagnostics.Process.Start(proc)
+                            let! _ = p.WaitForExitAsync() |> Async.AwaitTask
+
+                            if p.ExitCode <> 0 then
+                                System.IO.Directory.Delete(tempDir, true)
+                                return Results.BadRequest("Failed to clone repository. Check the URL and try again.")
+                            else
+                                let rec scanFiles (dir: string) (maxDepth: int) : obj list =
+                                    if maxDepth <= 0 then []
+                                    else
+                                        try
+                                            System.IO.Directory.GetFiles(dir)
+                                            |> Array.filter (fun f ->
+                                                let name = System.IO.Path.GetFileName(f).ToLower()
+                                                not (name.StartsWith(".") || name = "package-lock.json"))
+                                            |> Array.map (fun f ->
+                                                {|
+                                                    type_ = "file"
+                                                    name = System.IO.Path.GetFileName(f)
+                                                    path = f.Replace(tempDir, "").Replace("\\", "/")
+                                                |} :> obj)
+                                            |> Array.toList
+                                        with _ -> []
+
+                                let rec scanDirs (dir: string) (depth: int) : obj list =
+                                    if depth <= 0 then []
+                                    else
+                                        try
+                                            System.IO.Directory.GetDirectories(dir)
+                                            |> Array.filter (fun d ->
+                                                let name = System.IO.Path.GetFileName(d).ToLower()
+                                                not (name.StartsWith(".") || name = "node_modules" || name = ".git"))
+                                            |> Array.map (fun d ->
+                                                {|
+                                                    type_ = "directory"
+                                                    name = System.IO.Path.GetFileName(d)
+                                                    path = d.Replace(tempDir, "").Replace("\\", "/")
+                                                    children = scanDirs d (depth - 1) @ scanFiles d (depth - 1)
+                                                |} :> obj)
+                                            |> Array.toList
+                                        with _ -> []
+
+                                let structure = {|
+                                    repoName = repoName
+                                    url = githubUrl
+                                    files = scanDirs tempDir 3 @ scanFiles tempDir 3
+                                    message = "Repository structure scanned. Exclude folders like node_modules, .git, and check file counts."
+                                |}
+
+                                System.IO.Directory.Delete(tempDir, true)
+                                return Results.Ok(structure)
+                    with ex ->
+                        return Results.BadRequest($"Error: {ex.Message}")
             } |> Async.StartAsTask)
     ) |> ignore
 
@@ -6221,7 +6383,12 @@ let main args =
                                                         |> List.ofSeq
                                                     | _ -> []
 
-                                                ProductReleaseRepository.upsert product.Id tagName (getStr "name") (getStr "body") prerelease assets publishedAt
+                                                // GitHub auto-generates these source archive links for every release;
+                                                // they're separate from `assets` (the uploaded MSI/ZIP installers).
+                                                let tarballUrl = getStr "tarball_url"
+                                                let zipballUrl = getStr "zipball_url"
+
+                                                ProductReleaseRepository.upsert product.Id tagName (getStr "name") (getStr "body") prerelease assets publishedAt tarballUrl zipballUrl
                                                 printfn "[GithubReleases] Upserted %s %s (%s), %d assets" product.Slug tagName action (List.length assets)
                                                 return Results.Ok()
                     with ex ->

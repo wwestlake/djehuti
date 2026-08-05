@@ -12,3 +12,16 @@ export function downloadTextFile(filename, content, mimeType) {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 }
+
+// Triggers a browser download of binary content (.daproj ZIP files).
+export function downloadBinaryFile(filename, data) {
+    const blob = new Blob([new Uint8Array(data)], { type: "application/zip" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}

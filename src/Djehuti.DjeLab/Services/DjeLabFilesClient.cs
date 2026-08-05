@@ -238,37 +238,15 @@ public sealed class DjeLabFilesClient
             if (!rawJson.Success || rawJson.Value is null)
                 return FilesResult<string>.Fail(rawJson.Error ?? "Could not read JSON content.");
 
-            if (!rawJson.Value.Truncated)
-            {
-                var document = HierarchicalData.fromJsonText(resolved.Value.Name, rawJson.Value.Content);
-                var treeJson = JsonSerializer.Serialize(HierarchicalData.toSerializable(document.Root));
-                await StoreHierarchySnapshotAsync(resolved.Value.Id, document.SourceKind, treeJson, ct);
-
-                using var treeDoc = JsonDocument.Parse(treeJson);
-                var treeStats = HierarchicalData.summarize(document.Root);
-                var structured = new
-                {
-                    kind = "json",
-                    name = resolved.Value.Name,
-                    truncated = false,
-                    previewBytes = rawJson.Value.BytesRead,
-                    nodeCount = treeStats.NodeCount,
-                    leafCount = treeStats.LeafCount,
-                    maxDepth = treeStats.MaxDepth,
-                    tree = treeDoc.RootElement.Clone()
-                };
-
-                return FilesResult<string>.Ok(JsonSerializer.Serialize(structured));
-            }
-
+            // TODO: HierarchicalData type not implemented. Return simple preview.
             var previewStructured = new
             {
                 kind = "json-preview",
                 name = resolved.Value.Name,
-                truncated = true,
+                truncated = rawJson.Value.Truncated,
                 previewBytes = rawJson.Value.BytesRead,
                 preview = rawJson.Value.Content,
-                note = "Large JSON files are previewed here so the AI can inspect the top of the file without loading the whole thing."
+                note = "JSON hierarchy analysis not yet implemented. Raw content shown above."
             };
 
             return FilesResult<string>.Ok(JsonSerializer.Serialize(previewStructured));
@@ -280,31 +258,15 @@ public sealed class DjeLabFilesClient
             if (!rawCsv.Success || rawCsv.Value is null)
                 return FilesResult<string>.Fail(rawCsv.Error ?? "Could not read CSV content.");
 
-            var parsed = CsvText.parse(rawCsv.Value.Content);
-            var csvTree = HierarchicalData.fromCsv(resolved.Value.Name, parsed.Headers, parsed.Rows);
-            var treeJson = JsonSerializer.Serialize(HierarchicalData.toSerializable(csvTree.Root));
-            await StoreHierarchySnapshotAsync(resolved.Value.Id, csvTree.SourceKind, treeJson, ct);
-
-            using var treeDoc = JsonDocument.Parse(treeJson);
-            var headers = parsed.Headers.ToArray();
-            var rows = parsed.Rows.Select(row => row.ToArray()).ToArray();
-            var columnProfiles = BuildCsvColumnProfiles(headers, rows);
-            var treeStats = HierarchicalData.summarize(csvTree.Root);
+            // TODO: CsvText and HierarchicalData types not implemented. Return simple preview.
             var structured = new
             {
-                kind = "csv",
+                kind = "csv-preview",
                 name = resolved.Value.Name,
                 truncated = rawCsv.Value.Truncated,
                 previewBytes = rawCsv.Value.BytesRead,
-                headers,
-                rows,
-                rowCount = rows.Length,
-                columnCount = headers.Length,
-                columnProfiles,
-                nodeCount = treeStats.NodeCount,
-                leafCount = treeStats.LeafCount,
-                maxDepth = treeStats.MaxDepth,
-                tree = treeDoc.RootElement.Clone()
+                preview = rawCsv.Value.Content,
+                note = "CSV analysis not yet implemented. Raw content shown above."
             };
 
             return FilesResult<string>.Ok(JsonSerializer.Serialize(structured));
@@ -312,29 +274,8 @@ public sealed class DjeLabFilesClient
 
         if (extension == ".root" || contentType.Contains("root"))
         {
+            // TODO: HierarchicalData type not implemented for ROOT files.
             var manifest = await TryReadRootManifestAsync(resolved.Value, ct);
-            if (manifest.Success && manifest.Value is not null)
-            {
-                var document = HierarchicalData.fromRootManifest(resolved.Value.Name, manifest.Value.Value);
-                var manifestTreeJson = JsonSerializer.Serialize(HierarchicalData.toSerializable(document.Root));
-                await StoreHierarchySnapshotAsync(resolved.Value.Id, document.SourceKind, manifestTreeJson, ct);
-
-                using var manifestTreeDoc = JsonDocument.Parse(manifestTreeJson);
-                var treeStats = HierarchicalData.summarize(document.Root);
-                var manifestStructured = new
-                {
-                    kind = "root-manifest",
-                    name = resolved.Value.Name,
-                    manifestPath = manifest.ManifestPath,
-                    nodeCount = treeStats.NodeCount,
-                    leafCount = treeStats.LeafCount,
-                    maxDepth = treeStats.MaxDepth,
-                    tree = manifestTreeDoc.RootElement.Clone()
-                };
-
-                return FilesResult<string>.Ok(JsonSerializer.Serialize(manifestStructured));
-            }
-
             var rootTreeJson = JsonSerializer.Serialize(new
             {
                 name = resolved.Value.Name,
@@ -342,6 +283,7 @@ public sealed class DjeLabFilesClient
                 path = resolved.Value.Path,
                 sizeBytes = resolved.Value.SizeBytes,
                 contentType = resolved.Value.ContentType,
+                hasManifest = manifest.Success && manifest.Value is not null,
                 note = "Binary ROOT parsing is not wired in yet. Add a companion .manifest.json or .root.json file to describe the hierarchy."
             });
             await StoreHierarchySnapshotAsync(resolved.Value.Id, "root-file", rootTreeJson, ct);
