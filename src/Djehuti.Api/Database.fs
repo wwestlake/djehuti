@@ -4371,6 +4371,43 @@ let private migrations : (int * string) list =
         ALTER TABLE product_releases ADD COLUMN IF NOT EXISTS tarball_url TEXT;
         ALTER TABLE product_releases ADD COLUMN IF NOT EXISTS zipball_url TEXT;
         """
+
+        // Frate (Frust's package manager) registry: a pod is a named package;
+        // each named pod can have many published versions. Versions are
+        // immutable once published (UNIQUE (pod_id, version), no update path)
+        // so a cached/resolved version can never change out from under a
+        // consumer. exports_json/dependencies_json follow the same
+        // TEXT-holding-serialized-JSON convention as product_releases.assets_json
+        // rather than native jsonb, matching this codebase's existing pattern.
+        82, """
+        CREATE TABLE IF NOT EXISTS frate_pods (
+            id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name         TEXT NOT NULL UNIQUE,
+            description  TEXT,
+            owner_id     UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_frate_pods_name_lower ON frate_pods (lower(name));
+
+        CREATE TABLE IF NOT EXISTS frate_pod_versions (
+            id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            pod_id            UUID NOT NULL REFERENCES frate_pods(id) ON DELETE CASCADE,
+            version           TEXT NOT NULL,
+            description       TEXT,
+            exports_json      TEXT NOT NULL DEFAULT '[]',
+            dependencies_json TEXT NOT NULL DEFAULT '[]',
+            license           TEXT NOT NULL,
+            s3_key            TEXT NOT NULL,
+            size_bytes        BIGINT NOT NULL,
+            publisher_id      UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (pod_id, version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_frate_pod_versions_pod ON frate_pod_versions (pod_id, created_at DESC);
+
+        GRANT ALL ON TABLE frate_pods TO djehuti;
+        GRANT ALL ON TABLE frate_pod_versions TO djehuti;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =

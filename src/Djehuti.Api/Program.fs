@@ -1531,6 +1531,83 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // ── Frate (Frust package manager) registry ───────────────────────────────────
+    // Public/unauthenticated: search + download. Authenticated with the
+    // frate/publisher role required: request an upload URL and publish a
+    // version. See D:\000 Tech Research\projects\05_frate\FRATE_SPEC.md
+    // section 6 for the client-side contract this implements.
+
+    app.MapGet(
+        "/api/frate/pods",
+        Func<HttpContext, IResult>(fun ctx ->
+            let q = ctx.Request.Query.["q"].ToString()
+            let query = if String.IsNullOrWhiteSpace q then None else Some q
+            Results.Ok(FratePodRepository.searchPods query))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/frate/pods/{name}/{version}",
+        Func<string, string, IResult>(fun name version ->
+            match FratePodRepository.getVersion name version with
+            | None -> Results.NotFound("No such pod/version")
+            | Some v -> Results.Redirect(FratePodRepository.presignedDownloadUrl v.S3Key 15, false))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/frate/pods/{name}/{version}/upload-url",
+        Func<HttpContext, string, string, System.Threading.Tasks.Task<IResult>>(fun ctx name version ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        let isAdmin = Permissions.isAdmin claims.Role
+                        use conn = Database.openConnection()
+                        let canPublish = isAdmin || Permissions.hasContextRole conn userId Permissions.ModuleFrate Permissions.RolePublisher None
+                        if not canPublish then
+                            return Results.Forbid()
+                        else
+                            match FratePodRepository.requestUploadUrl { Name = name; Version = version; RequesterId = userId; IsAdmin = isAdmin } with
+                            | Ok result -> return Results.Ok(result)
+                            | Error msg -> return Results.BadRequest(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/frate/pods/{name}/{version}",
+        Func<HttpContext, string, string, {| description: string option; exports: string list; dependencies: FratePodRepository.PodDependency list; license: string; s3Key: string; sizeBytes: int64 |}, System.Threading.Tasks.Task<IResult>>(fun ctx name version body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        let isAdmin = Permissions.isAdmin claims.Role
+                        use conn = Database.openConnection()
+                        let canPublish = isAdmin || Permissions.hasContextRole conn userId Permissions.ModuleFrate Permissions.RolePublisher None
+                        if not canPublish then
+                            return Results.Forbid()
+                        else
+                            let req: FratePodRepository.PublishRequest = {
+                                Name = name; Version = version
+                                Description = body.description
+                                Exports = body.exports
+                                Dependencies = body.dependencies
+                                License = body.license
+                                S3Key = body.s3Key
+                                SizeBytes = body.sizeBytes
+                                PublisherId = userId
+                                IsAdmin = isAdmin
+                            }
+                            match FratePodRepository.publish req with
+                            | Ok record -> return Results.Ok(record)
+                            | Error msg -> return Results.Conflict(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
     // ── DjeLab Files ──────────────────────────────────────────────────────────
     // S3-backed file manager for DjeLab, quota-limited by Patreon tier
     // (Djehuti.Api/DjeLabFilesRepository.fs). Available to every tier
