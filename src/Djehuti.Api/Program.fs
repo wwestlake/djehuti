@@ -6117,7 +6117,8 @@ let main args =
         Func<HttpContext,
              {| productSlug: string; appId: string; appVersion: string; deviceId: string
                 deviceName: string option; agentAvailable: bool; controlPanelAvailable: bool
-                capabilities: string list |},
+                capabilities: string list
+                projects: {| projectId: string; displayName: string |} list |},
              IResult>(fun ctx body ->
             match tryGetAuthClaims ctx with
             | None -> Results.Unauthorized()
@@ -6129,11 +6130,30 @@ let main args =
                         Results.BadRequest("productSlug and deviceId are required")
                     else
                         let capabilitiesJson = System.Text.Json.JsonSerializer.Serialize(body.capabilities)
+                        let projectsJson = System.Text.Json.JsonSerializer.Serialize(body.projects)
                         let session =
                             RemotePairingRepository.checkInHostSession
                                 userId body.productSlug body.appId body.appVersion body.deviceId
                                 body.deviceName body.agentAvailable body.controlPanelAvailable capabilitiesJson
+                                projectsJson
                         Results.Ok({| hostSessionId = session.Id; presenceState = session.PresenceState |}))
+    ) |> ignore
+
+    // The phone's project picker for a specific paired host session. Gated
+    // on holding an active connection grant for it (see
+    // RemotePairingRepository.getHostSessionProjects), not just same-account.
+    app.MapGet(
+        "/api/remote/host-sessions/{id}/projects",
+        Func<HttpContext, string, IResult>(fun ctx id ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId), Guid.TryParse(id) with
+                | (true, userId), (true, hostSessionId) ->
+                    match RemotePairingRepository.getHostSessionProjects userId hostSessionId with
+                    | Some json -> Results.Content(json, "application/json")
+                    | None -> Results.NotFound("No active pairing grant for this host session")
+                | _ -> Results.BadRequest("Invalid id"))
     ) |> ignore
 
     // Called by the host app to mint a short-lived pairing code (10 min) to

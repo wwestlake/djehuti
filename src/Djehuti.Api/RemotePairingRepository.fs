@@ -65,16 +65,17 @@ let checkInHostSession
         (userId: Guid) (productSlug: string) (appId: string) (appVersion: string)
         (deviceId: string) (deviceName: string option)
         (agentAvailable: bool) (controlPanelAvailable: bool) (capabilitiesJson: string)
+        (projectsJson: string)
         : HostSessionRecord =
     use conn = Database.openConnection()
     use cmd = new NpgsqlCommand("""
         INSERT INTO remote_host_sessions
             (user_id, product_slug, app_id, app_version, device_id, device_name,
-             agent_available, control_panel_available, capabilities_json,
+             agent_available, control_panel_available, capabilities_json, projects_json,
              presence_state, last_heartbeat_at, updated_at, revoked_at)
         VALUES
             (@userId, @productSlug, @appId, @appVersion, @deviceId, @deviceName,
-             @agentAvailable, @controlPanelAvailable, @capabilitiesJson::jsonb,
+             @agentAvailable, @controlPanelAvailable, @capabilitiesJson::jsonb, @projectsJson::jsonb,
              'available', NOW(), NOW(), NULL)
         ON CONFLICT (user_id, product_slug, device_id)
             WHERE revoked_at IS NULL
@@ -92,6 +93,7 @@ let checkInHostSession
     cmd.Parameters.AddWithValue("agentAvailable", agentAvailable) |> ignore
     cmd.Parameters.AddWithValue("controlPanelAvailable", controlPanelAvailable) |> ignore
     cmd.Parameters.AddWithValue("capabilitiesJson", capabilitiesJson) |> ignore
+    cmd.Parameters.AddWithValue("projectsJson", projectsJson) |> ignore
 
     let readRecord (reader: System.Data.Common.DbDataReader) : HostSessionRecord = {
         Id = reader.GetGuid(0)
@@ -122,6 +124,7 @@ let checkInHostSession
                 agent_available = @agentAvailable,
                 control_panel_available = @controlPanelAvailable,
                 capabilities_json = @capabilitiesJson::jsonb,
+                projects_json = @projectsJson::jsonb,
                 presence_state = 'available',
                 last_heartbeat_at = NOW(),
                 updated_at = NOW()
@@ -139,6 +142,7 @@ let checkInHostSession
         updateCmd.Parameters.AddWithValue("agentAvailable", agentAvailable) |> ignore
         updateCmd.Parameters.AddWithValue("controlPanelAvailable", controlPanelAvailable) |> ignore
         updateCmd.Parameters.AddWithValue("capabilitiesJson", capabilitiesJson) |> ignore
+        updateCmd.Parameters.AddWithValue("projectsJson", projectsJson) |> ignore
         use updateReader = updateCmd.ExecuteReader()
         updateReader.Read() |> ignore
         readRecord updateReader
@@ -263,6 +267,31 @@ let getPairingStatus (userId: Guid) (pairingId: Guid) : string option =
     """, conn)
     cmd.Parameters.AddWithValue("id", pairingId) |> ignore
     cmd.Parameters.AddWithValue("userId", userId) |> ignore
+    use reader = cmd.ExecuteReader()
+    if reader.Read() then Some (reader.GetString(0)) else None
+
+// The phone's project picker: what does this specific paired host session
+// currently report? Gated on an active, non-consumed connection grant for
+// the caller -- "paired" is exactly "holds a live grant for this host
+// session," not just "same account" (an account can own the host session
+// without any phone having paired to it yet).
+let getHostSessionProjects (callerId: Guid) (hostSessionId: Guid) : string option =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand("""
+        SELECT hs.projects_json::text
+        FROM remote_host_sessions hs
+        WHERE hs.id = @hostSessionId
+          AND EXISTS (
+              SELECT 1 FROM remote_connection_grants g
+              JOIN remote_pairings p ON p.id = g.pairing_id
+              WHERE g.host_session_id = hs.id
+                AND p.user_id = @callerId
+                AND g.consumed_at IS NULL
+                AND g.expires_at > NOW()
+          )
+    """, conn)
+    cmd.Parameters.AddWithValue("hostSessionId", hostSessionId) |> ignore
+    cmd.Parameters.AddWithValue("callerId", callerId) |> ignore
     use reader = cmd.ExecuteReader()
     if reader.Read() then Some (reader.GetString(0)) else None
 
