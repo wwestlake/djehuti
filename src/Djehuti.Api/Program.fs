@@ -6102,6 +6102,126 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // ── Creation Remote: device pairing + host-session check-in ───────────────
+    // Shared broker for pairing a phone client to a checked-in desktop/host
+    // app. Schema and rationale: migrations 83/84 in Database.fs. Auth on
+    // every route below is the same tryGetAuthClaims Bearer/cookie check as
+    // the rest of the API -- both the host app and the phone authenticate
+    // as the same account via the desktop OAuth/PKCE flow above.
+
+    // Called periodically (e.g. every 30s) by a host app (Suite Remote
+    // Receiver, or any future remote-control host) to announce/refresh its
+    // presence. Upserts on (user, productSlug, deviceId).
+    app.MapPost(
+        "/api/remote/host-sessions/check-in",
+        Func<HttpContext,
+             {| productSlug: string; appId: string; appVersion: string; deviceId: string
+                deviceName: string option; agentAvailable: bool; controlPanelAvailable: bool
+                capabilities: string list |},
+             IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, userId ->
+                    if String.IsNullOrWhiteSpace body.productSlug || String.IsNullOrWhiteSpace body.deviceId then
+                        Results.BadRequest("productSlug and deviceId are required")
+                    else
+                        let capabilitiesJson = System.Text.Json.JsonSerializer.Serialize(body.capabilities)
+                        let session =
+                            RemotePairingRepository.checkInHostSession
+                                userId body.productSlug body.appId body.appVersion body.deviceId
+                                body.deviceName body.agentAvailable body.controlPanelAvailable capabilitiesJson
+                        Results.Ok({| hostSessionId = session.Id; presenceState = session.PresenceState |}))
+    ) |> ignore
+
+    // Called by the host app to mint a short-lived pairing code (10 min) to
+    // render as a QR. hostSessionId must belong to the calling account.
+    app.MapPost(
+        "/api/remote/pairings",
+        Func<HttpContext, {| hostSessionId: Guid |}, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, userId ->
+                    match RemotePairingRepository.createPairing userId body.hostSessionId with
+                    | None -> Results.NotFound("Host session not found for this account")
+                    | Some pairing ->
+                        Results.Ok({|
+                            pairingId = pairing.Id
+                            pairingCode = pairing.PairingCode
+                            expiresAt = pairing.ExpiresAt
+                        |}))
+    ) |> ignore
+
+    // Polled by the host app while a pairing code is on screen, to learn
+    // when the phone has approved it (no push/WebSocket relay yet).
+    app.MapGet(
+        "/api/remote/pairings/{id}/status",
+        Func<HttpContext, string, IResult>(fun ctx id ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId), Guid.TryParse(id) with
+                | (true, userId), (true, pairingId) ->
+                    match RemotePairingRepository.getPairingStatus userId pairingId with
+                    | Some status -> Results.Ok({| status = status |})
+                    | None -> Results.NotFound()
+                | _ -> Results.BadRequest("Invalid id"))
+    ) |> ignore
+
+    // Called by the phone: submits the pairing code it scanned/typed.
+    // Approving account must match the pairing's account. Issues a
+    // long-lived (30 day) connection grant on success.
+    app.MapPost(
+        "/api/remote/pairings/{code}/approve",
+        Func<HttpContext, string, {| remoteDeviceName: string; remoteDeviceType: string |}, IResult>(fun ctx code body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, userId ->
+                    match RemotePairingRepository.approvePairing userId code body.remoteDeviceName body.remoteDeviceType with
+                    | Error msg -> Results.BadRequest(msg)
+                    | Ok grant ->
+                        Results.Ok({|
+                            grantToken = grant.GrantToken
+                            hostSessionId = grant.HostSessionId
+                            expiresAt = grant.ExpiresAt
+                        |}))
+    ) |> ignore
+
+    // The phone's switchable "paired devices" list.
+    app.MapGet(
+        "/api/remote/devices",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, userId -> Results.Ok(RemotePairingRepository.listPairedDevices userId))
+    ) |> ignore
+
+    // Revoke a paired device (website "Paired Devices" page or the phone's
+    // own device list).
+    app.MapDelete(
+        "/api/remote/devices/{grantToken}",
+        Func<HttpContext, string, IResult>(fun ctx grantToken ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, userId ->
+                    if RemotePairingRepository.revokeGrant userId grantToken then Results.NoContent()
+                    else Results.NotFound())
+    ) |> ignore
+
     // ── Products: admin catalog + self-view entitlements ──────────────────────
 
     // Public projection -- deliberately excludes GithubOwner/GithubRepo/
