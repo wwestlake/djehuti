@@ -4408,6 +4408,86 @@ let private migrations : (int * string) list =
         GRANT ALL ON TABLE frate_pods TO djehuti;
         GRANT ALL ON TABLE frate_pod_versions TO djehuti;
         """
+
+        // Backfill: remote_host_sessions / remote_pairings / remote_connection_grants
+        // were created directly against production during an earlier remote-control
+        // effort (#22, Remote Control System Specification) that got paused before
+        // the corresponding app code and this migration record landed in the repo.
+        // This entry is a no-op against the live database (CREATE TABLE IF NOT
+        // EXISTS everywhere) -- it exists purely to bring the repo's migration
+        // history back in sync with what's actually deployed, and is the version
+        // number that gets recorded once applied. Column/index/FK shapes below are
+        // copied verbatim from the live schema (\d on each table), not redesigned.
+        //
+        // Reused as-is (not duplicated) for Creation Remote (#65 on Creation-Suite,
+        // milestones CR-M1/CR-M2/CR-M4): remote_host_sessions is the Suite Remote
+        // Receiver's check-in/presence record, remote_pairings is the QR pairing
+        // flow, remote_connection_grants is the device credential issued once a
+        // pairing is approved. #22's real-time control and #65's async media
+        // capture-and-deposit share this same pairing/session model, as the #65
+        // epic anticipated ("they'll likely share the same broker").
+        83, """
+        CREATE TABLE IF NOT EXISTS remote_host_sessions (
+            id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id                  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            product_slug             TEXT NOT NULL,
+            app_id                   TEXT NOT NULL,
+            app_version              TEXT NOT NULL,
+            device_id                TEXT NOT NULL,
+            device_name              TEXT,
+            agent_available          BOOLEAN NOT NULL DEFAULT FALSE,
+            control_panel_available  BOOLEAN NOT NULL DEFAULT FALSE,
+            capability_set_version   TEXT,
+            capabilities_json        JSONB NOT NULL DEFAULT '[]',
+            presence_state           TEXT NOT NULL DEFAULT 'available',
+            created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_heartbeat_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            revoked_at               TIMESTAMPTZ
+        );
+        CREATE INDEX IF NOT EXISTS idx_remote_host_sessions_product_active
+            ON remote_host_sessions (product_slug, last_heartbeat_at DESC) WHERE revoked_at IS NULL;
+        CREATE INDEX IF NOT EXISTS idx_remote_host_sessions_user_active
+            ON remote_host_sessions (user_id, last_heartbeat_at DESC) WHERE revoked_at IS NULL;
+
+        CREATE TABLE IF NOT EXISTS remote_pairings (
+            id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            host_session_id      UUID NOT NULL REFERENCES remote_host_sessions(id) ON DELETE CASCADE,
+            user_id              UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            remote_device_name   TEXT NOT NULL,
+            remote_device_type   TEXT NOT NULL,
+            scope_json           JSONB NOT NULL DEFAULT '[]',
+            status               TEXT NOT NULL DEFAULT 'pending',
+            pairing_code         TEXT NOT NULL,
+            created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            approved_at          TIMESTAMPTZ,
+            revoked_at           TIMESTAMPTZ,
+            last_used_at         TIMESTAMPTZ,
+            expires_at           TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '10 minutes'
+        );
+        CREATE INDEX IF NOT EXISTS idx_remote_pairings_host_created ON remote_pairings (host_session_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_remote_pairings_user_created ON remote_pairings (user_id, created_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_remote_pairings_code_pending
+            ON remote_pairings (pairing_code) WHERE status = 'pending';
+
+        CREATE TABLE IF NOT EXISTS remote_connection_grants (
+            id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            host_session_id   UUID NOT NULL REFERENCES remote_host_sessions(id) ON DELETE CASCADE,
+            pairing_id        UUID NOT NULL REFERENCES remote_pairings(id) ON DELETE CASCADE,
+            grant_token       TEXT NOT NULL UNIQUE,
+            grant_type        TEXT NOT NULL DEFAULT 'session',
+            scope_json        JSONB NOT NULL DEFAULT '[]',
+            created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            expires_at        TIMESTAMPTZ NOT NULL,
+            consumed_at       TIMESTAMPTZ
+        );
+        CREATE INDEX IF NOT EXISTS idx_remote_connection_grants_pairing
+            ON remote_connection_grants (pairing_id, expires_at DESC);
+
+        GRANT ALL ON TABLE remote_host_sessions TO djehuti;
+        GRANT ALL ON TABLE remote_pairings TO djehuti;
+        GRANT ALL ON TABLE remote_connection_grants TO djehuti;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
