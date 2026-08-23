@@ -872,6 +872,9 @@ let main args =
     // Classroom real-time infrastructure
     builder.Services.AddSingleton<ClassroomConnectionManager.ClassroomConnectionManager>() |> ignore
 
+    // Creation Remote signaling relay (Creation-Suite #83, CR-M2/M4)
+    builder.Services.AddSingleton<RemoteSignalingManager.RemoteSignalingManager>() |> ignore
+
     // DISABLED: Background workers causing database bloat
     // builder.Services.AddHostedService<HeartbeatWorker.HeartbeatWorker>() |> ignore
     // builder.Services.AddHostedService<GameWorldWorker.GameWorldWorker>() |> ignore
@@ -927,6 +930,68 @@ let main args =
         next.Invoke(ctx)) |> ignore
 
     app.MapGet("/api/health", Func<string>(fun () -> "ok")) |> ignore
+
+    // Creation Remote signaling relay (Creation-Suite #83, CR-M2/M4). Query
+    // string, not headers -- WebSocket upgrade requests from every client
+    // here (JUCE, Kotlin/OkHttp) can set query params without friction.
+    // role=host authenticates with the same account Bearer token used
+    // everywhere else in this API; role=phone authenticates with the
+    // connection grant token issued at pairing-approval time. Blindly
+    // relays whatever text frames it receives to the other role connected
+    // for the same hostSessionId -- never parses the WebRTC payload.
+    app.Map(
+        "/ws/remote/signaling",
+        Func<HttpContext, System.Threading.Tasks.Task>(fun ctx ->
+            task {
+                if not ctx.WebSockets.IsWebSocketRequest then
+                    ctx.Response.StatusCode <- 400
+                else
+                    let query = ctx.Request.Query
+                    let hostSessionIdRaw = if query.ContainsKey("hostSessionId") then query.["hostSessionId"].ToString() else ""
+                    let roleRaw = if query.ContainsKey("role") then query.["role"].ToString() else ""
+                    let token = if query.ContainsKey("token") then query.["token"].ToString() else ""
+
+                    match Guid.TryParse(hostSessionIdRaw) with
+                    | false, _ -> ctx.Response.StatusCode <- 400
+                    | true, hostSessionId ->
+                        let authorizedRole =
+                            match roleRaw with
+                            | "host" ->
+                                match Auth.verifyToken token with
+                                | Some claims ->
+                                    match Guid.TryParse(claims.UserId) with
+                                    | true, userId when RemotePairingRepository.ownsHostSession userId hostSessionId ->
+                                        Some RemoteSignalingManager.Host
+                                    | _ -> None
+                                | None -> None
+                            | "phone" ->
+                                match RemotePairingRepository.validateGrantToken token with
+                                | Some grantedHostSessionId when grantedHostSessionId = hostSessionId -> Some RemoteSignalingManager.Phone
+                                | _ -> None
+                            | _ -> None
+
+                        match authorizedRole with
+                        | None -> ctx.Response.StatusCode <- 401
+                        | Some role ->
+                            let manager = ctx.RequestServices.GetRequiredService<RemoteSignalingManager.RemoteSignalingManager>()
+                            let! ws = ctx.WebSockets.AcceptWebSocketAsync()
+                            manager.AddConnection hostSessionId role ws
+
+                            let buffer : byte[] = Array.zeroCreate 16384
+                            let mutable keepGoing = true
+                            while keepGoing do
+                                let! result = ws.ReceiveAsync(ArraySegment<byte>(buffer), System.Threading.CancellationToken.None)
+                                if result.MessageType = WebSocketMessageType.Close then
+                                    keepGoing <- false
+                                else
+                                    let payload = System.Text.Encoding.UTF8.GetString(buffer, 0, result.Count)
+                                    do! manager.RelayAsync hostSessionId role payload
+
+                            manager.RemoveConnection hostSessionId role
+                            if ws.State <> WebSocketState.Closed then
+                                do! ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "closing", System.Threading.CancellationToken.None)
+            } :> System.Threading.Tasks.Task)
+    ) |> ignore
 
     // DISABLED: WebSocket endpoint has async/await binding issues that prevent compilation
     // The real-time classroom communication will be implemented in a future iteration
@@ -6100,6 +6165,146 @@ let main args =
                             user = {| id = u.Id.ToString(); email = u.Email; displayName = u.DisplayName |}
                         |})
             } |> Async.StartAsTask)
+    ) |> ignore
+
+    // ── Creation Remote: device pairing + host-session check-in ───────────────
+    // Shared broker for pairing a phone client to a checked-in desktop/host
+    // app. Schema and rationale: migrations 83/84 in Database.fs. Auth on
+    // every route below is the same tryGetAuthClaims Bearer/cookie check as
+    // the rest of the API -- both the host app and the phone authenticate
+    // as the same account via the desktop OAuth/PKCE flow above.
+
+    // Called periodically (e.g. every 30s) by a host app (Suite Remote
+    // Receiver, or any future remote-control host) to announce/refresh its
+    // presence. Upserts on (user, productSlug, deviceId).
+    app.MapPost(
+        "/api/remote/host-sessions/check-in",
+        Func<HttpContext,
+             {| productSlug: string; appId: string; appVersion: string; deviceId: string
+                deviceName: string option; agentAvailable: bool; controlPanelAvailable: bool
+                capabilities: string list
+                projects: {| projectId: string; displayName: string |} list |},
+             IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, userId ->
+                    if String.IsNullOrWhiteSpace body.productSlug || String.IsNullOrWhiteSpace body.deviceId then
+                        Results.BadRequest("productSlug and deviceId are required")
+                    else
+                        let capabilitiesJson = System.Text.Json.JsonSerializer.Serialize(body.capabilities)
+                        let projectsJson = System.Text.Json.JsonSerializer.Serialize(body.projects)
+                        let session =
+                            RemotePairingRepository.checkInHostSession
+                                userId body.productSlug body.appId body.appVersion body.deviceId
+                                body.deviceName body.agentAvailable body.controlPanelAvailable capabilitiesJson
+                                projectsJson
+                        Results.Ok({| hostSessionId = session.Id; presenceState = session.PresenceState |}))
+    ) |> ignore
+
+    // The phone's project picker for a specific paired host session. Gated
+    // on holding an active connection grant for it (see
+    // RemotePairingRepository.getHostSessionProjects), not just same-account.
+    app.MapGet(
+        "/api/remote/host-sessions/{id}/projects",
+        Func<HttpContext, string, IResult>(fun ctx id ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId), Guid.TryParse(id) with
+                | (true, userId), (true, hostSessionId) ->
+                    match RemotePairingRepository.getHostSessionProjects userId hostSessionId with
+                    | Some json -> Results.Content(json, "application/json")
+                    | None -> Results.NotFound("No active pairing grant for this host session")
+                | _ -> Results.BadRequest("Invalid id"))
+    ) |> ignore
+
+    // Called by the host app to mint a short-lived pairing code (10 min) to
+    // render as a QR. hostSessionId must belong to the calling account.
+    app.MapPost(
+        "/api/remote/pairings",
+        Func<HttpContext, {| hostSessionId: Guid |}, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, userId ->
+                    match RemotePairingRepository.createPairing userId body.hostSessionId with
+                    | None -> Results.NotFound("Host session not found for this account")
+                    | Some pairing ->
+                        Results.Ok({|
+                            pairingId = pairing.Id
+                            pairingCode = pairing.PairingCode
+                            expiresAt = pairing.ExpiresAt
+                        |}))
+    ) |> ignore
+
+    // Polled by the host app while a pairing code is on screen, to learn
+    // when the phone has approved it (no push/WebSocket relay yet).
+    app.MapGet(
+        "/api/remote/pairings/{id}/status",
+        Func<HttpContext, string, IResult>(fun ctx id ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId), Guid.TryParse(id) with
+                | (true, userId), (true, pairingId) ->
+                    match RemotePairingRepository.getPairingStatus userId pairingId with
+                    | Some status -> Results.Ok({| status = status |})
+                    | None -> Results.NotFound()
+                | _ -> Results.BadRequest("Invalid id"))
+    ) |> ignore
+
+    // Called by the phone: submits the pairing code it scanned/typed.
+    // Approving account must match the pairing's account. Issues a
+    // long-lived (30 day) connection grant on success.
+    app.MapPost(
+        "/api/remote/pairings/{code}/approve",
+        Func<HttpContext, string, {| remoteDeviceName: string; remoteDeviceType: string |}, IResult>(fun ctx code body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, userId ->
+                    match RemotePairingRepository.approvePairing userId code body.remoteDeviceName body.remoteDeviceType with
+                    | Error msg -> Results.BadRequest(msg)
+                    | Ok grant ->
+                        Results.Ok({|
+                            grantToken = grant.GrantToken
+                            hostSessionId = grant.HostSessionId
+                            expiresAt = grant.ExpiresAt
+                        |}))
+    ) |> ignore
+
+    // The phone's switchable "paired devices" list.
+    app.MapGet(
+        "/api/remote/devices",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, userId -> Results.Ok(RemotePairingRepository.listPairedDevices userId))
+    ) |> ignore
+
+    // Revoke a paired device (website "Paired Devices" page or the phone's
+    // own device list).
+    app.MapDelete(
+        "/api/remote/devices/{grantToken}",
+        Func<HttpContext, string, IResult>(fun ctx grantToken ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, userId ->
+                    if RemotePairingRepository.revokeGrant userId grantToken then Results.NoContent()
+                    else Results.NotFound())
     ) |> ignore
 
     // ── Products: admin catalog + self-view entitlements ──────────────────────

@@ -4488,6 +4488,28 @@ let private migrations : (int * string) list =
         GRANT ALL ON TABLE remote_pairings TO djehuti;
         GRANT ALL ON TABLE remote_connection_grants TO djehuti;
         """
+
+        // A real check-in needs to update its own prior row, not accumulate a
+        // new one every interval -- (user, product, device) identifies "the
+        // same host session" across check-ins. Partial (WHERE revoked_at IS
+        // NULL) so a revoked session's identity can be re-claimed by a fresh
+        // check-in instead of colliding with the dead row. Required for
+        // RemotePairingRepository.checkInHostSession's ON CONFLICT upsert.
+        84, """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_remote_host_sessions_identity
+            ON remote_host_sessions (user_id, product_slug, device_id) WHERE revoked_at IS NULL;
+        """
+
+        // Project listing (Creation Remote protocol doc §3): the receiver has
+        // no live push channel to the server yet (no WebSocket relay -- that's
+        // separate follow-on work), so its project list rides along on the
+        // same 30s check-in heartbeat it already sends, rather than needing a
+        // new connection. A phone asks for a specific host session's projects
+        // via GET /api/remote/host-sessions/{id}/projects, reading whatever
+        // that session last reported.
+        85, """
+        ALTER TABLE remote_host_sessions ADD COLUMN IF NOT EXISTS projects_json JSONB NOT NULL DEFAULT '[]';
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
