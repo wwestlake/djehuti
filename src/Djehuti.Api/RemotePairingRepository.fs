@@ -270,6 +270,19 @@ let getPairingStatus (userId: Guid) (pairingId: Guid) : string option =
     use reader = cmd.ExecuteReader()
     if reader.Read() then Some (reader.GetString(0)) else None
 
+// Used to authorize the "host" side of a signaling connection -- the
+// caller must own this host session, same check as createPairing already
+// does inline.
+let ownsHostSession (userId: Guid) (hostSessionId: Guid) : bool =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand("""
+        SELECT 1 FROM remote_host_sessions WHERE id = @hostSessionId AND user_id = @userId AND revoked_at IS NULL
+    """, conn)
+    cmd.Parameters.AddWithValue("hostSessionId", hostSessionId) |> ignore
+    cmd.Parameters.AddWithValue("userId", userId) |> ignore
+    use reader = cmd.ExecuteReader()
+    reader.Read()
+
 // The phone's project picker: what does this specific paired host session
 // currently report? Gated on an active, non-consumed connection grant for
 // the caller -- "paired" is exactly "holds a live grant for this host

@@ -872,6 +872,9 @@ let main args =
     // Classroom real-time infrastructure
     builder.Services.AddSingleton<ClassroomConnectionManager.ClassroomConnectionManager>() |> ignore
 
+    // Creation Remote signaling relay (Creation-Suite #83, CR-M2/M4)
+    builder.Services.AddSingleton<RemoteSignalingManager.RemoteSignalingManager>() |> ignore
+
     // DISABLED: Background workers causing database bloat
     // builder.Services.AddHostedService<HeartbeatWorker.HeartbeatWorker>() |> ignore
     // builder.Services.AddHostedService<GameWorldWorker.GameWorldWorker>() |> ignore
@@ -927,6 +930,68 @@ let main args =
         next.Invoke(ctx)) |> ignore
 
     app.MapGet("/api/health", Func<string>(fun () -> "ok")) |> ignore
+
+    // Creation Remote signaling relay (Creation-Suite #83, CR-M2/M4). Query
+    // string, not headers -- WebSocket upgrade requests from every client
+    // here (JUCE, Kotlin/OkHttp) can set query params without friction.
+    // role=host authenticates with the same account Bearer token used
+    // everywhere else in this API; role=phone authenticates with the
+    // connection grant token issued at pairing-approval time. Blindly
+    // relays whatever text frames it receives to the other role connected
+    // for the same hostSessionId -- never parses the WebRTC payload.
+    app.Map(
+        "/ws/remote/signaling",
+        Func<HttpContext, System.Threading.Tasks.Task>(fun ctx ->
+            task {
+                if not ctx.WebSockets.IsWebSocketRequest then
+                    ctx.Response.StatusCode <- 400
+                else
+                    let query = ctx.Request.Query
+                    let hostSessionIdRaw = if query.ContainsKey("hostSessionId") then query.["hostSessionId"].ToString() else ""
+                    let roleRaw = if query.ContainsKey("role") then query.["role"].ToString() else ""
+                    let token = if query.ContainsKey("token") then query.["token"].ToString() else ""
+
+                    match Guid.TryParse(hostSessionIdRaw) with
+                    | false, _ -> ctx.Response.StatusCode <- 400
+                    | true, hostSessionId ->
+                        let authorizedRole =
+                            match roleRaw with
+                            | "host" ->
+                                match Auth.verifyToken token with
+                                | Some claims ->
+                                    match Guid.TryParse(claims.UserId) with
+                                    | true, userId when RemotePairingRepository.ownsHostSession userId hostSessionId ->
+                                        Some RemoteSignalingManager.Host
+                                    | _ -> None
+                                | None -> None
+                            | "phone" ->
+                                match RemotePairingRepository.validateGrantToken token with
+                                | Some grantedHostSessionId when grantedHostSessionId = hostSessionId -> Some RemoteSignalingManager.Phone
+                                | _ -> None
+                            | _ -> None
+
+                        match authorizedRole with
+                        | None -> ctx.Response.StatusCode <- 401
+                        | Some role ->
+                            let manager = ctx.RequestServices.GetRequiredService<RemoteSignalingManager.RemoteSignalingManager>()
+                            let! ws = ctx.WebSockets.AcceptWebSocketAsync()
+                            manager.AddConnection hostSessionId role ws
+
+                            let buffer : byte[] = Array.zeroCreate 16384
+                            let mutable keepGoing = true
+                            while keepGoing do
+                                let! result = ws.ReceiveAsync(ArraySegment<byte>(buffer), System.Threading.CancellationToken.None)
+                                if result.MessageType = WebSocketMessageType.Close then
+                                    keepGoing <- false
+                                else
+                                    let payload = System.Text.Encoding.UTF8.GetString(buffer, 0, result.Count)
+                                    do! manager.RelayAsync hostSessionId role payload
+
+                            manager.RemoveConnection hostSessionId role
+                            if ws.State <> WebSocketState.Closed then
+                                do! ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "closing", System.Threading.CancellationToken.None)
+            } :> System.Threading.Tasks.Task)
+    ) |> ignore
 
     // DISABLED: WebSocket endpoint has async/await binding issues that prevent compilation
     // The real-time classroom communication will be implemented in a future iteration
