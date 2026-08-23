@@ -57,6 +57,7 @@
     <Compile Include="DownloadMetricsRepository.fs" />
     <Compile Include="ArchitectProjectRepository.fs" />
     <Compile Include="FratePodRepository.fs" />
+    <Compile Include="RemotePairingRepository.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

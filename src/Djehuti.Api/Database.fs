@@ -4488,6 +4488,17 @@ let private migrations : (int * string) list =
         GRANT ALL ON TABLE remote_pairings TO djehuti;
         GRANT ALL ON TABLE remote_connection_grants TO djehuti;
         """
+
+        // A real check-in needs to update its own prior row, not accumulate a
+        // new one every interval -- (user, product, device) identifies "the
+        // same host session" across check-ins. Partial (WHERE revoked_at IS
+        // NULL) so a revoked session's identity can be re-claimed by a fresh
+        // check-in instead of colliding with the dead row. Required for
+        // RemotePairingRepository.checkInHostSession's ON CONFLICT upsert.
+        84, """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_remote_host_sessions_identity
+            ON remote_host_sessions (user_id, product_slug, device_id) WHERE revoked_at IS NULL;
+        """
     ]
 
 let private appliedVersions (conn: NpgsqlConnection) =
