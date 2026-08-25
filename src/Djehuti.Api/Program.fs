@@ -6529,6 +6529,12 @@ let main args =
                                     if not (compareStringsConstantTime computedSig headerSig) then
                                         return Results.Unauthorized()
                                     else
+                                        let githubEvent =
+                                            ctx.Request.Headers.TryGetValue("X-GitHub-Event")
+                                            |> function
+                                                | true, values -> values |> Seq.tryHead |> Option.defaultValue ""
+                                                | false, _ -> ""
+
                                         let action =
                                             match root.TryGetProperty("action") with
                                             | true, prop -> prop.GetString()
@@ -6537,7 +6543,7 @@ let main args =
                                         match root.TryGetProperty("release") with
                                         // GitHub sends a signed ping immediately after a webhook is created.
                                         // It has repository metadata but no release payload to import.
-                                        | false, _ when action = "ping" -> return Results.Ok()
+                                        | false, _ when githubEvent = "ping" -> return Results.Ok()
                                         | false, _ -> return Results.BadRequest("Missing release field in webhook payload")
                                         | true, release ->
                                             let tagName =
