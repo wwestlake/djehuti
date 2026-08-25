@@ -6535,6 +6535,9 @@ let main args =
                                             | false, _ -> ""
 
                                         match root.TryGetProperty("release") with
+                                        // GitHub sends a signed ping immediately after a webhook is created.
+                                        // It has repository metadata but no release payload to import.
+                                        | false, _ when action = "ping" -> return Results.Ok()
                                         | false, _ -> return Results.BadRequest("Missing release field in webhook payload")
                                         | true, release ->
                                             let tagName =
