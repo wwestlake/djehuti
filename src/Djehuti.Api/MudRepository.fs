@@ -1114,7 +1114,7 @@ let private loadMudTierName (userId: Guid) =
     use cmd = new NpgsqlCommand(
         """SELECT COALESCE(mtl.mud_name, pt.tier_name, 'Wanderer')
            FROM users u
-           LEFT JOIN patreon_tiers pt ON pt.tier_id = u.patreon_tier_id
+           LEFT JOIN patreon_tiers pt ON pt.tier_id = effective_tier_id(u.id)
            LEFT JOIN mud_tier_labels mtl ON mtl.patreon_tier_id = pt.tier_id
            WHERE u.id = @uid""", conn)
     cmd.Parameters.AddWithValue("uid", userId) |> ignore
@@ -1200,7 +1200,7 @@ let private paidSlotsForTier = function
 
 let private loadUserSettings (conn: NpgsqlConnection) (userId: Guid) =
     use cmd = new NpgsqlCommand(
-        """SELECT active_mud_character_id, patreon_tier_id, COALESCE(mud_bonus_character_slots, 0)
+        """SELECT active_mud_character_id, effective_tier_id(id), COALESCE(mud_bonus_character_slots, 0)
            FROM users
            WHERE id = @uid""", conn)
     cmd.Parameters.AddWithValue("uid", userId) |> ignore

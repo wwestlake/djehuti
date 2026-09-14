@@ -27,7 +27,7 @@ interface Announcement {
   createdAt: string; updatedAt: string
 }
 
-type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'mud' | 'personas' | 'heartbeat' | 'metrics' | 'api-keys' | 'products' | 'content'
+type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'mud' | 'personas' | 'heartbeat' | 'metrics' | 'api-keys' | 'products' | 'content' | 'beta'
 
 interface MetricsCounts { users: number; posts: number; threads: number; articles: number; votesGiven: number; reactions: number; achievements: number }
 interface ForumActivityRow { forumId: string; forumName: string; postsAll: number; postsHuman: number; postsAi: number; threadsAll: number; threadsHuman: number; threadsAi: number }
@@ -68,6 +68,44 @@ interface Product {
   githubRepo: string | null
   githubWebhookSecret: string | null
   githubTagPrefix: string | null
+  betaOpen: boolean
+  betaWelcomeSubject: string | null
+  betaWelcomeBody: string | null
+  betaInviteSubject: string | null
+  betaInviteBody: string | null
+}
+
+interface BetaTester {
+  id: string
+  userId: string
+  displayName: string
+  status: string
+  joinedAt: string
+  lastFeedbackAt: string
+  droppedAt: string | null
+}
+
+interface BetaFeedbackEntry {
+  id: string
+  userDisplayName: string
+  installId: string
+  message: string
+  category: string
+  appVersion: string
+  osInfo: string
+  createdAt: string
+}
+
+interface BetaMetricEventEntry {
+  id: string
+  userDisplayName: string
+  installId: string
+  eventType: string
+  eventName: string
+  payloadJson: string
+  appVersion: string
+  osInfo: string
+  createdAt: string
 }
 
 interface PatreonTier {
@@ -155,7 +193,7 @@ async function apiFetch(url: string, opts?: RequestInit) {
 export default function AdminPage() {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'mud', 'personas', 'heartbeat', 'metrics', 'api-keys', 'products', 'content']
+  const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'mud', 'personas', 'heartbeat', 'metrics', 'api-keys', 'products', 'content', 'beta']
   const tabFromUrl = searchParams.get('tab') as Tab | null
   const [tab, setTab] = useState<Tab>(tabFromUrl && validTabs.includes(tabFromUrl) ? tabFromUrl : 'users')
 
@@ -372,6 +410,116 @@ export default function AdminPage() {
   const [contentCreating, setContentCreating] = useState(false)
   const [contentUploadingId, setContentUploadingId] = useState<string | null>(null)
 
+  // Beta Test program
+  const [betaProductSlug, setBetaProductSlug] = useState('')
+  const [betaTesters, setBetaTesters] = useState<BetaTester[]>([])
+  const [betaFeedback, setBetaFeedback] = useState<BetaFeedbackEntry[]>([])
+  const [betaMetricsSummary, setBetaMetricsSummary] = useState<{ eventType: string; count: number }[]>([])
+  const [betaMetricsRecent, setBetaMetricsRecent] = useState<BetaMetricEventEntry[]>([])
+  const [betaInviteEmail, setBetaInviteEmail] = useState('')
+  const [betaInviting, setBetaInviting] = useState(false)
+  const [betaTogglingOpen, setBetaTogglingOpen] = useState(false)
+  const [betaEditingTemplates, setBetaEditingTemplates] = useState(false)
+  const [betaTemplateForm, setBetaTemplateForm] = useState({ welcomeSubject: '', welcomeBody: '', inviteSubject: '', inviteBody: '' })
+  const [betaTemplateSaving, setBetaTemplateSaving] = useState(false)
+
+  const betaSelectedProduct = products.find(p => p.slug === betaProductSlug) ?? null
+
+  const loadBetaProductData = async (slug: string) => {
+    if (!slug) return
+    try {
+      const [testers, feedback, metrics] = await Promise.all([
+        apiFetch(`${BASE}/api/admin/beta/testers/${slug}`),
+        apiFetch(`${BASE}/api/admin/beta/feedback/${slug}`),
+        apiFetch(`${BASE}/api/admin/beta/metrics/${slug}`),
+      ])
+      setBetaTesters(testers)
+      setBetaFeedback(feedback)
+      setBetaMetricsSummary(metrics.summary ?? [])
+      setBetaMetricsRecent(metrics.recent ?? [])
+    } catch { setError('Failed to load beta test data') }
+  }
+
+  useEffect(() => {
+    if (tab !== 'beta' || !betaProductSlug) return
+    loadBetaProductData(betaProductSlug)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, betaProductSlug])
+
+  const inviteBetaTester = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!betaProductSlug || !betaInviteEmail.trim()) return
+    setBetaInviting(true)
+    try {
+      await apiFetch(`${BASE}/api/admin/beta/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: betaInviteEmail.trim(), productSlug: betaProductSlug }),
+      })
+      setBetaInviteEmail('')
+      await loadBetaProductData(betaProductSlug)
+    } catch { setError('Failed to send beta invite') }
+    finally { setBetaInviting(false) }
+  }
+
+  const toggleBetaOpen = async () => {
+    if (!betaSelectedProduct) return
+    setBetaTogglingOpen(true)
+    try {
+      await apiFetch(`${BASE}/api/admin/products/${betaSelectedProduct.id}/beta-settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          betaOpen: !betaSelectedProduct.betaOpen,
+          welcomeSubject: betaSelectedProduct.betaWelcomeSubject,
+          welcomeBody: betaSelectedProduct.betaWelcomeBody,
+          inviteSubject: betaSelectedProduct.betaInviteSubject,
+          inviteBody: betaSelectedProduct.betaInviteBody,
+        }),
+      })
+      setProducts(prev => prev.map(p => p.id === betaSelectedProduct.id ? { ...p, betaOpen: !p.betaOpen } : p))
+    } catch { setError('Failed to update beta settings') }
+    finally { setBetaTogglingOpen(false) }
+  }
+
+  const openBetaTemplateEditor = () => {
+    if (!betaSelectedProduct) return
+    setBetaTemplateForm({
+      welcomeSubject: betaSelectedProduct.betaWelcomeSubject ?? '',
+      welcomeBody: betaSelectedProduct.betaWelcomeBody ?? '',
+      inviteSubject: betaSelectedProduct.betaInviteSubject ?? '',
+      inviteBody: betaSelectedProduct.betaInviteBody ?? '',
+    })
+    setBetaEditingTemplates(true)
+  }
+
+  const saveBetaTemplates = async () => {
+    if (!betaSelectedProduct) return
+    setBetaTemplateSaving(true)
+    try {
+      await apiFetch(`${BASE}/api/admin/products/${betaSelectedProduct.id}/beta-settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          betaOpen: betaSelectedProduct.betaOpen,
+          welcomeSubject: betaTemplateForm.welcomeSubject || null,
+          welcomeBody: betaTemplateForm.welcomeBody || null,
+          inviteSubject: betaTemplateForm.inviteSubject || null,
+          inviteBody: betaTemplateForm.inviteBody || null,
+        }),
+      })
+      setProducts(prev => prev.map(p => p.id === betaSelectedProduct.id ? {
+        ...p,
+        betaWelcomeSubject: betaTemplateForm.welcomeSubject || null,
+        betaWelcomeBody: betaTemplateForm.welcomeBody || null,
+        betaInviteSubject: betaTemplateForm.inviteSubject || null,
+        betaInviteBody: betaTemplateForm.inviteBody || null,
+      } : p))
+      setBetaEditingTemplates(false)
+    } catch { setError('Failed to save beta email templates') }
+    finally { setBetaTemplateSaving(false) }
+  }
+
   const loadUsers = async (p = usersPage, s = userSearch, r = userFilterRole, st = userFilterStatus) => {
     setLoading(true); setError(null)
     try {
@@ -483,6 +631,11 @@ export default function AdminPage() {
         }),
         apiFetch(`${BASE}/api/patreon/tiers`).then(setPatreonTiers).catch(() => {}),
       ]).then(() => {}),
+      beta: () =>
+        apiFetch(`${BASE}/api/admin/products`).then((ps: Product[]) => {
+          setProducts(ps)
+          if (!betaProductSlug && ps.length > 0) setBetaProductSlug(ps[0].slug)
+        }),
     }
     loaders[tab]().catch(() => setError('Failed to load data')).finally(() => setLoading(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -922,7 +1075,7 @@ export default function AdminPage() {
   }
 
   const TAB_LABELS: Record<Tab, string> = {
-      users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', mud: 'MUD World', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics', 'api-keys': 'API Keys', products: 'Products', content: 'Content Library',
+      users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', mud: 'MUD World', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics', 'api-keys': 'API Keys', products: 'Products', content: 'Content Library', beta: 'Beta Test',
   }
 
   const toggleSection = (key: string) =>
@@ -4275,6 +4428,141 @@ export default function AdminPage() {
               ) },
             ]}
           />
+        </div>
+      )}
+
+      {tab === 'beta' && !loading && (
+        <div style={{ maxWidth: 900 }}>
+          <h3 style={{ marginBottom: 4 }}>Beta Test Program</h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: 20 }}>
+            Signing up (public, or via a targeted invite here) creates a real account and grants Curious Mind-tier
+            access as an overlay -- it never touches a real Patreon tier. Access lapses automatically if the tester
+            hasn't submitted feedback in 30 days; they can always sign up again with no penalty.
+          </p>
+
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 4 }}>Product</label>
+            <select
+              className="admin-role-select"
+              value={betaProductSlug}
+              onChange={e => setBetaProductSlug(e.target.value)}
+              style={{ minWidth: 220 }}
+            >
+              <option value="">Select a product…</option>
+              {products.map(p => (
+                <option key={p.id} value={p.slug}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {betaSelectedProduct && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                <button className="post-action" disabled={betaTogglingOpen} onClick={toggleBetaOpen}>
+                  {betaTogglingOpen ? 'Saving…' : (betaSelectedProduct.betaOpen ? 'Close public signup' : 'Open public signup')}
+                </button>
+                <span style={{ fontSize: '0.85rem', color: betaSelectedProduct.betaOpen ? 'var(--accent)' : 'var(--text-muted)' }}>
+                  {betaSelectedProduct.betaOpen ? 'Open -- listed on the public /beta page' : 'Closed -- invite only, not listed publicly'}
+                </span>
+                <button className="post-action" onClick={openBetaTemplateEditor}>Edit email templates</button>
+              </div>
+
+              <form onSubmit={inviteBetaTester} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+                <input
+                  className="admin-search-input"
+                  type="email"
+                  placeholder="Email to invite"
+                  value={betaInviteEmail}
+                  onChange={e => setBetaInviteEmail(e.target.value)}
+                  style={{ flex: '1 1 260px' }}
+                />
+                <button type="submit" className="blog-tab active" disabled={betaInviting || !betaInviteEmail.trim()}>
+                  {betaInviting ? 'Inviting…' : 'Invite tester'}
+                </button>
+              </form>
+
+              <h4 style={{ marginBottom: 8 }}>Testers</h4>
+              <AdminTable<BetaTester>
+                data={betaTesters}
+                rowKey={t => t.id}
+                searchKeys={['displayName']}
+                emptyText="No beta testers for this product yet."
+                columns={[
+                  { key: 'displayName', label: 'Tester' },
+                  { key: 'status', label: 'Status', render: t => <span style={{ color: t.status === 'active' ? 'var(--accent)' : 'var(--text-muted)' }}>{t.status}</span> },
+                  { key: 'joinedAt', label: 'Joined', render: t => new Date(t.joinedAt).toLocaleDateString() },
+                  { key: 'lastFeedbackAt', label: 'Last Feedback', render: t => new Date(t.lastFeedbackAt).toLocaleDateString() },
+                ]}
+              />
+
+              <h4 style={{ margin: '28px 0 8px' }}>Recent Feedback</h4>
+              <AdminTable<BetaFeedbackEntry>
+                data={betaFeedback}
+                rowKey={f => f.id}
+                searchKeys={['message', 'category']}
+                emptyText="No feedback submitted for this product yet."
+                columns={[
+                  { key: 'createdAt', label: 'When', render: f => new Date(f.createdAt).toLocaleString() },
+                  { key: 'userDisplayName', label: 'From' },
+                  { key: 'category', label: 'Category' },
+                  { key: 'appVersion', label: 'Version' },
+                  { key: 'message', label: 'Message', render: f => <span style={{ whiteSpace: 'pre-wrap' }}>{f.message}</span> },
+                ]}
+              />
+
+              <h4 style={{ margin: '28px 0 8px' }}>Metrics (last 30 days)</h4>
+              {betaMetricsSummary.length > 0 ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+                  {betaMetricsSummary.map(s => (
+                    <div key={s.eventType} style={{ padding: '8px 14px', borderRadius: 6, background: 'var(--surface-2)' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{s.eventType}</div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 600 }}>{s.count}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No metrics events in the last 30 days.</p>
+              )}
+              <AdminTable<BetaMetricEventEntry>
+                data={betaMetricsRecent}
+                rowKey={m => m.id}
+                searchKeys={['eventType', 'eventName']}
+                emptyText="No metrics events for this product yet."
+                columns={[
+                  { key: 'createdAt', label: 'When', render: m => new Date(m.createdAt).toLocaleString() },
+                  { key: 'eventType', label: 'Type' },
+                  { key: 'eventName', label: 'Name' },
+                  { key: 'appVersion', label: 'Version' },
+                ]}
+              />
+            </>
+          )}
+
+          {betaEditingTemplates && betaSelectedProduct && (
+            <div className="admin-modal-backdrop" onClick={() => setBetaEditingTemplates(false)}>
+              <div className="admin-modal" onClick={e => e.stopPropagation()}>
+                <div className="admin-modal-header">
+                  <h3 style={{ margin: 0 }}>Beta Email Templates -- {betaSelectedProduct.name}</h3>
+                  <button className="admin-modal-close" onClick={() => setBetaEditingTemplates(false)}>✕</button>
+                </div>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  Leave blank to use the default template. Use <code>{'{{productName}}'}</code> and <code>{'{{actionUrl}}'}</code> as placeholders.
+                </p>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: 12 }}>Welcome email subject (public signup)</label>
+                <input className="admin-search-input" style={{ width: '100%' }} value={betaTemplateForm.welcomeSubject} onChange={e => setBetaTemplateForm(f => ({ ...f, welcomeSubject: e.target.value }))} />
+                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: 12 }}>Welcome email body (HTML)</label>
+                <textarea className="admin-search-input" style={{ width: '100%', minHeight: 120, fontFamily: 'monospace', fontSize: '0.8rem' }} value={betaTemplateForm.welcomeBody} onChange={e => setBetaTemplateForm(f => ({ ...f, welcomeBody: e.target.value }))} />
+                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: 12 }}>Invite email subject (targeted admin invite)</label>
+                <input className="admin-search-input" style={{ width: '100%' }} value={betaTemplateForm.inviteSubject} onChange={e => setBetaTemplateForm(f => ({ ...f, inviteSubject: e.target.value }))} />
+                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: 12 }}>Invite email body (HTML)</label>
+                <textarea className="admin-search-input" style={{ width: '100%', minHeight: 120, fontFamily: 'monospace', fontSize: '0.8rem' }} value={betaTemplateForm.inviteBody} onChange={e => setBetaTemplateForm(f => ({ ...f, inviteBody: e.target.value }))} />
+                <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                  <button className="blog-tab active" disabled={betaTemplateSaving} onClick={saveBetaTemplates}>{betaTemplateSaving ? 'Saving…' : 'Save templates'}</button>
+                  <button className="post-action" onClick={() => setBetaEditingTemplates(false)}>Cancel</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

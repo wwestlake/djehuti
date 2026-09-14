@@ -78,7 +78,7 @@ let listLibrary (productId: Guid) (userId: Guid) : ContentItemWithAccess list =
         FROM content_items ci
         LEFT JOIN patreon_tiers req ON req.tier_id = ci.required_tier_id
         LEFT JOIN users u ON u.id = @userId
-        LEFT JOIN patreon_tiers own ON own.tier_id = u.patreon_tier_id
+        LEFT JOIN patreon_tiers own ON own.tier_id = effective_tier_id(u.id)
         WHERE ci.product_id = @productId AND ci.active = TRUE
         ORDER BY ci.created_at DESC
     """, conn)
@@ -101,7 +101,7 @@ let tryGetWithAccess (id: Guid) (userId: Guid) : ContentItemWithAccess option =
         FROM content_items ci
         LEFT JOIN patreon_tiers req ON req.tier_id = ci.required_tier_id
         LEFT JOIN users u ON u.id = @userId
-        LEFT JOIN patreon_tiers own ON own.tier_id = u.patreon_tier_id
+        LEFT JOIN patreon_tiers own ON own.tier_id = effective_tier_id(u.id)
         WHERE ci.id = @id AND ci.active = TRUE
     """, conn)
     cmd.Parameters.AddWithValue("id", id) |> ignore

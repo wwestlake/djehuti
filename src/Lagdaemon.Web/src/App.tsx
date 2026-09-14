@@ -34,6 +34,7 @@ import SupportersPage from './pages/community/SupportersPage'
 import DownloadsPage from './pages/community/DownloadsPage'
 import DownloadProductPage from './pages/community/DownloadProductPage'
 import SponsorsPage from './pages/community/SponsorsPage'
+import BetaTestPage from './pages/community/BetaTestPage'
 import DesktopAuthPage from './pages/auth/DesktopAuthPage'
 
 import { blogApi } from './api/blogApi'
@@ -108,6 +109,7 @@ function Nav({ onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
         <a className="nav-community-link" href="/architect/">Architect</a>
         <button className={`nav-community-link${active('/papers') ? ' active' : ''}`} onClick={() => go('/papers')}>Papers</button>
         <button className={`nav-community-link${active('/downloads') ? ' active' : ''}`} onClick={() => go('/downloads')}>Downloads</button>
+        <button className={`nav-community-link${active('/beta') ? ' active' : ''}`} onClick={() => go('/beta')}>Beta Test</button>
         {user?.roles?.includes('system:engineer') && (
           <a className="nav-community-link" href="/math/">DjeLab</a>
         )}
@@ -622,6 +624,7 @@ function AppInner() {
             <Route path="/downloads" element={<DownloadsPage />} />
             <Route path="/downloads/:slug" element={<DownloadProductPage />} />
             <Route path="/sponsors" element={<SponsorsPage />} />
+            <Route path="/beta" element={<BetaTestPage />} />
             <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPage /></ProtectedRoute>} />
           </Routes>
         </main>

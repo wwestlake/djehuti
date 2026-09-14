@@ -15,6 +15,11 @@ type ProductRecord = {
     GithubRepo:         string option
     GithubWebhookSecret: string option
     GithubTagPrefix:    string option
+    BetaOpen:            bool
+    BetaWelcomeSubject:  string option
+    BetaWelcomeBody:     string option
+    BetaInviteSubject:   string option
+    BetaInviteBody:      string option
 }
 
 let private readProduct (r: System.Data.Common.DbDataReader) : ProductRecord =
@@ -30,9 +35,14 @@ let private readProduct (r: System.Data.Common.DbDataReader) : ProductRecord =
         GithubRepo          = if r.IsDBNull(8) then None else Some (r.GetString(8))
         GithubWebhookSecret = if r.IsDBNull(9) then None else Some (r.GetString(9))
         GithubTagPrefix     = if r.IsDBNull(10) then None else Some (r.GetString(10))
+        BetaOpen            = r.GetBoolean(11)
+        BetaWelcomeSubject  = if r.IsDBNull(12) then None else Some (r.GetString(12))
+        BetaWelcomeBody     = if r.IsDBNull(13) then None else Some (r.GetString(13))
+        BetaInviteSubject   = if r.IsDBNull(14) then None else Some (r.GetString(14))
+        BetaInviteBody      = if r.IsDBNull(15) then None else Some (r.GetString(15))
     }
 
-let private selectColumns = "id, slug, name, description, required_tier_id, active, created_at, github_owner, github_repo, github_webhook_secret, github_tag_prefix"
+let private selectColumns = "id, slug, name, description, required_tier_id, active, created_at, github_owner, github_repo, github_webhook_secret, github_tag_prefix, beta_open, beta_welcome_subject, beta_welcome_body, beta_invite_subject, beta_invite_body"
 
 let listAll () : ProductRecord list =
     use conn = Database.openConnection()
@@ -81,6 +91,28 @@ let update (id: Guid) (name: string) (description: string option) (requiredTierI
     cmd.Parameters.AddWithValue("active", active) |> ignore
     cmd.ExecuteNonQuery() > 0
 
+let updateBetaSettings (id: Guid) (betaOpen: bool) (welcomeSubject: string option) (welcomeBody: string option) (inviteSubject: string option) (inviteBody: string option) : bool =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand("""
+        UPDATE products
+        SET beta_open = @betaOpen, beta_welcome_subject = @welcomeSubject, beta_welcome_body = @welcomeBody,
+            beta_invite_subject = @inviteSubject, beta_invite_body = @inviteBody
+        WHERE id = @id
+    """, conn)
+    cmd.Parameters.AddWithValue("id", id) |> ignore
+    cmd.Parameters.AddWithValue("betaOpen", betaOpen) |> ignore
+    cmd.Parameters.AddWithValue("welcomeSubject", (welcomeSubject |> Option.map box |> Option.defaultValue (box DBNull.Value))) |> ignore
+    cmd.Parameters.AddWithValue("welcomeBody", (welcomeBody |> Option.map box |> Option.defaultValue (box DBNull.Value))) |> ignore
+    cmd.Parameters.AddWithValue("inviteSubject", (inviteSubject |> Option.map box |> Option.defaultValue (box DBNull.Value))) |> ignore
+    cmd.Parameters.AddWithValue("inviteBody", (inviteBody |> Option.map box |> Option.defaultValue (box DBNull.Value))) |> ignore
+    cmd.ExecuteNonQuery() > 0
+
+// Public beta-signup listing: only products explicitly opened for beta
+// (most aren't ready yet, per-product opt-in via the admin beta-settings
+// editor), regardless of their normal `active` visibility flag.
+let listBetaOpen () : ProductRecord list =
+    listAll () |> List.filter (fun p -> p.BetaOpen)
+
 let delete (id: Guid) : bool =
     use conn = Database.openConnection()
     use cmd = new NpgsqlCommand("DELETE FROM products WHERE id = @id", conn)
@@ -102,7 +134,7 @@ let getEntitlements (userId: Guid) : string list =
         FROM products p
         LEFT JOIN patreon_tiers req ON req.tier_id = p.required_tier_id
         LEFT JOIN users u ON u.id = @userId
-        LEFT JOIN patreon_tiers own ON own.tier_id = u.patreon_tier_id
+        LEFT JOIN patreon_tiers own ON own.tier_id = effective_tier_id(u.id)
         WHERE p.active = TRUE
     """, conn)
     cmd.Parameters.AddWithValue("userId", userId) |> ignore
