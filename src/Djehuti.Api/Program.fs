@@ -342,6 +342,27 @@ type GrantRoleRequest =
       Role: string
       ScopeId: string option }
 
+[<CLIMutable>]
+type ProductFeedbackRequest =
+    { InstallId:  string
+      Message:    string
+      Category:   string option
+      AppVersion: string option
+      OsInfo:     string option }
+
+[<CLIMutable>]
+type ProductMetricEventRequest =
+    { EventType:   string
+      EventName:   string
+      PayloadJson: string option }
+
+[<CLIMutable>]
+type ProductMetricsRequest =
+    { InstallId:  string
+      AppVersion: string option
+      OsInfo:     string option
+      Events:     ProductMetricEventRequest[] }
+
 type PublicProfileDto =
     { Id: string
       DisplayName: string option
@@ -1670,6 +1691,77 @@ let main args =
                             match FratePodRepository.publish req with
                             | Ok record -> return Results.Ok(record)
                             | Error msg -> return Results.Conflict(msg)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // ── Product Feedback & Metrics ───────────────────────────────────────────
+    // Opt-in feedback/telemetry from installed suite apps (Djehuti Station
+    // first). Both endpoints work with or without auth: tryGetAuthClaims
+    // returns None for an anonymous desktop client with no cookie/Bearer
+    // token, and that's a normal, supported case here -- not an error --
+    // since a tester can submit anonymously. installId is always required:
+    // a client-generated, persisted-locally identifier, never a real device
+    // ID, so rows can be grouped per-install without identifying a person.
+
+    app.MapPost(
+        "/api/products/{slug}/feedback",
+        Func<string, HttpContext, ProductFeedbackRequest, System.Threading.Tasks.Task<IResult>>(fun slug ctx body ->
+            async {
+                match ProductRepository.findBySlug slug with
+                | None -> return Results.NotFound("Unknown product")
+                | Some product when not product.Active -> return Results.NotFound("Unknown product")
+                | Some product ->
+                    if String.IsNullOrWhiteSpace(body.InstallId) then
+                        return Results.BadRequest("installId is required")
+                    elif String.IsNullOrWhiteSpace(body.Message) then
+                        return Results.BadRequest("message is required")
+                    elif body.Message.Length > 8000 then
+                        return Results.BadRequest("message is too long")
+                    else
+                        let userId =
+                            tryGetAuthClaims ctx
+                            |> Option.bind (fun claims -> match Guid.TryParse(claims.UserId) with | true, g -> Some g | false, _ -> None)
+                        let submission : ProductFeedbackRepository.FeedbackSubmission = {
+                            Message = body.Message
+                            Category = body.Category
+                            InstallId = body.InstallId
+                            AppVersion = body.AppVersion
+                            OsInfo = body.OsInfo
+                        }
+                        let id = ProductFeedbackRepository.insertFeedback product.Id userId submission
+                        return Results.Ok({| id = id |})
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/products/{slug}/metrics",
+        Func<string, HttpContext, ProductMetricsRequest, System.Threading.Tasks.Task<IResult>>(fun slug ctx body ->
+            async {
+                match ProductRepository.findBySlug slug with
+                | None -> return Results.NotFound("Unknown product")
+                | Some product when not product.Active -> return Results.NotFound("Unknown product")
+                | Some product ->
+                    if String.IsNullOrWhiteSpace(body.InstallId) then
+                        return Results.BadRequest("installId is required")
+                    elif isNull (box body.Events) || body.Events.Length = 0 then
+                        return Results.BadRequest("events must be a non-empty array")
+                    elif body.Events.Length > 200 then
+                        return Results.BadRequest("too many events in one batch (max 200)")
+                    else
+                        let userId =
+                            tryGetAuthClaims ctx
+                            |> Option.bind (fun claims -> match Guid.TryParse(claims.UserId) with | true, g -> Some g | false, _ -> None)
+                        let batch : ProductFeedbackRepository.MetricsBatch = {
+                            InstallId = body.InstallId
+                            AppVersion = body.AppVersion
+                            OsInfo = body.OsInfo
+                            Events =
+                                body.Events
+                                |> Array.toList
+                                |> List.map (fun e -> ({ EventType = e.EventType; EventName = e.EventName; PayloadJson = e.PayloadJson } : ProductFeedbackRepository.MetricEvent))
+                        }
+                        let count = ProductFeedbackRepository.insertMetricsBatch product.Id userId batch
+                        return Results.Ok({| accepted = count |})
             } |> Async.StartAsTask)
     ) |> ignore
 
