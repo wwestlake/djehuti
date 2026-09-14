@@ -181,3 +181,62 @@ let passwordResetEmailTemplate (userName: string) (resetLink: string) : string =
     </body>
     </html>
     """ userName resetLink resetLink
+
+// ── Beta Test program ───────────────────────────────────────────────────────
+// Default templates, used when a product hasn't set its own
+// beta_welcome_subject/body or beta_invite_subject/body. Admin-authored
+// content goes through renderBetaTemplate below instead of these -- both
+// support the same {{productName}} / {{actionUrl}} placeholders so an admin
+// customizing one product's copy doesn't need to know HTML.
+
+let renderBetaTemplate (template: string) (productName: string) (actionUrl: string) : string =
+    template.Replace("{{productName}}", productName).Replace("{{actionUrl}}", actionUrl)
+
+let defaultBetaWelcomeSubject (productName: string) : string =
+    $"Welcome to the {productName} Beta Test Program"
+
+let defaultBetaWelcomeBody (productName: string) : string =
+    """
+    <html>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #333;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2>Welcome to the {{productName}} Beta Test Program</h2>
+            <p>Thanks for signing up to test {{productName}}. You're in.</p>
+            <p style="margin: 30px 0;">
+                <a href="{{actionUrl}}" style="background-color: #58a6ff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                    Set your password to get started
+                </a>
+            </p>
+            <p style="color: #666; font-size: 14px;">
+                Submit feedback at least once every 30 days to keep your beta tester status (and perks) active.
+                No obligation beyond that -- if you're ever dropped for inactivity, you're welcome to sign up again
+                any time, no penalty.
+            </p>
+        </div>
+    </body>
+    </html>
+    """
+
+let defaultBetaInviteSubject (productName: string) : string =
+    $"You're invited to beta test {productName}"
+
+let defaultBetaInviteBody (productName: string) : string =
+    """
+    <html>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #333;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2>You're invited to beta test {{productName}}</h2>
+            <p>We'd like you to try {{productName}} before its public beta opens.</p>
+            <p style="margin: 30px 0;">
+                <a href="{{actionUrl}}" style="background-color: #58a6ff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                    Accept and set your password
+                </a>
+            </p>
+            <p style="color: #666; font-size: 14px;">
+                Submit feedback at least once every 30 days to keep your beta tester status (and perks) active.
+                No obligation beyond that.
+            </p>
+        </div>
+    </body>
+    </html>
+    """

@@ -363,6 +363,24 @@ type ProductMetricsRequest =
       OsInfo:     string option
       Events:     ProductMetricEventRequest[] }
 
+[<CLIMutable>]
+type BetaSignupRequest =
+    { Email:       string
+      ProductSlug: string }
+
+[<CLIMutable>]
+type BetaInviteRequest =
+    { Email:       string
+      ProductSlug: string }
+
+[<CLIMutable>]
+type BetaSettingsRequest =
+    { BetaOpen:       bool
+      WelcomeSubject: string option
+      WelcomeBody:    string option
+      InviteSubject:  string option
+      InviteBody:     string option }
+
 type PublicProfileDto =
     { Id: string
       DisplayName: string option
@@ -1729,6 +1747,7 @@ let main args =
                             OsInfo = body.OsInfo
                         }
                         let id = ProductFeedbackRepository.insertFeedback product.Id userId submission
+                        userId |> Option.iter (fun uid -> BetaTesterRepository.bumpLastFeedback uid product.Id)
                         return Results.Ok({| id = id |})
             } |> Async.StartAsTask)
     ) |> ignore
@@ -1763,6 +1782,150 @@ let main args =
                         let count = ProductFeedbackRepository.insertMetricsBatch product.Id userId batch
                         return Results.Ok({| accepted = count |})
             } |> Async.StartAsTask)
+    ) |> ignore
+
+    // ── Beta Test program ────────────────────────────────────────────────────
+    // Public: browse which products are open for beta signup, and sign up
+    // for one. Signup creates (or reuses) a real lagdaemon.com account and
+    // grants the Curious Mind overlay via beta_testers -- see
+    // effective_tier_id() in the beta-test-program migrations. Admin:
+    // targeted invites (not mass marketing -- one specific person at a
+    // time), the tester roster, and the feedback/metrics review views.
+
+    let betaAccountAndActionUrl (email: string) : Async<(UserRepository.User * string) option> =
+        async {
+            let! existing = UserRepository.tryGetByEmail email
+            match existing with
+            | Some u -> return Some (u, "https://lagdaemon.com/djehuti/#/beta")
+            | None ->
+                let! created = UserRepository.createUser email None
+                match created with
+                | None -> return None
+                | Some u ->
+                    let token = Auth.generateSecureToken()
+                    let! _ = UserRepository.createPasswordResetToken u.Id token
+                    return Some (u, "https://lagdaemon.com/djehuti/#/reset-password?token=" + token)
+        }
+
+    app.MapGet(
+        "/api/beta/products",
+        Func<IResult>(fun () ->
+            let products =
+                ProductRepository.listBetaOpen ()
+                |> List.map (fun p -> {| slug = p.Slug; name = p.Name; description = p.Description |})
+            Results.Ok(products))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/beta/signup",
+        Func<BetaSignupRequest, System.Threading.Tasks.Task<IResult>>(fun body ->
+            async {
+                if String.IsNullOrWhiteSpace body.Email || String.IsNullOrWhiteSpace body.ProductSlug then
+                    return Results.BadRequest("email and productSlug are required")
+                else
+                    match ProductRepository.findBySlug body.ProductSlug with
+                    | None -> return Results.NotFound("Unknown product")
+                    | Some product when not product.BetaOpen -> return Results.NotFound("This product isn't open for beta signup yet")
+                    | Some product ->
+                        let email = body.Email.Trim().ToLower()
+                        let! userAndUrl = betaAccountAndActionUrl email
+                        match userAndUrl with
+                        | None -> return Results.Problem(detail = "Failed to create account", statusCode = 500, title = "Error")
+                        | Some (u, actionUrl) ->
+                            BetaTesterRepository.upsertActive u.Id product.Id None
+                            let subject = product.BetaWelcomeSubject |> Option.filter (String.IsNullOrWhiteSpace >> not) |> Option.defaultValue (Email.defaultBetaWelcomeSubject product.Name)
+                            let bodyTemplate = product.BetaWelcomeBody |> Option.filter (String.IsNullOrWhiteSpace >> not) |> Option.defaultValue (Email.defaultBetaWelcomeBody product.Name)
+                            let html = Email.renderBetaTemplate bodyTemplate product.Name actionUrl
+                            Email.sendEmail { Email.To = email; Email.Subject = subject; Email.HtmlBody = html } |> Async.Ignore |> Async.Start
+                            return Results.Ok({| message = "Signed up" |})
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/beta/invite",
+        Func<HttpContext, BetaInviteRequest, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
+            async {
+                match tryGetAuthClaims ctx with
+                | Some claims when Permissions.isAdmin claims.Role ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, adminId ->
+                        if String.IsNullOrWhiteSpace body.Email || String.IsNullOrWhiteSpace body.ProductSlug then
+                            return Results.BadRequest("email and productSlug are required")
+                        else
+                            match ProductRepository.findBySlug body.ProductSlug with
+                            | None -> return Results.NotFound("Unknown product")
+                            | Some product ->
+                                let email = body.Email.Trim().ToLower()
+                                let! userAndUrl = betaAccountAndActionUrl email
+                                match userAndUrl with
+                                | None -> return Results.Problem(detail = "Failed to create account", statusCode = 500, title = "Error")
+                                | Some (u, actionUrl) ->
+                                    BetaTesterRepository.upsertActive u.Id product.Id (Some adminId)
+                                    let subject = product.BetaInviteSubject |> Option.filter (String.IsNullOrWhiteSpace >> not) |> Option.defaultValue (Email.defaultBetaInviteSubject product.Name)
+                                    let bodyTemplate = product.BetaInviteBody |> Option.filter (String.IsNullOrWhiteSpace >> not) |> Option.defaultValue (Email.defaultBetaInviteBody product.Name)
+                                    let html = Email.renderBetaTemplate bodyTemplate product.Name actionUrl
+                                    Email.sendEmail { Email.To = email; Email.Subject = subject; Email.HtmlBody = html } |> Async.Ignore |> Async.Start
+                                    UserRepository.logAdminAudit adminId u.Id "beta_invite" (Some "product") None (Some product.Slug)
+                                    return Results.Ok({| message = "Invited" |})
+                | Some _ -> return Results.Forbid()
+                | None   -> return Results.Unauthorized()
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/beta/testers/{productSlug}",
+        Func<HttpContext, string, IResult>(fun ctx productSlug ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match ProductRepository.findBySlug productSlug with
+                | None -> Results.NotFound("Unknown product")
+                | Some product -> Results.Ok(BetaTesterRepository.listForProduct product.Id)
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/beta/feedback/{productSlug}",
+        Func<HttpContext, string, IResult>(fun ctx productSlug ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match ProductRepository.findBySlug productSlug with
+                | None -> Results.NotFound("Unknown product")
+                | Some product -> Results.Ok(ProductFeedbackRepository.listFeedback product.Id 200)
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/beta/metrics/{productSlug}",
+        Func<HttpContext, string, IResult>(fun ctx productSlug ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match ProductRepository.findBySlug productSlug with
+                | None -> Results.NotFound("Unknown product")
+                | Some product ->
+                    Results.Ok({|
+                        summary = ProductFeedbackRepository.summarizeMetrics product.Id |> List.map (fun (t, c) -> {| eventType = t; count = c |})
+                        recent  = ProductFeedbackRepository.listMetrics product.Id 200
+                    |})
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPut(
+        "/api/admin/products/{id}/beta-settings",
+        Func<HttpContext, string, BetaSettingsRequest, IResult>(fun ctx id body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(id) with
+                | false, _ -> Results.BadRequest("Invalid product id")
+                | true, productId ->
+                    if ProductRepository.updateBetaSettings productId body.BetaOpen body.WelcomeSubject body.WelcomeBody body.InviteSubject body.InviteBody
+                    then Results.NoContent()
+                    else Results.NotFound("Product not found")
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
     ) |> ignore
 
     // ── DjeLab Files ──────────────────────────────────────────────────────────

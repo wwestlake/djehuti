@@ -101,7 +101,7 @@ let getTierLimits (userId: Guid) : TierLimits option =
         use cmd = new NpgsqlCommand("""
             SELECT pt.tier_id, pt.tier_name, pt.max_concurrent_tasks, pt.polling_interval_sec, pt.archive_days
             FROM users u
-            LEFT JOIN patreon_tiers pt ON pt.tier_id = u.patreon_tier_id
+            LEFT JOIN patreon_tiers pt ON pt.tier_id = effective_tier_id(u.id)
             WHERE u.id = @uid
         """, conn)
         cmd.Parameters.AddWithValue("uid", userId) |> ignore
