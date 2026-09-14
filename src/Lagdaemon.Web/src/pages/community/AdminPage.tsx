@@ -78,8 +78,7 @@ interface Product {
 interface BetaTester {
   id: string
   userId: string
-  email: string
-  displayName: string | null
+  displayName: string
   status: string
   joinedAt: string
   lastFeedbackAt: string
@@ -88,7 +87,7 @@ interface BetaTester {
 
 interface BetaFeedbackEntry {
   id: string
-  userEmail: string | null
+  userDisplayName: string
   installId: string
   message: string
   category: string
@@ -99,7 +98,7 @@ interface BetaFeedbackEntry {
 
 interface BetaMetricEventEntry {
   id: string
-  userEmail: string | null
+  userDisplayName: string
   installId: string
   eventType: string
   eventName: string
@@ -4486,10 +4485,10 @@ export default function AdminPage() {
               <AdminTable<BetaTester>
                 data={betaTesters}
                 rowKey={t => t.id}
-                searchKeys={['email']}
+                searchKeys={['displayName']}
                 emptyText="No beta testers for this product yet."
                 columns={[
-                  { key: 'email', label: 'Email', render: t => <>{t.email}{t.displayName ? ` (${t.displayName})` : ''}</> },
+                  { key: 'displayName', label: 'Tester' },
                   { key: 'status', label: 'Status', render: t => <span style={{ color: t.status === 'active' ? 'var(--accent)' : 'var(--text-muted)' }}>{t.status}</span> },
                   { key: 'joinedAt', label: 'Joined', render: t => new Date(t.joinedAt).toLocaleDateString() },
                   { key: 'lastFeedbackAt', label: 'Last Feedback', render: t => new Date(t.lastFeedbackAt).toLocaleDateString() },
@@ -4504,7 +4503,7 @@ export default function AdminPage() {
                 emptyText="No feedback submitted for this product yet."
                 columns={[
                   { key: 'createdAt', label: 'When', render: f => new Date(f.createdAt).toLocaleString() },
-                  { key: 'userEmail', label: 'From', render: f => f.userEmail ?? <span style={{ color: 'var(--text-muted)' }}>Anonymous</span> },
+                  { key: 'userDisplayName', label: 'From' },
                   { key: 'category', label: 'Category' },
                   { key: 'appVersion', label: 'Version' },
                   { key: 'message', label: 'Message', render: f => <span style={{ whiteSpace: 'pre-wrap' }}>{f.message}</span> },

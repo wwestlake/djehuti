@@ -30,27 +30,30 @@ type MetricsBatch = {
     Events:     MetricEvent list
 }
 
+// UserDisplayName, never an email -- per AGENTS.md, email addresses are
+// never displayed in the UI. 'Anonymous' covers both an anonymous
+// submitter (no user_id) and a signed-in user with no display name set.
 type FeedbackEntry = {
-    Id:         Guid
-    UserEmail:  string option
-    InstallId:  string
-    Message:    string
-    Category:   string
-    AppVersion: string
-    OsInfo:     string
-    CreatedAt:  DateTime
+    Id:              Guid
+    UserDisplayName: string
+    InstallId:       string
+    Message:         string
+    Category:        string
+    AppVersion:      string
+    OsInfo:          string
+    CreatedAt:       DateTime
 }
 
 type MetricEventEntry = {
-    Id:         Guid
-    UserEmail:  string option
-    InstallId:  string
-    EventType:  string
-    EventName:  string
-    PayloadJson: string
-    AppVersion: string
-    OsInfo:     string
-    CreatedAt:  DateTime
+    Id:              Guid
+    UserDisplayName: string
+    InstallId:       string
+    EventType:       string
+    EventName:       string
+    PayloadJson:     string
+    AppVersion:      string
+    OsInfo:          string
+    CreatedAt:       DateTime
 }
 
 // ── Writes ───────────────────────────────────────────────────────────────────
@@ -105,9 +108,10 @@ let insertMetricsBatch (productId: Guid) (userId: Guid option) (batch: MetricsBa
 let listFeedback (productId: Guid) (limit: int) : FeedbackEntry list =
     use conn = Database.openConnection()
     use cmd = new NpgsqlCommand("""
-        SELECT pf.id, u.email, pf.install_id, pf.message, pf.category, pf.app_version, pf.os_info, pf.created_at
+        SELECT pf.id, COALESCE(up.display_name, u.display_name, 'Anonymous'), pf.install_id, pf.message, pf.category, pf.app_version, pf.os_info, pf.created_at
         FROM product_feedback pf
         LEFT JOIN users u ON u.id = pf.user_id
+        LEFT JOIN user_profiles up ON up.user_id = u.id
         WHERE pf.product_id = @productId
         ORDER BY pf.created_at DESC
         LIMIT @limit
@@ -118,23 +122,24 @@ let listFeedback (productId: Guid) (limit: int) : FeedbackEntry list =
     let mutable results = []
     while reader.Read() do
         results <- {
-            Id         = reader.GetGuid(0)
-            UserEmail  = if reader.IsDBNull(1) then None else Some (reader.GetString(1))
-            InstallId  = reader.GetString(2)
-            Message    = reader.GetString(3)
-            Category   = reader.GetString(4)
-            AppVersion = reader.GetString(5)
-            OsInfo     = reader.GetString(6)
-            CreatedAt  = reader.GetFieldValue<DateTime>(7)
+            Id              = reader.GetGuid(0)
+            UserDisplayName = reader.GetString(1)
+            InstallId       = reader.GetString(2)
+            Message         = reader.GetString(3)
+            Category        = reader.GetString(4)
+            AppVersion      = reader.GetString(5)
+            OsInfo          = reader.GetString(6)
+            CreatedAt       = reader.GetFieldValue<DateTime>(7)
         } :: results
     List.rev results
 
 let listMetrics (productId: Guid) (limit: int) : MetricEventEntry list =
     use conn = Database.openConnection()
     use cmd = new NpgsqlCommand("""
-        SELECT me.id, u.email, me.install_id, me.event_type, me.event_name, me.payload::text, me.app_version, me.os_info, me.occurred_at
+        SELECT me.id, COALESCE(up.display_name, u.display_name, 'Anonymous'), me.install_id, me.event_type, me.event_name, me.payload::text, me.app_version, me.os_info, me.occurred_at
         FROM product_metrics_events me
         LEFT JOIN users u ON u.id = me.user_id
+        LEFT JOIN user_profiles up ON up.user_id = u.id
         WHERE me.product_id = @productId
         ORDER BY me.occurred_at DESC
         LIMIT @limit
@@ -145,15 +150,15 @@ let listMetrics (productId: Guid) (limit: int) : MetricEventEntry list =
     let mutable results = []
     while reader.Read() do
         results <- {
-            Id          = reader.GetGuid(0)
-            UserEmail   = if reader.IsDBNull(1) then None else Some (reader.GetString(1))
-            InstallId   = reader.GetString(2)
-            EventType   = reader.GetString(3)
-            EventName   = reader.GetString(4)
-            PayloadJson = reader.GetString(5)
-            AppVersion  = reader.GetString(6)
-            OsInfo      = reader.GetString(7)
-            CreatedAt   = reader.GetFieldValue<DateTime>(8)
+            Id              = reader.GetGuid(0)
+            UserDisplayName = reader.GetString(1)
+            InstallId       = reader.GetString(2)
+            EventType       = reader.GetString(3)
+            EventName       = reader.GetString(4)
+            PayloadJson     = reader.GetString(5)
+            AppVersion      = reader.GetString(6)
+            OsInfo          = reader.GetString(7)
+            CreatedAt       = reader.GetFieldValue<DateTime>(8)
         } :: results
     List.rev results
 

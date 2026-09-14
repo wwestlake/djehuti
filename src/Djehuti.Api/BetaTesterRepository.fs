@@ -7,8 +7,7 @@ open Database
 type BetaTesterWithUser =
     { Id:             Guid
       UserId:         Guid
-      Email:          string
-      DisplayName:    string option
+      DisplayName:    string
       Status:         string
       JoinedAt:       DateTime
       LastFeedbackAt: DateTime
@@ -63,23 +62,26 @@ let bumpLastFeedback (userId: Guid) (productId: Guid) : unit =
     cmd.Parameters.AddWithValue("productId", productId) |> ignore
     cmd.ExecuteNonQuery() |> ignore
 
+// Never selects u.email -- per AGENTS.md, email addresses are never
+// displayed in the UI; the display-name fallback chain (user_profiles ->
+// users -> 'Anonymous') matches PatreonService.getSupporters.
 let private readWithUser (r: System.Data.Common.DbDataReader) : BetaTesterWithUser =
     { Id             = r.GetGuid(0)
       UserId         = r.GetGuid(1)
-      Email          = r.GetString(2)
-      DisplayName    = if r.IsDBNull(3) then None else Some (r.GetString(3))
-      Status         = r.GetString(4)
-      JoinedAt       = r.GetFieldValue<DateTime>(5)
-      LastFeedbackAt = r.GetFieldValue<DateTime>(6)
-      DroppedAt      = if r.IsDBNull(7) then None else Some (r.GetFieldValue<DateTime>(7)) }
+      DisplayName    = r.GetString(2)
+      Status         = r.GetString(3)
+      JoinedAt       = r.GetFieldValue<DateTime>(4)
+      LastFeedbackAt = r.GetFieldValue<DateTime>(5)
+      DroppedAt      = if r.IsDBNull(6) then None else Some (r.GetFieldValue<DateTime>(6)) }
 
 let listForProduct (productId: Guid) : BetaTesterWithUser list =
     sweepExpired () |> ignore
     use conn = Database.openConnection()
     use cmd = new NpgsqlCommand("""
-        SELECT bt.id, bt.user_id, u.email, u.display_name, bt.status, bt.joined_at, bt.last_feedback_at, bt.dropped_at
+        SELECT bt.id, bt.user_id, COALESCE(up.display_name, u.display_name, 'Anonymous'), bt.status, bt.joined_at, bt.last_feedback_at, bt.dropped_at
         FROM beta_testers bt
         JOIN users u ON u.id = bt.user_id
+        LEFT JOIN user_profiles up ON up.user_id = u.id
         WHERE bt.product_id = @productId
         ORDER BY bt.status ASC, bt.joined_at DESC
     """, conn)
