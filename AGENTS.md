@@ -33,6 +33,16 @@ Use this access proactively for:
 **Never place content directly on the server.**
 All files — HTML, config, static assets, scripts — must live in this repository and be deployed exclusively through the GitHub Actions pipeline (`.github/workflows/deploy.yml`). No `scp`, no manual SSH file drops, no out-of-band changes to `/var/www` or `/opt`. If a file isn't in the repo, it doesn't exist in production.
 
+## Deployment Verification
+
+The Djehuti web app no longer has a meaningful local end-to-end test path. It depends on too much live infrastructure to run or validate fully on this machine. Do not treat a local web-app run as required before a production deploy, and do not suggest adding or using a paid QA/staging server; the user is not paying for one.
+
+For deploy decisions, use code review, targeted compile/static checks only when they are useful and not disruptive, GitHub Actions results, and production-safe post-deploy checks against the real site/API.
+
+## Scope of Future Work
+
+Djehuti is basically complete as a production website. Future work should default to small, scoped tweaks or single-capability additions, mostly API work. Do not propose or start broad redesigns, large architectural rewrites, or exploratory local-environment work unless the user explicitly asks for that larger effort.
+
 ---
 
 ## Database Migrations
