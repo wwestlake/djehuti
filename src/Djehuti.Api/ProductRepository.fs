@@ -45,6 +45,13 @@ let listAll () : ProductRecord list =
 let listActive () : ProductRecord list =
     listAll () |> List.filter (fun p -> p.Active)
 
+let findBySlug (slug: string) : ProductRecord option =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand($"SELECT {selectColumns} FROM products WHERE slug = @slug", conn)
+    cmd.Parameters.AddWithValue("slug", slug) |> ignore
+    use reader = cmd.ExecuteReader()
+    if reader.Read() then Some (readProduct reader) else None
+
 let create (slug: string) (name: string) (description: string option) (requiredTierId: string option) : ProductRecord =
     use conn = Database.openConnection()
     use cmd = new NpgsqlCommand($"""

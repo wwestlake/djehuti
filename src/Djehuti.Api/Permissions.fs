@@ -139,6 +139,12 @@ let ModulePapers = "papers"
 let ModuleSystem = "system"
 [<Literal>]
 let ModuleFrate = "frate"
+// Suite-product modules: one per product slug, so a product-scoped role
+// (beta tester today, possibly others later) can be granted/checked the same
+// way Frate's publisher role already is, without a schema change -- just
+// grant {Module = the product's slug; Role = RoleBetaTester}.
+[<Literal>]
+let ModuleCreationStation = "creation-station"
 
 [<Literal>]
 let RoleModerator = "moderator"
@@ -154,3 +160,5 @@ let RoleViewer = "viewer"
 let RoleEngineer = "engineer"
 [<Literal>]
 let RolePublisher = "publisher"
+[<Literal>]
+let RoleBetaTester = "beta-tester"
