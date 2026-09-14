@@ -58,6 +58,7 @@
     <Compile Include="ArchitectProjectRepository.fs" />
     <Compile Include="FratePodRepository.fs" />
     <Compile Include="ProductFeedbackRepository.fs" />
+    <Compile Include="BetaTesterRepository.fs" />
     <Compile Include="RemotePairingRepository.fs" />
     <Compile Include="RemoteSignalingManager.fs" />
     <Compile Include="Program.fs" />

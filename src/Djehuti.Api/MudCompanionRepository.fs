@@ -39,7 +39,7 @@ let private defaultSettings characterId eligible reason =
 
 let private isEligible (conn: NpgsqlConnection) (userId: Guid) =
     use cmd = new NpgsqlCommand(
-        """SELECT role, patreon_tier_id
+        """SELECT role, effective_tier_id(id)
            FROM users
            WHERE id = @uid""", conn)
     cmd.Parameters.AddWithValue("uid", userId) |> ignore
