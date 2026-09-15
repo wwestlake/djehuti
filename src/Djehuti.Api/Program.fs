@@ -1712,6 +1712,53 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    app.MapGet(
+        "/api/frate/pods/{name}",
+        Func<string, IResult>(fun name ->
+            match FratePodRepository.getPodDetail name with
+            | None -> Results.NotFound("Unknown pod")
+            | Some detail -> Results.Ok(detail))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/admin/frate/pods",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role -> Results.Ok(FratePodRepository.listAllPodsAdmin ())
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/frate/pods/{name}/{version}/yank",
+        Func<HttpContext, string, string, IResult>(fun ctx name version ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, adminId ->
+                    match FratePodRepository.setYanked name version true adminId with
+                    | Ok () -> Results.Ok({| success = true |})
+                    | Error msg -> Results.NotFound(msg)
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    app.MapPost(
+        "/api/admin/frate/pods/{name}/{version}/unyank",
+        Func<HttpContext, string, string, IResult>(fun ctx name version ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Unauthorized()
+                | true, adminId ->
+                    match FratePodRepository.setYanked name version false adminId with
+                    | Ok () -> Results.Ok({| success = true |})
+                    | Error msg -> Results.NotFound(msg)
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
     // ── Product Feedback & Metrics ───────────────────────────────────────────
     // Opt-in feedback/telemetry from installed suite apps (Djehuti Station
     // first). Both endpoints work with or without auth: tryGetAuthClaims

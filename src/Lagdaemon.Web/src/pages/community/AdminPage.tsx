@@ -27,7 +27,7 @@ interface Announcement {
   createdAt: string; updatedAt: string
 }
 
-type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'mud' | 'personas' | 'heartbeat' | 'metrics' | 'api-keys' | 'products' | 'content' | 'beta'
+type Tab = 'users' | 'blog-queue' | 'blog-all' | 'blog-authors' | 'tags' | 'forum-tags' | 'forum-reports' | 'config' | 'roles' | 'announcements' | 'mud' | 'personas' | 'heartbeat' | 'metrics' | 'api-keys' | 'products' | 'content' | 'beta' | 'frate'
 
 interface MetricsCounts { users: number; posts: number; threads: number; articles: number; votesGiven: number; reactions: number; achievements: number }
 interface ForumActivityRow { forumId: string; forumName: string; postsAll: number; postsHuman: number; postsAi: number; threadsAll: number; threadsHuman: number; threadsAi: number }
@@ -132,6 +132,18 @@ interface ContentItem {
   hasFile: boolean
 }
 
+interface PodVersionAdmin {
+  podName: string
+  version: string
+  description: string | null
+  license: string
+  sizeBytes: number
+  createdAt: string
+  publisherDisplayName: string
+  yanked: boolean
+  yankedAt: string | null
+}
+
 interface AiPersona {
   id: string; name: string; slug: string; avatarUrl: string | null; systemPrompt: string
   model: string; triggerMode: string; workTimezone: string | null; workStartHour: number | null; workWindowHours: number | null; active: boolean; createdAt: string
@@ -193,7 +205,7 @@ async function apiFetch(url: string, opts?: RequestInit) {
 export default function AdminPage() {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'mud', 'personas', 'heartbeat', 'metrics', 'api-keys', 'products', 'content', 'beta']
+  const validTabs: Tab[] = ['users', 'blog-queue', 'blog-all', 'blog-authors', 'tags', 'forum-tags', 'forum-reports', 'config', 'roles', 'announcements', 'mud', 'personas', 'heartbeat', 'metrics', 'api-keys', 'products', 'content', 'beta', 'frate']
   const tabFromUrl = searchParams.get('tab') as Tab | null
   const [tab, setTab] = useState<Tab>(tabFromUrl && validTabs.includes(tabFromUrl) ? tabFromUrl : 'users')
 
@@ -423,6 +435,53 @@ export default function AdminPage() {
   const [betaTemplateForm, setBetaTemplateForm] = useState({ welcomeSubject: '', welcomeBody: '', inviteSubject: '', inviteBody: '' })
   const [betaTemplateSaving, setBetaTemplateSaving] = useState(false)
 
+  // Frate pod registry
+  const [fratePods, setFratePods] = useState<PodVersionAdmin[]>([])
+  const [frateYanking, setFrateYanking] = useState<string | null>(null)
+  const [frateGrantQuery, setFrateGrantQuery] = useState('')
+  const [frateGrantResults, setFrateGrantResults] = useState<AdminUser[]>([])
+  const [frateGrantSearching, setFrateGrantSearching] = useState(false)
+  const [frateGranting, setFrateGranting] = useState(false)
+
+  const fratePublishers = roles.filter(r => r.module === 'frate' && r.role === 'publisher')
+
+  useEffect(() => {
+    if (!user || user.role !== 'admin' || tab !== 'frate') return
+    const q = frateGrantQuery.trim()
+    if (!q) { setFrateGrantResults([]); return }
+    setFrateGrantSearching(true)
+    const handle = setTimeout(async () => {
+      try {
+        const res = await apiFetch(`${BASE}/api/admin/users?${new URLSearchParams({ search: q, page: '1', pageSize: '8' })}`)
+        setFrateGrantResults(Array.isArray(res) ? res : (res.data ?? []))
+      } catch { setFrateGrantResults([]) }
+      finally { setFrateGrantSearching(false) }
+    }, 300)
+    return () => clearTimeout(handle)
+  }, [frateGrantQuery, tab, user])
+
+  const grantFratePublisher = async (u: AdminUser) => {
+    setFrateGranting(true)
+    try {
+      await apiFetch(`${BASE}/api/roles/grant`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: u.id, module: 'frate', role: 'publisher', scopeId: null }),
+      })
+      setRoles(await apiFetch(`${BASE}/api/admin/context-roles`))
+      setFrateGrantQuery(''); setFrateGrantResults([])
+    } catch { setError('Failed to grant publisher role') }
+    finally { setFrateGranting(false) }
+  }
+
+  const setPodYanked = async (podName: string, version: string, yanked: boolean) => {
+    setFrateYanking(`${podName}@${version}`)
+    try {
+      await apiFetch(`${BASE}/api/admin/frate/pods/${encodeURIComponent(podName)}/${encodeURIComponent(version)}/${yanked ? 'yank' : 'unyank'}`, { method: 'POST' })
+      setFratePods(prev => prev.map(p => p.podName === podName && p.version === version ? { ...p, yanked, yankedAt: yanked ? new Date().toISOString() : null } : p))
+    } catch { setError(`Failed to ${yanked ? 'yank' : 'unyank'} ${podName}@${version}`) }
+    finally { setFrateYanking(null) }
+  }
+
   const betaSelectedProduct = products.find(p => p.slug === betaProductSlug) ?? null
 
   const loadBetaProductData = async (slug: string) => {
@@ -636,6 +695,10 @@ export default function AdminPage() {
           setProducts(ps)
           if (!betaProductSlug && ps.length > 0) setBetaProductSlug(ps[0].slug)
         }),
+      frate: () => Promise.all([
+        apiFetch(`${BASE}/api/admin/frate/pods`).then(setFratePods),
+        apiFetch(`${BASE}/api/admin/context-roles`).then(setRoles),
+      ]).then(() => {}),
     }
     loaders[tab]().catch(() => setError('Failed to load data')).finally(() => setLoading(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1075,7 +1138,7 @@ export default function AdminPage() {
   }
 
   const TAB_LABELS: Record<Tab, string> = {
-      users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', mud: 'MUD World', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics', 'api-keys': 'API Keys', products: 'Products', content: 'Content Library', beta: 'Beta Test',
+      users: 'Users', 'blog-queue': 'Review Queue', 'blog-all': 'All Articles', 'blog-authors': 'Authors', tags: 'Blog Tags', 'forum-tags': 'Forum Tags', 'forum-reports': 'Reports', config: 'Config', roles: 'Roles', announcements: 'Announcements', mud: 'MUD World', personas: 'AI Personas', heartbeat: 'Heartbeat', metrics: 'Metrics', 'api-keys': 'API Keys', products: 'Products', content: 'Content Library', beta: 'Beta Test', frate: 'Frate Pods',
   }
 
   const toggleSection = (key: string) =>
@@ -4563,6 +4626,74 @@ export default function AdminPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {tab === 'frate' && !loading && (
+        <div style={{ maxWidth: 900 }}>
+          <h3 style={{ marginBottom: 4 }}>Frate Pods</h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: 20 }}>
+            Yanking a version hides it from fresh dependency resolution without deleting it -- builds already
+            pinned to that exact version keep working. Publishers can publish under a pod name they already own,
+            or a new one; granting the role below is what lets someone publish at all.
+          </p>
+
+          <h4 style={{ marginBottom: 8 }}>Publishers</h4>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, position: 'relative', maxWidth: 420 }}>
+            <input
+              className="admin-search-input"
+              placeholder="Search users by name or email to grant publisher…"
+              value={frateGrantQuery}
+              onChange={e => setFrateGrantQuery(e.target.value)}
+              style={{ flex: 1 }}
+              disabled={frateGranting}
+            />
+            {frateGrantQuery.trim() && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 5, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', marginTop: 4, maxHeight: 200, overflowY: 'auto' }}>
+                {frateGrantSearching && <div style={{ padding: 8, fontSize: '0.85rem', color: 'var(--text-muted)' }}>Searching…</div>}
+                {!frateGrantSearching && frateGrantResults.length === 0 && <div style={{ padding: 8, fontSize: '0.85rem', color: 'var(--text-muted)' }}>No matches.</div>}
+                {frateGrantResults.map(u => (
+                  <div key={u.id} className="post-action" style={{ padding: 8, cursor: 'pointer' }} onClick={() => grantFratePublisher(u)}>
+                    {u.displayName ?? u.email}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+            {fratePublishers.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No dedicated publishers granted yet -- admins can always publish.</p>}
+            {fratePublishers.map(r => (
+              <span key={r.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: 'var(--surface-2)', fontSize: '0.85rem' }}>
+                {r.userDisplayName ?? 'Anonymous'}
+                <button className="post-action post-action-delete" style={{ padding: '0 4px' }} onClick={() => revokeRole(r.id)}>✕</button>
+              </span>
+            ))}
+          </div>
+
+          <h4 style={{ marginBottom: 8 }}>Published Versions</h4>
+          <AdminTable<PodVersionAdmin>
+            data={fratePods}
+            rowKey={p => `${p.podName}@${p.version}`}
+            searchKeys={['podName', 'version', 'publisherDisplayName']}
+            emptyText="No pods published yet."
+            columns={[
+              { key: 'podName', label: 'Pod' },
+              { key: 'version', label: 'Version', render: p => <code style={{ fontSize: '0.8rem' }}>{p.version}</code> },
+              { key: 'license', label: 'License' },
+              { key: 'publisherDisplayName', label: 'Publisher' },
+              { key: 'createdAt', label: 'Published', render: p => new Date(p.createdAt).toLocaleDateString() },
+              { key: 'yanked', label: 'Status', render: p => <span style={{ color: p.yanked ? 'var(--danger, #e5484d)' : 'var(--accent)' }}>{p.yanked ? 'Yanked' : 'Live'}</span> },
+              { key: 'actions', label: '', sortable: false, render: p => (
+                <button
+                  className={p.yanked ? 'post-action' : 'post-action post-action-delete'}
+                  disabled={frateYanking === `${p.podName}@${p.version}`}
+                  onClick={() => setPodYanked(p.podName, p.version, !p.yanked)}
+                >
+                  {frateYanking === `${p.podName}@${p.version}` ? 'Working…' : (p.yanked ? 'Unyank' : 'Yank')}
+                </button>
+              ) },
+            ]}
+          />
         </div>
       )}
 
