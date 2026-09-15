@@ -87,6 +87,23 @@ let isActiveForAnyProduct (userId: Guid) : bool =
     cmd.Parameters.AddWithValue("userId", userId) |> ignore
     cmd.ExecuteScalar() :?> bool
 
+// For the update-notification endpoint. Email, not display name, is
+// correct here -- this is used to actually send mail, not to render
+// anything in the UI, so it doesn't touch the no-email-in-UI rule.
+let listActiveEmailsForProduct (productId: Guid) : string list =
+    sweepExpired () |> ignore
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand(
+        """SELECT u.email
+           FROM beta_testers bt
+           JOIN users u ON u.id = bt.user_id
+           WHERE bt.product_id = @productId AND bt.status = 'active'""", conn)
+    cmd.Parameters.AddWithValue("productId", productId) |> ignore
+    use reader = cmd.ExecuteReader()
+    let mutable results = []
+    while reader.Read() do results <- reader.GetString(0) :: results
+    List.rev results
+
 let listForProduct (productId: Guid) : BetaTesterWithUser list =
     sweepExpired () |> ignore
     use conn = Database.openConnection()

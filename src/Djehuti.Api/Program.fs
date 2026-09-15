@@ -1820,6 +1820,43 @@ let main args =
             } |> Async.StartAsTask)
     ) |> ignore
 
+    // Attachments (pasted screenshots, dragged-in files) for an already-
+    // submitted piece of feedback -- two-step, same shape as Frate's
+    // publish flow: get a presigned PUT URL, upload directly to S3, then
+    // confirm to record it. feedbackId must already belong to this
+    // product's feedback (checked server-side), so a client can't attach a
+    // file to someone else's/another product's row.
+    app.MapPost(
+        "/api/products/{slug}/feedback/{feedbackId}/attachments/upload-url",
+        Func<string, string, HttpContext, {| fileName: string |}, IResult>(fun slug feedbackId ctx body ->
+            match ProductRepository.findBySlug slug, Guid.TryParse(feedbackId) with
+            | None, _ -> Results.NotFound("Unknown product")
+            | Some _, (false, _) -> Results.BadRequest("Invalid feedback id")
+            | Some product, (true, fbId) ->
+                if not (ProductFeedbackRepository.feedbackBelongsToProduct product.Id fbId) then
+                    Results.NotFound("Unknown feedback")
+                elif String.IsNullOrWhiteSpace body.fileName then
+                    Results.BadRequest("fileName is required")
+                else
+                    match ProductFeedbackRepository.requestAttachmentUploadUrl fbId body.fileName with
+                    | Ok result -> Results.Ok(result)
+                    | Error msg -> Results.BadRequest(msg))
+    ) |> ignore
+
+    app.MapPost(
+        "/api/products/{slug}/feedback/{feedbackId}/attachments",
+        Func<string, string, {| fileName: string; contentType: string; sizeBytes: int64; s3Key: string |}, IResult>(fun slug feedbackId body ->
+            match ProductRepository.findBySlug slug, Guid.TryParse(feedbackId) with
+            | None, _ -> Results.NotFound("Unknown product")
+            | Some _, (false, _) -> Results.BadRequest("Invalid feedback id")
+            | Some product, (true, fbId) ->
+                if not (ProductFeedbackRepository.feedbackBelongsToProduct product.Id fbId) then
+                    Results.NotFound("Unknown feedback")
+                else
+                    let attachmentId = ProductFeedbackRepository.recordAttachment fbId body.fileName body.contentType body.sizeBytes body.s3Key
+                    Results.Ok({| id = attachmentId |}))
+    ) |> ignore
+
     app.MapPost(
         "/api/products/{slug}/metrics",
         Func<string, HttpContext, ProductMetricsRequest, System.Threading.Tasks.Task<IResult>>(fun slug ctx body ->
@@ -2046,6 +2083,92 @@ let main args =
                     else Results.NotFound("Product not found")
             | Some _ -> Results.Forbid()
             | None   -> Results.Unauthorized())
+    ) |> ignore
+
+    // ── Agent API (X-Api-Key + specific context role) ────────────────────────
+    // Least-privilege endpoints for the Claude agent account (see
+    // migrations/20260915_claude_agent_account.sql). A valid X-Api-Key
+    // identifies the caller but grants nothing by itself -- each endpoint
+    // additionally requires the specific ModuleAgent role for that exact
+    // action, granted (or revoked) via the existing admin Roles tab like any
+    // other context role. The key owner's real users.role = 'admin' always
+    // passes every check too, same as everywhere else in this app -- a
+    // separate, explicit, all-or-nothing grant, never implied by any agent
+    // role.
+    let requireAgentRole (ctx: HttpContext) (role: string) : Async<Guid option> =
+        async {
+            match ctx.Request.Headers.TryGetValue("X-Api-Key") with
+            | true, v when v.Count > 0 ->
+                match ApiKeyRepository.validateKey v.[0] with
+                | None -> return None
+                | Some ownerId ->
+                    let! ownerOpt = UserRepository.tryGetById ownerId
+                    let isAdmin = ownerOpt |> Option.map (fun u -> Permissions.isAdmin u.Role) |> Option.defaultValue false
+                    if isAdmin then return Some ownerId
+                    else
+                        use conn = Database.openConnection()
+                        if Permissions.hasContextRole conn ownerId Permissions.ModuleAgent role None
+                        then return Some ownerId
+                        else return None
+            | _ -> return None
+        }
+
+    app.MapGet(
+        "/api/agent/beta/feedback/{productSlug}",
+        Func<HttpContext, string, System.Threading.Tasks.Task<IResult>>(fun ctx productSlug ->
+            async {
+                let! ownerId = requireAgentRole ctx Permissions.RoleBetaFeedbackReader
+                match ownerId with
+                | None -> return Results.Unauthorized()
+                | Some _ ->
+                    match ProductRepository.findBySlug productSlug with
+                    | None -> return Results.NotFound("Unknown product")
+                    | Some product -> return Results.Ok(ProductFeedbackRepository.listFeedback product.Id 200)
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    app.MapGet(
+        "/api/agent/beta/metrics/{productSlug}",
+        Func<HttpContext, string, System.Threading.Tasks.Task<IResult>>(fun ctx productSlug ->
+            async {
+                let! ownerId = requireAgentRole ctx Permissions.RoleBetaMetricsReader
+                match ownerId with
+                | None -> return Results.Unauthorized()
+                | Some _ ->
+                    match ProductRepository.findBySlug productSlug with
+                    | None -> return Results.NotFound("Unknown product")
+                    | Some product ->
+                        return Results.Ok({|
+                            summary = ProductFeedbackRepository.summarizeMetrics product.Id |> List.map (fun (t, c) -> {| eventType = t; count = c |})
+                            recent  = ProductFeedbackRepository.listMetrics product.Id 200
+                        |})
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // Sends an update-notice email to every currently-active beta tester of
+    // one product. Caller supplies subject/body -- this doesn't template
+    // anything, it's a plain announcement send, deliberately separate from
+    // the welcome/invite templates (those are onboarding, this is "here's
+    // what changed").
+    app.MapPost(
+        "/api/agent/beta/notify/{productSlug}",
+        Func<HttpContext, string, {| subject: string; bodyHtml: string |}, System.Threading.Tasks.Task<IResult>>(fun ctx productSlug body ->
+            async {
+                let! ownerId = requireAgentRole ctx Permissions.RoleBetaNotifier
+                match ownerId with
+                | None -> return Results.Unauthorized()
+                | Some _ ->
+                    if String.IsNullOrWhiteSpace body.subject || String.IsNullOrWhiteSpace body.bodyHtml then
+                        return Results.BadRequest("subject and bodyHtml are required")
+                    else
+                        match ProductRepository.findBySlug productSlug with
+                        | None -> return Results.NotFound("Unknown product")
+                        | Some product ->
+                            let recipients = BetaTesterRepository.listActiveEmailsForProduct product.Id
+                            for email in recipients do
+                                Email.sendEmail { Email.To = email; Email.Subject = body.subject; Email.HtmlBody = body.bodyHtml } |> Async.Ignore |> Async.Start
+                            return Results.Ok({| sentTo = List.length recipients |})
+            } |> Async.StartAsTask)
     ) |> ignore
 
     // ── DjeLab Files ──────────────────────────────────────────────────────────
@@ -7577,7 +7700,10 @@ let main args =
             | None   -> Results.Unauthorized())
     ) |> ignore
 
-    // Admin: generate new key
+    // Admin: generate new key. Normally for the caller's own account; an
+    // admin can instead mint one for a different account (e.g. the Claude
+    // agent account) via ?forUserId=, so a service account never needs its
+    // own password/login flow to get a key.
     app.MapPost(
         "/api/admin/api-keys",
         Func<HttpContext, IResult>(fun ctx ->
@@ -7585,7 +7711,11 @@ let main args =
             | Some claims when Permissions.isAdmin claims.Role ->
                 match Guid.TryParse(claims.UserId) with
                 | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
-                | true, ownerId ->
+                | true, callerId ->
+                let ownerId =
+                    match ctx.Request.Query.TryGetValue("forUserId") with
+                    | true, v when v.Count > 0 -> (match Guid.TryParse(v.[0]) with true, g -> g | false, _ -> callerId)
+                    | _ -> callerId
                 let name =
                     match ctx.Request.Query.TryGetValue("name") with
                     | true, v when v.Count > 0 && not (String.IsNullOrWhiteSpace v.[0]) -> v.[0]
