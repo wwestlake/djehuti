@@ -1720,6 +1720,28 @@ let main args =
             | Some detail -> Results.Ok(detail))
     ) |> ignore
 
+    // Paginated/filterable browse used by the website's /frate page and by
+    // the Creation Suite apps' shared pod-browser panel. Separate from
+    // GET /api/frate/pods above, which is a documented, unpaginated,
+    // bare-array client contract for the Frate CLI's dependency resolution
+    // (FRATE_SPEC.md section 6) and must not change shape.
+    app.MapGet(
+        "/api/frate/browse",
+        Func<HttpContext, IResult>(fun ctx ->
+            let q = ctx.Request.Query.["q"].ToString()
+            let license = ctx.Request.Query.["license"].ToString()
+            let page = match Int32.TryParse(ctx.Request.Query.["page"].ToString()) with | true, p when p > 0 -> p | _ -> 1
+            let pageSize = match Int32.TryParse(ctx.Request.Query.["pageSize"].ToString()) with | true, s when s > 0 && s <= 50 -> s | _ -> 10
+            let query = if String.IsNullOrWhiteSpace q then None else Some q
+            let licenseFilter = if String.IsNullOrWhiteSpace license then None else Some license
+            Results.Ok(FratePodRepository.browsePods query licenseFilter page pageSize))
+    ) |> ignore
+
+    app.MapGet(
+        "/api/frate/facets",
+        Func<IResult>(fun () -> Results.Ok({| licenses = FratePodRepository.getLicenseFacets () |}))
+    ) |> ignore
+
     app.MapGet(
         "/api/admin/frate/pods",
         Func<HttpContext, IResult>(fun ctx ->

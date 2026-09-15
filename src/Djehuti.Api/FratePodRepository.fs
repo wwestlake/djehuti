@@ -58,6 +58,15 @@ type PodDetail = {
     versions:    PodVersionSummary list
 }
 
+// The website's browse page (paginated, filterable). Kept separate from
+// searchPods below: that one is a documented client contract for the Frate
+// CLI's dependency resolution (FRATE_SPEC.md section 6, a bare array, no
+// pagination) and must not change shape.
+type PagedPods = {
+    total: int
+    pods:  PodSummary list
+}
+
 // Admin table row: one version, plus who published it by display name --
 // never email, per this repo's no-email-in-UI rule (same fallback chain as
 // PatreonService.getSupporters).
@@ -210,6 +219,64 @@ let getPodDetail (name: string) : PodDetail option =
                 versions
                 |> List.map (fun v -> { version = v.Version; description = v.Description; sizeBytes = v.SizeBytes; createdAt = v.CreatedAt; yanked = v.Yanked })
         }
+
+// Distinct licenses currently in use among non-yanked pods, for the
+// browse page's filter dropdown. A pod whose only versions are all yanked
+// contributes nothing here, matching searchPods' own visibility rule.
+let getLicenseFacets () : string list =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand(
+        "SELECT DISTINCT license FROM frate_pod_versions WHERE yanked = false ORDER BY license ASC", conn)
+    use reader = cmd.ExecuteReader()
+    let mutable results = []
+    while reader.Read() do results <- reader.GetString(0) :: results
+    List.rev results
+
+// Paginated, filterable pod listing for the website's browse page. Same
+// "latest non-yanked version per pod" visibility rule as searchPods, plus
+// an optional exact license filter and page/pageSize (both 1-indexed page,
+// clamped to sane bounds by the caller). Total is the pod count matching
+// the filters (post-grouping), not the raw version-row count, so pageSize
+// consistently means "pods per page."
+let browsePods (query: string option) (license: string option) (page: int) (pageSize: int) : PagedPods =
+    use conn = Database.openConnection()
+    let trimmedQuery = query |> Option.map (fun s -> s.Trim()) |> Option.filter (String.IsNullOrWhiteSpace >> not)
+    let trimmedLicense = license |> Option.map (fun s -> s.Trim()) |> Option.filter (String.IsNullOrWhiteSpace >> not)
+    let filters =
+        [ if trimmedQuery.IsSome then "p.name ILIKE @q"
+          if trimmedLicense.IsSome then "v.license = @license" ]
+    let whereClause =
+        "WHERE v.yanked = false" + (if filters.IsEmpty then "" else " AND " + String.concat " AND " filters)
+    use cmd = new NpgsqlCommand(
+        $"""WITH latest AS (
+                SELECT DISTINCT ON (p.id)
+                    p.name AS pod_name, v.description, v.version, v.license, v.exports_json
+                FROM frate_pod_versions v
+                JOIN frate_pods p ON p.id = v.pod_id
+                {whereClause}
+                ORDER BY p.id, v.created_at DESC
+            )
+            SELECT pod_name, description, version, license, exports_json, count(*) OVER() AS total_count
+            FROM latest
+            ORDER BY pod_name ASC
+            LIMIT @limit OFFSET @offset""", conn)
+    if trimmedQuery.IsSome then cmd.Parameters.AddWithValue("q", "%" + trimmedQuery.Value + "%") |> ignore
+    if trimmedLicense.IsSome then cmd.Parameters.AddWithValue("license", trimmedLicense.Value) |> ignore
+    cmd.Parameters.AddWithValue("limit", pageSize) |> ignore
+    cmd.Parameters.AddWithValue("offset", (max 0 (page - 1)) * pageSize) |> ignore
+    use reader = cmd.ExecuteReader()
+    let mutable results = []
+    let mutable total = 0
+    while reader.Read() do
+        total <- int (reader.GetInt64(5))
+        results <- {
+            name          = reader.GetString(0)
+            description   = if reader.IsDBNull(1) then None else Some (reader.GetString(1))
+            latestVersion = reader.GetString(2)
+            license       = reader.GetString(3)
+            exports       = try JsonSerializer.Deserialize<string list>(reader.GetString(4)) with _ -> []
+        } :: results
+    { total = total; pods = List.rev results }
 
 // Admin table: every version of every pod, newest first, publisher shown by
 // display name only (never email -- see AGENTS.md).
