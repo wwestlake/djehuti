@@ -3,8 +3,6 @@ import { Link } from 'react-router-dom'
 import { frateApi } from '../../api/frateApi'
 import type { PodSummary } from '../../api/frateApi'
 
-const PAGE_SIZE = 10
-
 export default function FrateRegistryPage() {
   const [pods, setPods] = useState<PodSummary[]>([])
   const [total, setTotal] = useState(0)
@@ -12,6 +10,7 @@ export default function FrateRegistryPage() {
   const [license, setLicense] = useState('')
   const [licenses, setLicenses] = useState<string[]>([])
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -21,19 +20,19 @@ export default function FrateRegistryPage() {
   useEffect(() => {
     setLoading(true)
     const handle = setTimeout(() => {
-      frateApi.browsePods(query, license, page, PAGE_SIZE)
+      frateApi.browsePods(query, license, page, pageSize)
         .then(res => { setPods(res.pods); setTotal(res.total) })
         .catch(() => { setPods([]); setTotal(0) })
         .finally(() => setLoading(false))
     }, 250)
     return () => clearTimeout(handle)
-  }, [query, license, page])
+  }, [query, license, page, pageSize])
 
-  // Reset to page 1 whenever the search/filter criteria change, not when
-  // just paging through an unchanged result set.
-  useEffect(() => { setPage(1) }, [query, license])
+  // Reset to page 1 whenever the search/filter/batch-size criteria change,
+  // not when just paging through an unchanged result set.
+  useEffect(() => { setPage(1) }, [query, license, pageSize])
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return (
     <div style={{ maxWidth: 900, margin: '2rem auto', padding: '0 1rem' }}>
@@ -62,6 +61,15 @@ export default function FrateRegistryPage() {
             <option key={l} value={l}>{l}</option>
           ))}
         </select>
+        <select
+          className="admin-role-select"
+          value={pageSize}
+          onChange={e => setPageSize(Number(e.target.value))}
+          style={{ flex: '0 0 110px' }}
+        >
+          <option value={10}>10 / page</option>
+          <option value={20}>20 / page</option>
+        </select>
       </div>
 
       {loading && <p style={{ color: 'var(--text-muted)' }}>Loading…</p>}
@@ -89,7 +97,7 @@ export default function FrateRegistryPage() {
         ))}
       </div>
 
-      {!loading && total > PAGE_SIZE && (
+      {!loading && total > pageSize && (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 16, marginTop: 24 }}>
           <button className="post-action" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
           <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Page {page} of {totalPages} ({total} pods)</span>
