@@ -3,37 +3,66 @@ import { Link } from 'react-router-dom'
 import { frateApi } from '../../api/frateApi'
 import type { PodSummary } from '../../api/frateApi'
 
+const PAGE_SIZE = 10
+
 export default function FrateRegistryPage() {
   const [pods, setPods] = useState<PodSummary[]>([])
+  const [total, setTotal] = useState(0)
   const [query, setQuery] = useState('')
+  const [license, setLicense] = useState('')
+  const [licenses, setLicenses] = useState<string[]>([])
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    frateApi.getFacets().then(f => setLicenses(f.licenses)).catch(() => setLicenses([]))
+  }, [])
 
   useEffect(() => {
     setLoading(true)
     const handle = setTimeout(() => {
-      frateApi.searchPods(query || undefined)
-        .then(setPods)
-        .catch(() => setPods([]))
+      frateApi.browsePods(query, license, page, PAGE_SIZE)
+        .then(res => { setPods(res.pods); setTotal(res.total) })
+        .catch(() => { setPods([]); setTotal(0) })
         .finally(() => setLoading(false))
     }, 250)
     return () => clearTimeout(handle)
-  }, [query])
+  }, [query, license, page])
+
+  // Reset to page 1 whenever the search/filter criteria change, not when
+  // just paging through an unchanged result set.
+  useEffect(() => { setPage(1) }, [query, license])
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
     <div style={{ maxWidth: 900, margin: '2rem auto', padding: '0 1rem' }}>
       <h1>Frate Pods</h1>
       <p style={{ color: 'var(--text-muted)' }}>
         The package registry for Frust -- browse published pods, their exports, and license.
-        Install with <code>frate add &lt;name&gt;</code>.
+        Install with <code>frate add &lt;name&gt;</code>. No sign-in required to browse or install.
       </p>
 
-      <input
-        className="admin-search-input"
-        placeholder="Search pods…"
-        value={query}
-        onChange={e => setQuery(e.target.value)}
-        style={{ width: '100%', maxWidth: 360, margin: '16px 0' }}
-      />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '16px 0' }}>
+        <input
+          className="admin-search-input"
+          placeholder="Search pods…"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          style={{ flex: '1 1 240px' }}
+        />
+        <select
+          className="admin-role-select"
+          value={license}
+          onChange={e => setLicense(e.target.value)}
+          style={{ flex: '0 1 180px' }}
+        >
+          <option value="">All licenses</option>
+          {licenses.map(l => (
+            <option key={l} value={l}>{l}</option>
+          ))}
+        </select>
+      </div>
 
       {loading && <p style={{ color: 'var(--text-muted)' }}>Loading…</p>}
       {!loading && pods.length === 0 && <p style={{ color: 'var(--text-muted)' }}>No pods found.</p>}
@@ -59,6 +88,14 @@ export default function FrateRegistryPage() {
           </Link>
         ))}
       </div>
+
+      {!loading && total > PAGE_SIZE && (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 16, marginTop: 24 }}>
+          <button className="post-action" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Page {page} of {totalPages} ({total} pods)</span>
+          <button className="post-action" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next →</button>
+        </div>
+      )}
     </div>
   )
 }
