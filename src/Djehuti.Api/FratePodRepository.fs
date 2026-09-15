@@ -58,6 +58,15 @@ type PodDetail = {
     versions:    PodVersionSummary list
 }
 
+// The website's browse page (paginated, filterable). Kept separate from
+// searchPods below: that one is a documented client contract for the Frate
+// CLI's dependency resolution (FRATE_SPEC.md section 6, a bare array, no
+// pagination) and must not change shape.
+type PagedPods = {
+    total: int
+    pods:  PodSummary list
+}
+
 // Admin table row: one version, plus who published it by display name --
 // never email, per this repo's no-email-in-UI rule (same fallback chain as
 // PatreonService.getSupporters).
@@ -92,9 +101,14 @@ let isAllowedLicense (license: string) =
 //    module keeps its own small env-reading helpers, matching existing
 //    convention in this codebase) ────────────────────────────────────────────
 
+// Frate pods get their own dedicated bucket (djehuti-frate-pods), never the
+// shared S3_BUCKET used by DjeLab/media/etc -- a prior version of this file
+// reused that shared bucket under a "Frate/" key prefix, which the account
+// owner flagged as wrong: pods should not live inside an unrelated
+// feature's bucket just because it happened to already exist.
 let private bucket () =
-    let b = Environment.GetEnvironmentVariable("S3_BUCKET")
-    if String.IsNullOrWhiteSpace(b) then failwith "S3_BUCKET not set"
+    let b = Environment.GetEnvironmentVariable("FRATE_S3_BUCKET")
+    if String.IsNullOrWhiteSpace(b) then failwith "FRATE_S3_BUCKET not set"
     b
 
 let private region () =
@@ -105,15 +119,28 @@ let private makeS3Client () =
     let r = Amazon.RegionEndpoint.GetBySystemName(region ())
     new AmazonS3Client(r)
 
-let private s3KeyFor (name: string) (version: string) = $"Frate/{name}/{version}.frpod"
+// No "Frate/" prefix needed now that this bucket is dedicated to pods.
+let private s3KeyFor (name: string) (version: string) = $"{name}/{version}.frpod"
 
+// Deliberately does NOT set ContentType here. GetPreSignedUrlRequest.ContentType
+// bakes "content-type" into the SigV4 signed headers (X-Amz-SignedHeaders),
+// which then requires the client's actual PUT to send that exact
+// Content-Type header or S3 rejects it with SignatureDoesNotMatch -- proven
+// empirically 2026-09-15: a PUT to a ContentType-signed URL with no
+// Content-Type header returned 403, the identical PUT with
+// "Content-Type: application/zip" returned 200. The Frate CLI's
+// FrateRegistryClient::uploadToS3 (FrustLang) never sets that header, so
+// every real publish attempt failed silently at this step -- the upload-url
+// request succeeded, but the S3 PUT (and therefore the whole publish) never
+// did. Leaving ContentType unset removes it from the signed headers
+// entirely, so the upload succeeds regardless of what Content-Type (or
+// none) the client sends.
 let private presignedUploadUrl (s3Key: string) (expiryMinutes: int) : string =
     use client = makeS3Client ()
     let request = GetPreSignedUrlRequest(
         BucketName = bucket (),
         Key = s3Key,
         Verb = HttpVerb.PUT,
-        ContentType = "application/zip",
         Expires = DateTime.UtcNow.AddMinutes(float expiryMinutes)
     )
     client.GetPreSignedURL(request)
@@ -210,6 +237,64 @@ let getPodDetail (name: string) : PodDetail option =
                 versions
                 |> List.map (fun v -> { version = v.Version; description = v.Description; sizeBytes = v.SizeBytes; createdAt = v.CreatedAt; yanked = v.Yanked })
         }
+
+// Distinct licenses currently in use among non-yanked pods, for the
+// browse page's filter dropdown. A pod whose only versions are all yanked
+// contributes nothing here, matching searchPods' own visibility rule.
+let getLicenseFacets () : string list =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand(
+        "SELECT DISTINCT license FROM frate_pod_versions WHERE yanked = false ORDER BY license ASC", conn)
+    use reader = cmd.ExecuteReader()
+    let mutable results = []
+    while reader.Read() do results <- reader.GetString(0) :: results
+    List.rev results
+
+// Paginated, filterable pod listing for the website's browse page. Same
+// "latest non-yanked version per pod" visibility rule as searchPods, plus
+// an optional exact license filter and page/pageSize (both 1-indexed page,
+// clamped to sane bounds by the caller). Total is the pod count matching
+// the filters (post-grouping), not the raw version-row count, so pageSize
+// consistently means "pods per page."
+let browsePods (query: string option) (license: string option) (page: int) (pageSize: int) : PagedPods =
+    use conn = Database.openConnection()
+    let trimmedQuery = query |> Option.map (fun s -> s.Trim()) |> Option.filter (String.IsNullOrWhiteSpace >> not)
+    let trimmedLicense = license |> Option.map (fun s -> s.Trim()) |> Option.filter (String.IsNullOrWhiteSpace >> not)
+    let filters =
+        [ if trimmedQuery.IsSome then "p.name ILIKE @q"
+          if trimmedLicense.IsSome then "v.license = @license" ]
+    let whereClause =
+        "WHERE v.yanked = false" + (if filters.IsEmpty then "" else " AND " + String.concat " AND " filters)
+    use cmd = new NpgsqlCommand(
+        $"""WITH latest AS (
+                SELECT DISTINCT ON (p.id)
+                    p.name AS pod_name, v.description, v.version, v.license, v.exports_json
+                FROM frate_pod_versions v
+                JOIN frate_pods p ON p.id = v.pod_id
+                {whereClause}
+                ORDER BY p.id, v.created_at DESC
+            )
+            SELECT pod_name, description, version, license, exports_json, count(*) OVER() AS total_count
+            FROM latest
+            ORDER BY pod_name ASC
+            LIMIT @limit OFFSET @offset""", conn)
+    if trimmedQuery.IsSome then cmd.Parameters.AddWithValue("q", "%" + trimmedQuery.Value + "%") |> ignore
+    if trimmedLicense.IsSome then cmd.Parameters.AddWithValue("license", trimmedLicense.Value) |> ignore
+    cmd.Parameters.AddWithValue("limit", pageSize) |> ignore
+    cmd.Parameters.AddWithValue("offset", (max 0 (page - 1)) * pageSize) |> ignore
+    use reader = cmd.ExecuteReader()
+    let mutable results = []
+    let mutable total = 0
+    while reader.Read() do
+        total <- int (reader.GetInt64(5))
+        results <- {
+            name          = reader.GetString(0)
+            description   = if reader.IsDBNull(1) then None else Some (reader.GetString(1))
+            latestVersion = reader.GetString(2)
+            license       = reader.GetString(3)
+            exports       = try JsonSerializer.Deserialize<string list>(reader.GetString(4)) with _ -> []
+        } :: results
+    { total = total; pods = List.rev results }
 
 // Admin table: every version of every pod, newest first, publisher shown by
 // display name only (never email -- see AGENTS.md).
