@@ -23,6 +23,14 @@ export type AuthContextType = {
   signup: (email: string, password: string, hcaptchaToken: string) => Promise<void>
   logout: () => Promise<void>
   clearError: () => void
+  // Any page can prompt sign-in/sign-up without owning modal state itself --
+  // App.tsx renders the actual LoginModal/SignupModal, driven by this.
+  openLogin: () => void
+  openSignup: () => void
+  showLogin: boolean
+  showSignup: boolean
+  setShowLogin: (open: boolean) => void
+  setShowSignup: (open: boolean) => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -33,6 +41,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showLogin, setShowLogin] = useState(false)
+  const [showSignup, setShowSignup] = useState(false)
+  const openLogin = () => setShowLogin(true)
+  const openSignup = () => setShowSignup(true)
 
   useEffect(() => {
     checkAuth()
@@ -114,7 +126,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const clearError = () => setError(null)
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, error, login, signup, logout, clearError }}>
+    <AuthContext.Provider value={{
+      user, isLoading, isAuthenticated: !!user, error, login, signup, logout, clearError,
+      openLogin, openSignup, showLogin, showSignup, setShowLogin, setShowSignup,
+    }}>
       {children}
     </AuthContext.Provider>
   )

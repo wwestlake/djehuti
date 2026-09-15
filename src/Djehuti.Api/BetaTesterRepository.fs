@@ -74,6 +74,19 @@ let private readWithUser (r: System.Data.Common.DbDataReader) : BetaTesterWithUs
       LastFeedbackAt = r.GetFieldValue<DateTime>(5)
       DroppedAt      = if r.IsDBNull(6) then None else Some (r.GetFieldValue<DateTime>(6)) }
 
+// Same active-within-30-days rule effective_tier_id() itself enforces --
+// used to decide whether a session should see the gated Downloads page at
+// all, independent of which specific product(s) they're testing.
+let isActiveForAnyProduct (userId: Guid) : bool =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand(
+        """SELECT EXISTS (
+               SELECT 1 FROM beta_testers
+               WHERE user_id = @userId AND status = 'active' AND last_feedback_at > now() - interval '30 days'
+           )""", conn)
+    cmd.Parameters.AddWithValue("userId", userId) |> ignore
+    cmd.ExecuteScalar() :?> bool
+
 let listForProduct (productId: Guid) : BetaTesterWithUser list =
     sweepExpired () |> ignore
     use conn = Database.openConnection()
