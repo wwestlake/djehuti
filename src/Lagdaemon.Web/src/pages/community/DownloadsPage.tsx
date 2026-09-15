@@ -54,7 +54,7 @@ export default function DownloadsPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch(`${BASE}/api/products`)
+    fetch(`${BASE}/api/downloads/products`, { credentials: 'include' })
       .then(res => res.json())
       .then((list: Product[]) => {
         setProducts(list)

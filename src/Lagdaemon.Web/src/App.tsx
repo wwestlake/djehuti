@@ -555,7 +555,7 @@ function AppInner() {
   const isDesktopAuth = location.pathname === '/auth/desktop'
 
   // Anonymous page-view beacon — fires on every route change for non-logged-in visitors
-  const { user } = useAuth()
+  const { user, showLogin, setShowLogin, showSignup, setShowSignup } = useAuth()
   useEffect(() => {
     if (user) return  // only track anonymous
     const params = new URLSearchParams({ path: location.pathname, ref: document.referrer })
@@ -564,8 +564,6 @@ function AppInner() {
 
   const [privacyOpen, setPrivacyOpen] = useState(false)
   const [aupOpen, setAupOpen] = useState(false)
-  const [showLogin, setShowLogin] = useState(false)
-  const [showSignup, setShowSignup] = useState(false)
   const [showForgotPassword, setShowForgotPassword] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
@@ -624,8 +622,8 @@ function AppInner() {
             <Route path="/profile/:userId" element={<PublicProfilePage />} />
             <Route path="/achievements" element={<ProtectedRoute><AchievementsPage /></ProtectedRoute>} />
             <Route path="/supporters" element={<SupportersPage />} />
-            <Route path="/downloads" element={<DownloadsPage />} />
-            <Route path="/downloads/:slug" element={<DownloadProductPage />} />
+            <Route path="/downloads" element={<ProtectedRoute requireAdminOrBetaTester><DownloadsPage /></ProtectedRoute>} />
+            <Route path="/downloads/:slug" element={<ProtectedRoute requireAdminOrBetaTester><DownloadProductPage /></ProtectedRoute>} />
             <Route path="/sponsors" element={<SponsorsPage />} />
             <Route path="/beta" element={<BetaTestPage />} />
             <Route path="/frate" element={<FrateRegistryPage />} />
