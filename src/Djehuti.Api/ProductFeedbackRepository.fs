@@ -1,6 +1,8 @@
 module Djehuti.Api.ProductFeedbackRepository
 
 open System
+open Amazon.S3
+open Amazon.S3.Model
 open Npgsql
 open Database
 
@@ -30,6 +32,13 @@ type MetricsBatch = {
     Events:     MetricEvent list
 }
 
+type AttachmentInfo = {
+    fileName:    string
+    contentType: string
+    sizeBytes:   int64
+    url:         string  // short-lived presigned GET, generated at read time
+}
+
 // UserDisplayName, never an email -- per AGENTS.md, email addresses are
 // never displayed in the UI. 'Anonymous' covers both an anonymous
 // submitter (no user_id) and a signed-in user with no display name set.
@@ -42,6 +51,7 @@ type FeedbackEntry = {
     AppVersion:      string
     OsInfo:          string
     CreatedAt:       DateTime
+    Attachments:     AttachmentInfo list
 }
 
 type MetricEventEntry = {
@@ -55,6 +65,115 @@ type MetricEventEntry = {
     OsInfo:          string
     CreatedAt:       DateTime
 }
+
+// ── S3 config (mirrors MediaService.fs/DjeLabFilesRepository.fs -- the same
+//    shared S3_BUCKET, not a dedicated one -- this is ordinary
+//    user-submitted media, the same kind of thing that bucket already
+//    holds) ────────────────────────────────────────────────────────────────
+
+let private bucket () =
+    let b = Environment.GetEnvironmentVariable("S3_BUCKET")
+    if String.IsNullOrWhiteSpace(b) then failwith "S3_BUCKET not set"
+    b
+
+let private region () =
+    let r = Environment.GetEnvironmentVariable("S3_REGION")
+    if String.IsNullOrWhiteSpace(r) then "us-east-1" else r
+
+let private makeS3Client () =
+    let r = Amazon.RegionEndpoint.GetBySystemName(region ())
+    new AmazonS3Client(r)
+
+let private s3KeyFor (feedbackId: Guid) (fileName: string) =
+    $"feedback-attachments/{feedbackId}/{Guid.NewGuid()}-{fileName}"
+
+// Deliberately does NOT set ContentType on the presigned request -- doing
+// so bakes "content-type" into the required SigV4 signed headers, which
+// then demands the uploading client send that exact header or S3 rejects
+// the PUT with SignatureDoesNotMatch. Proven the hard way in
+// FratePodRepository.fs; not repeating it here.
+let private presignedUploadUrl (s3Key: string) (expiryMinutes: int) : string =
+    use client = makeS3Client ()
+    let request = GetPreSignedUrlRequest(
+        BucketName = bucket (),
+        Key = s3Key,
+        Verb = HttpVerb.PUT,
+        Expires = DateTime.UtcNow.AddMinutes(float expiryMinutes)
+    )
+    client.GetPreSignedURL(request)
+
+let private presignedDownloadUrl (s3Key: string) (expiryMinutes: int) : string =
+    use client = makeS3Client ()
+    let request = GetPreSignedUrlRequest(
+        BucketName = bucket (),
+        Key = s3Key,
+        Verb = HttpVerb.GET,
+        Expires = DateTime.UtcNow.AddMinutes(float expiryMinutes)
+    )
+    client.GetPreSignedURL(request)
+
+// A valid segment (path component of s3KeyFor) -- not attacker-controlled
+// bucket-key-injection surface, same reasoning as FratePodRepository's
+// isValidSegment for pod name/version.
+let private isValidFileName (s: string) =
+    not (String.IsNullOrWhiteSpace s) && not (s.Contains("/")) && not (s.Contains(".."))
+
+// ── Attachments ──────────────────────────────────────────────────────────────
+
+// Two-step upload, same shape as Frate's publish flow: get a presigned PUT
+// URL first, client uploads directly to S3, then calls recordAttachment to
+// register it. feedbackId must already exist (created via insertFeedback)
+// so an attachment is never orphaned from real feedback text.
+let requestAttachmentUploadUrl (feedbackId: Guid) (fileName: string) : Result<{| presignedUrl: string; s3Key: string |}, string> =
+    if not (isValidFileName fileName) then
+        Error "File name must be non-empty and contain no '/' or '..'."
+    else
+        let s3Key = s3KeyFor feedbackId fileName
+        Ok {| presignedUrl = presignedUploadUrl s3Key 15; s3Key = s3Key |}
+
+let recordAttachment (feedbackId: Guid) (fileName: string) (contentType: string) (sizeBytes: int64) (s3Key: string) : Guid =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand("""
+        INSERT INTO product_feedback_attachments (feedback_id, file_name, content_type, size_bytes, s3_key)
+        VALUES (@feedbackId, @fileName, @contentType, @sizeBytes, @s3Key)
+        RETURNING id
+    """, conn)
+    cmd.Parameters.AddWithValue("feedbackId", feedbackId) |> ignore
+    cmd.Parameters.AddWithValue("fileName", fileName) |> ignore
+    cmd.Parameters.AddWithValue("contentType", contentType) |> ignore
+    cmd.Parameters.AddWithValue("sizeBytes", sizeBytes) |> ignore
+    cmd.Parameters.AddWithValue("s3Key", s3Key) |> ignore
+    use reader = cmd.ExecuteReader()
+    reader.Read() |> ignore
+    reader.GetGuid(0)
+
+// feedbackId is only trusted after confirming it actually belongs to this
+// product -- callers pass the product-scoped feedback list they already
+// have, not a bare guid from the client.
+let feedbackBelongsToProduct (productId: Guid) (feedbackId: Guid) : bool =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand(
+        "SELECT 1 FROM product_feedback WHERE id = @feedbackId AND product_id = @productId", conn)
+    cmd.Parameters.AddWithValue("feedbackId", feedbackId) |> ignore
+    cmd.Parameters.AddWithValue("productId", productId) |> ignore
+    let scalar = cmd.ExecuteScalar()
+    not (isNull scalar)
+
+let private listAttachments (feedbackId: Guid) : AttachmentInfo list =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand(
+        "SELECT file_name, content_type, size_bytes, s3_key FROM product_feedback_attachments WHERE feedback_id = @feedbackId ORDER BY created_at ASC", conn)
+    cmd.Parameters.AddWithValue("feedbackId", feedbackId) |> ignore
+    use reader = cmd.ExecuteReader()
+    let mutable results = []
+    while reader.Read() do
+        results <- {
+            fileName    = reader.GetString(0)
+            contentType = reader.GetString(1)
+            sizeBytes   = reader.GetInt64(2)
+            url         = presignedDownloadUrl (reader.GetString(3)) 15
+        } :: results
+    List.rev results
 
 // ── Writes ───────────────────────────────────────────────────────────────────
 
@@ -121,8 +240,9 @@ let listFeedback (productId: Guid) (limit: int) : FeedbackEntry list =
     use reader = cmd.ExecuteReader()
     let mutable results = []
     while reader.Read() do
+        let id = reader.GetGuid(0)
         results <- {
-            Id              = reader.GetGuid(0)
+            Id              = id
             UserDisplayName = reader.GetString(1)
             InstallId       = reader.GetString(2)
             Message         = reader.GetString(3)
@@ -130,6 +250,10 @@ let listFeedback (productId: Guid) (limit: int) : FeedbackEntry list =
             AppVersion      = reader.GetString(5)
             OsInfo          = reader.GetString(6)
             CreatedAt       = reader.GetFieldValue<DateTime>(7)
+            // A separate connection (listAttachments opens its own), so
+            // this is safe to call while the outer reader above is still
+            // open -- not sharing a connection with it.
+            Attachments     = listAttachments id
         } :: results
     List.rev results
 
