@@ -365,8 +365,7 @@ type ProductMetricsRequest =
 
 [<CLIMutable>]
 type BetaSignupRequest =
-    { Email:       string
-      ProductSlug: string }
+    { ProductSlug: string }
 
 [<CLIMutable>]
 type BetaInviteRequest =
@@ -1885,29 +1884,81 @@ let main args =
             Results.Ok(products))
     ) |> ignore
 
+    // Requires an existing lagdaemon.com session -- signing up for beta no
+    // longer auto-creates an account by email. A real account (and being
+    // logged into it) is now a precondition, so this is a one-click action:
+    // no form, no email re-entry, just claim the product for the
+    // already-authenticated user.
     app.MapPost(
         "/api/beta/signup",
-        Func<BetaSignupRequest, System.Threading.Tasks.Task<IResult>>(fun body ->
+        Func<HttpContext, BetaSignupRequest, System.Threading.Tasks.Task<IResult>>(fun ctx body ->
             async {
-                if String.IsNullOrWhiteSpace body.Email || String.IsNullOrWhiteSpace body.ProductSlug then
-                    return Results.BadRequest("email and productSlug are required")
-                else
-                    match ProductRepository.findBySlug body.ProductSlug with
-                    | None -> return Results.NotFound("Unknown product")
-                    | Some product when not product.BetaOpen -> return Results.NotFound("This product isn't open for beta signup yet")
-                    | Some product ->
-                        let email = body.Email.Trim().ToLower()
-                        let! userAndUrl = betaAccountAndActionUrl email
-                        match userAndUrl with
-                        | None -> return Results.Problem(detail = "Failed to create account", statusCode = 500, title = "Error")
-                        | Some (u, actionUrl) ->
-                            BetaTesterRepository.upsertActive u.Id product.Id None
-                            let subject = product.BetaWelcomeSubject |> Option.filter (String.IsNullOrWhiteSpace >> not) |> Option.defaultValue (Email.defaultBetaWelcomeSubject product.Name)
-                            let bodyTemplate = product.BetaWelcomeBody |> Option.filter (String.IsNullOrWhiteSpace >> not) |> Option.defaultValue (Email.defaultBetaWelcomeBody product.Name)
-                            let html = Email.renderBetaTemplate bodyTemplate product.Name actionUrl
-                            Email.sendEmail { Email.To = email; Email.Subject = subject; Email.HtmlBody = html } |> Async.Ignore |> Async.Start
-                            return Results.Ok({| message = "Signed up" |})
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Unauthorized()
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Unauthorized()
+                    | true, userId ->
+                        if String.IsNullOrWhiteSpace body.ProductSlug then
+                            return Results.BadRequest("productSlug is required")
+                        else
+                            match ProductRepository.findBySlug body.ProductSlug with
+                            | None -> return Results.NotFound("Unknown product")
+                            | Some product when not product.BetaOpen -> return Results.NotFound("This product isn't open for beta signup yet")
+                            | Some product ->
+                                let! userOpt = UserRepository.tryGetById userId
+                                match userOpt with
+                                | None -> return Results.Unauthorized()
+                                | Some u ->
+                                    BetaTesterRepository.upsertActive u.Id product.Id None
+                                    let subject = product.BetaWelcomeSubject |> Option.filter (String.IsNullOrWhiteSpace >> not) |> Option.defaultValue (Email.defaultBetaWelcomeSubject product.Name)
+                                    let bodyTemplate = product.BetaWelcomeBody |> Option.filter (String.IsNullOrWhiteSpace >> not) |> Option.defaultValue (Email.defaultBetaWelcomeBody product.Name)
+                                    let html = Email.renderBetaTemplate bodyTemplate product.Name "https://lagdaemon.com/djehuti/#/downloads"
+                                    Email.sendEmail { Email.To = u.Email; Email.Subject = subject; Email.HtmlBody = html } |> Async.Ignore |> Async.Start
+                                    return Results.Ok({| message = "Signed up" |})
             } |> Async.StartAsTask)
+    ) |> ignore
+
+    // Whether the current session should see the Downloads page: admin
+    // always can (sees every product); a beta tester active on at least one
+    // product can too, but only sees products flagged beta_open (see
+    // /api/downloads/products below). Anyone else is redirected away from
+    // Downloads client-side.
+    app.MapGet(
+        "/api/beta/my-access",
+        Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+            async {
+                match tryGetAuthClaims ctx with
+                | None -> return Results.Ok({| isAdmin = false; isActiveBetaTester = false |})
+                | Some claims ->
+                    match Guid.TryParse(claims.UserId) with
+                    | false, _ -> return Results.Ok({| isAdmin = false; isActiveBetaTester = false |})
+                    | true, userId ->
+                        let isAdmin = Permissions.isAdmin claims.Role
+                        let isActiveBetaTester = BetaTesterRepository.isActiveForAnyProduct userId
+                        return Results.Ok({| isAdmin = isAdmin; isActiveBetaTester = isActiveBetaTester |})
+            } |> Async.StartAsTask)
+    ) |> ignore
+
+    // The gated Downloads page's own data source (not /api/products, which
+    // stays public/unfiltered for other consumers): admin sees every active
+    // product, an active beta tester sees only the ones open to beta, and
+    // anyone else is forbidden outright, not just steered away client-side.
+    app.MapGet(
+        "/api/downloads/products",
+        Func<HttpContext, IResult>(fun ctx ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Forbid()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Forbid()
+                | true, userId ->
+                    if Permissions.isAdmin claims.Role then
+                        Results.Ok(ProductRepository.listActive ())
+                    elif BetaTesterRepository.isActiveForAnyProduct userId then
+                        Results.Ok(ProductRepository.listActive () |> List.filter (fun p -> p.BetaOpen))
+                    else
+                        Results.Forbid())
     ) |> ignore
 
     app.MapPost(

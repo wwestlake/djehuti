@@ -12,12 +12,14 @@ export const betaApi = {
   getOpenProducts: (): Promise<BetaProduct[]> =>
     fetch(`${BASE}/products`, opts).then(json),
 
-  signup: (email: string, productSlug: string): Promise<{ message: string }> =>
+  // Requires an existing session -- the server derives the account from the
+  // caller's own auth cookie, no email needed.
+  signup: (productSlug: string): Promise<{ message: string }> =>
     fetch(`${BASE}/signup`, {
       ...opts,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, productSlug }),
+      body: JSON.stringify({ productSlug }),
     }).then(async r => {
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.title ?? r.statusText)
       return r.json()
