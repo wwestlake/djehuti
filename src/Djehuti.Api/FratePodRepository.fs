@@ -101,9 +101,14 @@ let isAllowedLicense (license: string) =
 //    module keeps its own small env-reading helpers, matching existing
 //    convention in this codebase) ────────────────────────────────────────────
 
+// Frate pods get their own dedicated bucket (djehuti-frate-pods), never the
+// shared S3_BUCKET used by DjeLab/media/etc -- a prior version of this file
+// reused that shared bucket under a "Frate/" key prefix, which the account
+// owner flagged as wrong: pods should not live inside an unrelated
+// feature's bucket just because it happened to already exist.
 let private bucket () =
-    let b = Environment.GetEnvironmentVariable("S3_BUCKET")
-    if String.IsNullOrWhiteSpace(b) then failwith "S3_BUCKET not set"
+    let b = Environment.GetEnvironmentVariable("FRATE_S3_BUCKET")
+    if String.IsNullOrWhiteSpace(b) then failwith "FRATE_S3_BUCKET not set"
     b
 
 let private region () =
@@ -114,15 +119,28 @@ let private makeS3Client () =
     let r = Amazon.RegionEndpoint.GetBySystemName(region ())
     new AmazonS3Client(r)
 
-let private s3KeyFor (name: string) (version: string) = $"Frate/{name}/{version}.frpod"
+// No "Frate/" prefix needed now that this bucket is dedicated to pods.
+let private s3KeyFor (name: string) (version: string) = $"{name}/{version}.frpod"
 
+// Deliberately does NOT set ContentType here. GetPreSignedUrlRequest.ContentType
+// bakes "content-type" into the SigV4 signed headers (X-Amz-SignedHeaders),
+// which then requires the client's actual PUT to send that exact
+// Content-Type header or S3 rejects it with SignatureDoesNotMatch -- proven
+// empirically 2026-09-15: a PUT to a ContentType-signed URL with no
+// Content-Type header returned 403, the identical PUT with
+// "Content-Type: application/zip" returned 200. The Frate CLI's
+// FrateRegistryClient::uploadToS3 (FrustLang) never sets that header, so
+// every real publish attempt failed silently at this step -- the upload-url
+// request succeeded, but the S3 PUT (and therefore the whole publish) never
+// did. Leaving ContentType unset removes it from the signed headers
+// entirely, so the upload succeeds regardless of what Content-Type (or
+// none) the client sends.
 let private presignedUploadUrl (s3Key: string) (expiryMinutes: int) : string =
     use client = makeS3Client ()
     let request = GetPreSignedUrlRequest(
         BucketName = bucket (),
         Key = s3Key,
         Verb = HttpVerb.PUT,
-        ContentType = "application/zip",
         Expires = DateTime.UtcNow.AddMinutes(float expiryMinutes)
     )
     client.GetPreSignedURL(request)
