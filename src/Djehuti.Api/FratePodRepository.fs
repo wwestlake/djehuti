@@ -35,6 +35,42 @@ type PodVersionDetail = {
     SizeBytes:    int64
     PublisherId:  Guid
     CreatedAt:    DateTime
+    Yanked:       bool
+}
+
+// Public pod-detail view (browse page): every published version, newest
+// first, yanked ones included but flagged -- matches crates.io, where a
+// yanked version stays visible on the pod page (so people can see it
+// happened and why) even though it drops out of fresh dependency
+// resolution.
+type PodVersionSummary = {
+    version:     string
+    description: string option
+    sizeBytes:   int64
+    createdAt:   DateTime
+    yanked:      bool
+}
+
+type PodDetail = {
+    name:        string
+    description: string option
+    license:     string
+    versions:    PodVersionSummary list
+}
+
+// Admin table row: one version, plus who published it by display name --
+// never email, per this repo's no-email-in-UI rule (same fallback chain as
+// PatreonService.getSupporters).
+type PodVersionAdmin = {
+    podName:            string
+    version:            string
+    description:        string option
+    license:            string
+    sizeBytes:          int64
+    createdAt:          DateTime
+    publisherDisplayName: string
+    yanked:             bool
+    yankedAt:           DateTime option
 }
 
 // ── License allow-list ──────────────────────────────────────────────────────
@@ -102,7 +138,7 @@ let private isValidSegment (s: string) =
 // ── DB reads ─────────────────────────────────────────────────────────────────
 
 let private versionColumns =
-    "v.id, v.pod_id, p.name, v.version, v.description, v.exports_json, v.dependencies_json, v.license, v.s3_key, v.size_bytes, v.publisher_id, v.created_at"
+    "v.id, v.pod_id, p.name, v.version, v.description, v.exports_json, v.dependencies_json, v.license, v.s3_key, v.size_bytes, v.publisher_id, v.created_at, v.yanked"
 
 let private readVersion (r: System.Data.Common.DbDataReader) : PodVersionDetail =
     {
@@ -118,14 +154,20 @@ let private readVersion (r: System.Data.Common.DbDataReader) : PodVersionDetail 
         SizeBytes    = r.GetInt64(9)
         PublisherId  = r.GetGuid(10)
         CreatedAt    = r.GetFieldValue<DateTime>(11)
+        Yanked       = r.GetBoolean(12)
     }
 
-// Every pod's most recently published version, optionally filtered by a
-// case-insensitive substring match on the pod name.
+// Every pod's most recently published NON-YANKED version, optionally
+// filtered by a case-insensitive substring match on the pod name. Matches
+// crates.io semantics: a yanked version never surfaces as "the" version to
+// resolve against, but direct name+version lookup (getVersion below) still
+// works for a build already pinned to it. A pod with every version yanked
+// simply has no results here -- it still exists, just nothing fresh should
+// depend on it.
 let searchPods (query: string option) : PodSummary list =
     use conn = Database.openConnection()
     let trimmed = query |> Option.map (fun s -> s.Trim()) |> Option.filter (String.IsNullOrWhiteSpace >> not)
-    let whereClause = if trimmed.IsSome then "WHERE p.name ILIKE @q" else ""
+    let whereClause = if trimmed.IsSome then "WHERE p.name ILIKE @q AND v.yanked = false" else "WHERE v.yanked = false"
     use cmd = new NpgsqlCommand(
         $"""SELECT DISTINCT ON (p.id) {versionColumns}
             FROM frate_pod_versions v
@@ -139,6 +181,78 @@ let searchPods (query: string option) : PodSummary list =
         let v = readVersion reader
         results <- { name = v.PodName; description = v.Description; latestVersion = v.Version; license = v.License; exports = v.Exports } :: results
     List.rev results
+
+// Public pod detail page: the pod's own description/license (from its
+// latest version) plus every published version, yanked ones included and
+// flagged -- so a browsing human can see the history, even though
+// searchPods above hides yanked versions from resolution.
+let getPodDetail (name: string) : PodDetail option =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand(
+        $"""SELECT {versionColumns}
+            FROM frate_pod_versions v
+            JOIN frate_pods p ON p.id = v.pod_id
+            WHERE lower(p.name) = lower(@name)
+            ORDER BY v.created_at DESC""", conn)
+    cmd.Parameters.AddWithValue("name", name) |> ignore
+    use reader = cmd.ExecuteReader()
+    let mutable versions = []
+    while reader.Read() do versions <- readVersion reader :: versions
+    let versions = List.rev versions
+    match versions with
+    | [] -> None
+    | latest :: _ ->
+        Some {
+            name        = latest.PodName
+            description = latest.Description
+            license     = latest.License
+            versions    =
+                versions
+                |> List.map (fun v -> { version = v.Version; description = v.Description; sizeBytes = v.SizeBytes; createdAt = v.CreatedAt; yanked = v.Yanked })
+        }
+
+// Admin table: every version of every pod, newest first, publisher shown by
+// display name only (never email -- see AGENTS.md).
+let listAllPodsAdmin () : PodVersionAdmin list =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand(
+        """SELECT p.name, v.version, v.description, v.license, v.size_bytes, v.created_at,
+                  COALESCE(up.display_name, u.display_name, 'Anonymous'), v.yanked, v.yanked_at
+           FROM frate_pod_versions v
+           JOIN frate_pods p ON p.id = v.pod_id
+           JOIN users u ON u.id = v.publisher_id
+           LEFT JOIN user_profiles up ON up.user_id = u.id
+           ORDER BY p.name ASC, v.created_at DESC""", conn)
+    use reader = cmd.ExecuteReader()
+    let mutable results = []
+    while reader.Read() do
+        results <- {
+            podName              = reader.GetString(0)
+            version              = reader.GetString(1)
+            description          = if reader.IsDBNull(2) then None else Some (reader.GetString(2))
+            license              = reader.GetString(3)
+            sizeBytes            = reader.GetInt64(4)
+            createdAt            = reader.GetFieldValue<DateTime>(5)
+            publisherDisplayName = reader.GetString(6)
+            yanked               = reader.GetBoolean(7)
+            yankedAt             = if reader.IsDBNull(8) then None else Some (reader.GetFieldValue<DateTime>(8))
+        } :: results
+    List.rev results
+
+let setYanked (name: string) (version: string) (yanked: bool) (actorId: Guid) : Result<unit, string> =
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand(
+        """UPDATE frate_pod_versions v
+           SET yanked = @yanked,
+               yanked_at = CASE WHEN @yanked THEN now() ELSE NULL END,
+               yanked_by = CASE WHEN @yanked THEN @actorId ELSE NULL END
+           FROM frate_pods p
+           WHERE v.pod_id = p.id AND lower(p.name) = lower(@name) AND v.version = @version""", conn)
+    cmd.Parameters.AddWithValue("name", name) |> ignore
+    cmd.Parameters.AddWithValue("version", version) |> ignore
+    cmd.Parameters.AddWithValue("yanked", yanked) |> ignore
+    cmd.Parameters.AddWithValue("actorId", actorId) |> ignore
+    if cmd.ExecuteNonQuery() > 0 then Ok () else Error "No such pod/version"
 
 let getVersion (name: string) (version: string) : PodVersionDetail option =
     use conn = Database.openConnection()
@@ -254,6 +368,7 @@ let publish (req: PublishRequest) : Result<PodVersionDetail, string> =
                         SizeBytes    = req.SizeBytes
                         PublisherId  = req.PublisherId
                         CreatedAt    = reader.GetFieldValue<DateTime>(1)
+                        Yanked       = false
                     }
                 else
                     Error "Could not record the published version."
