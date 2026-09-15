@@ -145,6 +145,14 @@ let ModuleFrate = "frate"
 // grant {Module = the product's slug; Role = RoleBetaTester}.
 [<Literal>]
 let ModuleCreationStation = "creation-station"
+// Least-privilege capabilities for the Claude agent account (see
+// migrations/20260915_claude_agent_account.sql). Granted individually via
+// the existing admin Roles tab, exactly like any other context role --
+// nothing agent-specific about the grant mechanism, only these role names
+// are new. None of these imply site-wide admin; that's still the real
+// users.role = 'admin' flag, granted/revoked separately and explicitly.
+[<Literal>]
+let ModuleAgent = "agent"
 
 [<Literal>]
 let RoleModerator = "moderator"
@@ -162,3 +170,9 @@ let RoleEngineer = "engineer"
 let RolePublisher = "publisher"
 [<Literal>]
 let RoleBetaTester = "beta-tester"
+[<Literal>]
+let RoleBetaFeedbackReader = "beta-feedback-reader"
+[<Literal>]
+let RoleBetaMetricsReader = "beta-metrics-reader"
+[<Literal>]
+let RoleBetaNotifier = "beta-notifier"
