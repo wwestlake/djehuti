@@ -4845,11 +4845,9 @@ export default function AdminPage() {
             <div className="admin-modal-actions">
               <button className="btn-primary" onClick={saveUserModal} disabled={modalSaving}>{modalSaving ? 'Saving…' : 'Save Changes'}</button>
               {!userModal.emailVerified && (
-                <>
-                  <button className="admin-action-btn" onClick={() => verifyUserEmail(userModal.id)}>Mark Verified</button>
-                  <button className="admin-action-btn" onClick={() => resendInvite(userModal.email, userModal.role)}>Resend Invite</button>
-                </>
+                <button className="admin-action-btn" onClick={() => verifyUserEmail(userModal.id)}>Mark Verified</button>
               )}
+              <button className="admin-action-btn" onClick={() => resendInvite(userModal.email, userModal.role)}>Send Invite</button>
               <button className="admin-action-btn" onClick={() => sendPasswordReset(userModal.id)}>Send Password Reset</button>
               <button className="admin-action-btn danger" style={{ marginLeft: 'auto' }} onClick={() => deleteUser(userModal.id, userModal.email)}>Delete User</button>
             </div>
