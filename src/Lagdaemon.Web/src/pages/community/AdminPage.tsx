@@ -204,6 +204,29 @@ async function apiFetch(url: string, opts?: RequestInit) {
   return res.json()
 }
 
+// Email stays hidden by default even within the Admin -> Users exception (see AGENTS.md) --
+// an admin has to deliberately reveal it per-row, rather than every email in the list being
+// exposed at once (useful mid-screen-share, in a screenshot, etc.).
+function UserIdentityCell({ user, onOpen }: { user: AdminUser; onOpen: () => void }) {
+  const [showEmail, setShowEmail] = useState(false)
+  return (
+    <div>
+      <button className="admin-email-btn" onClick={onOpen}>{user.displayName || 'Anonymous'}</button>
+      {showEmail ? (
+        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{user.email}</div>
+      ) : (
+        <button
+          type="button"
+          onClick={e => { e.stopPropagation(); setShowEmail(true) }}
+          style={{ fontSize: '0.78rem', color: 'var(--accent)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+        >
+          Show email
+        </button>
+      )}
+    </div>
+  )
+}
+
 function FeedbackStatusCell({ feedback, onChange }: { feedback: BetaFeedbackEntry; onChange: (status: string) => void }) {
   return (
     <select
@@ -935,6 +958,18 @@ export default function AdminPage() {
       await fetch(`${BASE}/api/admin/users/${id}/reset-password`, { method: 'POST', credentials: 'include' })
       alert('Password reset email sent.')
     } catch { setError('Failed to send reset email.') }
+  }
+
+  // Same endpoint sendInvite uses -- an existing account (any unverified user, by definition)
+  // gets a resend (fresh token, "resent" email variant) instead of the 409 it used to return.
+  const resendInvite = async (email: string, role: string) => {
+    try {
+      await apiFetch(`${BASE}/api/admin/users/invite`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, role }),
+      })
+      alert(`Invite resent to ${email}`)
+    } catch { setError('Failed to resend invite.') }
   }
 
   const deleteUser = async (id: string, email: string) => {
@@ -2079,7 +2114,7 @@ export default function AdminPage() {
                 <table className="admin-table">
                   <thead>
                     <tr>
-                      <th>Email / Display Name</th>
+                      <th>User</th>
                       <th>Role</th>
                       <th>Status</th>
                       <th>Verified</th>
@@ -2090,8 +2125,7 @@ export default function AdminPage() {
                     {users.map(u => (
                       <tr key={u.id} style={{ opacity: u.status === 'suspended' ? 0.6 : 1 }}>
                         <td>
-                          <button className="admin-email-btn" onClick={() => openUserModal(u)}>{u.email}</button>
-                          {u.displayName && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{u.displayName}</div>}
+                          <UserIdentityCell user={u} onOpen={() => openUserModal(u)} />
                         </td>
                         <td>{u.role}</td>
                         <td>
@@ -4797,7 +4831,10 @@ export default function AdminPage() {
             <div className="admin-modal-actions">
               <button className="btn-primary" onClick={saveUserModal} disabled={modalSaving}>{modalSaving ? 'Saving…' : 'Save Changes'}</button>
               {!userModal.emailVerified && (
-                <button className="admin-action-btn" onClick={() => verifyUserEmail(userModal.id)}>Mark Verified</button>
+                <>
+                  <button className="admin-action-btn" onClick={() => verifyUserEmail(userModal.id)}>Mark Verified</button>
+                  <button className="admin-action-btn" onClick={() => resendInvite(userModal.email, userModal.role)}>Resend Invite</button>
+                </>
               )}
               <button className="admin-action-btn" onClick={() => sendPasswordReset(userModal.id)}>Send Password Reset</button>
               <button className="admin-action-btn danger" style={{ marginLeft: 'auto' }} onClick={() => deleteUser(userModal.id, userModal.email)}>Delete User</button>
