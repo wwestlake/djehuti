@@ -2133,7 +2133,21 @@ export default function AdminPage() {
                             {u.status}
                           </span>
                         </td>
-                        <td>{u.emailVerified ? '✓' : '✗'}</td>
+                        <td>
+                          {u.emailVerified ? '✓' : (
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              ✗
+                              <button
+                                type="button"
+                                className="admin-action-btn"
+                                style={{ fontSize: '0.75rem', padding: '2px 8px' }}
+                                onClick={() => resendInvite(u.email, u.role)}
+                              >
+                                Resend
+                              </button>
+                            </span>
+                          )}
+                        </td>
                         <td>{new Date(u.createdAt).toLocaleDateString()}</td>
                       </tr>
                     ))}
