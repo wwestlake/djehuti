@@ -2054,6 +2054,21 @@ let main args =
             | None   -> Results.Unauthorized())
     ) |> ignore
 
+    app.MapPatch(
+        "/api/admin/beta/feedback/{feedbackId}",
+        Func<HttpContext, string, {| status: string; adminNotes: string |}, IResult>(fun ctx feedbackId body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(feedbackId) with
+                | false, _ -> Results.BadRequest("Invalid feedback id")
+                | true, id ->
+                    if ProductFeedbackRepository.updateFeedbackAdmin id body.status body.adminNotes
+                    then Results.Ok({| status = (if body.status = "resolved" then "resolved" else "open"); adminNotes = body.adminNotes |})
+                    else Results.NotFound("Feedback not found")
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
     app.MapGet(
         "/api/admin/beta/metrics/{productSlug}",
         Func<HttpContext, string, IResult>(fun ctx productSlug ->

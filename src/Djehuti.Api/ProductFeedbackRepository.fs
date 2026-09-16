@@ -52,6 +52,8 @@ type FeedbackEntry = {
     OsInfo:          string
     CreatedAt:       DateTime
     Attachments:     AttachmentInfo list
+    Status:          string  // "open" | "resolved"
+    AdminNotes:      string
 }
 
 type MetricEventEntry = {
@@ -227,7 +229,7 @@ let insertMetricsBatch (productId: Guid) (userId: Guid option) (batch: MetricsBa
 let listFeedback (productId: Guid) (limit: int) : FeedbackEntry list =
     use conn = Database.openConnection()
     use cmd = new NpgsqlCommand("""
-        SELECT pf.id, COALESCE(up.display_name, u.display_name, 'Anonymous'), pf.install_id, pf.message, pf.category, pf.app_version, pf.os_info, pf.created_at
+        SELECT pf.id, COALESCE(up.display_name, u.display_name, 'Anonymous'), pf.install_id, pf.message, pf.category, pf.app_version, pf.os_info, pf.created_at, pf.status, pf.admin_notes
         FROM product_feedback pf
         LEFT JOIN users u ON u.id = pf.user_id
         LEFT JOIN user_profiles up ON up.user_id = u.id
@@ -250,12 +252,30 @@ let listFeedback (productId: Guid) (limit: int) : FeedbackEntry list =
             AppVersion      = reader.GetString(5)
             OsInfo          = reader.GetString(6)
             CreatedAt       = reader.GetFieldValue<DateTime>(7)
+            Status          = reader.GetString(8)
+            AdminNotes      = reader.GetString(9)
             // A separate connection (listAttachments opens its own), so
             // this is safe to call while the outer reader above is still
             // open -- not sharing a connection with it.
             Attachments     = listAttachments id
         } :: results
     List.rev results
+
+// Admin-only: mark feedback resolved/open and/or attach the admin's own
+// working notes, separate from the tester's own message text. Status is
+// normalized to one of the two known values rather than trusting the caller
+// verbatim -- the DB CHECK constraint would reject anything else anyway,
+// this just fails closed instead of raising a raw SQL error.
+let updateFeedbackAdmin (feedbackId: Guid) (status: string) (adminNotes: string) : bool =
+    let normalizedStatus = if status = "resolved" then "resolved" else "open"
+    use conn = Database.openConnection()
+    use cmd = new NpgsqlCommand("""
+        UPDATE product_feedback SET status = @status, admin_notes = @adminNotes WHERE id = @feedbackId
+    """, conn)
+    cmd.Parameters.AddWithValue("status", normalizedStatus) |> ignore
+    cmd.Parameters.AddWithValue("adminNotes", adminNotes) |> ignore
+    cmd.Parameters.AddWithValue("feedbackId", feedbackId) |> ignore
+    cmd.ExecuteNonQuery() > 0
 
 let listMetrics (productId: Guid) (limit: int) : MetricEventEntry list =
     use conn = Database.openConnection()
