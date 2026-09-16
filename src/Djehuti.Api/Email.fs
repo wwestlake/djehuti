@@ -204,7 +204,7 @@ let defaultBetaWelcomeBody (productName: string) : string =
             <p>Thanks for signing up to test {{productName}}. You're in.</p>
             <p style="margin: 30px 0;">
                 <a href="{{actionUrl}}" style="background-color: #58a6ff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-                    Set your password to get started
+                    Go to Downloads
                 </a>
             </p>
             <p style="color: #666; font-size: 14px;">
