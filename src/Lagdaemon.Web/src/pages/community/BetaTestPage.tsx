@@ -3,6 +3,14 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { betaApi } from '../../api/betaApi'
 import type { BetaProduct } from '../../api/betaApi'
+import { forumApi } from '../../api/forumApi'
+import type { ForumThread } from '../../api/forumApi'
+
+// Seeded once via direct DB insert -- see the "Beta Testing" forum category/forum this page
+// links to. Not product-scoped: one open community for every beta program, not gated to
+// verified testers, where release announcements land alongside general discussion.
+const BETA_FORUM_ID = '6372da26-d57c-47e4-b318-cf65f3fe2a3a'
+const BETA_FORUM_PREVIEW_COUNT = 5
 
 export default function BetaTestPage() {
   const { user, isLoading: authLoading, openLogin, openSignup } = useAuth()
@@ -11,11 +19,15 @@ export default function BetaTestPage() {
   const [joined, setJoined] = useState<Set<string>>(new Set())
   const [joiningSlug, setJoiningSlug] = useState<string | null>(null)
   const [joiningAll, setJoiningAll] = useState(false)
+  const [recentThreads, setRecentThreads] = useState<ForumThread[]>([])
 
   useEffect(() => {
     betaApi.getOpenProducts()
       .then(setProducts)
       .finally(() => setLoading(false))
+    forumApi.getThreads(BETA_FORUM_ID, 1, BETA_FORUM_PREVIEW_COUNT)
+      .then(setRecentThreads)
+      .catch(() => setRecentThreads([]))
   }, [])
 
   const joinOne = async (slug: string) => {
@@ -61,6 +73,31 @@ export default function BetaTestPage() {
           window and you're simply dropped from the program; there's no penalty, and you're welcome to
           join again any time.
         </p>
+      </div>
+
+      <div style={{ maxWidth: 560, margin: '0 auto 28px', padding: '0 16px' }}>
+        <div style={{
+          padding: '1rem 1.25rem', borderRadius: 'var(--radius)',
+          background: 'var(--surface)', border: '1px solid var(--border)',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: recentThreads.length > 0 ? 10 : 0 }}>
+            <div style={{ fontWeight: 600 }}>Beta Tester Community</div>
+            <Link to={`/forum/${BETA_FORUM_ID}`} style={{ fontSize: '0.85rem' }}>Visit the forum →</Link>
+          </div>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: recentThreads.length > 0 ? '0 0 10px' : 0 }}>
+            Discuss testing with other beta testers, and catch upcoming release announcements -- separate from the formal feedback system.
+          </p>
+          {recentThreads.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {recentThreads.map(t => (
+                <Link key={t.id} to={`/forum/thread/${t.id}`} style={{ fontSize: '0.9rem', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <span>{t.isPinned ? '📌 ' : ''}{t.title}</span>
+                  <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>{t.postCount} repl{t.postCount === 1 ? 'y' : 'ies'}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '0 16px' }}>
