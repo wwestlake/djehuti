@@ -569,9 +569,25 @@ let countAdminUsers (search: string option) (role: string option) (status: strin
 
 let hardDeleteUser (id: Guid) =
     use conn = openConn ()
-    use cmd = new NpgsqlCommand("DELETE FROM users WHERE id = @id", conn)
-    cmd.Parameters.AddWithValue("id", id) |> ignore
-    cmd.ExecuteNonQuery() > 0
+    use tx = conn.BeginTransaction()
+
+    // admin_user_audit_log.target_user_id/admin_id are both NOT NULL FKs to users(id) with no
+    // cascade -- a hard delete crashed with an unhandled FK violation whenever the user being
+    // deleted had any audit history (as the target, or as the admin who performed some other
+    // action). The audit trail for THIS user necessarily ends when they're gone either way, so
+    // deleting it here (not nulling -- the columns don't allow that) is the real fix, not a
+    // workaround; wrapped in the same transaction as the user delete so it's all-or-nothing.
+    use cleanupCmd = new NpgsqlCommand(
+        "DELETE FROM admin_user_audit_log WHERE target_user_id = @id OR admin_id = @id", conn, tx)
+    cleanupCmd.Parameters.AddWithValue("id", id) |> ignore
+    cleanupCmd.ExecuteNonQuery() |> ignore
+
+    use deleteCmd = new NpgsqlCommand("DELETE FROM users WHERE id = @id", conn, tx)
+    deleteCmd.Parameters.AddWithValue("id", id) |> ignore
+    let deleted = deleteCmd.ExecuteNonQuery() > 0
+
+    tx.Commit()
+    deleted
 
 let logAdminAudit (adminId: Guid) (targetId: Guid) (action: string) (field: string option) (oldValue: string option) (newValue: string option) =
     use conn = openConn ()

@@ -94,6 +94,8 @@ interface BetaFeedbackEntry {
   appVersion: string
   osInfo: string
   createdAt: string
+  status: string
+  adminNotes: string
 }
 
 interface BetaMetricEventEntry {
@@ -200,6 +202,48 @@ async function apiFetch(url: string, opts?: RequestInit) {
   const res = await fetch(url, { credentials: 'include', ...opts })
   if (!res.ok) throw new Error(res.statusText)
   return res.json()
+}
+
+function FeedbackStatusCell({ feedback, onChange }: { feedback: BetaFeedbackEntry; onChange: (status: string) => void }) {
+  return (
+    <select
+      className="admin-search-input"
+      value={feedback.status}
+      onChange={e => onChange(e.target.value)}
+      style={{ color: feedback.status === 'resolved' ? 'var(--text-muted)' : 'var(--accent)' }}
+    >
+      <option value="open">Open</option>
+      <option value="resolved">Resolved</option>
+    </select>
+  )
+}
+
+// Own local draft state so typing doesn't PATCH on every keystroke -- only
+// resyncs from the row's saved value when a different row's notes load in
+// (feedback.id changes) or after this cell's own save round-trips.
+function FeedbackNotesCell({ feedback, onSave }: { feedback: BetaFeedbackEntry; onSave: (notes: string) => void }) {
+  const [draft, setDraft] = useState(feedback.adminNotes)
+  const [dirty, setDirty] = useState(false)
+
+  useEffect(() => {
+    setDraft(feedback.adminNotes)
+    setDirty(false)
+  }, [feedback.id, feedback.adminNotes])
+
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', minWidth: 220 }}>
+      <textarea
+        className="admin-search-input"
+        style={{ width: '100%', minHeight: 40, fontSize: '0.8rem', resize: 'vertical' }}
+        placeholder="Admin notes…"
+        value={draft}
+        onChange={e => { setDraft(e.target.value); setDirty(true) }}
+      />
+      {dirty && (
+        <button className="admin-action-btn" onClick={() => { onSave(draft); setDirty(false) }}>Save</button>
+      )}
+    </div>
+  )
 }
 
 export default function AdminPage() {
@@ -504,6 +548,23 @@ export default function AdminPage() {
     loadBetaProductData(betaProductSlug)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, betaProductSlug])
+
+  const updateFeedbackAdmin = async (feedbackId: string, patch: { status?: string; adminNotes?: string }) => {
+    const current = betaFeedback.find(f => f.id === feedbackId)
+    if (!current) return
+    const next = { ...current, ...patch }
+    setBetaFeedback(list => list.map(f => f.id === feedbackId ? next : f)) // optimistic
+    try {
+      await apiFetch(`${BASE}/api/admin/beta/feedback/${feedbackId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: next.status, adminNotes: next.adminNotes }),
+      })
+    } catch {
+      setError('Failed to save feedback update')
+      setBetaFeedback(list => list.map(f => f.id === feedbackId ? current : f)) // revert
+    }
+  }
 
   const inviteBetaTester = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -4570,6 +4631,8 @@ export default function AdminPage() {
                   { key: 'category', label: 'Category' },
                   { key: 'appVersion', label: 'Version' },
                   { key: 'message', label: 'Message', render: f => <span style={{ whiteSpace: 'pre-wrap' }}>{f.message}</span> },
+                  { key: 'status', label: 'Status', render: f => <FeedbackStatusCell feedback={f} onChange={status => updateFeedbackAdmin(f.id, { status })} /> },
+                  { key: 'adminNotes', label: 'Notes', sortable: false, render: f => <FeedbackNotesCell feedback={f} onSave={adminNotes => updateFeedbackAdmin(f.id, { adminNotes })} /> },
                 ]}
               />
 

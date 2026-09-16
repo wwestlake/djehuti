@@ -2054,6 +2054,21 @@ let main args =
             | None   -> Results.Unauthorized())
     ) |> ignore
 
+    app.MapPatch(
+        "/api/admin/beta/feedback/{feedbackId}",
+        Func<HttpContext, string, {| status: string; adminNotes: string |}, IResult>(fun ctx feedbackId body ->
+            match tryGetAuthClaims ctx with
+            | Some claims when Permissions.isAdmin claims.Role ->
+                match Guid.TryParse(feedbackId) with
+                | false, _ -> Results.BadRequest("Invalid feedback id")
+                | true, id ->
+                    if ProductFeedbackRepository.updateFeedbackAdmin id body.status body.adminNotes
+                    then Results.Ok({| status = (if body.status = "resolved" then "resolved" else "open"); adminNotes = body.adminNotes |})
+                    else Results.NotFound("Feedback not found")
+            | Some _ -> Results.Forbid()
+            | None   -> Results.Unauthorized())
+    ) |> ignore
+
     app.MapGet(
         "/api/admin/beta/metrics/{productSlug}",
         Func<HttpContext, string, IResult>(fun ctx productSlug ->
@@ -6124,28 +6139,50 @@ let main args =
                         if String.IsNullOrWhiteSpace email then return Results.BadRequest("Email required")
                         else
                             let! existing = UserRepository.tryGetByEmail email
-                            if existing.IsSome then return Results.Conflict("User already exists")
-                            else
-                                let! userOpt = UserRepository.createUser email None
-                                match userOpt with
-                                | None -> return Results.Problem(detail = "Failed to create user", statusCode = 500, title = "Error")
-                                | Some u ->
-                                    let allowedRoles = ["user";"admin";"moderator";"author"]
-                                    let role = if List.contains body.role allowedRoles then body.role else "user"
-                                    use conn = Database.openConnection()
-                                    use cmd = new Npgsql.NpgsqlCommand("UPDATE users SET role = @role, status = 'active' WHERE id = @id", conn)
-                                    cmd.Parameters.AddWithValue("role", role) |> ignore
-                                    cmd.Parameters.AddWithValue("id",   u.Id)  |> ignore
-                                    cmd.ExecuteNonQuery() |> ignore
-                                    let token = Auth.generateSecureToken()
-                                    let! _ = UserRepository.createPasswordResetToken u.Id token
-                                    let inviteUrl = "https://lagdaemon.com/djehuti/#/reset-password?token=" + token
-                                    let msg = { Email.To = email
-                                                Email.Subject = "You have been invited to Lag Daemon"
-                                                Email.HtmlBody = "<p>An administrator has created an account for you on Lag Daemon.</p><p><a href=\"" + inviteUrl + "\">Click here to set your password and get started</a></p><p>This link expires in 1 hour.</p>" }
-                                    Email.sendEmail msg |> Async.Ignore |> Async.Start
-                                    UserRepository.logAdminAudit adminId u.Id "invite" (Some "role") None (Some role)
-                                    return Results.Created("/api/admin/users", {| id = u.Id; email = email; role = role |})
+
+                            // Sending the invite to an existing account is just a resend -- the
+                            // admin action here is "get this person a working invite link," not
+                            // "this email must be brand new." Their role/status is left alone;
+                            // only a fresh token and a new email go out.
+                            let! (targetUser, isResend) =
+                                match existing with
+                                | Some u -> async { return (Some u, true) }
+                                | None ->
+                                    async {
+                                        let! userOpt = UserRepository.createUser email None
+                                        match userOpt with
+                                        | None -> return (None, false)
+                                        | Some u ->
+                                            let allowedRoles = ["user";"admin";"moderator";"author"]
+                                            let role = if List.contains body.role allowedRoles then body.role else "user"
+                                            use conn = Database.openConnection()
+                                            use cmd = new Npgsql.NpgsqlCommand("UPDATE users SET role = @role, status = 'active' WHERE id = @id", conn)
+                                            cmd.Parameters.AddWithValue("role", role) |> ignore
+                                            cmd.Parameters.AddWithValue("id",   u.Id)  |> ignore
+                                            cmd.ExecuteNonQuery() |> ignore
+                                            return (Some { u with Role = role }, false)
+                                    }
+
+                            match targetUser with
+                            | None -> return Results.Problem(detail = "Failed to create user", statusCode = 500, title = "Error")
+                            | Some u ->
+                                let token = Auth.generateSecureToken()
+                                let! _ = UserRepository.createPasswordResetToken u.Id token
+                                let inviteUrl = "https://lagdaemon.com/djehuti/#/reset-password?token=" + token
+                                let subject = if isResend then "Your Lag Daemon invite (resent)" else "You have been invited to Lag Daemon"
+                                let bodyText =
+                                    if isResend then
+                                        "<p>Here's a fresh invite link for your Lag Daemon account.</p><p><a href=\"" + inviteUrl + "\">Click here to set your password and get started</a></p><p>This link expires in 1 hour.</p>"
+                                    else
+                                        "<p>An administrator has created an account for you on Lag Daemon.</p><p><a href=\"" + inviteUrl + "\">Click here to set your password and get started</a></p><p>This link expires in 1 hour.</p>"
+                                let! emailSent = Email.sendEmail { Email.To = email; Email.Subject = subject; Email.HtmlBody = bodyText }
+                                UserRepository.logAdminAudit adminId u.Id (if isResend then "invite_resend" else "invite") (Some "role") None (Some u.Role)
+                                if not emailSent then
+                                    return Results.Problem(detail = "Invite link was created, but the email failed to send. Check server logs.", statusCode = 502, title = "Email delivery failed")
+                                elif isResend then
+                                    return Results.Ok({| id = u.Id; email = email; role = u.Role; resent = true |})
+                                else
+                                    return Results.Created("/api/admin/users", {| id = u.Id; email = email; role = u.Role |})
                 | Some _ -> return Results.Forbid()
                 | None   -> return Results.Unauthorized()
             } |> Async.StartAsTask)
