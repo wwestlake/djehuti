@@ -1901,7 +1901,7 @@ let main args =
         async {
             let! existing = UserRepository.tryGetByEmail email
             match existing with
-            | Some u -> return Some (u, "https://lagdaemon.com/djehuti/#/beta")
+            | Some u -> return Some (u, "https://lagdaemon.com/beta")
             | None ->
                 let! created = UserRepository.createUser email None
                 match created with
@@ -1909,7 +1909,7 @@ let main args =
                 | Some u ->
                     let token = Auth.generateSecureToken()
                     let! _ = UserRepository.createPasswordResetToken u.Id token
-                    return Some (u, "https://lagdaemon.com/djehuti/#/reset-password?token=" + token)
+                    return Some (u, "https://lagdaemon.com/reset-password?token=" + token)
         }
 
     app.MapGet(
@@ -1950,7 +1950,7 @@ let main args =
                                     BetaTesterRepository.upsertActive u.Id product.Id None
                                     let subject = product.BetaWelcomeSubject |> Option.filter (String.IsNullOrWhiteSpace >> not) |> Option.defaultValue (Email.defaultBetaWelcomeSubject product.Name)
                                     let bodyTemplate = product.BetaWelcomeBody |> Option.filter (String.IsNullOrWhiteSpace >> not) |> Option.defaultValue (Email.defaultBetaWelcomeBody product.Name)
-                                    let html = Email.renderBetaTemplate bodyTemplate product.Name "https://lagdaemon.com/djehuti/#/downloads"
+                                    let html = Email.renderBetaTemplate bodyTemplate product.Name "https://lagdaemon.com/downloads"
                                     Email.sendEmail { Email.To = u.Email; Email.Subject = subject; Email.HtmlBody = html } |> Async.Ignore |> Async.Start
                                     return Results.Ok({| message = "Signed up" |})
             } |> Async.StartAsTask)
@@ -6094,7 +6094,7 @@ let main args =
                         | Some u ->
                             let token = Auth.generateSecureToken()
                             let! _ = UserRepository.createPasswordResetToken uid token
-                            let resetUrl = "https://lagdaemon.com/djehuti/#/reset-password?token=" + token
+                            let resetUrl = "https://lagdaemon.com/reset-password?token=" + token
                             let msg = { Email.To = u.Email
                                         Email.Subject = "Password Reset - Lag Daemon"
                                         Email.HtmlBody = "<p>An admin has initiated a password reset for your account.</p><p><a href=\"" + resetUrl + "\">Click here to set your password</a></p><p>This link expires in 1 hour.</p>" }
@@ -6168,7 +6168,7 @@ let main args =
                             | Some u ->
                                 let token = Auth.generateSecureToken()
                                 let! _ = UserRepository.createPasswordResetToken u.Id token
-                                let inviteUrl = "https://lagdaemon.com/djehuti/#/reset-password?token=" + token
+                                let inviteUrl = "https://lagdaemon.com/reset-password?token=" + token
                                 let subject = if isResend then "Your Lag Daemon invite (resent)" else "You have been invited to Lag Daemon"
                                 let bodyText =
                                     if isResend then
