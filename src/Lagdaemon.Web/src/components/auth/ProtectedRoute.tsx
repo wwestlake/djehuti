@@ -18,14 +18,22 @@ export function ProtectedRoute({ children, requiredRole, requireAdminOrBetaTeste
   const [accessLoading, setAccessLoading] = useState(!!requireAdminOrBetaTester)
 
   useEffect(() => {
-    if (!requireAdminOrBetaTester || !user) { setAccessLoading(false); return }
+    if (!requireAdminOrBetaTester) { setAccessLoading(false); return }
+    // Auth itself hasn't resolved yet -- don't touch accessLoading here.
+    // Flipping it false while `user` is still null would let a later render
+    // (the one where isLoading goes false and user becomes truthy) fall
+    // through the loading gate with access still null, before this effect
+    // gets a chance to re-run and actually start the my-access fetch --
+    // read as "not a beta tester" and bounced to /beta one frame early.
+    if (isLoading) return
+    if (!user) { setAccessLoading(false); return }
     setAccessLoading(true)
     fetch('/djehuti/api/beta/my-access', { credentials: 'include' })
       .then(r => r.ok ? r.json() : { isAdmin: false, isActiveBetaTester: false })
       .then(setAccess)
       .catch(() => setAccess({ isAdmin: false, isActiveBetaTester: false }))
       .finally(() => setAccessLoading(false))
-  }, [requireAdminOrBetaTester, user])
+  }, [requireAdminOrBetaTester, user, isLoading])
 
   if (isLoading || accessLoading) return <div className="forum-loading">Loading…</div>
   if (!user) return <Navigate to="/" replace />
