@@ -139,6 +139,8 @@ The visible pane that shows execution messages should be labeled `Log`, not `Con
 **Never display email addresses anywhere in the UI.**
 Display names are optional. The fallback chain is: `user_profiles.display_name` → `users.display_name` → `'Anonymous'`. Email is never a fallback. Exposing email addresses is a privacy violation.
 
+**Exception: Admin -> Users.** The site owner explicitly wants raw emails visible in the admin Users list specifically (it's how they identify/manage real accounts) -- this one admin-only view is a deliberate, stated exception to the rule above, not a violation to "fix." Every other admin view (Roles, feedback lists, etc.) still follows the absolute rule: display name or 'Anonymous' only.
+
 ---
 
 ## Precision in Communication
