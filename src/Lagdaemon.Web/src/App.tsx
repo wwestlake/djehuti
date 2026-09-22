@@ -38,6 +38,7 @@ import BetaTestPage from './pages/community/BetaTestPage'
 import FrateRegistryPage from './pages/community/FrateRegistryPage'
 import FratePodDetailPage from './pages/community/FratePodDetailPage'
 import DesktopAuthPage from './pages/auth/DesktopAuthPage'
+import RemotePage from './pages/tools/RemotePage'
 
 import { blogApi } from './api/blogApi'
 import type { BlogArticle } from './api/blogApi'
@@ -113,6 +114,9 @@ function Nav({ onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
         <button className={`nav-community-link${active('/downloads') ? ' active' : ''}`} onClick={() => go('/downloads')}>Downloads</button>
         <button className={`nav-community-link${active('/beta') ? ' active' : ''}`} onClick={() => go('/beta')}>Beta Test</button>
         <button className={`nav-community-link${active('/frate') ? ' active' : ''}`} onClick={() => go('/frate')}>Frate Pods</button>
+        {user && (
+          <button className={`nav-community-link${active('/remote') ? ' active' : ''}`} onClick={() => go('/remote')}>Djehuti Remote</button>
+        )}
         {user?.roles?.includes('system:engineer') && (
           <a className="nav-community-link" href="/math/">DjeLab</a>
         )}
@@ -629,6 +633,7 @@ function AppInner() {
             <Route path="/frate" element={<FrateRegistryPage />} />
             <Route path="/frate/:name" element={<FratePodDetailPage />} />
             <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPage /></ProtectedRoute>} />
+            <Route path="/remote" element={<ProtectedRoute><RemotePage /></ProtectedRoute>} />
           </Routes>
         </main>
       )}
