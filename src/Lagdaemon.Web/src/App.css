@@ -1565,6 +1565,114 @@ footer a:hover { text-decoration: underline; }
 
 .community-page-title { font-size: 1.6rem; font-weight: 700; color: var(--text); margin: 0; }
 
+/* ── Electronics Work Bench ───────────────────────────────────────────────── */
+.electronics-workbench-page {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.electronics-workbench-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 0 4px;
+}
+
+.electronics-workbench-kicker {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.electronics-workbench-intro {
+  max-width: 680px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.electronics-workbench-showcase {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.electronics-workbench-preview {
+  min-height: 210px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
+  border-radius: 8px;
+  background:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px),
+    color-mix(in srgb, var(--bg) 82%, var(--surface));
+  background-size: 24px 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.electronics-workbench-preview-bar {
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  top: 34px;
+  height: 2px;
+  background: var(--accent2);
+  box-shadow: 0 56px 0 var(--accent), 0 112px 0 var(--accent3);
+}
+
+.electronics-workbench-preview-grid {
+  position: absolute;
+  inset: 60px 34px 34px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.electronics-workbench-preview-grid span {
+  display: block;
+  border: 1px solid var(--text-muted);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+
+.electronics-workbench-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.electronics-workbench-copy h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.15rem;
+}
+
+.electronics-workbench-copy p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.65;
+}
+
+@media (max-width: 700px) {
+  .electronics-workbench-showcase {
+    grid-template-columns: 1fr;
+    padding: 18px;
+  }
+
+  .electronics-workbench-preview {
+    min-height: 180px;
+  }
+}
+
 /* ── CSS variables referenced by community CSS ────────────────────────────── */
 :root {
   --text-muted: #8b949e;
