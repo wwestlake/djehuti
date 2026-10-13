@@ -38,6 +38,7 @@ import BetaTestPage from './pages/community/BetaTestPage'
 import FrateRegistryPage from './pages/community/FrateRegistryPage'
 import FratePodDetailPage from './pages/community/FratePodDetailPage'
 import DesktopAuthPage from './pages/auth/DesktopAuthPage'
+import ElectronicsWorkBenchPage from './pages/tools/ElectronicsWorkBenchPage'
 
 import { blogApi } from './api/blogApi'
 import type { BlogArticle } from './api/blogApi'
@@ -109,6 +110,7 @@ function Nav({ onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
       <NavGroup label="Tools" onNavigate={() => setDrawerOpen(false)}>
         <a className="nav-community-link" href="/learn/">Learn</a>
         <a className="nav-community-link" href="/architect/">Architect</a>
+        <button className={`nav-community-link${active('/electronics-work-bench') ? ' active' : ''}`} onClick={() => go('/electronics-work-bench')}>Electronics Work Bench</button>
         <button className={`nav-community-link${active('/papers') ? ' active' : ''}`} onClick={() => go('/papers')}>Papers</button>
         <button className={`nav-community-link${active('/downloads') ? ' active' : ''}`} onClick={() => go('/downloads')}>Downloads</button>
         <button className={`nav-community-link${active('/beta') ? ' active' : ''}`} onClick={() => go('/beta')}>Beta Test</button>
@@ -622,6 +624,7 @@ function AppInner() {
             <Route path="/profile/:userId" element={<PublicProfilePage />} />
             <Route path="/achievements" element={<ProtectedRoute><AchievementsPage /></ProtectedRoute>} />
             <Route path="/supporters" element={<SupportersPage />} />
+            <Route path="/electronics-work-bench" element={<ElectronicsWorkBenchPage />} />
             <Route path="/downloads" element={<ProtectedRoute requireAdminOrBetaTester><DownloadsPage /></ProtectedRoute>} />
             <Route path="/downloads/:slug" element={<ProtectedRoute requireAdminOrBetaTester><DownloadProductPage /></ProtectedRoute>} />
             <Route path="/sponsors" element={<SponsorsPage />} />
