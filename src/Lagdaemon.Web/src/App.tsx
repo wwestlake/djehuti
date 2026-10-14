@@ -38,6 +38,7 @@ import BetaTestPage from './pages/community/BetaTestPage'
 import FrateRegistryPage from './pages/community/FrateRegistryPage'
 import FratePodDetailPage from './pages/community/FratePodDetailPage'
 import DesktopAuthPage from './pages/auth/DesktopAuthPage'
+import ElectronicsDocumentationPage from './pages/tools/ElectronicsDocumentationPage'
 import ElectronicsWorkBenchPage from './pages/tools/ElectronicsWorkBenchPage'
 
 import { blogApi } from './api/blogApi'
@@ -625,6 +626,9 @@ function AppInner() {
             <Route path="/achievements" element={<ProtectedRoute><AchievementsPage /></ProtectedRoute>} />
             <Route path="/supporters" element={<SupportersPage />} />
             <Route path="/electronics-work-bench" element={<ElectronicsWorkBenchPage />} />
+            <Route path="/electronics-work-bench/docs" element={<ElectronicsDocumentationPage />} />
+            <Route path="/electronics-work-bench/docs/:manualSlug" element={<ElectronicsDocumentationPage />} />
+            <Route path="/electronics-work-bench/docs/:manualSlug/:sectionSlug" element={<ElectronicsDocumentationPage />} />
             <Route path="/downloads" element={<ProtectedRoute requireAdminOrBetaTester><DownloadsPage /></ProtectedRoute>} />
             <Route path="/downloads/:slug" element={<ProtectedRoute requireAdminOrBetaTester><DownloadProductPage /></ProtectedRoute>} />
             <Route path="/sponsors" element={<SponsorsPage />} />
