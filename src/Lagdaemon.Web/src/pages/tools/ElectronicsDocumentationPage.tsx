@@ -66,6 +66,7 @@ export default function ElectronicsDocumentationPage() {
   const location = useLocation()
   const [tocOpen, setTocOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
   const [expandedManuals, setExpandedManuals] = useState<Set<string>>(() => new Set([firstElectronicsManual.slug]))
 
   const manual = useMemo(
@@ -83,6 +84,17 @@ export default function ElectronicsDocumentationPage() {
   useEffect(() => {
     setTocOpen(false)
   }, [location.pathname])
+
+  useEffect(() => {
+    if (!searchOpen) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSearchOpen(false)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [searchOpen])
 
   useEffect(() => {
     setExpandedManuals(prev => {
@@ -138,21 +150,30 @@ export default function ElectronicsDocumentationPage() {
           type="search"
           value={searchQuery}
           placeholder="Search all documentation"
-          onChange={event => setSearchQuery(event.target.value)}
+          onFocus={() => {
+            if (searchQuery.trim()) setSearchOpen(true)
+          }}
+          onChange={event => {
+            setSearchQuery(event.target.value)
+            setSearchOpen(true)
+          }}
         />
         {searchQuery && (
           <button
             type="button"
             className="docs-search-clear"
             aria-label="Clear documentation search"
-            onClick={() => setSearchQuery('')}
+            onClick={() => {
+              setSearchQuery('')
+              setSearchOpen(false)
+            }}
           >
             <X size={16} />
           </button>
         )}
       </div>
 
-      {searchQuery.trim() && (
+      {searchOpen && searchQuery.trim() && (
         <section className="docs-search-results" aria-live="polite" aria-label="Documentation search results">
           <div className="docs-search-results-header">
             <strong>{searchResults.length} {searchResults.length === 1 ? 'result' : 'results'}</strong>
@@ -165,6 +186,7 @@ export default function ElectronicsDocumentationPage() {
                   className="docs-search-result"
                   key={`${result.manual.slug}-${result.section.slug}`}
                   to={sectionUrl(result.manual.slug, result.section.slug)}
+                  onClick={() => setSearchOpen(false)}
                 >
                   <span className="docs-search-result-manual">{result.manual.title}</span>
                   <strong>{highlightMatches(result.section.title, searchQuery)}</strong>
