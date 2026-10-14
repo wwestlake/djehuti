@@ -26,6 +26,13 @@ export type DocManual = {
   sections: DocSection[]
 }
 
+export type DocSearchResult = {
+  manual: DocManual
+  section: DocSection
+  excerpt: string
+  score: number
+}
+
 export const electronicsManuals: DocManual[] = [
   doc010,
   doc020,
@@ -41,3 +48,63 @@ export const electronicsManuals: DocManual[] = [
 
 export const firstElectronicsManual = electronicsManuals[0]
 export const firstElectronicsSection = firstElectronicsManual.sections[0]
+
+function searchableText(value: string) {
+  return value
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/[`*_>#|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function searchTerms(query: string) {
+  return query
+    .trim()
+    .toLocaleLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+}
+
+function excerptFor(section: DocSection, terms: string[]) {
+  const sources = [section.title, section.summary, searchableText(section.content)]
+  const source = sources.find(value => terms.some(term => value.toLocaleLowerCase().includes(term))) ?? sources[2]
+  const lower = source.toLocaleLowerCase()
+  const firstMatch = terms
+    .map(term => lower.indexOf(term))
+    .filter(index => index >= 0)
+    .sort((a, b) => a - b)[0]
+
+  if (source.length <= 190 || firstMatch === undefined) return source
+
+  const start = Math.max(0, firstMatch - 70)
+  const end = Math.min(source.length, start + 190)
+  return `${start > 0 ? '... ' : ''}${source.slice(start, end).trim()}${end < source.length ? ' ...' : ''}`
+}
+
+export function searchElectronicsManuals(query: string): DocSearchResult[] {
+  const terms = searchTerms(query)
+  if (terms.length === 0) return []
+
+  return electronicsManuals
+    .flatMap(manual => manual.sections.map(section => {
+      const manualText = manual.title.toLocaleLowerCase()
+      const titleText = section.title.toLocaleLowerCase()
+      const summaryText = section.summary.toLocaleLowerCase()
+      const contentText = searchableText(section.content).toLocaleLowerCase()
+      const allText = `${manualText} ${titleText} ${summaryText} ${contentText}`
+
+      if (!terms.every(term => allText.includes(term))) return null
+
+      const score = terms.reduce((total, term) => total
+        + (manualText.includes(term) ? 500 : 0)
+        + (titleText.includes(term) ? 700 : 0)
+        + (summaryText.includes(term) ? 250 : 0)
+        + (contentText.includes(term) ? 100 : 0), 0)
+        + (allText.includes(terms.join(' ')) ? 150 : 0)
+
+      return { manual, section, excerpt: excerptFor(section, terms), score }
+    }))
+    .filter((result): result is DocSearchResult => result !== null)
+    .sort((a, b) => b.score - a.score)
+}
