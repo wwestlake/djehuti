@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, Link as LinkIcon, Menu, X } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, Link as LinkIcon, Menu, Search, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
-import { electronicsManuals, firstElectronicsManual, firstElectronicsSection } from './electronicsDocs'
+import { electronicsManuals, firstElectronicsManual, firstElectronicsSection, searchElectronicsManuals } from './electronicsDocs'
 import type { DocManual } from './electronicsDocs'
 
 function headingId(text: string) {
@@ -46,10 +46,26 @@ function allSections(manual: DocManual) {
   }))
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function highlightMatches(text: string, query: string) {
+  const terms = query.trim().split(/\s+/).filter(Boolean).map(escapeRegExp)
+  if (terms.length === 0) return text
+
+  const pattern = new RegExp(`(${terms.join('|')})`, 'gi')
+  const matchPattern = new RegExp(`^(?:${terms.join('|')})$`, 'i')
+  return text.split(pattern).map((part, index) => matchPattern.test(part)
+    ? <mark key={`${part}-${index}`}>{part}</mark>
+    : part)
+}
+
 export default function ElectronicsDocumentationPage() {
   const { manualSlug, sectionSlug } = useParams()
   const location = useLocation()
   const [tocOpen, setTocOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const [expandedManuals, setExpandedManuals] = useState<Set<string>>(() => new Set([firstElectronicsManual.slug]))
 
   const manual = useMemo(
@@ -62,6 +78,7 @@ export default function ElectronicsDocumentationPage() {
   const currentIndex = activeSection ? sections.findIndex(item => item.section.slug === activeSection.slug) : -1
   const previous = currentIndex > 0 ? sections[currentIndex - 1] : null
   const next = currentIndex >= 0 && currentIndex < sections.length - 1 ? sections[currentIndex + 1] : null
+  const searchResults = useMemo(() => searchElectronicsManuals(searchQuery), [searchQuery])
 
   useEffect(() => {
     setTocOpen(false)
@@ -112,6 +129,54 @@ export default function ElectronicsDocumentationPage() {
           Contents
         </button>
       </div>
+
+      <div className="docs-search" role="search">
+        <Search size={17} aria-hidden="true" />
+        <label className="sr-only" htmlFor="electronics-doc-search">Search documentation</label>
+        <input
+          id="electronics-doc-search"
+          type="search"
+          value={searchQuery}
+          placeholder="Search all documentation"
+          onChange={event => setSearchQuery(event.target.value)}
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            className="docs-search-clear"
+            aria-label="Clear documentation search"
+            onClick={() => setSearchQuery('')}
+          >
+            <X size={16} />
+          </button>
+        )}
+      </div>
+
+      {searchQuery.trim() && (
+        <section className="docs-search-results" aria-live="polite" aria-label="Documentation search results">
+          <div className="docs-search-results-header">
+            <strong>{searchResults.length} {searchResults.length === 1 ? 'result' : 'results'}</strong>
+            <span>for “{searchQuery.trim()}”</span>
+          </div>
+          {searchResults.length > 0 ? (
+            <div className="docs-search-result-list">
+              {searchResults.map(result => (
+                <Link
+                  className="docs-search-result"
+                  key={`${result.manual.slug}-${result.section.slug}`}
+                  to={sectionUrl(result.manual.slug, result.section.slug)}
+                >
+                  <span className="docs-search-result-manual">{result.manual.title}</span>
+                  <strong>{highlightMatches(result.section.title, searchQuery)}</strong>
+                  <span>{highlightMatches(result.excerpt, searchQuery)}</span>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <p className="docs-search-empty">No documentation sections match that search.</p>
+          )}
+        </section>
+      )}
 
       <div className="docs-reader-layout">
         <aside className={`docs-toc${tocOpen ? ' open' : ''}`} aria-label="Documentation table of contents">

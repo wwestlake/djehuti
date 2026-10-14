@@ -1703,6 +1703,18 @@ footer a:hover { text-decoration: underline; }
 }
 
 /* ── Electronics documentation reader ─────────────────────────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .docs-reader-shell {
   display: flex;
   flex-direction: column;
@@ -1718,6 +1730,120 @@ footer a:hover { text-decoration: underline; }
 
 .docs-reader-header p {
   margin: 6px 0 0;
+  color: var(--text-muted);
+}
+
+.docs-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+}
+
+.docs-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.docs-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.docs-search input::placeholder {
+  color: var(--text-muted);
+}
+
+.docs-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.docs-search-clear:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text);
+}
+
+.docs-search-results {
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.docs-search-results-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+
+.docs-search-results-header strong {
+  color: var(--text);
+}
+
+.docs-search-result-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.docs-search-result {
+  display: grid;
+  gap: 4px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  text-decoration: none;
+  line-height: 1.45;
+}
+
+.docs-search-result:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.docs-search-result strong {
+  color: var(--text);
+}
+
+.docs-search-result-manual {
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.docs-search-result mark {
+  padding: 0 2px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: inherit;
+}
+
+.docs-search-empty {
+  margin: 12px 0 0;
   color: var(--text-muted);
 }
 
