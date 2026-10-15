@@ -42,7 +42,7 @@ export const doc065: DocManual = {
       "slug": "5-bindings-scope-and-mutability",
       "title": "5 Bindings, Scope, and Mutability",
       "summary": "Local bindings use let with optional mut and optional type annotation. Function parameters are typed. Blocks create expression scopes and can return a trailing value. Cur...",
-      "content": "Local bindings use let with optional mut and optional type annotation. Function parameters are typed. Blocks create expression scopes and can return a trailing value. Current gap notes indicate destructuring in let declarations, function parameters, and for-loop bindings is not implemented.\n\npub fn reduce(x: f64) -> f64 = {\n\nlet mut y: f64 = x;\n\nwhile y > 0.1 {\n\ny = y * 0.5;\n\n};\n\ny\n\n}"
+      "content": "Local bindings use let with optional mut and optional type annotation. Function parameters are typed. Blocks create expression scopes and can return a trailing value. Current gap notes indicate destructuring in let declarations, function parameters, and for-loop bindings is not implemented.\n\n```frust\npub fn reduce(x: f64) -> f64 = {\n    let mut y: f64 = x;\n    while y > 0.1 {\n        y = y * 0.5;\n    };\n    y\n}\n```"
     },
     {
       "slug": "6-operators-and-expressions",
@@ -60,7 +60,7 @@ export const doc065: DocManual = {
       "slug": "8-functions-generics-and-calls",
       "title": "8 Functions, Generics, and Calls",
       "summary": "Functions use typed parameters and may return a typed value. Generic parameters and generic calls are source-visible. The smoke tests directly validate native lookup and ...",
-      "content": "Functions use typed parameters and may return a typed value. Generic parameters and generic calls are source-visible. The smoke tests directly validate native lookup and execution of f64 functions. Broader generic behavior should be validated feature by feature before examples rely on it.\n\npub fn gain(x: f64, g: f64) -> f64 = {\n\nx * g\n\n}"
+      "content": "Functions use typed parameters and may return a typed value. Generic parameters and generic calls are source-visible. The smoke tests directly validate native lookup and execution of f64 functions. Broader generic behavior should be validated feature by feature before examples rely on it.\n\n```frust\npub fn gain(x: f64, g: f64) -> f64 = {\n    x * g\n}\n```"
     },
     {
       "slug": "9-data-structures-and-patterns",
@@ -84,7 +84,7 @@ export const doc065: DocManual = {
       "slug": "12-djehuti-host-integration-reference",
       "title": "12 Djehuti Host Integration Reference",
       "summary": "Djehuti host integration is intentionally listed apart from language syntax. These functions and behaviors are available because the workbench registers them with the run...",
-      "content": "Djehuti host integration is intentionally listed apart from language syntax. These functions and behaviors are available because the workbench registers them with the runtime; they should not be documented as portable FRust language features.\n\n| Integration point | Behavior |\n| --- | --- |\n| FrustEngine.runScript | Compiles and runs a script that defines pub fn run() -> String; captures print_line output and the return string. |\n| FrustExecution executor | Runs/debugs one program at a time on a worker thread and exposes snapshot state for UI panels. |\n| NodeCompiler | Converts node graphs to real FRust source and validates generated source. |\n| Programmable components | Evaluate compiled compute functions during internal solver iterations with host calls for pins, time, params, and state. |\n| Generated DSP plugin smoke | Shows a separate generated plugin path that loads an embedded FRust model and applies a gain parameter. |"
+      "content": "Djehuti host integration is intentionally listed apart from language syntax. These functions and behaviors are available because the workbench registers them with the runtime; they should not be documented as portable FRust language features.\n\n| Integration point | Behavior |\n| --- | --- |\n| FrustEngine.runScript | Compiles and runs a script that defines `pub fn run() -> String`; captures `print_line` output and the return string. |\n| FrustExecution executor | Runs/debugs one program at a time on a worker thread and exposes snapshot state for UI panels. |\n| NodeCompiler | Converts node graphs to real FRust source and validates generated source. |\n| Programmable components | Evaluate compiled compute functions during internal solver iterations with host calls for pins, time, params, and state. |\n| Generated DSP plugin smoke | Shows a separate generated plugin path that loads an embedded FRust model and applies a gain parameter. |"
     },
     {
       "slug": "13-unsupported-partial-or-unvalidated-features",
@@ -95,8 +95,8 @@ export const doc065: DocManual = {
     {
       "slug": "14-minimal-verified-examples",
       "title": "14 Minimal Verified Examples",
-      "summary": "pub fn run() -> String = {",
-      "content": "pub fn run() -> String = {\n\nprint_line(\"first\");\n\n\"done\"\n\n}\n\npub fn gain(x: f64, g: f64) -> f64 = {\n\nx * g\n\n}\n\nThese examples are intentionally small because they are backed by executable smoke evidence. Larger examples should cite their own run evidence or be clearly marked as source-visible but not practically verified."
+      "summary": "Minimal verified FRust run and gain function examples.",
+      "content": "```frust\npub fn run() -> String = {\n    print_line(\"first\");\n    \"done\"\n}\n\npub fn gain(x: f64, g: f64) -> f64 = {\n    x * g\n}\n```\n\nThese examples are intentionally small because they are backed by executable smoke evidence. Larger examples should cite their own run evidence or be clearly marked as source-visible but not practically verified."
     },
     {
       "slug": "revision-history",
