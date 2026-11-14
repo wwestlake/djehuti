@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom'
+
 export default function ElectronicsWorkBenchPage() {
   return (
     <div className="community-page electronics-workbench-page">
@@ -9,6 +11,21 @@ export default function ElectronicsWorkBenchPage() {
           simulation, documentation, and engineering examples as the work bench
           moves toward release.
         </p>
+      </section>
+
+      <section className="electronics-workbench-docs" aria-label="Electronics Work Bench documentation">
+        <div>
+          <p className="electronics-workbench-kicker">Documentation</p>
+          <h2>Djehuti User Guide</h2>
+          <p>
+            Read the first Electronics Work Bench manual in the browser, with
+            section navigation, technical tables, and documentation figures
+            preserved from DOC-030.
+          </p>
+        </div>
+        <Link className="btn-primary" to="/electronics-work-bench/docs">
+          Open Documentation
+        </Link>
       </section>
 
       <section className="electronics-workbench-showcase" aria-label="Upcoming product showcase">
