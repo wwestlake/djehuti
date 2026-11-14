@@ -6,6 +6,8 @@ import remarkGfm from 'remark-gfm'
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
 import { electronicsManuals, firstElectronicsManual, firstElectronicsSection, searchElectronicsManuals } from './electronicsDocs'
 import type { DocManual } from './electronicsDocs'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 function headingId(text: string) {
   return text
@@ -104,6 +106,11 @@ export default function ElectronicsDocumentationPage() {
       return nextSet
     })
   }, [activeManual.slug])
+
+  usePageSeo({
+    title: activeSection ? `${activeSection.title} — ${activeManual.title} — Lag Daemon` : 'Electronics Work Bench Docs — Lag Daemon',
+    description: activeSection?.summary,
+  })
 
   if (!manualSlug || !sectionSlug) {
     return <Navigate to={sectionUrl(firstElectronicsManual.slug, firstElectronicsSection.slug)} replace />
@@ -250,12 +257,15 @@ export default function ElectronicsDocumentationPage() {
               <span>Rev {activeManual.revision}</span>
               <span>{activeManual.status}</span>
             </div>
-            <h2 id={activeSection.slug}>
-              <a href={`#${activeSection.slug}`} aria-label={`Link to ${activeSection.title}`}>
-                <LinkIcon size={16} />
-              </a>
-              {activeSection.title}
-            </h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+              <h2 id={activeSection.slug}>
+                <a href={`#${activeSection.slug}`} aria-label={`Link to ${activeSection.title}`}>
+                  <LinkIcon size={16} />
+                </a>
+                {activeSection.title}
+              </h2>
+              <ShareButton title={`${activeSection.title} — ${activeManual.title} — Lag Daemon`} text={activeSection.summary} />
+            </div>
             <p>{activeSection.summary}</p>
           </header>
 

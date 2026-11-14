@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import './FrustTechnologyPage.css'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 const LANGUAGE_REFERENCE = '/electronics-work-bench/docs/frust-language-reference/overview'
 const PROGRAMMING_GUIDE = '/electronics-work-bench/docs/frust-programming-guide/overview'
@@ -128,11 +130,10 @@ export default function FrustTechnologyPage() {
   const dialog = useRef<HTMLDialogElement>(null)
   const selected = examples[example]
 
-  useEffect(() => {
-    const previousTitle = document.title
-    document.title = 'FRust Language & Technology | LagDaemon'
-    return () => { document.title = previousTitle }
-  }, [])
+  usePageSeo({
+    title: 'FRust Language & Technology — Lag Daemon',
+    description: 'A typed programming language, LLVM-based compiler, and embeddable runtime for programmable desktop applications.',
+  })
 
   useEffect(() => {
     if (enlarged && !dialog.current?.open) dialog.current?.showModal()
@@ -142,7 +143,10 @@ export default function FrustTechnologyPage() {
     <article className="community-page frust-page">
       <header className="frust-hero">
         <p className="frust-eyebrow">The programmable foundation of Djehuti</p>
-        <h1>FRust Language <span>&amp; Technology</span></h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+          <h1>FRust Language <span>&amp; Technology</span></h1>
+          <ShareButton title="FRust Language & Technology — Lag Daemon" text="A typed programming language, LLVM-based compiler, and embeddable runtime for programmable desktop applications." />
+        </div>
         <p className="frust-lead">From an idea to native execution.</p>
         <p className="frust-intro">
           Write a function. Connect a graph. Build behavior into the tools you use.

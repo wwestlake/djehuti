@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react'
 import { patreonApi } from '../../api/patreonApi'
 import type { PatreonTier, SupporterEntry } from '../../api/patreonApi'
 import TierBadge from '../../components/TierBadge'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 export default function SupportersPage() {
   const [tiers, setTiers] = useState<PatreonTier[]>([])
   const [supporters, setSupporters] = useState<SupporterEntry[]>([])
+
+  usePageSeo({ title: 'Wall of Supporters — Lag Daemon', description: 'The people who back Lag Daemon research on Patreon.' })
 
   useEffect(() => {
     patreonApi.getTiers().then(setTiers)
@@ -17,7 +21,10 @@ export default function SupportersPage() {
   return (
     <div className="supporters-page">
       <div className="supporters-hero">
-        <h1>Wall of Supporters</h1>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 10, alignItems: 'center' }}>
+          <h1>Wall of Supporters</h1>
+          <ShareButton title="Wall of Supporters — Lag Daemon" text="The people who back Lag Daemon research on Patreon." />
+        </div>
         <p>
           These people believe that science, technology, and learning should be open to
           everyone — including kids who haven't had access to it yet. This research exists

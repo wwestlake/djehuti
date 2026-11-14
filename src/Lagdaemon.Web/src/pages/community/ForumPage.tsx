@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { forumApi } from '../../api/forumApi'
 import type { ForumCategory, ForumForum } from '../../api/forumApi'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 function ForumCategoryList({ category, forums, subCategories, subForums, onNavigateForum, depth = 0 }: {
   category: ForumCategory
@@ -70,6 +72,8 @@ export default function ForumPage() {
       .finally(() => setLoading(false))
   }, [])
 
+  usePageSeo({ title: 'Community Forum — Lag Daemon', description: 'Browse the Lag Daemon community forum.' })
+
   if (loading) return <div className="forum-loading">Loading forum…</div>
   if (error) return <div className="forum-error-msg">{error}</div>
 
@@ -84,9 +88,12 @@ export default function ForumPage() {
     <div className="community-page">
       <div className="forum-header-row">
         <h1 className="community-page-title">Community Forum</h1>
-        {onNavigateSearch && (
-          <button className="forum-search-nav-btn" onClick={onNavigateSearch}>🔍 Search</button>
-        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <ShareButton title="Community Forum — Lag Daemon" text="Browse the Lag Daemon community forum." />
+          {onNavigateSearch && (
+            <button className="forum-search-nav-btn" onClick={onNavigateSearch}>🔍 Search</button>
+          )}
+        </div>
       </div>
       {topLevel.length === 0
         ? <p className="forum-empty">No forum categories yet.</p>

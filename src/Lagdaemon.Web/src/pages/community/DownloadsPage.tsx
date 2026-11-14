@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 const BASE = '/djehuti'
 
@@ -77,9 +79,14 @@ export default function DownloadsPage() {
       .catch(() => setEntitlements([]))
   }, [user])
 
+  usePageSeo({ title: 'Downloads — Lag Daemon', description: 'Desktop apps built on the Djehuti/LagDaemon ecosystem.' })
+
   return (
     <div style={{ maxWidth: 900, margin: '2rem auto', padding: '0 1rem' }}>
-      <h1>Downloads</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <h1>Downloads</h1>
+        <ShareButton title="Downloads — Lag Daemon" text="Desktop apps built on the Djehuti/LagDaemon ecosystem." />
+      </div>
       <p style={{ color: 'var(--text-muted)' }}>Desktop apps built on the Djehuti/LagDaemon ecosystem.</p>
 
       {loading && <p style={{ color: 'var(--text-muted)' }}>Loading…</p>}

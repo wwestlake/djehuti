@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { frateApi } from '../../api/frateApi'
 import type { PodDetail } from '../../api/frateApi'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -20,6 +22,11 @@ export default function FratePodDetailPage() {
     frateApi.getPod(name).then(setPod).finally(() => setLoading(false))
   }, [name])
 
+  usePageSeo({
+    title: pod ? `${pod.name} — Frate Pods — Lag Daemon` : 'Frate Pod — Lag Daemon',
+    description: pod?.description || undefined,
+  })
+
   if (loading) return <div style={{ maxWidth: 700, margin: '2rem auto', padding: '0 1rem' }}><p style={{ color: 'var(--text-muted)' }}>Loading…</p></div>
   if (!pod) return (
     <div style={{ maxWidth: 700, margin: '2rem auto', padding: '0 1rem' }}>
@@ -31,7 +38,10 @@ export default function FratePodDetailPage() {
   return (
     <div style={{ maxWidth: 700, margin: '2rem auto', padding: '0 1rem' }}>
       <Link to="/frate" style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>← Back to Frate Pods</Link>
-      <h1 style={{ marginBottom: 4 }}>{pod.name}</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+        <h1 style={{ marginBottom: 4 }}>{pod.name}</h1>
+        <ShareButton title={`${pod.name} — Frate Pods — Lag Daemon`} text={pod.description} />
+      </div>
       <p style={{ color: 'var(--text-muted)' }}>{pod.description}</p>
       <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>License: {pod.license}</p>
 

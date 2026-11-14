@@ -3,6 +3,10 @@
 @inject NavigationManager Nav
 
 <PageTitle>@(_track?.Title ?? "Learning Track") — Djehuti Teacher</PageTitle>
+<HeadContent>
+    <meta property="og:title" content="@((_track?.Title ?? "Learning Track") + " — Djehuti Teacher")" />
+    <meta property="og:description" content="@(_track?.Description ?? "A structured learning track on Djehuti Teacher.")" />
+</HeadContent>
 
 <div class="teacher-page">
     @if (_loading)
@@ -24,7 +28,10 @@
                 <a href="@($"learning-tracks?subject={Uri.EscapeDataString(_track.Subject)}")" class="teacher-track-subject-link">@_track.Subject</a>
             }
             <div class="teacher-track-difficulty-badge">@_track.Difficulty</div>
-            <h1>@_track.Title</h1>
+            <div class="teacher-page-head">
+                <h1>@_track.Title</h1>
+                <ShareButton Title="@($"{_track.Title} — Djehuti Teacher")" Text="@(_track.Description ?? "A structured learning track on Djehuti Teacher.")" />
+            </div>
             @if (!string.IsNullOrWhiteSpace(_track.Description))
             {
                 <p class="teacher-page-subtitle">@_track.Description</p>

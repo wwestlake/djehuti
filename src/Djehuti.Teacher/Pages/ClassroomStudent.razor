@@ -8,6 +8,10 @@
 @inject AiConfigStore ConfigStore
 
 <PageTitle>Join Classroom — Djehuti Teacher</PageTitle>
+<HeadContent>
+    <meta property="og:title" content="Join Classroom — Djehuti Teacher" />
+    <meta property="og:description" content="Join a live learning session on Djehuti Teacher." />
+</HeadContent>
 
 <div class="teacher-page teacher-page-wide">
     @if (_loading)
@@ -24,7 +28,10 @@
     else if (!_joined)
     {
         <div class="teacher-classroom-joinscreen">
-            <h1>Join: @_classroom.Name</h1>
+            <div class="teacher-page-head">
+                <h1>Join: @_classroom.Name</h1>
+                <ShareButton Title="@($"Join {_classroom.Name} — Djehuti Teacher")" Text="Join this live learning session on Djehuti Teacher." />
+            </div>
             <p class="teacher-page-subtitle">@_classroom.Status</p>
 
             <div class="teacher-classroom-joincard">

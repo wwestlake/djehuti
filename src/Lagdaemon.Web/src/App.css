@@ -2256,6 +2256,15 @@ footer a:hover { text-decoration: underline; }
 .notif-time { font-size: 0.75rem; color: var(--text-muted); margin-top: 3px; }
 .notif-empty { padding: 20px 14px; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
 
+/* ── Share button ────────────────────────────────────────────────────────── */
+.share-wrap { position: relative; display: inline-flex; align-items: center; flex-shrink: 0; }
+.share-trigger { display: flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--text-muted); padding: 6px 10px; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
+.share-trigger:hover { color: var(--text); border-color: var(--accent); }
+.share-trigger-compact { padding: 3px 7px; }
+.share-dropdown { position: absolute; top: calc(100% + 8px); right: 0; min-width: 190px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.35); z-index: 200; overflow: hidden; padding: 4px; }
+.share-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: none; border: none; border-radius: 6px; padding: 8px 10px; cursor: pointer; font-size: 0.85rem; color: var(--text); text-decoration: none; }
+.share-item:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+
 .post-list { display: flex; flex-direction: column; gap: 12px; }
 .post-item { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .post-answer { border-color: #6ee7a0; }

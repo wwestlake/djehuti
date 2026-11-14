@@ -5,6 +5,8 @@ import { betaApi } from '../../api/betaApi'
 import type { BetaProduct } from '../../api/betaApi'
 import { forumApi } from '../../api/forumApi'
 import type { ForumThread } from '../../api/forumApi'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 // Seeded once via direct DB insert -- see the "Beta Testing" forum category/forum this page
 // links to. Not product-scoped: one open community for every beta program, not gated to
@@ -59,10 +61,15 @@ export default function BetaTestPage() {
     }
   }
 
+  usePageSeo({ title: 'Beta Test Program — Lag Daemon', description: 'Help shape the Djehuti Suite before it ships.' })
+
   return (
     <div className="supporters-page">
       <div className="supporters-hero">
-        <h1>Beta Test Program</h1>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 10, alignItems: 'center' }}>
+          <h1>Beta Test Program</h1>
+          <ShareButton title="Beta Test Program — Lag Daemon" text="Help shape the Djehuti Suite before it ships." />
+        </div>
         <p>
           Help shape the Djehuti Suite before it ships. Sign up to test a specific app that's currently
           open for beta, or join all of them at once -- one click each, no form to fill out.
