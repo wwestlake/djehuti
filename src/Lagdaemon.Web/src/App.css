@@ -2673,3 +2673,261 @@ footer a:hover { text-decoration: underline; }
   .metrics-forum-row { grid-template-columns: 1fr; }
   .metrics-cards-row .metrics-stat-card { min-width: 100px; }
 }
+
+/* ── Djehuti Desktop Tools showcase ───────────────────────────────────────── */
+.djsuite-page {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.djsuite-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 0 4px;
+}
+
+.djsuite-kicker {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.djsuite-intro {
+  max-width: 720px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.djsuite-integration {
+  padding: 20px 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.djsuite-integration h2 {
+  margin: 0 0 10px;
+  font-size: 1.1rem;
+  color: var(--text);
+}
+
+.djsuite-integration p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
+
+.djsuite-app {
+  padding: 28px 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.djsuite-app-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.djsuite-app-header h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  color: var(--text);
+}
+
+.djsuite-app-tagline {
+  margin: 0;
+  color: var(--accent2);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.djsuite-app-intro {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  max-width: 760px;
+}
+
+.djsuite-shot {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+  cursor: zoom-in;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.djsuite-shot:hover,
+.djsuite-shot:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.djsuite-shot img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.djsuite-shot-caption {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.djsuite-shot-caption-main {
+  margin-bottom: 4px;
+}
+
+.djsuite-shot-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-top: 4px;
+}
+
+@media (max-width: 700px) {
+  .djsuite-shot-grid { grid-template-columns: 1fr; }
+}
+
+.djsuite-capabilities {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  margin-top: 6px;
+}
+
+.djsuite-capabilities h3 {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.djsuite-capabilities ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.djsuite-capabilities li {
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.djsuite-upcoming {
+  padding: 28px 0;
+  border-top: 1px solid var(--border);
+}
+
+.djsuite-upcoming h2 {
+  margin: 0 0 14px;
+  font-size: 1.1rem;
+  color: var(--text);
+}
+
+.djsuite-upcoming-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 700px) {
+  .djsuite-upcoming-grid { grid-template-columns: 1fr; }
+}
+
+.djsuite-upcoming-card {
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.djsuite-upcoming-card h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.djsuite-upcoming-card p {
+  margin: 8px 0 0;
+  font-size: 0.86rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.djsuite-upcoming-card a { color: var(--accent); }
+
+.djsuite-lightbox {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 80%, black 20%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  z-index: 1000;
+  cursor: zoom-out;
+}
+
+.djsuite-lightbox figure {
+  margin: 0;
+  max-width: min(92vw, 1200px);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: default;
+}
+
+.djsuite-lightbox img {
+  max-width: 100%;
+  max-height: 78vh;
+  object-fit: contain;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.djsuite-lightbox figcaption {
+  color: var(--text);
+  font-size: 0.88rem;
+  text-align: center;
+}
+
+.djsuite-lightbox-close {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.djsuite-lightbox-close:hover { border-color: var(--accent); color: var(--accent); }

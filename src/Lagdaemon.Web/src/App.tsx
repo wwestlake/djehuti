@@ -38,9 +38,8 @@ import BetaTestPage from './pages/community/BetaTestPage'
 import FrateRegistryPage from './pages/community/FrateRegistryPage'
 import FratePodDetailPage from './pages/community/FratePodDetailPage'
 import DesktopAuthPage from './pages/auth/DesktopAuthPage'
-import RemotePage from './pages/tools/RemotePage'
 import ElectronicsWorkBenchPage from './pages/tools/ElectronicsWorkBenchPage'
-
+import DjehutiSuitePage from './pages/tools/DjehutiSuitePage'
 import { blogApi } from './api/blogApi'
 import type { BlogArticle } from './api/blogApi'
 
@@ -112,12 +111,13 @@ function Nav({ onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
         <a className="nav-community-link" href="/learn/">Learn</a>
         <a className="nav-community-link" href="/architect/">Architect</a>
         <button className={`nav-community-link${active('/electronics-work-bench') ? ' active' : ''}`} onClick={() => go('/electronics-work-bench')}>Electronics Work Bench</button>
+        <button className={`nav-community-link${active('/djehuti-suite') ? ' active' : ''}`} onClick={() => go('/djehuti-suite')}>Djehuti Desktop Tools</button>
         <button className={`nav-community-link${active('/papers') ? ' active' : ''}`} onClick={() => go('/papers')}>Papers</button>
         <button className={`nav-community-link${active('/downloads') ? ' active' : ''}`} onClick={() => go('/downloads')}>Downloads</button>
         <button className={`nav-community-link${active('/beta') ? ' active' : ''}`} onClick={() => go('/beta')}>Beta Test</button>
         <button className={`nav-community-link${active('/frate') ? ' active' : ''}`} onClick={() => go('/frate')}>Frate Pods</button>
-        {user && (
-          <button className={`nav-community-link${active('/remote') ? ' active' : ''}`} onClick={() => go('/remote')}>Djehuti Remote</button>
+        {user?.role === 'admin' && (
+          <a className="nav-community-link" href="/remote/">Djehuti Remote</a>
         )}
         {user?.roles?.includes('system:engineer') && (
           <a className="nav-community-link" href="/math/">DjeLab</a>
@@ -629,6 +629,7 @@ function AppInner() {
             <Route path="/achievements" element={<ProtectedRoute><AchievementsPage /></ProtectedRoute>} />
             <Route path="/supporters" element={<SupportersPage />} />
             <Route path="/electronics-work-bench" element={<ElectronicsWorkBenchPage />} />
+            <Route path="/djehuti-suite" element={<DjehutiSuitePage />} />
             <Route path="/downloads" element={<ProtectedRoute requireAdminOrBetaTester><DownloadsPage /></ProtectedRoute>} />
             <Route path="/downloads/:slug" element={<ProtectedRoute requireAdminOrBetaTester><DownloadProductPage /></ProtectedRoute>} />
             <Route path="/sponsors" element={<SponsorsPage />} />
@@ -636,7 +637,6 @@ function AppInner() {
             <Route path="/frate" element={<FrateRegistryPage />} />
             <Route path="/frate/:name" element={<FratePodDetailPage />} />
             <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPage /></ProtectedRoute>} />
-            <Route path="/remote" element={<ProtectedRoute><RemotePage /></ProtectedRoute>} />
           </Routes>
         </main>
       )}
