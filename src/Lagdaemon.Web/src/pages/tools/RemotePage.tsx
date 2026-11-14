@@ -19,7 +19,6 @@ type Phase =
   | { kind: 'connecting'; session: HostSession }
   | { kind: 'waiting'; session: HostSession }   // desktop offline, retrying
   | { kind: 'connected'; session: HostSession }
-  | { kind: 'error'; message: string }
 
 // ── Main component ─────────────────────────────────────────────────────────────
 

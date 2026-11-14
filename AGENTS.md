@@ -67,6 +67,9 @@ Step-by-step — follow this exactly every time, no exceptions:
 1. **New feature or fix**: create a new branch from `develop`. Branch names must be descriptive and unique. Never reuse a branch that had a failed build or was already merged.
 2. **Do the work** on that branch.
 3. **Merge the branch into `develop`** directly — no PR needed for this step. Claude may merge its own branches into `develop` without user approval.
+   Owner clarification, November 14, 2026: agents may merge feature branches into
+   `develop` at any time without asking for permission or opening a PR to `develop`.
+   Production deployment still follows the `develop → main` rule below.
 3.25. **Delete the merged branch immediately** after merging to `develop`. Run `git branch -d <branch-name>` locally and `git push origin --delete <branch-name>` to remove it from remote. Leaving merged branches lying around causes confusion about what is merged and merge order.
 3.5. **Build the entire system locally** (`dotnet build -c Release`) to verify all projects compile successfully.
 4. **To deploy**: create a PR from `develop → main`. Post the PR link to the user with "Action needed: please merge [URL]". Wait for the user to merge it. Claude must never merge `develop → main`.
@@ -111,6 +114,9 @@ Do not launch straight into tool calls or code when addressed. Acknowledge the m
 ---
 
 ## Communication Style
+
+Ask questions in plain chat only. Never use multiple-choice question widgets or
+infer an answer, preference, scope decision, or approval from a default selection.
 
 Use plain, precise language. Avoid slang and informal shorthand. The user has a DoD background and expects clear, unambiguous communication — define terms before using them, and do not assume shared informal vocabulary.
 
