@@ -371,3 +371,52 @@ let validateGrantToken (grantToken: string) : Guid option =
     cmd.Parameters.AddWithValue("grantToken", grantToken) |> ignore
     use reader = cmd.ExecuteReader()
     if reader.Read() then Some (reader.GetGuid(0)) else None
+
+// Validates a grant token and rolls its expiry forward 30 days on success
+// (rolling window -- active users never get kicked out mid-use).
+// Returns full host session info so the phone can reconnect without a
+// separate lookup.
+type GrantValidationResult = {
+    HostSessionId       : Guid
+    ProductSlug         : string
+    DeviceName          : string option
+    AgentAvailable      : bool
+    ControlPanelAvailable : bool
+    PresenceState       : string
+}
+
+let validateAndRefreshGrant (grantToken: string) (userId: Guid) : GrantValidationResult option =
+    use conn = Database.openConnection()
+    // Atomically validate + roll the expiry in one round-trip.
+    use cmd = new NpgsqlCommand("""
+        UPDATE remote_connection_grants g
+        SET expires_at = NOW() + INTERVAL '30 days'
+        FROM remote_pairings p
+        JOIN remote_host_sessions hs ON hs.id = g.host_session_id
+        WHERE g.pairing_id   = p.id
+          AND g.grant_token  = @grantToken
+          AND p.user_id      = @userId
+          AND g.consumed_at  IS NULL
+          AND g.expires_at   > NOW()
+          AND hs.revoked_at  IS NULL
+        RETURNING
+            hs.id,
+            hs.product_slug,
+            hs.device_name,
+            hs.agent_available,
+            hs.control_panel_available,
+            hs.presence_state
+    """, conn)
+    cmd.Parameters.AddWithValue("grantToken", grantToken) |> ignore
+    cmd.Parameters.AddWithValue("userId", userId) |> ignore
+    use reader = cmd.ExecuteReader()
+    if reader.Read() then
+        Some {
+            HostSessionId         = reader.GetGuid(0)
+            ProductSlug           = reader.GetString(1)
+            DeviceName            = if reader.IsDBNull(2) then None else Some (reader.GetString(2))
+            AgentAvailable        = reader.GetBoolean(3)
+            ControlPanelAvailable = reader.GetBoolean(4)
+            PresenceState         = reader.GetString(5)
+        }
+    else None

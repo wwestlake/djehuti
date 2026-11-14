@@ -1,0 +1,20 @@
+{
+  "name": "Djehuti Remote",
+  "short_name": "Djehuti Remote",
+  "description": "Remote control and AI agent interface for the Djehuti Suite",
+  "start_url": "/remote",
+  "display": "standalone",
+  "background_color": "#0d0d0d",
+  "theme_color": "#0d0d0d",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "scope": "/"
+}

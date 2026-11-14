@@ -6827,7 +6827,7 @@ let main args =
                 | true, userId -> Results.Ok(RemotePairingRepository.listPairedDevices userId))
     ) |> ignore
 
-    // Revoke a paired device (website "Paired Devices" page or the phone's
+    // Revoke a paired device (website \"Paired Devices\" page or the phone's
     // own device list).
     app.MapDelete(
         "/api/remote/devices/{grantToken}",
@@ -6840,6 +6840,35 @@ let main args =
                 | true, userId ->
                     if RemotePairingRepository.revokeGrant userId grantToken then Results.NoContent()
                     else Results.NotFound())
+    ) |> ignore
+
+    // Called by the phone on every page load (or reconnect attempt).
+    // Validates the stored grant token, rolls its expiry 30 days forward,
+    // and returns the host session info needed to open the signaling socket --
+    // so the phone can go straight from "I have a grant" to "connecting"
+    // without any additional lookup or QR ceremony.
+    app.MapPost(
+        "/api/remote/grant/validate",
+        Func<HttpContext, {| grantToken: string |}, IResult>(fun ctx body ->
+            match tryGetAuthClaims ctx with
+            | None -> Results.Unauthorized()
+            | Some claims ->
+                match Guid.TryParse(claims.UserId) with
+                | false, _ -> Results.Problem(detail = "Invalid user id", statusCode = 500, title = "Auth error")
+                | true, userId ->
+                    match RemotePairingRepository.validateAndRefreshGrant body.grantToken userId with
+                    | None -> Results.Unauthorized()
+                    | Some r ->
+                        Results.Ok({|
+                            hostSession = {|
+                                hostSessionId         = r.HostSessionId
+                                productSlug           = r.ProductSlug
+                                deviceName            = r.DeviceName |> Option.toObj
+                                agentAvailable        = r.AgentAvailable
+                                controlPanelAvailable = r.ControlPanelAvailable
+                                presenceState         = r.PresenceState
+                            |}
+                        |}))
     ) |> ignore
 
     // ── Products: admin catalog + self-view entitlements ──────────────────────
