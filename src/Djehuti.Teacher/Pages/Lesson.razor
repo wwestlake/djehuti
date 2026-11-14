@@ -5,6 +5,10 @@
 @using Djehuti.Teacher.Services
 
 <PageTitle>@(_plan?.Title ?? "Lesson") — Djehuti Teacher</PageTitle>
+<HeadContent>
+    <meta property="og:title" content="@((_plan?.Title ?? "Lesson") + " — Djehuti Teacher")" />
+    <meta property="og:description" content="@(_plan?.Description ?? "A lesson on Djehuti Teacher.")" />
+</HeadContent>
 
 <div class="teacher-page teacher-page-wide">
     @if (_loading)
@@ -24,7 +28,10 @@
         {
             <span class="teacher-lesson-subject">@_plan.Subject</span>
         }
-        <h1>@_plan.Title</h1>
+        <div class="teacher-page-head">
+            <h1>@_plan.Title</h1>
+            <ShareButton Title="@($"{_plan.Title} — Djehuti Teacher")" Text="@(_plan.Description ?? "A lesson on Djehuti Teacher.")" />
+        </div>
         @if (!string.IsNullOrWhiteSpace(_plan.Description))
         {
             <p class="teacher-page-subtitle">@_plan.Description</p>

@@ -5,6 +5,8 @@ import MudPage from './pages/MudPage'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider, THEMES, useTheme } from './contexts/ThemeContext'
 import { mudApi, type MudLandingStats } from './api/mudApi'
+import ShareButton from './components/share/ShareButton'
+import usePageSeo from './components/share/usePageSeo'
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID || ''
 const GITHUB_CLIENT_ID = import.meta.env.VITE_GITHUB_OAUTH_CLIENT_ID || ''
@@ -72,9 +74,13 @@ function MudLanding({ onEnter }: { onEnter: () => void }) {
   const [stats, setStats] = useState<MudLandingStats | null>(null)
   const shareUrl = 'https://lagdaemon.com/mud/'
   const realmCount = stats?.realms.length ?? 2
-  const shareText = encodeURIComponent(
-    `LagDaemon MUD — ${realmCount} realms, one browser-based world. Pick your door.`
-  )
+  const shareDescription = `LagDaemon MUD — ${realmCount} realms, one browser-based world. Pick your door.`
+
+  usePageSeo({
+    title: 'LagDaemon MUD',
+    description: shareDescription,
+    url: shareUrl,
+  })
 
   useEffect(() => {
     let cancelled = false
@@ -131,15 +137,7 @@ function MudLanding({ onEnter }: { onEnter: () => void }) {
           )}
           <div className="mud-share-row">
             <span className="mud-share-label">Share</span>
-            <a className="mud-share-btn" href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${shareText}`} target="_blank" rel="noreferrer">
-              X
-            </a>
-            <a className="mud-share-btn" href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`} target="_blank" rel="noreferrer">
-              LinkedIn
-            </a>
-            <a className="mud-share-btn" href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`} target="_blank" rel="noreferrer">
-              Facebook
-            </a>
+            <ShareButton title="LagDaemon MUD" text={shareDescription} url={shareUrl} />
           </div>
           {user
             ? <p className="mud-landing-note">Signed in as {user.displayName || 'Anonymous'}. Your characters are waiting.</p>

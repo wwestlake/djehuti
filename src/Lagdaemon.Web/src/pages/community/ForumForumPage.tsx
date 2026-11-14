@@ -4,6 +4,8 @@ import { forumApi } from '../../api/forumApi'
 import type { ForumForum, ForumThread, ForumTag } from '../../api/forumApi'
 import { useAuth } from '../../contexts/AuthContext'
 import ForumEditor from '../../components/ForumEditor'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 function NewThreadModal({ forumId, allTags, onCreated, onClose }: {
   forumId: string
@@ -120,6 +122,11 @@ export default function ForumForumPage() {
     ? threads.filter(t => (threadTags[t.id] ?? []).some(tg => tg.id === filterTagId))
     : threads
 
+  usePageSeo({
+    title: forum ? `${forum.name} — Lag Daemon Forum` : 'Forum — Lag Daemon',
+    description: forum?.description || 'Browse this Lag Daemon forum.',
+  })
+
   if (loading) return <div className="forum-loading">Loading…</div>
 
   return (
@@ -131,9 +138,12 @@ export default function ForumForumPage() {
       </div>
       <div className="forum-forum-header">
         <h1>{forum?.name ?? 'Forum'}</h1>
-        {user && (
-          <button className="primary-action" onClick={() => setShowNewThread(true)}>New Thread</button>
-        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <ShareButton title={forum ? `${forum.name} — Lag Daemon Forum` : 'Forum — Lag Daemon'} text={forum?.description} />
+          {user && (
+            <button className="primary-action" onClick={() => setShowNewThread(true)}>New Thread</button>
+          )}
+        </div>
       </div>
 
       {allTags.length > 0 && (

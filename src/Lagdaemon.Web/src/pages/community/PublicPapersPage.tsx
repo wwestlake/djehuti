@@ -4,6 +4,8 @@ import ReactMarkdown from 'react-markdown'
 import { papersApi } from '../../api/papersApi'
 import type { PublicPaper, PublicPaperDetail } from '../../api/papersApi'
 import { useAuth } from '../../contexts/AuthContext'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 export default function PublicPapersPage() {
   const navigate = useNavigate()
@@ -19,17 +21,22 @@ export default function PublicPapersPage() {
       .finally(() => setLoading(false))
   }, [])
 
+  usePageSeo({ title: 'Papers — Lag Daemon', description: 'Published research from LagDaemon.' })
+
   if (loading) return <div className="forum-loading">Loading…</div>
 
   return (
     <div className="community-page">
       <div className="paper-public-head">
         <h1 className="community-page-title">Papers</h1>
-        {user && (
-          <button className="primary-action" onClick={() => navigate('/papers/workspace')}>
-            My workspace
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <ShareButton title="Papers — Lag Daemon" text="Published research from LagDaemon." />
+          {user && (
+            <button className="primary-action" onClick={() => navigate('/papers/workspace')}>
+              My workspace
+            </button>
+          )}
+        </div>
       </div>
       <p className="paper-public-intro">
         Published research from LagDaemon. Reading is open to everyone; authoring requires an account.
@@ -78,6 +85,11 @@ export function PublicPaperReadPage() {
       .finally(() => setLoading(false))
   }, [paperId])
 
+  usePageSeo({
+    title: detail ? `${detail.paper.title} — Lag Daemon Papers` : 'Paper — Lag Daemon',
+    description: detail?.paper.abstract?.replace(/[*_`#]/g, '').slice(0, 200),
+  })
+
   if (loading) return <div className="forum-loading">Loading…</div>
 
   if (error || !detail) {
@@ -94,7 +106,10 @@ export function PublicPaperReadPage() {
   return (
     <div className="community-page paper-read">
       <Link className="breadcrumb-link" to="/papers">← All papers</Link>
-      <h1 className="community-page-title">{paper.title}</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+        <h1 className="community-page-title">{paper.title}</h1>
+        <ShareButton title={`${paper.title} — Lag Daemon Papers`} text={paper.abstract?.replace(/[*_`#]/g, '').slice(0, 200)} />
+      </div>
       <p className="paper-read-meta">
         {paper.authorName} · {new Date(paper.updatedAt).toLocaleDateString()}
       </p>

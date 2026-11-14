@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 interface Shot {
   src: string
@@ -232,11 +234,19 @@ function AppSection({ app, onEnlarge }: { app: AppInfo; onEnlarge: (shot: Shot) 
 export default function DjehutiSuitePage() {
   const [enlarged, setEnlarged] = useState<Shot | null>(null)
 
+  usePageSeo({
+    title: 'Djehuti Desktop Tools — Lag Daemon',
+    description: 'The Djehuti desktop application suite for audio, video, 3D, and mechanical design.',
+  })
+
   return (
     <div className="community-page djsuite-page">
       <section className="djsuite-hero">
         <p className="djsuite-kicker">Djehuti Desktop Tools</p>
-        <h1 className="community-page-title">The Djehuti desktop application suite</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+          <h1 className="community-page-title">The Djehuti desktop application suite</h1>
+          <ShareButton title="Djehuti Desktop Tools — Lag Daemon" text="The Djehuti desktop application suite for audio, video, 3D, and mechanical design." />
+        </div>
         <p className="djsuite-intro">
           Djehuti is an evolving, integrated suite of desktop applications for audio production, video
           editing, real-time 3D, and mechanical design. The screenshots below are taken directly from each

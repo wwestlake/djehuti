@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 const BASE = '/djehuti'
 
@@ -68,10 +70,13 @@ export default function AnnouncementsPage() {
     } catch { setError('Failed to unsubscribe.') }
   }
 
+  usePageSeo({ title: 'Announcements — Lag Daemon', description: 'Latest announcements from Lag Daemon.' })
+
   return (
     <div className="community-page">
       <div className="ann-page-header">
         <h2 className="community-page-title">Announcements</h2>
+        <ShareButton title="Announcements — Lag Daemon" text="Latest announcements from Lag Daemon." />
 
         {/* Subscription widget */}
         <div className="ann-sub-widget">

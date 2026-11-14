@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 interface Sponsor {
   id: string
@@ -31,10 +33,15 @@ export default function SponsorsPage() {
 
   const byTier = (tier: string) => sponsors.filter(s => s.tier === tier)
 
+  usePageSeo({ title: 'Our Sponsors — Lag Daemon', description: 'The companies and individuals who make Djehuti research possible.' })
+
   return (
     <div className="sponsors-page">
       <div className="sponsors-hero">
-        <h1>Our Sponsors</h1>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 10, alignItems: 'center' }}>
+          <h1>Our Sponsors</h1>
+          <ShareButton title="Our Sponsors — Lag Daemon" text="The companies and individuals who make Djehuti research possible." />
+        </div>
         <p>
           These companies and individuals make the Djehuti research project possible —
           through financial support, server infrastructure, AI compute time, or other

@@ -234,6 +234,56 @@ a {
     color: var(--teacher-danger);
 }
 
+/* ── Share button (ShareButton.razor) ──────────────────────────────── */
+
+.teacher-page-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.teacher-page-head h1 {
+    flex: 1;
+}
+
+.teacher-share-wrap {
+    position: relative;
+    flex-shrink: 0;
+    margin-top: 0.15rem;
+}
+
+.teacher-share-button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--teacher-bg);
+    border: 1px solid var(--teacher-border);
+    color: var(--teacher-text);
+    border-radius: 999px;
+    padding: 0.4rem 0.9rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.teacher-share-button:hover {
+    border-color: var(--teacher-accent);
+    color: var(--teacher-accent);
+}
+
+.teacher-share-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    min-width: 200px;
+    background: var(--teacher-surface);
+    border: 1px solid var(--teacher-border);
+    border-radius: 10px;
+    overflow: hidden;
+    z-index: 41;
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
+}
+
 /* ── Hero (home page) ───────────────────────────────────────────────── */
 
 .teacher-hero {

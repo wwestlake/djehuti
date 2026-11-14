@@ -1,11 +1,21 @@
 import { Link } from 'react-router-dom'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 export default function ElectronicsWorkBenchPage() {
+  usePageSeo({
+    title: 'Electronics Work Bench — Lag Daemon',
+    description: 'Djehuti Electronics Lab: circuit design, simulation, documentation, and engineering examples.',
+  })
+
   return (
     <div className="community-page electronics-workbench-page">
       <section className="electronics-workbench-hero">
         <p className="electronics-workbench-kicker">Djehuti Electronics Lab</p>
-        <h1 className="community-page-title">Electronics Work Bench</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+          <h1 className="community-page-title">Electronics Work Bench</h1>
+          <ShareButton title="Electronics Work Bench — Lag Daemon" text="Djehuti Electronics Lab: circuit design, simulation, documentation, and engineering examples." />
+        </div>
         <p className="electronics-workbench-intro">
           A public home for the Djehuti Electronics Lab: circuit design,
           simulation, documentation, and engineering examples as the work bench

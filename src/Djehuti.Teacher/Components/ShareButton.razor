@@ -1,0 +1,110 @@
+@namespace Djehuti.Teacher.Components
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@implements IAsyncDisposable
+
+<div class="teacher-share-wrap">
+    <button type="button" class="teacher-share-button" @onclick="HandleClick" title="Share this page">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="18" cy="5" r="3"></circle>
+            <circle cx="6" cy="12" r="3"></circle>
+            <circle cx="18" cy="19" r="3"></circle>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+        </svg>
+        <span>Share</span>
+    </button>
+
+    @if (_menuOpen)
+    {
+        <div class="teacher-auth-menu-backdrop" @onclick="() => _menuOpen = false"></div>
+        <div class="teacher-share-menu">
+            <button type="button" class="teacher-auth-menu-item" @onclick="CopyLink">@(_copied ? "Copied!" : "Copy link")</button>
+            <a class="teacher-auth-menu-item" href="@MailtoHref">Email</a>
+            <a class="teacher-auth-menu-item" href="@SmsHref">SMS</a>
+            <a class="teacher-auth-menu-item" href="@FacebookHref" target="_blank" rel="noopener">Facebook</a>
+            <a class="teacher-auth-menu-item" href="@TwitterHref" target="_blank" rel="noopener">X (Twitter)</a>
+            <a class="teacher-auth-menu-item" href="@LinkedInHref" target="_blank" rel="noopener">LinkedIn</a>
+            <a class="teacher-auth-menu-item" href="@WhatsAppHref" target="_blank" rel="noopener">WhatsApp</a>
+            <a class="teacher-auth-menu-item" href="@TelegramHref" target="_blank" rel="noopener">Telegram</a>
+        </div>
+    }
+</div>
+
+@code {
+    // Page title to hand to the OS share sheet / use as link text.
+    [Parameter] public string Title { get; set; } = "Djehuti Teacher";
+    // Optional short blurb; falls back to Title.
+    [Parameter] public string? Text { get; set; }
+    // Optional explicit URL (e.g. a join link that differs from the current page);
+    // defaults to the page currently being viewed, query params included.
+    [Parameter] public string? Url { get; set; }
+
+    private bool _menuOpen;
+    private bool _copied;
+    private IJSObjectReference? _module;
+
+    private string EffectiveUrl => Url ?? Nav.Uri;
+    private string EffectiveText => Text ?? Title;
+
+    private static string Enc(string s) => Uri.EscapeDataString(s);
+
+    private string MailtoHref => $"mailto:?subject={Enc(Title)}&body={Enc(EffectiveText + " " + EffectiveUrl)}";
+    private string SmsHref => $"sms:?body={Enc(EffectiveText + " " + EffectiveUrl)}";
+    private string FacebookHref => $"https://www.facebook.com/sharer/sharer.php?u={Enc(EffectiveUrl)}";
+    private string TwitterHref => $"https://twitter.com/intent/tweet?text={Enc(EffectiveText)}&url={Enc(EffectiveUrl)}";
+    private string LinkedInHref => $"https://www.linkedin.com/sharing/share-offsite/?url={Enc(EffectiveUrl)}";
+    private string WhatsAppHref => $"https://wa.me/?text={Enc(EffectiveText + " " + EffectiveUrl)}";
+    private string TelegramHref => $"https://t.me/share/url?url={Enc(EffectiveUrl)}&text={Enc(EffectiveText)}";
+
+    private async Task<IJSObjectReference> ModuleAsync()
+        => _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/share.js");
+
+    private async Task HandleClick()
+    {
+        try
+        {
+            var module = await ModuleAsync();
+            if (await module.InvokeAsync<bool>("canShare"))
+            {
+                await module.InvokeAsync<bool>("nativeShare", Title, EffectiveText, EffectiveUrl);
+                return;
+            }
+        }
+        catch (JSException)
+        {
+            _module = null;
+        }
+
+        _menuOpen = !_menuOpen;
+    }
+
+    private async Task CopyLink()
+    {
+        try
+        {
+            var module = await ModuleAsync();
+            _copied = await module.InvokeAsync<bool>("copyToClipboard", EffectiveUrl);
+        }
+        catch (JSException)
+        {
+            _module = null;
+            _copied = false;
+        }
+
+        StateHasChanged();
+        await Task.Delay(1200);
+        _copied = false;
+        _menuOpen = false;
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            try { await _module.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+        }
+    }
+}

@@ -44,6 +44,8 @@ import DjehutiSuitePage from './pages/tools/DjehutiSuitePage'
 import FrustTechnologyPage from './pages/tools/FrustTechnologyPage'
 import { blogApi } from './api/blogApi'
 import type { BlogArticle } from './api/blogApi'
+import ShareButton from './components/share/ShareButton'
+import { usePageSeo } from './components/share/usePageSeo'
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
 
@@ -174,6 +176,10 @@ function Nav({ onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
 // ── Marketing sections (home) ─────────────────────────────────────────────────
 
 function Hero() {
+  usePageSeo({
+    title: 'Lag Daemon — W. Westlake · AI Research',
+    description: 'Lag Daemon — W. Westlake · AI research on Information Space Dynamics and the Djehuti Cyberscope AI+ measurement instrument.',
+  })
   return (
     <section className="hero" id="top">
       <div className="hero-copy">
@@ -471,14 +477,6 @@ function PatreonBadge() {
 }
 
 function SpreadTheWord() {
-  const [copied, setCopied] = useState(false)
-  const url = 'https://lagdaemon.com'
-  const text = encodeURIComponent('Lagdaemon — AI research, creative experimentation, and the Djehuti analysis instrument. Worth a look.')
-  const copy = () => {
-    navigator.clipboard.writeText(url)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
   return (
     <section className="spread-section">
       <div className="spread-inner">
@@ -487,15 +485,11 @@ function SpreadTheWord() {
           <span>Share Lagdaemon with researchers, builders, and creative practitioners working at the edge of AI.</span>
         </div>
         <div className="spread-actions">
-          <button className="spread-btn" onClick={copy}>
-            {copied ? '✓ Copied' : '🔗 Copy link'}
-          </button>
-          <a className="spread-btn" href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${text}`} target="_blank" rel="noopener noreferrer">
-            Share on 𝕏
-          </a>
-          <a className="spread-btn" href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`} target="_blank" rel="noopener noreferrer">
-            Share on LinkedIn
-          </a>
+          <ShareButton
+            title="Lag Daemon — W. Westlake · AI Research"
+            text="Lagdaemon — AI research, creative experimentation, and the Djehuti analysis instrument. Worth a look."
+            url="https://lagdaemon.com/"
+          />
         </div>
       </div>
     </section>

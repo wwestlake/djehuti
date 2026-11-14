@@ -9,6 +9,8 @@ import TierBadge from '../../components/TierBadge'
 import ActivityFeed from '../../components/profile/ActivityFeed'
 import AchievementsPreview from '../../components/profile/AchievementsPreview'
 import SocialLinksDisplay from '../../components/profile/SocialLinksDisplay'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 export default function PublicProfilePage() {
   const { userId } = useParams<{ userId: string }>()
@@ -34,6 +36,12 @@ export default function PublicProfilePage() {
       .then(tiers => setTier(tiers.find(t => t.tierId === profile.patreonTierId) ?? null))
       .catch(() => setTier(null))
   }, [profile?.patreonTierId])
+
+  usePageSeo({
+    title: profile ? `${profile.displayName} — Lag Daemon` : 'Profile — Lag Daemon',
+    description: profile?.bio || (profile ? `${profile.displayName}'s profile on Lag Daemon.` : undefined),
+    image: profile?.avatarUrl || undefined,
+  })
 
   if (loading) return <div style={{ maxWidth: 720, margin: '2rem auto', padding: '0 1rem' }}><p style={{ color: 'var(--text-muted)' }}>Loading…</p></div>
   if (error || !profile) return (
@@ -70,7 +78,10 @@ export default function PublicProfilePage() {
             Member since {new Date(profile.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
           </p>
         </div>
-        {isSelf && <Link className="primary-action" to="/profile" style={{ textDecoration: 'none' }}>Edit your profile</Link>}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <ShareButton title={`${profile.displayName} — Lag Daemon`} text={profile.bio || undefined} />
+          {isSelf && <Link className="primary-action" to="/profile" style={{ textDecoration: 'none' }}>Edit your profile</Link>}
+        </div>
       </div>
 
       {profile.bio && <p className="profile-bio">{profile.bio}</p>}

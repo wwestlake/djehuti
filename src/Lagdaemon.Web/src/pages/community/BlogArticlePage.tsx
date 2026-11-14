@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Link2, Twitter, Linkedin } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { blogApi } from '../../api/blogApi'
 import type { BlogArticle, BlogComment, BlogTag } from '../../api/blogApi'
 import { useAuth } from '../../contexts/AuthContext'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 interface TocEntry { id: string; text: string; level: number }
 
@@ -57,8 +58,6 @@ export default function BlogArticlePage() {
   const [toc, setToc] = useState<TocEntry[]>([])
   const [activeToc, setActiveToc] = useState('')
   const [progress, setProgress] = useState(0)
-  const [copied, setCopied] = useState(false)
-  const [shareNotice, setShareNotice] = useState<string | null>(null)
   const [moderating, setModerating] = useState(false)
   const [modNote, setModNote] = useState('')
   const [showModNote, setShowModNote] = useState<'reject' | 'revision' | null>(null)
@@ -130,43 +129,11 @@ export default function BlogArticlePage() {
     }
   }
 
-  const copyLink = async () => {
-    await navigator.clipboard.writeText(window.location.href)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  const openShareWindow = (url: string) => {
-    window.open(url, '_blank', 'noopener,noreferrer')
-  }
-
-  const shareTwitter = async () => {
-    const shareText = buildShareText(article, window.location.href)
-    try {
-      await navigator.clipboard.writeText(shareText)
-      setShareNotice('Summary and link copied. If X opens awkwardly after login, paste the copied text into a new post.')
-      setTimeout(() => setShareNotice(null), 5000)
-    } catch {
-      setShareNotice('X opened. If needed, copy the article summary manually.')
-      setTimeout(() => setShareNotice(null), 5000)
-    }
-    const text = encodeURIComponent(shareText)
-    openShareWindow(`https://twitter.com/intent/tweet?text=${text}`)
-  }
-
-  const shareLinkedIn = async () => {
-    const shareText = buildShareText(article, window.location.href)
-    try {
-      await navigator.clipboard.writeText(shareText)
-      setShareNotice('Summary and link copied. Paste into LinkedIn if the composer only shows the link.')
-      setTimeout(() => setShareNotice(null), 5000)
-    } catch {
-      setShareNotice('LinkedIn opened. If needed, copy the article summary manually.')
-      setTimeout(() => setShareNotice(null), 5000)
-    }
-    const url = encodeURIComponent(window.location.href)
-    openShareWindow(`https://www.linkedin.com/sharing/share-offsite/?url=${url}`)
-  }
+  usePageSeo({
+    title: article ? `${article.title} — Lag Daemon` : 'Article — Lag Daemon',
+    description: article?.excerpt || article?.subtitle || undefined,
+    image: article?.coverUrl || undefined,
+  })
 
   if (loading) return <div className="forum-loading">Loading...</div>
   if (!article) return <div className="forum-error-msg">Article not found.</div>
@@ -225,18 +192,8 @@ export default function BlogArticlePage() {
             </div>
 
             <div className="blog-share-row">
-              <span className="blog-share-label">Share</span>
-              <button className="blog-share-btn" onClick={() => { void copyLink() }} title="Copy link">
-                <Link2 size={15} /> {copied ? 'Copied!' : 'Copy link'}
-              </button>
-              <button className="blog-share-btn" onClick={() => { void shareTwitter() }} title="Share on X / Twitter">
-                <Twitter size={15} /> X
-              </button>
-              <button className="blog-share-btn" onClick={() => { void shareLinkedIn() }} title="Share on LinkedIn">
-                <Linkedin size={15} /> LinkedIn
-              </button>
+              <ShareButton title={article.title} text={buildShareText(article, '')} />
             </div>
-            {shareNotice && <div className="blog-share-note">{shareNotice}</div>}
 
             {(isAuthor || isAdmin) && (
               <div className="blog-article-actions">
