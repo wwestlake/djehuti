@@ -41,6 +41,7 @@ import DesktopAuthPage from './pages/auth/DesktopAuthPage'
 import ElectronicsDocumentationPage from './pages/tools/ElectronicsDocumentationPage'
 import ElectronicsWorkBenchPage from './pages/tools/ElectronicsWorkBenchPage'
 import DjehutiSuitePage from './pages/tools/DjehutiSuitePage'
+import FrustTechnologyPage from './pages/tools/FrustTechnologyPage'
 import { blogApi } from './api/blogApi'
 import type { BlogArticle } from './api/blogApi'
 
@@ -113,6 +114,7 @@ function Nav({ onOpenLogin, onOpenSettings, onOpenAchievements }: NavProps) {
         <a className="nav-community-link" href="/architect/">Architect</a>
         <button className={`nav-community-link${active('/electronics-work-bench') ? ' active' : ''}`} onClick={() => go('/electronics-work-bench')}>Electronics Work Bench</button>
         <button className={`nav-community-link${active('/djehuti-suite') ? ' active' : ''}`} onClick={() => go('/djehuti-suite')}>Djehuti Desktop Tools</button>
+        <button className={`nav-community-link${active('/frust') ? ' active' : ''}`} onClick={() => go('/frust')}>FRust Language &amp; Technology</button>
         <button className={`nav-community-link${active('/papers') ? ' active' : ''}`} onClick={() => go('/papers')}>Papers</button>
         <button className={`nav-community-link${active('/downloads') ? ' active' : ''}`} onClick={() => go('/downloads')}>Downloads</button>
         <button className={`nav-community-link${active('/beta') ? ' active' : ''}`} onClick={() => go('/beta')}>Beta Test</button>
@@ -631,6 +633,7 @@ function AppInner() {
             <Route path="/supporters" element={<SupportersPage />} />
             <Route path="/electronics-work-bench" element={<ElectronicsWorkBenchPage />} />
             <Route path="/djehuti-suite" element={<DjehutiSuitePage />} />
+            <Route path="/frust" element={<FrustTechnologyPage />} />
             <Route path="/electronics-work-bench/docs" element={<ElectronicsDocumentationPage />} />
             <Route path="/electronics-work-bench/docs/:manualSlug" element={<ElectronicsDocumentationPage />} />
             <Route path="/electronics-work-bench/docs/:manualSlug/:sectionSlug" element={<ElectronicsDocumentationPage />} />

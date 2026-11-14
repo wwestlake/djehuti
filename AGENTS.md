@@ -112,6 +112,9 @@ Do not launch straight into tool calls or code when addressed. Acknowledge the m
 
 ## Communication Style
 
+Ask questions in plain chat only. Never use multiple-choice question widgets or
+infer an answer, preference, scope decision, or approval from a default selection.
+
 Use plain, precise language. Avoid slang and informal shorthand. The user has a DoD background and expects clear, unambiguous communication — define terms before using them, and do not assume shared informal vocabulary.
 
 **Always include clickable PR links** — When creating a pull request, always provide the full GitHub URL link in the format `https://github.com/wwestlake/djehuti/pull/{number}`. Make it easy for the user to open and review.
