@@ -2946,61 +2946,84 @@ footer a:hover { text-decoration: underline; }
 
 /* ── Announcements ───────────────────────────────────────────────────────── */
 
-/* Banner */
-.ann-banner {
+/* Notice strip (reusable — see src/components/notices/NoticeStrip.tsx) */
+.notice-strip {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 6px;
   margin-bottom: 16px;
 }
-.ann-banner-item {
+.notice-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  background: #161b22;
-  border-left: 3px solid #58a6ff;
-  gap: 12px;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
-.ann-banner-item.high-priority {
-  border-left-color: #f78166;
-  background: #1a1010;
+.notice-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--accent);
 }
-.ann-banner-content {
+.notice-item--important .notice-dot { background: var(--accent3); }
+.notice-item--urgent .notice-dot { background: var(--danger); }
+.notice-item--important { border-color: color-mix(in srgb, var(--accent3) 35%, var(--border)); }
+.notice-item--urgent { border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
+.notice-content {
   display: flex;
   align-items: center;
   gap: 10px;
   flex: 1;
   min-width: 0;
 }
-.ann-banner-title {
-  font-size: 0.92rem;
-  color: #e6edf3;
+.notice-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.notice-badge--important { background: color-mix(in srgb, var(--accent3) 15%, transparent); color: var(--accent3); }
+.notice-badge--urgent { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.notice-title {
+  font-size: 0.9rem;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ann-view-all-link {
+.notice-link {
   background: none;
   border: none;
-  color: #58a6ff;
+  color: var(--accent);
   font-size: 0.82rem;
   cursor: pointer;
   padding: 0;
   white-space: nowrap;
+  flex-shrink: 0;
 }
-.ann-view-all-link:hover { text-decoration: underline; }
-.ann-dismiss-btn {
+.notice-link:hover { text-decoration: underline; }
+.notice-dismiss {
   background: none;
   border: none;
-  color: #8b949e;
+  color: var(--muted);
   font-size: 0.8rem;
   cursor: pointer;
   padding: 4px 6px;
   border-radius: 4px;
   flex-shrink: 0;
 }
-.ann-dismiss-btn:hover { background: #21262d; color: #e6edf3; }
+.notice-dismiss:hover { background: var(--surface2); color: var(--text); }
+
+@media (max-width: 640px) {
+  .notice-item { flex-wrap: wrap; }
+  .notice-content { flex-wrap: wrap; }
+}
 
 /* Priority badge */
 .ann-priority-badge {
