@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import NoticeStrip, { type NoticeLevel } from '../../components/notices/NoticeStrip'
 
 const BASE = '/djehuti'
 const DISMISSED_KEY = 'ann_dismissed'
@@ -20,6 +21,12 @@ function getDismissed(): Set<string> {
 function addDismissed(id: string) {
   const s = getDismissed(); s.add(id)
   sessionStorage.setItem(DISMISSED_KEY, JSON.stringify([...s]))
+}
+
+function levelFor(priority: number): NoticeLevel {
+  if (priority >= 2) return 'urgent'
+  if (priority >= 1) return 'important'
+  return 'info'
 }
 
 export default function AnnouncementBanner() {
@@ -44,17 +51,15 @@ export default function AnnouncementBanner() {
   }
 
   return (
-    <div className="ann-banner">
-      {visible.slice(0, 2).map(a => (
-        <div key={a.id} className={`ann-banner-item${a.priority > 0 ? ' high-priority' : ''}`}>
-          <div className="ann-banner-content">
-            {a.priority > 0 && <span className="ann-priority-badge">Important</span>}
-            <strong className="ann-banner-title">{a.title}</strong>
-            <button className="ann-view-all-link" onClick={onViewAll}>View all →</button>
-          </div>
-          <button className="ann-dismiss-btn" onClick={() => dismiss(a.id)} aria-label="Dismiss">✕</button>
-        </div>
-      ))}
-    </div>
+    <NoticeStrip
+      items={visible.slice(0, 2).map(a => ({
+        id: a.id,
+        level: levelFor(a.priority),
+        title: a.title,
+        linkLabel: 'View all',
+        onLinkClick: onViewAll,
+        onDismiss: () => dismiss(a.id),
+      }))}
+    />
   )
 }
