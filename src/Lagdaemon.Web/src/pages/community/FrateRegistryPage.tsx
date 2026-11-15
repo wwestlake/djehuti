@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { frateApi } from '../../api/frateApi'
 import type { PodSummary } from '../../api/frateApi'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 export default function FrateRegistryPage() {
   const [pods, setPods] = useState<PodSummary[]>([])
@@ -34,9 +36,14 @@ export default function FrateRegistryPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
+  usePageSeo({ title: 'Frate Pods — Lag Daemon', description: 'The package registry for Frust.' })
+
   return (
     <div style={{ maxWidth: 900, margin: '2rem auto', padding: '0 1rem' }}>
-      <h1>Frate Pods</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <h1>Frate Pods</h1>
+        <ShareButton title="Frate Pods — Lag Daemon" text="The package registry for Frust." />
+      </div>
       <p style={{ color: 'var(--text-muted)' }}>
         The package registry for Frust -- browse published pods, their exports, and license.
         Install with <code>frate add &lt;name&gt;</code>. No sign-in required to browse or install.

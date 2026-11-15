@@ -189,6 +189,29 @@ a {
     color: #ff6b6b;
 }
 
+/* ── Share button ────────────────────────────────────────────────────────── */
+
+.arch-share {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.arch-share-btn {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+}
+
+.arch-share-copied {
+    color: var(--arch-accent);
+    font-size: 0.85rem;
+}
+
+.arch-share-menu {
+    min-width: 10rem;
+}
+
 /* ── Forms / editor ──────────────────────────────────────────────────────── */
 
 .arch-editor-header {

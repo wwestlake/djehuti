@@ -1,5 +1,7 @@
 import { useState, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 interface SearchHit {
   hitType: 'thread' | 'post'
@@ -15,7 +17,7 @@ interface SearchHit {
 
 export default function ForumSearchPage() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const onNavigateThread = (threadId: string) => navigate('/forum/thread/' + threadId)
   const onNavigateForum = (forumId: string) => navigate('/forum/' + forumId)
   const [query, setQuery] = useState(searchParams.get('q') ?? '')
@@ -34,6 +36,7 @@ export default function ForumSearchPage() {
     setLoading(true)
     setError('')
     setSearched(true)
+    setSearchParams({ q: q.trim() })
     try {
       const params = new URLSearchParams({ q: q.trim(), page: '1', pageSize: '30' })
       if (author) params.set('author', author)
@@ -51,9 +54,17 @@ export default function ForumSearchPage() {
 
   const handleKey = (e: React.KeyboardEvent) => { if (e.key === 'Enter') search() }
 
+  usePageSeo({
+    title: query ? `“${query}” — Forum Search — Lag Daemon` : 'Search Forum — Lag Daemon',
+    description: 'Search the Lag Daemon community forum.',
+  })
+
   return (
     <div className="community-page forum-search-page">
-      <h1 className="forum-search-title">Search Forum</h1>
+      <div className="forum-header-row">
+        <h1 className="forum-search-title">Search Forum</h1>
+        {searched && <ShareButton title={query ? `“${query}” — Forum Search — Lag Daemon` : 'Search Forum — Lag Daemon'} />}
+      </div>
 
       <div className="forum-search-bar">
         <input

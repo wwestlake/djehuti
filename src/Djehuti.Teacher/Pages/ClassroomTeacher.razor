@@ -2,9 +2,13 @@
 @implements IAsyncDisposable
 @inject TeacherApiClient Api
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 @using Djehuti.Teacher.Services
 
 <PageTitle>@(_classroom?.Name ?? "Classroom") — Djehuti Teacher</PageTitle>
+<HeadContent>
+    <meta property="og:title" content="@((_classroom?.Name ?? "Classroom") + " — Djehuti Teacher")" />
+</HeadContent>
 
 <div class="teacher-page teacher-page-wide">
     @if (_loading)
@@ -26,6 +30,9 @@
                 <span class="teacher-classroom-status @_classroom.Status">@_classroom.Status</span>
             </div>
             <div class="teacher-classroom-actions">
+                <ShareButton Title="@($"Join {_classroom.Name} — Djehuti Teacher")"
+                             Text="Join this live learning session on Djehuti Teacher."
+                             Url="@($"{Nav.BaseUri}classroom/{ClassroomId}/join")" />
                 @if (_classroom.Status == "preparing")
                 {
                     <button type="button" class="teacher-cta" @onclick="StartClassroom" disabled="@_actionInProgress">

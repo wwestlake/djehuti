@@ -4,6 +4,8 @@ import { Search, Pin, Star, Upload } from 'lucide-react'
 import { blogApi } from '../../api/blogApi'
 import type { BlogSection, BlogArticle, BlogTag } from '../../api/blogApi'
 import { useAuth } from '../../contexts/AuthContext'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 
 function readingTime(content: string) {
@@ -48,6 +50,8 @@ export default function BlogPage() {
       .finally(() => setLoading(false))
   }, [activeSection, debouncedSearch, activeTag])
 
+  usePageSeo({ title: 'Articles — Lag Daemon', description: 'Read the latest articles on Lag Daemon.' })
+
   const pinned = articles.filter(a => a.pinned)
   const featured = articles.filter(a => a.featured && !a.pinned)
   const rest = articles.filter(a => !a.pinned && !a.featured)
@@ -56,16 +60,19 @@ export default function BlogPage() {
     <div className="community-page">
       <div className="blog-header">
         <h1 className="community-page-title">Articles</h1>
-        {user && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="tiptap-action-btn secondary" onClick={() => onNavigateEditor()}>
-              <Upload size={14} /> Import
-            </button>
-            <button className="tiptap-action-btn primary" onClick={() => onNavigateEditor()}>
-              Write Article
-            </button>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <ShareButton title="Articles — Lag Daemon" text="Read the latest articles on Lag Daemon." />
+          {user && (
+            <>
+              <button className="tiptap-action-btn secondary" onClick={() => onNavigateEditor()}>
+                <Upload size={14} /> Import
+              </button>
+              <button className="tiptap-action-btn primary" onClick={() => onNavigateEditor()}>
+                Write Article
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Search bar */}

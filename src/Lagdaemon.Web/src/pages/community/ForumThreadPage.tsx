@@ -9,6 +9,8 @@ import PollWidget from '../../components/forum/PollWidget'
 import TierBadge from '../../components/TierBadge'
 import { useAuth } from '../../contexts/AuthContext'
 import ForumEditor from '../../components/ForumEditor'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 type Reaction = { emoji: string; count: number; userReacted: boolean }
 
@@ -68,25 +70,6 @@ function ReactionBar({ postId, user }: { postId: string; user: { id: string } | 
           )}
         </div>
       )}
-    </div>
-  )
-}
-
-function ShareRow({ url, title, compact }: { url: string; title: string; compact?: boolean }) {
-  const [copied, setCopied] = useState(false)
-  const copy = () => {
-    navigator.clipboard.writeText(url)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1800)
-  }
-  const twitterUrl = `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(title)}`
-  const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`
-  return (
-    <div className={compact ? 'post-share-row' : 'blog-share-row'}>
-      {!compact && <span className="blog-share-label">Share</span>}
-      <button className="blog-share-btn" onClick={copy}>{copied ? '✓ Copied' : '🔗 Copy link'}</button>
-      <a className="blog-share-btn" href={twitterUrl} target="_blank" rel="noopener noreferrer">𝕏</a>
-      <a className="blog-share-btn" href={linkedInUrl} target="_blank" rel="noopener noreferrer">LinkedIn</a>
     </div>
   )
 }
@@ -242,6 +225,10 @@ export default function ForumThreadPage() {
     } finally { setModBusy(false) }
   }
 
+  usePageSeo({
+    title: thread ? `${thread.title} — Lag Daemon Forum` : 'Forum thread — Lag Daemon',
+  })
+
   if (loading) return <div className="forum-loading">Loading…</div>
 
   const isThreadAuthor = user?.id === thread?.authorId
@@ -272,7 +259,7 @@ export default function ForumThreadPage() {
 
       <div className="thread-header">
         <h1>{thread?.title}</h1>
-        <ShareRow url={window.location.href} title={thread?.title ?? ''} />
+        <ShareButton title={thread?.title ?? 'Forum thread — Lag Daemon'} />
         <div className="thread-header-badges">
           {thread?.isPinned && <span className="badge badge-pinned">Pinned</span>}
           {thread?.isLocked && <span className="badge badge-locked">Locked</span>}
@@ -374,9 +361,9 @@ export default function ForumThreadPage() {
                 </label>
               )}
               <div className="post-actions">
-                <ShareRow
+                <ShareButton
                   url={`${window.location.origin}${window.location.pathname}#post-${post.id}`}
-                  title={thread?.title ?? ''}
+                  title={thread?.title ?? 'Forum thread — Lag Daemon'}
                   compact
                 />
                 {user && !post.isBot && (

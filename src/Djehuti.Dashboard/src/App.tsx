@@ -14,6 +14,8 @@ import { PhaseSpace3D } from './components/charts/PhaseSpace3D'
 import { VelocityChart } from './components/charts/VelocityChart'
 import { MetricTile } from './components/MetricTile'
 import { UserMenu } from './components/auth/UserMenu'
+import { ShareButton } from './components/share/ShareButton'
+import { usePageSeo } from './components/share/usePageSeo'
 import {
   Activity,
   AlertTriangle,
@@ -170,6 +172,19 @@ const analyzeNavItems = [
   { id: 'input', label: 'JSON input', icon: Braces },
 ] satisfies Array<{ id: AnalyzeView; label: string; icon: typeof Gauge }>
 
+const modeIds = modeItems.map((item) => item.id)
+const analyzeViewIds = analyzeNavItems.map((item) => item.id)
+
+function readModeFromUrl(): AppMode {
+  const value = new URLSearchParams(window.location.search).get('mode')
+  return (modeIds as string[]).includes(value ?? '') ? (value as AppMode) : 'analyze'
+}
+
+function readAnalyzeViewFromUrl(): AnalyzeView {
+  const value = new URLSearchParams(window.location.search).get('view')
+  return (analyzeViewIds as string[]).includes(value ?? '') ? (value as AnalyzeView) : 'overview'
+}
+
 
 function App() {
   const [datasetJson, setDatasetJson] = useState(sampleJson)
@@ -190,8 +205,8 @@ function App() {
   const [isLoadingDataSet, setIsLoadingDataSet] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const [activeMode, setActiveMode] = useState<AppMode>('analyze')
-  const [activeAnalyzeView, setActiveAnalyzeView] = useState<AnalyzeView>('overview')
+  const [activeMode, setActiveMode] = useState<AppMode>(readModeFromUrl)
+  const [activeAnalyzeView, setActiveAnalyzeView] = useState<AnalyzeView>(readAnalyzeViewFromUrl)
   const [isToolsOpen, setIsToolsOpen] = useState(true)
   const [isToolsWide, setIsToolsWide] = useState(false)
   const [analystQuestion, setAnalystQuestion] = useState(
@@ -252,6 +267,21 @@ function App() {
   useEffect(() => { localStorage.setItem('djehuti.liveEndpoint', liveEndpoint) }, [liveEndpoint])
   useEffect(() => { localStorage.setItem('djehuti.liveTurns', JSON.stringify(liveTurns)) }, [liveTurns])
   useEffect(() => { localStorage.setItem('djehuti.liveWarnings', JSON.stringify(liveWarnings)) }, [liveWarnings])
+
+  // Keep the URL in sync with the active mode/view so a shared link reopens the same tool.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    params.set('mode', activeMode)
+    if (activeMode === 'analyze') {
+      params.set('view', activeAnalyzeView)
+    } else {
+      params.delete('view')
+    }
+    const next = `${window.location.pathname}?${params.toString()}`
+    if (next !== `${window.location.pathname}${window.location.search}`) {
+      window.history.replaceState(null, '', next)
+    }
+  }, [activeMode, activeAnalyzeView])
 
   const closeMenu = () => setIsMenuOpen(false)
 
@@ -606,6 +636,11 @@ function App() {
     analyzeNavItems.find((item) => item.id === activeAnalyzeView) ?? analyzeNavItems[0]
   const pageTitle = activeMode === 'analyze' ? activeAnalyzeNavItem.label : activeModeItem.label
   const showToolsPanel = activeMode === 'analyze'
+
+  usePageSeo({
+    title: `${pageTitle} — Djehuti Cyberscope AI+`,
+    description: `${pageTitle} in Djehuti Cyberscope AI+ — measure and visualize Information Space Dynamics across conversation transcripts.`,
+  })
 
   const renderRunContext = () =>
     analysis ? (
@@ -1465,6 +1500,7 @@ function App() {
                 <ExternalLink size={16} />
                 <span>Lagdaemon.com</span>
               </a>
+              <ShareButton title={`${pageTitle} — Djehuti Cyberscope AI+`} />
               <UserMenu onOpenLogin={() => { window.location.href = '/?signin=1' }} />
               <button
                 className="icon-button theme-toggle"

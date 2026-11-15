@@ -2,9 +2,16 @@
 @inject TeacherApiClient Api
 
 <PageTitle>@(HasSubjectFilter ? $"{Subject} Tracks — Djehuti Teacher" : "Learning Tracks — Djehuti Teacher")</PageTitle>
+<HeadContent>
+    <meta property="og:title" content="@(HasSubjectFilter ? $"{Subject} Tracks — Djehuti Teacher" : "Learning Tracks — Djehuti Teacher")" />
+    <meta property="og:description" content="Structured learning paths organized by subject." />
+</HeadContent>
 
 <div class="teacher-page">
-    <h1>@(HasSubjectFilter ? Subject : "Learning Tracks")</h1>
+    <div class="teacher-page-head">
+        <h1>@(HasSubjectFilter ? Subject : "Learning Tracks")</h1>
+        <ShareButton Title="@(HasSubjectFilter ? $"{Subject} Tracks — Djehuti Teacher" : "Learning Tracks — Djehuti Teacher")" Text="Structured learning paths organized by subject." />
+    </div>
     <p class="teacher-page-subtitle">
         @if (HasSubjectFilter)
         {

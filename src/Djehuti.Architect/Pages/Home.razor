@@ -1,9 +1,24 @@
 @page "/"
+@using Djehuti.Architect.Components
 
 <PageTitle>Djehuti Architect</PageTitle>
+<HeadContent>
+    <meta property="og:title" content="Djehuti Architect" />
+    <meta property="og:description" content="Read a repository, build an architecture model, and generate diagrams and docs from it." />
+    <meta property="og:url" content="https://lagdaemon.com/architect/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://lagdaemon.com/logo.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Djehuti Architect" />
+    <meta name="twitter:description" content="Read a repository, build an architecture model, and generate diagrams and docs from it." />
+    <meta name="twitter:image" content="https://lagdaemon.com/logo.png" />
+</HeadContent>
 
 <div class="arch-page arch-page-wide">
-    <h1>Djehuti Architect</h1>
+    <div class="arch-editor-header">
+        <h1>Djehuti Architect</h1>
+        <ShareButton Title="Djehuti Architect" Text="Read a repository, build an architecture model, and generate diagrams and docs from it." />
+    </div>
     <p class="arch-subtitle">
         Read a repository, build an architecture model, generate diagrams and docs from it.
     </p>

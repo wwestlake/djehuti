@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
+import ShareButton from '../../components/share/ShareButton'
+import { usePageSeo } from '../../components/share/usePageSeo'
 
 const BASE = '/djehuti'
 
@@ -89,6 +91,11 @@ export default function DownloadProductPage() {
     })
   }
 
+  usePageSeo({
+    title: product ? `${product.name} — Downloads — Lag Daemon` : 'Download — Lag Daemon',
+    description: product?.description || undefined,
+  })
+
   if (loading) return <div style={{ maxWidth: 900, margin: '2rem auto', padding: '0 1rem' }}><p style={{ color: 'var(--text-muted)' }}>Loading…</p></div>
   if (error || !product) return (
     <div style={{ maxWidth: 900, margin: '2rem auto', padding: '0 1rem' }}>
@@ -105,7 +112,10 @@ export default function DownloadProductPage() {
   return (
     <div style={{ maxWidth: 900, margin: '2rem auto', padding: '0 1rem' }}>
       <Link to="/downloads" style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>← All downloads</Link>
-      <h1 style={{ marginBottom: 4 }}>{product.name}</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+        <h1 style={{ marginBottom: 4 }}>{product.name}</h1>
+        <ShareButton title={`${product.name} — Downloads — Lag Daemon`} text={product.description || undefined} />
+      </div>
       {product.description && <p style={{ color: 'var(--text-muted)' }}>{product.description}</p>}
 
       {gated && !qualifies && (
